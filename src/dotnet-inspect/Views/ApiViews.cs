@@ -804,9 +804,28 @@ public sealed class TypeSummaryRow(
 }
 
 [MarkoutSerializable]
-public record ForwarderSummaryRow(
-    [property: MarkoutPropertyName("Target Library")] string TargetLibrary,
-    string Types);
+public sealed class ForwarderSummaryRow(
+    InertString targetLibraryText,
+    InertString typesText)
+{
+    public ForwarderSummaryRow(string targetLibrary, string types)
+        : this(
+            ApiViewText.Field(targetLibrary),
+            ApiViewText.Field(types))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString TargetLibraryText { get; } = targetLibraryText;
+
+    [MarkoutPropertyName("Target Library")]
+    public string TargetLibrary => TargetLibraryText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString TypesText { get; } = typesText;
+
+    public string Types => TypesText.ToString();
+}
 
 [MarkoutSerializable]
 public record ApiInspectionFailureRow(

@@ -375,16 +375,14 @@ public sealed class CSharpFormatter
     }
 
     /// <summary>
-    /// Contains raw metadata spans in compatibility signature text while
-    /// preserving rendered C# string and character literals.
+    /// Contains model-free compatibility signature text as one opaque raw value.
     /// </summary>
     /// <remarks>
-    /// Model-free text can mimic rendered syntax, so this is a conservative
-    /// safety boundary rather than proof of raw identity. Literal recognition
-    /// is limited to the terminal parameter list and literal interiors still
-    /// receive rendering-hazard containment.
-    /// <c>CSharpDeclarationWriterTests.MetadataEqualsQuote_CannotForgeCompatibilityLiteral</c>
-    /// gates that boundary.
+    /// Model-free text can mimic rendered syntax, so no quote or escape sequence
+    /// inside it is trusted as C# literal provenance. Literal backslashes are
+    /// therefore doubled just like every other raw metadata backslash.
+    /// <c>CSharpDeclarationWriterTests.ModelFreeCompatibilitySignature_DoesNotInferLiteralProvenance</c>
+    /// gates that boundary; structured signatures retain rendered literal syntax.
     /// </remarks>
     public static string ContainCompatibilitySignature(string signature)
     {

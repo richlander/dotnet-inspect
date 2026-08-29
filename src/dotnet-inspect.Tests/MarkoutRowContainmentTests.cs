@@ -196,8 +196,6 @@ public class MarkoutRowContainmentTests
         "FidelityCauseRow.Reason",
         "FidelityCauseRow.State",
         "FieldSummaryRow.Decode",
-        "ForwarderSummaryRow.TargetLibrary",
-        "ForwarderSummaryRow.Types",
         "ILCoordinateBatchRow.Coordinate",
         "ILCoordinateBatchRow.Evidence",
         "ILCoordinateBatchRow.ILOffset",
@@ -326,11 +324,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt204MembersAcross47Types()
+    public void ResidualCensus_IsPinnedAt202MembersAcross46Types()
     {
-        Assert.Equal(204, NotSelfContaining.Length);
+        Assert.Equal(202, NotSelfContaining.Length);
         Assert.Equal(
-            47,
+            46,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

@@ -3694,6 +3694,43 @@ public class OutputFormatterTests
         Assert.DoesNotContain("## ", output);
     }
 
+    [Fact]
+    public void ApiForwarderTarget_UsesTypedContainmentWithoutChangingIdentity()
+    {
+        const string target = "Target\u202E\nINJECTED";
+        var api = new ApiSurface
+        {
+            Name = "Facade",
+            TypeForwarders =
+            [
+                new TypeForwarder
+                {
+                    TypeName = "N.Forwarded",
+                    TargetAssembly = target,
+                },
+            ],
+        };
+        var options = new ApiOptions
+        {
+            Verbosity = Verbosity.Normal,
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
+        ForwarderSummaryRow row = Assert.Single(view.TypeForwarders!);
+        string markdown = RenderFullApi(api, options);
+        string structured = JsonSerializer.Serialize(row);
+
+        Assert.Equal(target, api.TypeForwarders[0].TargetAssembly);
+        Assert.True(InertString.IsPermitted(
+            TextPolicy.Field,
+            row.TargetLibraryText));
+        Assert.DoesNotContain('\u202E', row.TargetLibrary);
+        Assert.DoesNotContain('\n', row.TargetLibrary);
+        Assert.DoesNotContain('\u202E', markdown);
+        Assert.DoesNotContain('\u202E', structured);
+        Assert.Contains(@"Target\u202E\nINJECTED", row.TargetLibrary);
+    }
+
     private static string RenderFullApi(ApiSurface api, ApiOptions options)
     {
         var (view, truncatedCount) = ApiOutputFormatter.BuildFullApiView(api, options);

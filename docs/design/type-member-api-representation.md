@@ -93,6 +93,9 @@ binding is unverified pending
 
 `SemanticTypeOutputContainmentTests` gates the typed view currency, unchanged
 raw identity, decoded JSON values, and schema-neutral benign text.
+`OutputFormatterTests.ApiForwarderTarget_UsesTypedContainmentWithoutChangingIdentity`
+gates raw type-forwarder grouping identity and the typed target-library row
+across Markdown and structured serialization.
 `CSharpField_MixedCSharpAndVisualEscapes_PreservesSpellingWithInertEvidence`
 gates the rendered-C# currency against the close case where ordinary C# escapes
 and inert-looking visual escapes occur in one value.
@@ -132,13 +135,13 @@ projection satisfy the same raw-slot boundary before composing their fallback.
 Identifier substitution over structured declarations skips rendered string and
 character literals. Only model-free fallback is imported as opaque text.
 
-Legacy or degraded model-free text uses conservative compatibility containment.
-Only a quote after `=` inside the declaration parameter list opens a rendered
-C# literal. That list is the first parenthesized group whose suffix ends the
-declaration or starts a full constraint clause, so a terminal `new()` constraint
-cannot masquerade as it; literal interiors are still checked for raw rendering
-hazards. Artifact JSON always marks a model-free signature `Degraded`: arbitrary
-metadata can mimic rendered syntax, so text alone cannot prove raw identity.
+Legacy or degraded model-free text uses conservative compatibility containment
+over the entire opaque value. It does not infer rendered C# literals from quote
+or escape syntax because arbitrary metadata can mimic both. Literal backslashes
+therefore double at this degraded boundary, keeping a literal escape spelling
+distinct from the hostile scalar it resembles. Artifact JSON always marks a
+model-free signature `Degraded`; structured signatures preserve their typed raw
+slots and rendered default literals without this fallback.
 When a literal backslash in a structured raw slot requires disambiguation,
 document JSON prepares that declaration without mutating `ApiMember`; benign
 signatures stay byte-neutral. Generic-constraint JSON uses the metadata
@@ -169,7 +172,9 @@ rather than re-importing its visible spelling as clean text.
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
 `CSharpDeclarationWriterTests.CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes`,
 `CSharpDeclarationWriterTests.CompatibilitySignature_KeywordTypeParameterDoesNotRewriteDefaultLiteral`,
-`CSharpDeclarationWriterTests.CompatibilitySignature_TerminalNewConstraintPreservesDefaultLiteralEscape`,
+`CSharpDeclarationWriterTests.ModelFreeCompatibilitySignature_DoesNotInferLiteralProvenance`,
+`CSharpDeclarationWriterTests.StructuredSignature_ContainsGenericReferencesBeforeHostileNameComposition`,
+`CSharpDeclarationWriterTests.MemberConstraint_UsesOwningGenericContext`,
 `CSharpDeclarationWriterTests.StructuredOperator_DoesNotRecontainCompatibilityNames`,
 `CSharpDeclarationWriterTests.UnterminatedMetadataQuote_DoesNotDisableCompatibilityContainment`,
 `CSharpDeclarationWriterTests.BalancedMetadataQuotes_DoNotDisableCompatibilityContainment`,

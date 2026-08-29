@@ -746,6 +746,7 @@ public sealed class SemanticTypeOutputContainmentTests
             TypeParameters = [parameter],
         };
 
+        ApiArtifactJson.Prepare(type);
         using JsonDocument document = JsonDocument.Parse(
             JsonSerializer.Serialize(
                 type,
@@ -770,6 +771,56 @@ public sealed class SemanticTypeOutputContainmentTests
             "structured_constraints",
             out _));
         Assert.False(parameterJson.TryGetProperty("type_kind", out _));
+    }
+
+    [Fact]
+    public void TypeParameterJson_UsesOwningGenericContext()
+    {
+        var keywordParameter = new TypeParameter
+        {
+            Name = "int",
+        };
+        var constrainedParameter = new TypeParameter
+        {
+            Name = "U",
+            Constraints = ["int"],
+            StructuredConstraints =
+            [
+                new TypeParameterConstraint(
+                    "int",
+                    IsTypeName: true),
+            ],
+        };
+        var type = new ApiType
+        {
+            Name = "Holder`2",
+            Kind = "class",
+            TypeParameters =
+            [
+                keywordParameter,
+                constrainedParameter,
+            ],
+        };
+
+        ApiArtifactJson.Prepare(type);
+        using JsonDocument document = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                type,
+                ApiArtifactJson.Type));
+        JsonElement parameterJson = document.RootElement
+            .GetProperty("type_parameters")[1];
+
+        Assert.Equal(
+            ["@int"],
+            parameterJson.GetProperty("constraints")
+                .EnumerateArray()
+                .Select(static value => value.GetString()!)
+                .ToArray());
+        Assert.Equal(
+            "@int",
+            parameterJson.GetProperty("constraints_summary")
+                .GetString());
+        Assert.Equal("int", constrainedParameter.Constraints[0]);
     }
 
     [Fact]

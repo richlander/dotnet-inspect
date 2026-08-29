@@ -22,6 +22,8 @@ internal static class ApiArtifactJson
 {
     private static readonly ConditionalWeakTable<ApiMember, PreparedMember> PreparedMembers =
         new();
+    private static readonly ConditionalWeakTable<TypeParameter, PreparedTypeParameter>
+        PreparedTypeParameters = new();
 
     public static JsonTypeInfo<ApiSurface> Surface { get; } =
         CreateTypeInfo<ApiSurface>(ApiJsonContext.Default.Options);
@@ -41,6 +43,16 @@ internal static class ApiArtifactJson
 
     public static void Prepare(ApiType type)
     {
+        string[] typeParameterNames =
+            [.. type.TypeParameters.Select(parameter => parameter.Name)];
+        foreach (TypeParameter parameter in type.TypeParameters)
+        {
+            PreparedTypeParameters.Remove(parameter);
+            PreparedTypeParameters.Add(
+                parameter,
+                new PreparedTypeParameter(typeParameterNames));
+        }
+
         foreach (ApiMember member in type.Members)
         {
             PreparedMembers.Remove(member);
@@ -318,9 +330,8 @@ internal static class ApiArtifactJson
             property => WireNamesEqual(
                 property.Name,
                 "constraints"));
-        constraints.Get = value => CSharpFormatter
-            .FormatTypeParameterConstraintEntries((TypeParameter)value)
-            .ToList();
+        constraints.Get = value =>
+            PreparedConstraintEntries((TypeParameter)value).ToList();
         constraints.CustomConverter =
             ApiArtifactCSharpStringListJsonConverter.Instance;
 
@@ -331,8 +342,7 @@ internal static class ApiArtifactJson
         summary.Get = value =>
         {
             IReadOnlyList<string> entries =
-                CSharpFormatter.FormatTypeParameterConstraintEntries(
-                    (TypeParameter)value);
+                PreparedConstraintEntries((TypeParameter)value);
             return entries.Count == 0
                 ? null
                 : string.Join(", ", entries);
@@ -340,6 +350,16 @@ internal static class ApiArtifactJson
         summary.CustomConverter =
             ApiArtifactCSharpStringJsonConverter.Instance;
     }
+
+    private static IReadOnlyList<string> PreparedConstraintEntries(
+        TypeParameter parameter) =>
+        CSharpFormatter.FormatTypeParameterConstraintEntries(
+            parameter,
+            PreparedTypeParameters.TryGetValue(
+                parameter,
+                out PreparedTypeParameter? prepared)
+                    ? prepared.ParameterNames
+                    : []);
 
     private static void SetConverter(
         JsonTypeInfo typeInfo,
@@ -386,6 +406,9 @@ internal static class ApiArtifactJson
     private sealed record PreparedMember(
         string Signature,
         SignatureDecodeStatus? DecodeStatus);
+
+    private sealed record PreparedTypeParameter(
+        IReadOnlyList<string> ParameterNames);
 }
 
 /// <summary>

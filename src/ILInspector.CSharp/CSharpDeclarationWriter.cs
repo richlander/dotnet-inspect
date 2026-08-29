@@ -321,14 +321,19 @@ internal static class CSharpDeclarationWriter
                 ? string.Join("\n", type.Attributes.Select(attribute => $"[{attribute}]")) + "\n"
                 : "";
             string unsafeText = delegateInvoke.IsUnsafe ? " unsafe" : "";
+            string[] parameterNames =
+                [.. type.TypeParameters.Select(parameter => parameter.Name)];
             string parameterList = $"({string.Join(", ", signature.Parameters.Select(parameter =>
-                FormatParameter(parameter, options.IncludeSignatureAttributes)))})";
+                FormatParameter(
+                    parameter,
+                    parameterNames,
+                    options.IncludeSignatureAttributes)))})";
             string returnAttributes = options.IncludeSignatureAttributes
                 && signature.ReturnAttributes.Count > 0
                 ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
                 : "";
             string delegateDeclaration =
-                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {EscapeTypeKeywords(signature.ReturnType ?? "void")} {FormatTypeDisplayName(type)}{parameterList}";
+                $"{attributes}{returnAttributes}{TypeAccessibility(type)}{unsafeText} delegate {FormatRawTypeSlot(signature.ReturnType ?? "void", parameterNames)} {FormatTypeDisplayName(type)}{parameterList}";
             delegateDeclaration = AppendTypeParameterConstraints(delegateDeclaration, type.TypeParameters);
             return delegatePlan.Apply(delegateDeclaration + ";");
         }
@@ -860,8 +865,13 @@ internal static class CSharpDeclarationWriter
                 $"C# type declaration for '{type.FullName}' has an unexpected attribute prefix.");
         }
 
+        string[] parameterNames =
+            [.. type.TypeParameters.Select(parameter => parameter.Name)];
         string parameterList = $"({string.Join(", ", parameters.Select(parameter =>
-            FormatParameter(parameter, options.IncludeSignatureAttributes)))})";
+            FormatParameter(
+                parameter,
+                parameterNames,
+                options.IncludeSignatureAttributes)))})";
         int constraints = declarationWithoutAttributes.IndexOf(" where ", StringComparison.Ordinal);
         string head = constraints >= 0
             ? declarationWithoutAttributes[..constraints]
@@ -1021,13 +1031,13 @@ internal static class CSharpDeclarationWriter
             bases.Add(enumUnderlyingBase);
         else if (type.BaseType is { } baseType
                  && baseType is not ("System.Object" or "object" or "System.ValueType" or "System.Enum"))
-            bases.Add(EscapeKnownIdentifiers(
-                EscapeTypeKeywords(baseType),
-                type.TypeParameters.Select(p => p.Name)));
+            bases.Add(FormatRawTypeSlot(
+                baseType,
+                type.TypeParameters.Select(parameter => parameter.Name)));
         bases.AddRange(type.Interfaces.Select(iface =>
-            EscapeKnownIdentifiers(
-                EscapeTypeKeywords(iface),
-                type.TypeParameters.Select(p => p.Name))));
+            FormatRawTypeSlot(
+                iface,
+                type.TypeParameters.Select(parameter => parameter.Name))));
 
         if (bases.Count > 0)
             declaration += " : " + string.Join(", ", bases);
@@ -1099,7 +1109,14 @@ internal static class CSharpDeclarationWriter
 
         if (options.AbbreviateSignature)
             signature = AbbreviateSignature(signature);
-        signature = EscapeKnownIdentifiers(signature, type.TypeParameters.Concat(member.SignatureModel?.TypeParameters ?? []).Select(p => p.Name));
+        if (!renderedFromModel)
+        {
+            signature = EscapeKnownIdentifiers(
+                signature,
+                type.TypeParameters
+                    .Concat(member.SignatureModel?.TypeParameters ?? [])
+                    .Select(parameter => parameter.Name));
+        }
 
         if (member.Name == ".cctor")
         {
@@ -1142,7 +1159,13 @@ internal static class CSharpDeclarationWriter
                 && member.SignatureModel?.TypeParameters is { Count: > 0 } modelTypeParameters
                 && (methodParameters is not { Count: > 0 } || methodParameters.Count == modelTypeParameters.Count))
             {
-                signature = AppendMemberTypeParameterConstraints(signature, member, modelTypeParameters);
+                signature = AppendMemberTypeParameterConstraints(
+                    signature,
+                    member,
+                    modelTypeParameters,
+                    type.TypeParameters
+                        .Concat(modelTypeParameters)
+                        .Select(parameter => parameter.Name));
             }
             if (member.IsExtension)
                 signature = AddExtensionThisModifier(signature);
@@ -1674,10 +1697,14 @@ internal static class CSharpDeclarationWriter
     static string AppendMemberTypeParameterConstraints(
         string declaration,
         ApiMember member,
-        IReadOnlyList<TypeParameter> typeParameters)
+        IReadOnlyList<TypeParameter> typeParameters,
+        IEnumerable<string> parameterNames)
         => member.IsOverride || member.Kind == "explicit-interface-implementation"
             ? AppendInheritedConstraintRestatement(declaration, typeParameters)
-            : AppendTypeParameterConstraints(declaration, typeParameters);
+            : AppendTypeParameterConstraints(
+                declaration,
+                typeParameters,
+                parameterNames);
 
     /// <summary>
     /// Restates what C# permits on a member that inherits its constraints. The
@@ -1741,14 +1768,19 @@ internal static class CSharpDeclarationWriter
             _ => null,
         };
 
-    static string AppendTypeParameterConstraints(string declaration, IReadOnlyList<TypeParameter> typeParameters)
+    static string AppendTypeParameterConstraints(
+        string declaration,
+        IReadOnlyList<TypeParameter> typeParameters,
+        IEnumerable<string>? parameterNames = null)
     {
+        string[] names =
+            [.. parameterNames ?? typeParameters.Select(parameter => parameter.Name)];
         foreach (var typeParameter in typeParameters)
         {
             if (typeParameter.Constraints.Count == 0)
                 continue;
 
-            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
+            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, names)}";
         }
 
         return declaration;
@@ -1777,16 +1809,18 @@ internal static class CSharpDeclarationWriter
         TypeParameter typeParameter,
         IEnumerable<string> parameterNames)
     {
-        var parts = typeParameter.StructuredConstraints is { } structured
+        string[] names = [.. parameterNames];
+        return typeParameter.StructuredConstraints is { } structured
             ? structured.Select(entry =>
                 entry.IsTypeName
-                    ? EscapeTypeKeywords(entry.Value)
+                    ? FormatRawTypeSlot(entry.Value, names)
                     : entry.Value)
-            : typeParameter.Constraints.Select(SpellConstraint);
-        return parts
-            .Select(part => CSharpIdentifierCore.ContainComposedName(
-                EscapeKnownIdentifiers(part, parameterNames)))
-            .ToList();
+                .ToList()
+            : typeParameter.Constraints.Select(constraint =>
+                s_specialConstraintKeywords.Contains(constraint)
+                    ? constraint
+                    : FormatRawTypeSlot(constraint, names))
+                .ToList();
     }
 
     internal static string FormatConstraintList(
@@ -1796,67 +1830,8 @@ internal static class CSharpDeclarationWriter
             ", ",
             FormatConstraintEntries(typeParameter, parameterNames));
 
-    // Fallback used only when structured constraint kinds are unavailable: a
-    // constraint entry equal to a special-constraint keyword is emitted verbatim,
-    // otherwise it is treated as a type name subject to reserved-keyword escaping.
-    // This cannot disambiguate a type literally named like a keyword (e.g. a global
-    // type named "class"); producers that populate StructuredConstraints avoid it.
-    static string SpellConstraint(string constraint)
-        => s_specialConstraintKeywords.Contains(constraint)
-            ? constraint
-            : EscapeTypeKeywords(constraint);
-
     internal static string ContainCompatibilitySignature(string signature)
-    {
-        var builder = new StringBuilder(signature.Length);
-        (int parameterStart, int parameterEnd) =
-            FindCompatibilityParameterList(signature);
-        int chunkStart = 0;
-        for (int index = 0; index < signature.Length;)
-        {
-            int literalEnd;
-            if (IsDefaultValueLiteralStart(
-                    signature,
-                    index,
-                    parameterStart,
-                    parameterEnd)
-                && IsStringLiteralStart(signature, index))
-                literalEnd = SkipStringLiteral(signature, index);
-            else if (signature[index] == '\''
-                && IsDefaultValueLiteralStart(
-                    signature,
-                    index,
-                    parameterStart,
-                    parameterEnd))
-                literalEnd = SkipCharLiteral(signature, index);
-            else
-            {
-                index++;
-                continue;
-            }
-
-            if (literalEnd == signature.Length
-                && signature[^1] != (signature[index] == '\'' ? '\'' : '"'))
-            {
-                index++;
-                continue;
-            }
-
-            builder.Append(
-                CSharpIdentifierCore.ContainRawComposedName(
-                    signature[chunkStart..index]));
-            builder.Append(
-                CSharpIdentifierCore.ContainComposedName(
-                    signature[index..literalEnd]));
-            index = literalEnd;
-            chunkStart = literalEnd;
-        }
-
-        builder.Append(
-            CSharpIdentifierCore.ContainRawComposedName(
-                signature[chunkStart..]));
-        return builder.ToString();
-    }
+        => CSharpIdentifierCore.ContainRawComposedName(signature);
 
     static string PreserveStructuredOrContainModelFreeSignature(
         ApiMember member,
@@ -1864,42 +1839,6 @@ internal static class CSharpDeclarationWriter
         => member.SignatureModel is not null
             ? signature
             : ContainCompatibilitySignature(signature);
-
-    static (int Start, int End) FindCompatibilityParameterList(
-        string signature)
-    {
-        for (int open = signature.IndexOf('(');
-            open >= 0;)
-        {
-            int close = Matching(signature, open, '(', ')');
-            if (close >= 0
-                && (signature.AsSpan(close + 1).TrimStart().IsEmpty
-                    || StartsWithConstraintClause(
-                        signature.AsSpan(close + 1).TrimStart())))
-            {
-                return (open, close);
-            }
-
-            open = signature.IndexOf('(', open + 1);
-        }
-
-        return (-1, -1);
-    }
-
-    static bool IsDefaultValueLiteralStart(
-        string signature,
-        int index,
-        int parameterStart,
-        int parameterEnd)
-    {
-        if (index <= parameterStart || index >= parameterEnd)
-            return false;
-
-        int previous = index - 1;
-        while (previous >= 0 && char.IsWhiteSpace(signature[previous]))
-            previous--;
-        return previous >= 0 && signature[previous] == '=';
-    }
 
     internal static string RenderCompatibilityMemberSignature(
         ApiType type,
@@ -1926,11 +1865,6 @@ internal static class CSharpDeclarationWriter
         }
 
         renderedFromModel = true;
-        signature = EscapeKnownIdentifiers(
-            signature,
-            type.TypeParameters
-                .Concat(member.SignatureModel?.TypeParameters ?? [])
-                .Select(parameter => parameter.Name));
         return EscapeQualifiedKeywordSegments(
             signature,
             preserveQualifiedIndexerKeyword:
@@ -1987,14 +1921,23 @@ internal static class CSharpDeclarationWriter
             return false;
         }
 
+        string[] parameterNames =
+        [
+            .. type.TypeParameters
+                .Concat(model.TypeParameters)
+                .Select(parameter => parameter.Name),
+        ];
         var parameters = string.Join(
             ", ",
             model.Parameters.Select(parameter =>
-                FormatParameter(parameter, options.IncludeSignatureAttributes)));
+                FormatParameter(
+                    parameter,
+                    parameterNames,
+                    options.IncludeSignatureAttributes)));
         if (member.Name == ".cctor")
         {
             signature = compatibilityShape
-                ? $"{EscapeTypeKeywords(model.ReturnType ?? "void")} {ContainMemberName(member.Name)}()"
+                ? $"{FormatRawTypeSlot(model.ReturnType ?? "void", parameterNames)} {ContainMemberName(member.Name)}()"
                 : $"{FormatConstructorTypeName(type)}()";
             return true;
         }
@@ -2002,7 +1945,7 @@ internal static class CSharpDeclarationWriter
         if (member.Kind == "constructor")
         {
             signature = compatibilityShape
-                ? $"{EscapeTypeKeywords(model.ReturnType ?? "void")} {ContainMemberName(member.Name)}({parameters})"
+                ? $"{FormatRawTypeSlot(model.ReturnType ?? "void", parameterNames)} {ContainMemberName(member.Name)}({parameters})"
                 : $"{FormatConstructorTypeName(type)}({parameters})";
             return true;
         }
@@ -2021,13 +1964,14 @@ internal static class CSharpDeclarationWriter
             && model.ReturnType is { Length: > 0 } returnType)
         {
             signature =
-                $"{EscapeTypeKeywords(returnType)} {ContainStructuredMethodName(memberName, model.TypeParameters)}({parameters})";
+                $"{FormatRawTypeSlot(returnType, parameterNames)} {ContainStructuredMethodName(memberName, model.TypeParameters)}({parameters})";
             if (!compatibilityShape)
             {
                 signature = AppendMemberTypeParameterConstraints(
                     signature,
                     member,
-                    model.TypeParameters);
+                    model.TypeParameters,
+                    parameterNames);
             }
             return true;
         }
@@ -2035,7 +1979,8 @@ internal static class CSharpDeclarationWriter
             && model.ReturnType is { Length: > 0 } propertyType
             && model.Accessors.Count > 0)
         {
-            string containedPropertyType = EscapeTypeKeywords(propertyType);
+            string containedPropertyType =
+                FormatRawTypeSlot(propertyType, parameterNames);
             var head = model.IsRequired
                 ? $"required {containedPropertyType}"
                 : containedPropertyType;
@@ -2059,7 +2004,7 @@ internal static class CSharpDeclarationWriter
                 ? member.Name
                 : model.MemberName!;
             signature =
-                $"{EscapeTypeKeywords(eventType)} {ContainMemberName(eventMemberName)}";
+                $"{FormatRawTypeSlot(eventType, parameterNames)} {ContainMemberName(eventMemberName)}";
             return true;
         }
 
@@ -2110,8 +2055,14 @@ internal static class CSharpDeclarationWriter
     internal static string FormatParameter(
         ApiParameter parameter,
         bool includeAttributes = true)
+        => FormatParameter(parameter, [], includeAttributes);
+
+    internal static string FormatParameter(
+        ApiParameter parameter,
+        IEnumerable<string> parameterNames,
+        bool includeAttributes = true)
     {
-        string type = EscapeTypeKeywords(parameter.Type);
+        string type = FormatRawTypeSlot(parameter.Type, parameterNames);
         string head = string.IsNullOrEmpty(parameter.Modifier)
             ? type
             : $"{parameter.Modifier} {type}";
@@ -2124,6 +2075,44 @@ internal static class CSharpDeclarationWriter
         return !includeAttributes || parameter.Attributes.Count == 0
             ? declaration
             : $"[{string.Join(", ", parameter.Attributes)}] {declaration}";
+    }
+
+    static string FormatRawTypeSlot(
+        string type,
+        IEnumerable<string> parameterNames)
+        => EscapeTypeKeywords(
+            EscapeKnownIdentifiersInRawSlot(type, parameterNames));
+
+    static string EscapeKnownIdentifiersInRawSlot(
+        string text,
+        IEnumerable<string> rawNames)
+    {
+        var names = rawNames
+            .Where(name => EscapeIdentifier(name) != name)
+            .ToHashSet(StringComparer.Ordinal);
+        if (names.Count == 0)
+            return text;
+
+        var builder = new StringBuilder(text.Length);
+        for (int index = 0; index < text.Length;)
+        {
+            if (!IsIdentifierStart(text[index]))
+            {
+                builder.Append(text[index++]);
+                continue;
+            }
+
+            int start = index++;
+            while (index < text.Length && IsIdentifierPart(text[index]))
+                index++;
+            string token = text[start..index];
+            bool alreadyEscaped = start > 0 && text[start - 1] == '@';
+            builder.Append(
+                !alreadyEscaped && names.Contains(token)
+                    ? EscapeIdentifier(token)
+                    : token);
+        }
+        return builder.ToString();
     }
 
     /// <summary>
