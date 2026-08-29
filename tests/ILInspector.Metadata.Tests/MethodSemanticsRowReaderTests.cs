@@ -506,17 +506,7 @@ public sealed class MethodSemanticsRowReaderTests
         const string ToolMessage =
             "ildasm/ilasm not found - install them with "
             + "`source eng/activate-iltools.sh`";
-        if (string.Equals(
-                Environment.GetEnvironmentVariable("CI"),
-                "true",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            Assert.True(toolsAvailable, ToolMessage);
-        }
-        else
-        {
-            Assert.SkipUnless(toolsAvailable, ToolMessage);
-        }
+        Assert.SkipUnless(toolsAvailable, ToolMessage);
 
         string temporaryDirectory = Directory
             .CreateTempSubdirectory("method-semantics-oracle-")

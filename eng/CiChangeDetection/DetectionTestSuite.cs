@@ -482,6 +482,19 @@ internal static class DetectionTestSuite
                 "MethodSemantics platform-probe runner did not select code and web: "
                 + FormatValues(methodSemanticsProbeRunner));
         }
+        Dictionary<string, string> methodSemanticsProbeSource = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "tests/ILInspector.MetadataPrimitives.PlatformProbe/wwwroot/main.js",
+            outputs);
+        if (methodSemanticsProbeSource["code"] != "true"
+            || methodSemanticsProbeSource["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "MethodSemantics platform-probe source did not select code and web: "
+                + FormatValues(methodSemanticsProbeSource));
+        }
         foreach (string promotionInput in new[]
         {
             ".github/workflows/deploy-inspect-web.yml",
