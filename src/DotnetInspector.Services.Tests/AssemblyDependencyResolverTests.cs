@@ -796,6 +796,92 @@ public class AssemblyDependencyResolverTests
         Assert.Empty(selected.ShadowedAssemblies);
     }
 
+    [Fact]
+    public void AssemblyGroup_SkewedDesignatedPreservesOriginNameOwner()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "group origin-policy test"));
+        ResolvedAssemblyReference sibling = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Local("sibling"));
+        var policy = new SelectedPolicy(sibling);
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (designated, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
+            group.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.IdentityPolicyRequired,
+            unavailable.Failure.Kind);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyGroup_SkewedDesignatedShadowsOriginPlatformSelection()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "group origin-policy test"));
+        ResolvedAssemblyReference platform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "group origin-policy test"));
+        var policy = new SelectedPolicy(platform);
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (designated, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(designated, selected.Assembly);
+        Assert.Same(platform, Assert.Single(selected.ShadowedAssemblies));
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
     [Theory]
     [InlineData("fr-FR", "001122aabbccddee")]
     [InlineData("en-US", "ffeeddccbbaa1100")]
@@ -1082,6 +1168,112 @@ public class AssemblyDependencyResolverTests
             Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
                 selected.Assembly.Provenance);
             Assert.Empty(selected.ShadowedAssemblies);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_UnreadablePeerDoesNotVetoDesignatedOverlay()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-unreadable-peer-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string unreadableDirectory = Path.Combine(root, "unreadable");
+            Directory.CreateDirectory(unreadableDirectory);
+            string unreadablePath = Path.Combine(
+                unreadableDirectory,
+                Path.GetFileName(platformPath));
+            File.WriteAllText(unreadablePath, "not a managed assembly");
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths =
+                        [platformPath, unreadablePath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+
+            Assert.Equal(platformPath, selected.Assembly.Path);
+            Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
+                selected.Assembly.Provenance);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_AnyScopeInstalledShadowRetainsRollForwardPolicy()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-any-fallback-shadow-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(root, "overlay.dll");
+            File.Copy(platformPath, designatedPath);
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var requested = platformIdentity with
+            {
+                Version = new Version(
+                    platformIdentity.Version!.Major - 1,
+                    0,
+                    0,
+                    0),
+            };
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    IncludeInstalledPlatformFallback = true,
+                    AllowPlatformAssemblyVersionRollForward = true,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(requested),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Any);
+
+            var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+
+            Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
+                selected.Assembly.Provenance);
+            ResolvedAssemblyReference shadow =
+                Assert.Single(selected.ShadowedAssemblies);
+            Assert.Equal(platformPath, shadow.Path);
+            Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                shadow.Provenance);
         }
         finally
         {

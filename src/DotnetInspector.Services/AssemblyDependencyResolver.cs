@@ -390,9 +390,7 @@ public sealed partial class AssemblyDependencyResolver :
         {
             return null;
         }
-
         var entitled = new List<ResolvedAssemblyReference>();
-        CandidateOpenFailureKind? candidateFailure = null;
         foreach (ResolvedAssemblyDependency dependency in candidates)
         {
             bool designated =
@@ -412,12 +410,6 @@ public sealed partial class AssemblyDependencyResolver :
             {
                 entitled.Add(assembly);
             }
-            else if (PathNameMatches(dependency, identity))
-            {
-                candidateFailure ??=
-                    descriptor.FailureKind
-                    ?? CandidateOpenFailureKind.Unreadable;
-            }
         }
 
         bool allowPlatformVersionRollForward =
@@ -431,12 +423,6 @@ public sealed partial class AssemblyDependencyResolver :
                 _options.IgnoreAssemblyVersion);
         if (selection is null)
             return null;
-        if (candidateFailure is not null)
-        {
-            return new AssemblyResolutionAttempt(
-                Assembly: null,
-                candidateFailure);
-        }
 
         bool useInstalledPlatformFallback =
             scope == AssemblyResolutionScope.Platform
@@ -455,16 +441,17 @@ public sealed partial class AssemblyDependencyResolver :
             && InstalledPlatformDescriptor(identity)
                 is { } installedPlatform)
         {
-            if (installedPlatform.Assembly is { } assembly)
+            if (installedPlatform.Assembly is { } assembly
+                && identity.MatchesCandidate(
+                    assembly.Identity,
+                    _options.AllowPlatformAssemblyVersionRollForward,
+                    _options.IgnoreAssemblyVersion)
+                && selection
+                    is AssemblyBindingSelection.Selected selected)
             {
-                entitled.Add(assembly);
-                selection =
-                    DesignatedAssemblyBindingPrecedence.TrySelect(
-                        identity,
-                        entitled,
-                        allowPlatformVersionRollForward,
-                        _options.IgnoreAssemblyVersion)
-                    ?? selection;
+                selection = AssemblyBindingSelection.Found(
+                    selected.Assembly,
+                    selected.ShadowedAssemblies.Add(assembly));
             }
         }
 
