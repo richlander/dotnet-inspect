@@ -1,10 +1,12 @@
 ---
-name: dotnet-inspect-deep-inspect
-version: 0.1.0
-description: Run and interpret opt-in expensive validation lanes: full slow tests, cross-platform certification, IL round-trip sweep, corpus sensors, package discovery, validity scans, and analysis census.
+name: deep-inspect
+description: Use when a dotnet-inspect change needs expensive evidence outside normal PR CI, or when preparing release certification; coordinate Deep Inspect lanes (full slow tests, cross-platform certification, IL round-trip sweep, corpus sensors, package discovery, validity scans, and analysis census).
 ---
 
-# dotnet-inspect: Deep Inspect
+# Deep Inspect
+
+This is a repo-local maintainer skill (CI/certification harness), not a
+shipped end-user capability; it is not embedded in the dotnet-inspect binary.
 
 Use this skill when a change needs expensive evidence outside normal PR CI.
 Deep Inspect is opt-in for risky PRs. Its `test`, `platform-test`, and

@@ -69,7 +69,6 @@
     <EmbeddedResource Include="../../skills/sourcelink/SKILL.md" LogicalName="dotnet-inspect.skills.sourcelink.md" />
     <EmbeddedResource Include="../../skills/metadata/SKILL.md" LogicalName="dotnet-inspect.skills.metadata.md" />
     <EmbeddedResource Include="../../skills/decompiler/SKILL.md" LogicalName="dotnet-inspect.skills.decompiler.md" />
-    <EmbeddedResource Include="../../skills/deep-inspect/SKILL.md" LogicalName="dotnet-inspect.skills.deep-inspect.md" />
     <EmbeddedResource Include="../../skills/performance/SKILL.md" LogicalName="dotnet-inspect.skills.performance.md" />
     <EmbeddedResource Include="../../skills/relationships/SKILL.md" LogicalName="dotnet-inspect.skills.relationships.md" />
   </ItemGroup>
