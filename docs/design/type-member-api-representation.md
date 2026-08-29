@@ -579,7 +579,9 @@ string SimpleName)` is private to
 `CSharpDeclarationWriter`.
 
 **The model duplication is a committed decision, not drift.**
-`docs/architecture.md` records it as principle 9, and
+The
+[architecture map](../architecture.md#representation-specific-identities)
+records the boundary, and
 `docs/metadata-primitives.md` preserves the evidence while reopening only the
 bounded mechanics below the models. Analysis needs semantic structure for
 evidence matching; Metadata produces API/display projections; Decompiler
@@ -784,7 +786,6 @@ This document is the map. Each document below keeps its own mechanics.
 | --- | --- |
 | `type-spelling-identity-display.md` | Identity-vs-display conflation; `RenderCanonical()`; the multi-projection model and its two review rounds |
 | `metadata-primitives.md` | Shared bounded SRM mechanics; why semantic `TypeRef` models remain local; convergence sequencing |
-| `architecture.md` (principle 9) | Analysis's local structural type model and its Metadata-owned correspondence boundary |
 | `finding-coordinates.md` | Finding coordinate axes; why there is no generic anchor |
 | `member-target-resolution.md` | Selector → resolver → anchor; API vs body identity ownership |
 | `member-body-substrate.md` | `filter → render` producer contract; scope-per-type |
