@@ -837,6 +837,14 @@ the no-effective-lens heading. If work is superseded or its destination is
 destroyed, focus remains on the mounted shell control rather than falling to
 the document body.
 
+Renderer replacement does not dismiss a surviving modal or move its contained
+focus merely because its stored ordinary-dismissal target belonged to the
+outgoing renderer. Before discarding that renderer, the UI atomically replaces
+such a target with the newly mounted destination's level-one heading. If no
+destination heading is mounted, it uses the persistent `dotnet-inspect` shell
+control. A modal dismissal target never retains an element from a destroyed
+renderer lifetime.
+
 When a menu item opens a modal, the menu closes without returning focus to its
 invoker and the modal applies its initial-focus rule. The stable menu-button
 invoker, not the removed menu item, becomes the modal's ordinary-dismissal
@@ -1174,7 +1182,10 @@ these named Inspect Web tests:
 - `navigation-consumer.test.ts`:
   `maintenance snapshots replace history without stealing focus` covers
   authority validation, canonical URL replacement, selective announcement,
-  focused-element removal, and acknowledgement.
+  focused-element removal, surviving-modal dismissal-target replacement, and
+  acknowledgement. The modal retains contained focus during renderer
+  replacement, then ordinary dismissal reaches the new destination heading
+  rather than an outgoing-renderer element.
 - `navigation-consumer.test.ts`:
   `deferred effects revalidate authority when each callback executes`
   supersedes a result after installation and proves that its queued focus and
@@ -1286,14 +1297,18 @@ outcomes:
 9. Complete older work after a newer intent owns the session and confirm that
    the product discards it without publishing a consumer result, authority,
    announcement, URL change, or history change.
-10. Return another result and confirm that acknowledgement occurs only after its
+10. Keep a modal open while maintenance replaces the destination renderer.
+   Confirm that focus remains contained in the modal, its outgoing-renderer
+   dismissal target is replaced with the new destination heading, and ordinary
+   dismissal never focuses a detached element.
+11. Return another result and confirm that acknowledgement occurs only after its
    required installation, focus, and announcement effects complete.
-11. Install a maintenance snapshot and confirm that it replaces URL history,
+12. Install a maintenance snapshot and confirm that it replaces URL history,
    does not move surviving focus, announces only a visible change, and
    acknowledges its authority.
-12. Destroy a surface while it holds unconsumed authority, then remount the
+13. Destroy a surface while it holds unconsumed authority, then remount the
     same surface kind and return another result for the destroyed lifetime.
-13. Confirm that destruction and the late return both abandon authority and
+14. Confirm that destruction and the late return both abandon authority and
     that callbacks from the prior lifetime cannot affect the remounted surface.
 
 ### Workspace composition
@@ -1418,15 +1433,18 @@ outcomes:
 5. Return typed failures from Search, Open, and the narrow drawer and confirm
    that the prior surface and history remain active, the failure is visible,
    and focus moves to the surviving modal invoker or retained surface heading.
-6. Open and close the full-bleed Annotated Source viewer and confirm the shared
+6. Keep a modal open across product-maintenance renderer replacement and confirm
+   that focus remains inside it until dismissal, then moves to the replacement
+   destination heading rather than the removed invoking control.
+7. Open and close the full-bleed Annotated Source viewer and confirm the shared
    modal focus, Escape, containment, and history behavior.
-7. From that viewer, open Decompiler style Settings and confirm that the viewer
+8. From that viewer, open Decompiler style Settings and confirm that the viewer
    closes, Settings receives focus, and closing Settings returns to inline
    Annotated Source without reopening the viewer.
-8. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
+9. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
    routed surface with one visible level-one heading, no coordinate/subject
    command, and a persistent `dotnet-inspect` control that opens Workspace.
-9. Use Browser Back and Forward while a modal is open and confirm that the
+10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.
 
