@@ -369,17 +369,27 @@ public sealed class StateMachineCompletenessTests
                     continue;
                 }
 
-                if (IsAssemblyExtension(Path.GetExtension(entry.AsSpan())))
-                {
-                    yield return entry;
-                    continue;
-                }
-
                 if ((attributes & FileAttributes.ReparsePoint) == 0)
                 {
-                    // An ordinary file that is not named like an assembly. This
-                    // is the only entry the sweep skips without accounting for
-                    // it, and it is the only one it can skip safely.
+                    // An ordinary file. Its extension is not consulted: round 10
+                    // found the old .dll/.exe filter dropping a damaged managed
+                    // assembly named broken.bin without a word, while the same
+                    // bytes named broken.dll failed the sweep. Nothing about the
+                    // CLI header lives in the file name, and the whole design of
+                    // this gate is that one hand-written oracle decides what is
+                    // managed. Filtering by name put a second, weaker decider in
+                    // front of it -- one that answers "not an assembly" for a
+                    // file it never opened.
+                    //
+                    // Everything reaches TryMeasure instead, so a JSON file or a
+                    // PDB is answered No by the oracle and counted as NotManaged
+                    // rather than vanishing. That costs a header read per file
+                    // and buys the population back. It also subsumes the round 3
+                    // fix, which had replaced a case-sensitive "*.dll" glob with
+                    // an explicit case-insensitive comparison after both seats
+                    // showed a corrupt BROKEN.DLL sweeping green on Linux: the
+                    // spelling of a name cannot matter to a filter that is gone.
+                    yield return entry;
                     continue;
                 }
 
@@ -404,15 +414,31 @@ public sealed class StateMachineCompletenessTests
                 }
                 catch (Exception ex) when (ex is IOException)
                 {
-                    // Not a directory at all: a dangling link, or a link to a
-                    // file that is not named like an assembly. Nothing is hidden.
+                    // Not a directory at all: a dangling link, or a link to an
+                    // ordinary file.
                     walkable = false;
                 }
 
-                if (walkable && visited.Add(DirectoryIdentity(entry)))
+                if (walkable)
                 {
-                    pending.Push(entry);
+                    if (visited.Add(DirectoryIdentity(entry)))
+                    {
+                        pending.Push(entry);
+                    }
+
+                    continue;
                 }
+
+                // A link to something that is not a directory is a candidate
+                // like any other file. Round 10 caught this dropping such links
+                // in silence: it used to be masked because the old extension
+                // filter ran before this branch and yielded a link named
+                // something.dll first, so removing that filter turned a masked
+                // hole into a live one for symlinked assemblies. Let the oracle
+                // decide here too -- a dangling link fails to open and is
+                // recorded as Inaccessible, which is accounted rather than
+                // silent.
+                yield return entry;
             }
         }
     }
@@ -436,27 +462,6 @@ public sealed class StateMachineCompletenessTests
             return Path.GetFullPath(path);
         }
     }
-
-    /// <summary>
-    /// Whether a corpus file's extension marks it as an assembly to measure.
-    ///
-    /// The filtering is explicit rather than delegated to a
-    /// <c>Directory.GetFiles(dir, "*.dll")</c> pattern, because that pattern's
-    /// case sensitivity follows the platform: on Linux it silently skips
-    /// <c>*.DLL</c>. Both round-3 reviewers demonstrated the same hole
-    /// independently -- a corpus holding a valid <c>good.dll</c> beside a
-    /// corrupt <c>BROKEN.DLL</c> swept green, and renaming the second file to
-    /// lowercase turned the same corpus red. A completeness gate cannot decide
-    /// what it covers by way of a platform default, so the comparison is written
-    /// out where it can be read.
-    ///
-    /// <c>.exe</c> is included for the same reason: a managed executable is an
-    /// assembly, and skipping one is the same silent omission in a different
-    /// spelling.
-    /// </summary>
-    static bool IsAssemblyExtension(ReadOnlySpan<char> extension) =>
-        extension.Equals(".dll", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".exe", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// A link the sweep cannot follow must be recorded, not skipped. When a
@@ -548,14 +553,30 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Enumeration must not decide what the corpus covers by way of a platform
-    /// default. <c>Directory.GetFiles(dir, "*.dll")</c> matches case-sensitively
-    /// on Linux, so a corpus holding a corrupt <c>BROKEN.DLL</c> swept green
-    /// while that file was never opened — the same silent omission an
-    /// unreadable directory used to cause, in a different spelling.
+    /// The sweep's population is decided by reading files, not by their names,
+    /// and the walk reaches nested directories.
+    ///
+    /// Round 3 found <c>Directory.GetFiles(dir, "*.dll")</c> matching
+    /// case-sensitively on Linux, so a corpus holding a corrupt
+    /// <c>BROKEN.DLL</c> swept green while that file was never opened, and
+    /// replaced the glob with an explicit case-insensitive comparison. Round 10
+    /// found that the fix had been too narrow: a damaged managed assembly named
+    /// <c>broken.bin</c> still left the corpus without a word, while the
+    /// identical bytes named <c>broken.dll</c> failed the sweep.
+    ///
+    /// A name filter is a second decider standing in front of the oracle, and a
+    /// weaker one, since it answers "not an assembly" for a file it never
+    /// opened. So there is no filter now, and the case-sensitivity question
+    /// disappears with it. Every ordinary file is offered to <c>TryMeasure</c>,
+    /// which answers <c>NotManaged</c> for the ones that are not PEs and counts
+    /// them, rather than letting them vanish.
+    ///
+    /// The odd names are the point: extensionless, dot-prefixed, and
+    /// double-extension files are the ones a reintroduced filter would drop
+    /// first.
     /// </summary>
     [Fact]
-    public void EnumerateCandidates_MatchesExtensionCaseInsensitively()
+    public void EnumerateCandidates_OffersEveryOrdinaryFileWhateverItIsNamed()
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -567,12 +588,16 @@ public sealed class StateMachineCompletenessTests
             string nested = Path.Combine(root, "nested");
             Directory.CreateDirectory(nested);
 
-            foreach (string name in new[] { "lower.dll", "UPPER.DLL", "app.exe" })
+            string[] top =
+                ["lower.dll", "UPPER.DLL", "app.exe", "damaged.bin", "no-extension"];
+            string[] inner = ["Mixed.Dll", "APP.EXE", "notes.txt", ".hidden", "a.tar.gz"];
+
+            foreach (string name in top)
             {
                 File.WriteAllBytes(Path.Combine(root, name), []);
             }
 
-            foreach (string name in new[] { "Mixed.Dll", "APP.EXE", "notes.txt" })
+            foreach (string name in inner)
             {
                 File.WriteAllBytes(Path.Combine(nested, name), []);
             }
@@ -585,7 +610,7 @@ public sealed class StateMachineCompletenessTests
 
             Assert.Empty(inaccessible);
             Assert.Equal(
-                new[] { "APP.EXE", "Mixed.Dll", "UPPER.DLL", "app.exe", "lower.dll" },
+                top.Concat(inner).Order(StringComparer.Ordinal).ToArray(),
                 found);
         }
         finally
@@ -615,19 +640,7 @@ public sealed class StateMachineCompletenessTests
     [InlineData(4)]
     public void TryMeasure_DamagedCliDirectory_ReportsDecodeFailed(int fieldOffset)
     {
-        byte[] image = File.ReadAllBytes(
-            typeof(StateMachineCompletenessTests).Assembly.Location);
-
-        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
-        int optional = peOffset + 4 + 20;
-        int directories =
-            BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(optional)) == 0x20B
-                ? 112
-                : 96;
-        int field = optional + directories + (14 * 8) + fieldOffset;
-
-        Assert.NotEqual(0u, BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(field)));
-        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(field), 0);
+        byte[] image = ZeroedCliDirectoryField(fieldOffset);
 
         string damaged = Path.Combine(
             Path.GetTempPath(),
@@ -1107,6 +1120,14 @@ public sealed class StateMachineCompletenessTests
     /// it is the one that has to be exhaustive: a file is skipped if and only if
     /// this reader answers No, which makes the set below the complete account of
     /// how a file can vanish from the sweep in silence.
+    ///
+    /// That biconditional is about the *mechanism*, and it holds: NotManaged is
+    /// produced only through the precomputed outcome, and only for a No. It is
+    /// not a claim that a No is correct. Round 10 built a COFF-only image -- no
+    /// MZ signature at all, carrying real metadata in a .cormeta section -- that
+    /// SRM reads as managed with 761 type definitions while this reader answers
+    /// No. See TryMeasure_ZeroedCliDirectory_IsSkippedAsTheKnownBlindSpot for
+    /// what that costs and why it is accepted.
     /// </summary>
     [Fact]
     public void ReadManagedClaim_SilentSkipSites_AreExactlyTheKnownSet()
@@ -1205,17 +1226,21 @@ public sealed class StateMachineCompletenessTests
     ///
     /// The enumerations used to stop at <c>peOffset + 512</c>, a number picked
     /// by hand and justified by the claim that the coverage test would go red
-    /// if it were too small. Round 8's own fix prompted re-measuring that claim,
-    /// and it was false: coverage stays green at a bound of 63, because byte
-    /// 0x3C is the <c>peOffset</c> field and corrupting it redirects parsing
-    /// into arbitrary file content, reaching the deep exit sites from inside
-    /// even a tiny range. The number was never measured by that test; the
-    /// earlier result that appeared to measure it was stale.
+    /// if it were too small. Round 9 re-measured that and recorded the opposite:
+    /// that coverage stayed green at a bound of 63, so the test did not
+    /// constrain the number at all. Round 10 measured it again at this head and
+    /// the round 9 result was wrong -- clamping this method to 63 fails coverage
+    /// naming OptionalHeaderSizeImplausible, OptionalHeaderIncomplete and
+    /// OptionalHeaderMagicUnrecognised, because those need corruption in the
+    /// optional header at file offsets around 148 and 152, outside the range.
+    /// The stale round 9 experiment had clamped only the real assembly and left
+    /// the constructed short-header specimens at their own extents.
     ///
-    /// Deriving the extent removes the judgement instead of re-justifying it.
-    /// Perturbing every byte the reader can read is a property of this image,
-    /// checkable against the three reads above, and it moves automatically if
-    /// those reads change.
+    /// So the coverage test does constrain the bound, and deriving the extent is
+    /// what keeps every image in range rather than hoping one hand-picked number
+    /// suits them all. Perturbing every byte the reader can read is a property of
+    /// this image, checkable against the three reads above, and it moves
+    /// automatically if those reads change.
     /// </summary>
     static int HeaderReadExtent(byte[] image)
     {
@@ -1269,22 +1294,37 @@ public sealed class StateMachineCompletenessTests
     /// CliDirectoryAbsent -- a positive finding of absence -- still reported the
     /// directory as present.
     ///
-    /// The assertion is written as the general property rather than as "must
-    /// not say present", but only its false arm is exercised: no specimen was
-    /// constructible that makes SRM report no metadata while the oracle claims
-    /// Yes. Zeroing a real assembly's COR header metadata directory, the
-    /// obvious candidate, makes SRM throw BadImageFormatException instead, which
-    /// is DecodeFailed and never reaches this branch. So the Yes arm is retained
-    /// as correct-if-reached, in the same spirit as the round 2 defensive
-    /// catches, and is deliberately not counted as covered.
+    /// The assertion is written as the general property and both arms are now
+    /// exercised. Round 10 found the earlier version of this comment claiming no
+    /// specimen could make SRM report no metadata while the oracle claims Yes,
+    /// and that claim was false in the same way this file keeps being wrong: it
+    /// was reached by trying one construction -- zeroing a real assembly's COR
+    /// header metadata directory, which makes SRM throw and land in DecodeFailed
+    /// -- and concluding from that single failure that none existed. A specimen
+    /// already in this file falsifies it. Zeroing only the CLI directory's RVA
+    /// while leaving its size non-zero leaves the oracle answering Yes, and SRM
+    /// then reports no metadata without throwing, which is exactly the shape the
+    /// Yes wording describes. That specimen is included below, so the Yes arm is
+    /// covered rather than assumed unreachable.
     /// </summary>
     [Fact]
     public void TryMeasure_NoMetadataDetail_NeverOutrunsTheOracleClaim()
     {
+        var specimens = new List<byte[]>();
         foreach (int optionalSize in new[] { 1, 96, 176, 215, 224, 1025 })
         {
-            byte[] image = ShortOptionalHeaderImage(optionalSize);
+            specimens.Add(ShortOptionalHeaderImage(optionalSize));
+        }
 
+        // The Yes arm: a real assembly whose CLI directory RVA is zeroed while
+        // its size is left intact. The oracle still sees a directory claiming to
+        // be managed, and SRM reports no metadata without throwing.
+        specimens.Add(ZeroedCliDirectoryField(0));
+
+        bool sawYes = false;
+
+        foreach (byte[] image in specimens)
+        {
             string? readerDetail = null;
             ManagedClaim claim;
             ClaimExitSite exit;
@@ -1292,6 +1332,8 @@ public sealed class StateMachineCompletenessTests
             {
                 claim = ReadManagedClaim(memory, ref readerDetail, out exit);
             }
+
+            sawYes |= claim == ManagedClaim.Yes;
 
             string path = Path.Combine(
                 Path.GetTempPath(),
@@ -1321,6 +1363,150 @@ public sealed class StateMachineCompletenessTests
                 File.Delete(path);
             }
         }
+
+        // Without this the suite could drift back to exercising only the false
+        // arm -- which is the state round 10 found, described in the comment
+        // above as if it were a property of the world rather than of the
+        // specimen list.
+        Assert.True(sawYes, "no specimen exercised the ManagedClaim.Yes arm");
+    }
+
+    /// <summary>
+    /// A link to something that is not a directory is still a candidate.
+    ///
+    /// Round 10 found these dropped without a word. The hole predates that
+    /// round but was masked: the old extension filter ran first and yielded a
+    /// link named <c>something.dll</c> before this branch could drop it, so
+    /// removing the filter in the same round turned a masked hole into a live
+    /// one for exactly the files most likely to matter -- symlinked assemblies,
+    /// which is how shared frameworks and many package layouts are assembled.
+    ///
+    /// A dangling link is included deliberately. It cannot be measured, but it
+    /// must be <em>accounted</em>: it opens as Inaccessible rather than
+    /// disappearing.
+    /// </summary>
+    [Fact]
+    public void EnumerateCandidates_OffersLinksToOrdinaryFiles()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-link-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            string target = Path.Combine(root, "target.dll");
+            File.WriteAllBytes(
+                target,
+                File.ReadAllBytes(typeof(StateMachineCompletenessTests).Assembly.Location));
+
+            File.CreateSymbolicLink(Path.Combine(root, "link.dll"), target);
+            File.CreateSymbolicLink(Path.Combine(root, "link.bin"), target);
+            File.CreateSymbolicLink(
+                Path.Combine(root, "dangling.dll"),
+                Path.Combine(root, "nothing-here"));
+
+            var inaccessible = new List<string>();
+            HashSet<string> found = EnumerateCandidates(root, inaccessible)
+                .Select(path => Path.GetFileName(path)!)
+                .ToHashSet(StringComparer.Ordinal);
+
+            Assert.Equal(
+                new[] { "target.dll", "link.dll", "link.bin", "dangling.dll" }
+                    .ToHashSet(StringComparer.Ordinal),
+                found);
+
+            // The links to a real assembly must measure like the assembly, and
+            // the dangling one must be accounted rather than skipped.
+            foreach (string name in new[] { "link.dll", "link.bin" })
+            {
+                Assert.Equal(
+                    CorpusOutcome.Measured,
+                    TryMeasure(Path.Combine(root, name), out _, out _));
+            }
+
+            Assert.Equal(
+                CorpusOutcome.Inaccessible,
+                TryMeasure(Path.Combine(root, "dangling.dll"), out _, out _));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A FIFO cannot be measured, but it must not abort the sweep.
+    ///
+    /// <c>File.OpenRead</c> succeeds on a FIFO opened for reading, and the
+    /// oracle's first act is to seek, which throws <c>NotSupportedException</c>
+    /// on a non-seekable stream. Round 10 found that escaping <c>TryMeasure</c>
+    /// entirely, so one such file ends the run before it reaches any outcome --
+    /// the round 2 failure in a new place, where an escaping exception makes the
+    /// sweep prove nothing and look like an infrastructure fault. Round 10's
+    /// removal of the extension filter widened the exposure, since the file no
+    /// longer has to be named like an assembly to be opened.
+    ///
+    /// Reported as Inaccessible, which is accounted and visible.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_NonSeekableFile_IsInaccessibleRatherThanFatal()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"sm-fifo-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string fifo = Path.Combine(root, "pipe.dll");
+
+        try
+        {
+            using (var mkfifo = System.Diagnostics.Process.Start("mkfifo", [fifo]))
+            {
+                Assert.NotNull(mkfifo);
+                mkfifo!.WaitForExit();
+                Assert.SkipWhen(
+                    mkfifo.ExitCode != 0,
+                    "mkfifo is unavailable, so the non-seekable case cannot be built.");
+            }
+
+            // Opening a FIFO write-only blocks until a reader arrives, and
+            // read-only blocks until a writer does. Opening read-write does not
+            // block on Linux, and keeping that handle open means the oracle's
+            // own File.OpenRead returns immediately instead of waiting.
+            using FileStream held = new(
+                fifo, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+
+            Assert.Equal(
+                CorpusOutcome.Inaccessible,
+                TryMeasure(fifo, out _, out _));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A copy of this test assembly with one field of its CLI directory zeroed:
+    /// offset 0 is the RVA, offset 4 the size. Either half left standing is
+    /// still a claim to be managed, which is the round 4 and round 5 lesson.
+    /// </summary>
+    static byte[] ZeroedCliDirectoryField(int fieldOffset)
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(StateMachineCompletenessTests).Assembly.Location);
+
+        int peOffset = BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(0x3C));
+        int optional = peOffset + 4 + 20;
+        int directories =
+            BinaryPrimitives.ReadUInt16LittleEndian(image.AsSpan(optional)) == 0x20B
+                ? 112
+                : 96;
+        int field = optional + directories + (14 * 8) + fieldOffset;
+
+        Assert.NotEqual(0u, BinaryPrimitives.ReadUInt32LittleEndian(image.AsSpan(field)));
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(field), 0);
+        return image;
     }
 
     /// <summary>
@@ -1412,14 +1598,30 @@ public sealed class StateMachineCompletenessTests
     /// ReadManagedClaim_SilentSkipSites_AreExactlyTheKnownSet measures that the
     /// three are all of them.
     ///
-    /// None of them is fixable here, and they are all the same limitation seen
-    /// at different fields: once the bytes that say "managed assembly" are gone,
-    /// the file is indistinguishable from something that never was one. SRM
-    /// cannot tell "not managed" from "managed but damaged" once it has
-    /// rejected the headers either. Answering Unclassifiable instead would make
-    /// every native DLL in every corpus unclassifiable, which would retire the
-    /// gate. Reporting the gap belongs to the product's failure contract, not
-    /// to a wider guess here.
+    /// These three are all the same limitation seen at different fields: once
+    /// the bytes this reader consults to recognise a managed PE are gone, the
+    /// file looks like something that never was one. SRM cannot tell "not
+    /// managed" from "managed but damaged" once it has rejected the headers
+    /// either. Answering Unclassifiable instead would make every native DLL in
+    /// every corpus unclassifiable, which would retire the gate. Reporting the
+    /// gap belongs to the product's failure contract, not to a wider guess here.
+    ///
+    /// "Not fixable" would be too strong, and an earlier revision said it.
+    /// Round 10 showed one of the three is fixable in principle by building a
+    /// COFF-only image: no MZ signature at all, with real metadata in a
+    /// .cormeta section. SRM reports IsCoffOnly with 761 type definitions,
+    /// while this reader answers No at the first signature byte. Recognising
+    /// SRM's COFF-only path would close that.
+    ///
+    /// It is not closed here, on measured grounds rather than by assertion.
+    /// Incidence is 0 across 86,374 real PE files, COFF-only objects are a
+    /// C++/CLI intermediate rather than anything a corpus of assemblies holds,
+    /// and an intact one is measured normally rather than skipped -- only a
+    /// damaged COFF-only object is skipped, which narrows an already empty set.
+    /// Against that, the oracle's value is that it is short enough to check by
+    /// reading, and teaching it a second container format is the kind of growth
+    /// that ends with it needing its own oracle. The limit is recorded instead.
+    /// </summary>
     ///
     /// Round 7 is why this exists: the "absent" answer was unreachable by both
     /// enumerations and shared an exit site with "present", so nothing measured
@@ -1583,11 +1785,19 @@ public sealed class StateMachineCompletenessTests
             // headers could not be classified and then will not decode is not a
             // skip either: nothing established that it was unmanaged, so calling
             // it NotManaged would assert something no one measured.
+            //
+            // NotManaged is matched explicitly rather than left as the default
+            // arm. It is the laundering answer -- the one that removes a file
+            // from the population while the sweep still reports success -- and
+            // round 10 noted that as a fall-through it would silently adopt any
+            // ManagedClaim member added later. Unclassifiable is the safe
+            // direction for an answer nobody has considered yet, so a new member
+            // lands there and is visible rather than skipped.
             CorpusOutcome undecodable = claim switch
             {
                 ManagedClaim.Yes => CorpusOutcome.DecodeFailed,
-                ManagedClaim.Indeterminate => CorpusOutcome.Unclassifiable,
-                _ => CorpusOutcome.NotManaged,
+                ManagedClaim.No => CorpusOutcome.NotManaged,
+                _ => CorpusOutcome.Unclassifiable,
             };
 
             stream.Position = 0;
@@ -1730,15 +1940,15 @@ public sealed class StateMachineCompletenessTests
     /// test requires the inputs to reach all of them. A path added later that
     /// nothing exercises fails here and says which one.
     ///
-    /// What this test does **not** do is justify the enumerations' bound. It
-    /// used to claim that, on the reasoning that a bound too small would leave
-    /// a later path unreached. Re-measuring after round 8 showed the claim was
-    /// false: coverage stays green at a bound of 63, because byte 0x3C is the
-    /// <c>peOffset</c> field and corrupting it redirects parsing into arbitrary
-    /// file content, so the deep sites are reachable from inside a tiny range.
-    /// The bound is now derived from the image instead -- see
-    /// <see cref="HeaderReadExtent"/> -- which removes the judgement rather
-    /// than resting it on a test that was not measuring it.
+    /// This test also constrains the enumerations' bound, which round 9 denied.
+    /// Round 9 recorded that coverage stayed green at a bound of 63 and
+    /// concluded the bound was unmeasured; round 10 re-ran it and the recorded
+    /// result was wrong, because that experiment had clamped only the real
+    /// assembly. Clamping <see cref="HeaderReadExtent"/> itself to 63 fails here
+    /// naming OptionalHeaderSizeImplausible, OptionalHeaderIncomplete and
+    /// OptionalHeaderMagicUnrecognised. The bound is derived from the image
+    /// rather than hand-picked, and this test is what would notice if the
+    /// derivation stopped short.
     ///
     /// The I/O failure handler is the one site no file content can reach, so a
     /// stream that throws on read covers it directly rather than being excused
@@ -2101,7 +2311,9 @@ public sealed class StateMachineCompletenessTests
             return ManagedClaim.No;
         }
         catch (Exception ex)
-            when (ex is IOException or UnauthorizedAccessException)
+            when (ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException)
         {
             detail = ex.Message;
             exitSite = ClaimExitSite.StreamUnreadable;
