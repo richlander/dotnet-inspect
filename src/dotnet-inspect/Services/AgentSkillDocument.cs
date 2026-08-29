@@ -1,25 +1,30 @@
 using InertText;
+using DotnetInspector.Models;
 
 namespace DotnetInspector.Services;
 
 internal static class AgentSkillDocument
 {
-    public static InertString PrepareForOutput(
+    public static ContainmentSelectedText PrepareForOutput(
         string content,
         bool normalizeGithubLinksToRaw)
     {
         var raw = new InertString(TextPolicy.Prose, content);
         if (raw.RequiredContainment)
         {
-            return raw.ReplaceIfContainmentRequired(
+            return ContainmentSelectedText.FromClassification(
+                raw,
+                content,
                 InertString.ContainmentRequiredPlaceholder);
         }
 
         string presented = normalizeGithubLinksToRaw
             ? GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content)
             : content;
-        return new InertString(TextPolicy.Prose, presented)
-            .ReplaceIfContainmentRequired(
-                InertString.ContainmentRequiredPlaceholder);
+        var normalized = new InertString(TextPolicy.Prose, presented);
+        return ContainmentSelectedText.FromClassification(
+            normalized,
+            presented,
+            InertString.ContainmentRequiredPlaceholder);
     }
 }

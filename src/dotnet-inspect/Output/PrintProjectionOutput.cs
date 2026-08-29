@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Models;
 using InertText;
 
 namespace DotnetInspector.Output;
@@ -13,7 +14,7 @@ public sealed record PrintableDocument(
     string Content)
 {
     [JsonIgnore]
-    public InertString? ContainedContent { get; init; }
+    public ContainmentSelectedText? SelectedContent { get; init; }
 }
 
 /// <summary>
@@ -39,10 +40,14 @@ public sealed record PrintProjectionOptions(
 public sealed record PrintableContent(
     string Content,
     byte[]? ExactBytes = null,
-    InertString? ContainedContent = null)
+    ContainmentSelectedText? SelectedContent = null)
 {
-    public static PrintableContent FromInert(InertString content)
-        => new(content.ToString(), ExactBytes: null, ContainedContent: content);
+    public static PrintableContent FromContainmentSelection(
+        ContainmentSelectedText content)
+        => new(
+            content.ToString(),
+            ExactBytes: null,
+            SelectedContent: content);
 }
 
 public static class PrintProjectionOutput
@@ -56,8 +61,8 @@ public static class PrintProjectionOutput
         foreach (var document in documents)
         {
             var row = new PrintableRow(document.Row, document.Section, document.Label, document.Path, document.Url);
-            content[row] = document.ContainedContent is { } contained
-                ? PrintableContent.FromInert(contained)
+            content[row] = document.SelectedContent is { } selected
+                ? PrintableContent.FromContainmentSelection(selected)
                 : new PrintableContent(document.Content);
             rows.Add(row);
         }
@@ -128,9 +133,10 @@ public static class PrintProjectionOutput
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            payload.ContainedContent?.ToString() ?? payload.Content)
+            payload.SelectedContent?.ToString()
+                ?? payload.Content)
         {
-            ContainedContent = payload.ContainedContent
+            SelectedContent = payload.SelectedContent
         };
 
         if (options.Jsonl)
@@ -161,8 +167,8 @@ public static class PrintProjectionOutput
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
         {
-            if (output.ContainedContent is { } contained)
-                File.WriteAllText(outputPath, contained.ToString());
+            if (output.SelectedContent is { } selected)
+                File.WriteAllText(outputPath, selected.ToString());
             else if (output.ExactBytes is { } bytes)
                 File.WriteAllBytes(outputPath, bytes);
             else
@@ -170,9 +176,10 @@ public static class PrintProjectionOutput
         }
         else
         {
-            Console.Write(
-                output.ContainedContent
-                ?? new InertString(TextPolicy.Prose, output.Content));
+            if (output.SelectedContent is { } selected)
+                Console.Write(selected.ToString());
+            else
+                Console.Write(new InertString(TextPolicy.Prose, output.Content));
         }
     }
 

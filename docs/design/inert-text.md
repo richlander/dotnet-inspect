@@ -238,15 +238,19 @@ Every package-relative `skills/**/SKILL.md` document applies `TextPolicy.Prose`
 before link normalization and before any stdout, JSON, JSONL, or `--output`
 destination, whether reached through the skill section, `--content`, or a
 package README declaration. A document carrying a `TextConcern` is replaced as
-a whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its
-`InertString` is preserved. The selected value is carried through the shared
-content and print projections, and exact package bytes are never retained for a
-skill document, so an alternate selection or file-output route cannot bypass
-the decision used for agent context. This behavior is gated by
+a whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its full
+safe presented text is retained, including literal backslashes that required
+only reversible disambiguation inside `InertString`. A constrained
+`ContainmentSelectedText` is produced only after that classification and is
+carried through the shared content and print projections without re-encoding.
+Exact package bytes are never retained for a skill document, so an alternate
+selection or file-output route cannot bypass the decision used for agent
+context. This behavior is gated by
 `Project_SkillsInventory_ReplacesContainedYamlFields`,
 `Project_SkillsInventory_PreservesBlockIndicatorConcerns`,
 `Project_SkillsInventory_FoldsLiteralBlockDescription`,
 `SkillDocuments_OmitPayloadsThatRequireContainment`, and
+`SkillDocuments_PreserveSafeOriginalText`,
 `SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks`,
 `Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment`, and
 `SkillDocuments_OutputAliasesWritePackageAndProjectPayloads` in the Release

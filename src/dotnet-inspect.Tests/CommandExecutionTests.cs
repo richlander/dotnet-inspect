@@ -29293,6 +29293,9 @@ public partial class CommandExecutionTests
             var (contentExit, contentOutput, contentError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
                 "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
             var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
                 "package", packagePath, "--path", "skills/package-skill/SKILL.md",
                 "--content", "--jsonl");
@@ -29302,17 +29305,21 @@ public partial class CommandExecutionTests
             Assert.Equal(0, packageJsonExit);
             Assert.Equal(0, projectJsonExit);
             Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
             Assert.Equal(0, contentJsonExit);
             Assert.Empty(packageError);
             Assert.Empty(projectError);
             Assert.Empty(packageJsonError);
             Assert.Empty(projectJsonError);
             Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
             Assert.Empty(contentJsonError);
             string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
             Assert.Equal(placeholder, packageOutput);
             Assert.Equal(placeholder, projectOutput);
             Assert.Equal(placeholder + "\n", contentOutput);
+            Assert.Contains(placeholder + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, contentBlocksOutput, StringComparison.Ordinal);
             Assert.DoesNotContain(bidi, packageJson, StringComparison.Ordinal);
             Assert.DoesNotContain(bidi, projectJson, StringComparison.Ordinal);
             Assert.DoesNotContain(bidi, contentJson, StringComparison.Ordinal);
@@ -29329,6 +29336,103 @@ public partial class CommandExecutionTests
             Assert.Equal(
                 placeholder,
                 contentDocument.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_PreserveSafeOriginalText()
+    {
+        const string Body = """Use Regex("\\d+") with C:\temp and literal \u202E text.""";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.SafeOriginal",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", Body));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.SafeOriginal",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", Body)]));
+
+        try
+        {
+            var packageOutputPath = Path.Combine(packageTempDir, "package-skill.md");
+            var contentOutputPath = Path.Combine(packageTempDir, "content-skill.md");
+            var projectOutputPath = Path.Combine(projectTempDir, "project-skill.md");
+
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (contentExit, contentOutput, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+            var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                "--output", packageOutputPath);
+            var (contentFileExit, contentFileOutput, contentFileError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare", "--output", contentOutputPath);
+            var (projectFileExit, projectFileOutput, projectFileError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare",
+                "--output", projectOutputPath);
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, contentJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Equal(0, packageFileExit);
+            Assert.Equal(0, contentFileExit);
+            Assert.Equal(0, projectFileExit);
+            Assert.Empty(packageError);
+            Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(contentJsonError);
+            Assert.Empty(projectJsonError);
+            Assert.Empty(packageFileOutput);
+            Assert.Empty(contentFileOutput);
+            Assert.Empty(projectFileOutput);
+            Assert.Empty(packageFileError);
+            Assert.Empty(contentFileError);
+            Assert.Empty(projectFileError);
+            Assert.Equal(Body, packageOutput);
+            Assert.Equal(Body + "\n", contentOutput);
+            Assert.Contains(Body + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.Equal(Body, projectOutput);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var contentDocument = JsonDocument.Parse(contentJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            Assert.Equal(Body, packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, contentDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, projectDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, File.ReadAllText(packageOutputPath));
+            Assert.Equal(Body, File.ReadAllText(contentOutputPath));
+            Assert.Equal(Body, File.ReadAllText(projectOutputPath));
         }
         finally
         {

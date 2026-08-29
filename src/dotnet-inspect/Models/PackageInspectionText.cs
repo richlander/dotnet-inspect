@@ -572,9 +572,10 @@ internal sealed class PackageFileContentText
         PathText = new InertString(TextPolicy.Field, value.Path);
         Size = value.Size;
         Found = value.Found;
-        Content = value.ContainedContent?.ToString() ?? value.Content;
-        EncodedContent = value.ContainedContent
-            ?? new InertString(TextPolicy.Prose, value.Content);
+        IsContainmentSelected = value.SelectedContent is not null;
+        Content = value.SelectedContent?.ToString() ?? value.Content;
+        RenderedContent = value.SelectedContent?.ToString()
+            ?? new InertString(TextPolicy.Prose, value.Content).ToString();
     }
 
     public static PackageFileContentText Create(PackageFileContent value) => new(value);
@@ -582,7 +583,8 @@ internal sealed class PackageFileContentText
     internal InertString PackageText { get; }
     internal InertString VersionText { get; }
     internal InertString PathText { get; }
-    internal InertString EncodedContent { get; }
+    internal string RenderedContent { get; }
+    internal bool IsContainmentSelected { get; }
 
     public string Package => PackageText.ToString();
     public string Version => VersionText.ToString();

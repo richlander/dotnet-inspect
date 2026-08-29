@@ -615,7 +615,7 @@ public class ProjectCommand
         if (row.FullPath == null || !File.Exists(row.FullPath))
             return null;
 
-        var contained = AgentSkillDocument.PrepareForOutput(
+        var selected = AgentSkillDocument.PrepareForOutput(
             MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope),
             normalizeGithubLinksToRaw: true);
         return new PrintableDocument(
@@ -624,9 +624,9 @@ public class ProjectCommand
             $"{row.Package} {row.Path}",
             row.Path,
             null,
-            contained.ToString())
+            selected.ToString())
         {
-            ContainedContent = contained
+            SelectedContent = selected
         };
     }
 

@@ -509,11 +509,14 @@ one payload. An unscoped file export preserves the package bytes exactly,
 including encoding, byte order mark, and line endings, except for package skill
 documents: skills are agent instructions, so every route, including
 `project -S Skills --print`, `package -S "Package skill files" --print`,
-`--content`, and a package README declaration, carries a `TextPolicy.Prose`
-`InertString` through stdout, structured output, and `--out`. The raw scoped
-skill is classified before link normalization, and exact package bytes are not
-retained. A Markdown scope exports projected text. Terminal-facing output never
-emits a live control or bidi scalar from package content. Multi-item
+`--content`, and a package README declaration, classifies through a
+`TextPolicy.Prose` `InertString` and carries one containment-selected value
+through stdout, structured output, and `--out`. The raw scoped skill is
+classified before link normalization; concerning text becomes the standard
+placeholder, safe text retains its full presented spelling, and exact package
+bytes are not retained. A Markdown scope exports projected text.
+Terminal-facing output never emits a live control or bidi scalar from package
+content. Multi-item
 `--print --out` and multi-file or multi-package `--content --out` are refused
 unless a structured JSON shape owns the destination; global selection
 cardinality is resolved before any selected payload is read, and a unique exact

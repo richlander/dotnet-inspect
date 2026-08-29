@@ -287,8 +287,8 @@ public sealed record PackageFileContent(
     [property: JsonIgnore] bool IsReadme = false,
     // Full-payload export writes the package bytes rather than round-tripping decoded text.
     [property: JsonIgnore] byte[]? ExactContent = null,
-    // Package skill documents carry one typed representation through every destination.
-    [property: JsonIgnore] InertString? ContainedContent = null);
+    // Package skill documents carry one containment-selected representation through every sink.
+    [property: JsonIgnore] ContainmentSelectedText? SelectedContent = null);
 
 public sealed record PackageSourceFileInfo(
     string Library,

@@ -2307,8 +2307,8 @@ public class PackageCommand
                     normalizeGithubLinksToRaw: !options.BrowsableUrls,
                     includeExactContent: HasUnstructuredOutputPath(options)
                         && options.ContentScope == PackageFileContentScope.Full);
-                return content.ContainedContent is { } contained
-                    ? PrintableContent.FromInert(contained)
+                return content.SelectedContent is { } selected
+                    ? PrintableContent.FromContainmentSelection(selected)
                     : new PrintableContent(content.Content, content.ExactContent);
             },
             new PrintProjectionOptions(
@@ -3405,7 +3405,7 @@ public class PackageCommand
             scope);
         if (PackageFileFamily.IsSkillDocument(file))
         {
-            InertString contained = AgentSkillDocument.PrepareForOutput(
+            ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
                 content,
                 normalizeGithubLinksToRaw);
             return new PackageFileContent(
@@ -3414,10 +3414,10 @@ public class PackageCommand
                 file.Path,
                 file.Size,
                 Found: true,
-                contained.ToString(),
+                selected.ToString(),
                 file.IsReadme,
                 ExactContent: null,
-                ContainedContent: contained);
+                SelectedContent: selected);
         }
 
         if (normalizeGithubLinksToRaw)
@@ -3600,9 +3600,14 @@ public class PackageCommand
                 continue;
             }
 
-            builder.Append(row.EncodedContent);
+            builder.Append(row.RenderedContent);
             if (row.Content.Length == 0 || row.Content[^1] != '\n')
-                builder.AppendLine();
+            {
+                if (row.IsContainmentSelected)
+                    builder.Append('\n');
+                else
+                    builder.AppendLine();
+            }
         }
 
         return builder.ToString();
@@ -3856,12 +3861,12 @@ public class PackageCommand
 
     private static int WriteBarePackageContent(PackageFileContent content)
     {
-        if (content.ContainedContent is not { } contained)
+        if (content.SelectedContent is not { } selected)
             return WriteBarePackageText(content.Content, outputPath: null);
 
-        Console.Write(contained);
+        Console.Write(selected.ToString());
         if (!content.Content.EndsWith('\n'))
-            Console.WriteLine();
+            Console.Write('\n');
         return 0;
     }
 
@@ -3874,7 +3879,7 @@ public class PackageCommand
         else
             File.WriteAllText(
                 outputPath,
-                content.ContainedContent?.ToString() ?? content.Content);
+                content.SelectedContent?.ToString() ?? content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)
