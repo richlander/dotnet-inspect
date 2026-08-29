@@ -2147,9 +2147,16 @@ test("html-validate reads exactly the documents this project owns", () => {
   // Asking per document removes the channel instead of hardening the pattern. When
   // html-validate is handed one path, the only document text that can reach stdout is
   // that document's own, and it reaches stdout only if the file was opened -- an ignored
-  // path prints `No files matching patterns` and nothing else. So the presence of any
-  // header answers "was this file read", whatever the file says. Requiring a delimiter
+  // path prints `No files matching patterns` and nothing else. Requiring a delimiter
   // after the header would not have helped; an author can write both lines.
+  //
+  // The header must *name the document asked about*, not merely exist. Round 5 (Sol,
+  // seat A) showed why: html-validate expands its path arguments as globs, so probing a
+  // document whose name contains glob metacharacters opens a different file. An ignored
+  // `src/[a].html` probed by name returns the header for `src/a.html`, and a test that
+  // only asked "is there a header" read that as coverage. Comparing identity closes it
+  // without enumerating which characters are dangerous. The first header is the one
+  // html-validate printed before any document text, so it cannot be forged from a body.
   const skipped = owned.filter((document) => {
     const probe = spawnSync(
       "npx",
@@ -2164,13 +2171,18 @@ test("html-validate reads exactly the documents this project owns", () => {
       ],
       { cwd: root, encoding: "utf8" },
     );
-    return !/^Source /mu.test(probe.stdout);
+    const header = /^Source (?<path>.+?)@\d+:\d+/mu.exec(probe.stdout);
+    const opened = header === null
+      ? undefined
+      : projectRelative(root, header.groups?.path ?? "");
+    return opened !== document;
   });
 
   assert.deepEqual(skipped, [],
-    "html-validate was handed this document on its own and did not open it, so an "
-      + "ignore file somewhere above, beside or below this project is excluding markup "
-      + "`npm run lint` reports clean");
+    "html-validate was handed this document on its own and did not open it -- either an "
+      + "ignore file somewhere above, beside or below this project excludes it, or its "
+      + "name expanded as a glob onto a different file, and `npm run lint` reports clean "
+      + "over markup nothing read");
   assert.deepEqual(read, owned,
     "html-validate processed a different set of documents than this project owns, so "
       + "`npm run lint` is reporting clean over markup nothing checked");

@@ -803,12 +803,32 @@ rule that must reject it* (`close-order`, `element-required-attributes`,
 document the project owns to sit outside the ignore file.
 
 The rest close the gap between "the linter ran" and "the linter saw this file".
-One states the property directly: it runs html-validate with `--dump-source`
-under the same `--config` and glob the lint uses, reads the `Source` header it
-prints for each processed document, and requires that set to equal the set the
-project inventory reports. That is the authoritative answer to "which documents
-were checked", so a document the linter never saw fails there whatever the cause
-— and the `--formatter=json` output cannot substitute, because it lists only
+One states the property directly, in two passes with different jobs. Both run
+html-validate with `--dump-source` under the same `--config` the lint uses and
+read the `Source` header printed ahead of each processed document.
+
+The per-document pass is the authoritative answer to "was this document
+examined". It hands html-validate each owned path *on its own* and requires the
+first header back to name that same document. Asking one file at a time is what
+makes the answer trustworthy, because `--dump-source` prints a document's full
+text after its header: in a combined stream a header spelled inside a body is
+indistinguishable from a real one, so a document excluded by an ignore file can
+be vouched for by markup that *was* read. Handed a single path, the only text
+that can reach stdout is that file's own, and an excluded path prints `No files
+matching patterns` and nothing else. Comparing the header's path rather than
+merely observing that one exists closes a further channel — html-validate
+expands its path arguments as globs, so a document named with glob
+metacharacters resolves onto a different file, and identity catches that without
+enumerating which characters are dangerous.
+
+The whole-glob pass runs over the lint glob and compares the header set to the
+set the project inventory reports. Forgery cannot hide anything from it: writing
+a header into a body only *adds* a name, and a name that is not owned fails as
+an extra. So it is the reliable direction for "the linter read something this
+project does not own" — a stray document under a generated directory, say —
+while the per-document pass owns the direction a body could otherwise lie about.
+Between them a document the linter never saw fails whatever the cause, and the
+`--formatter=json` output cannot substitute for either, because it lists only
 files that had problems.
 
 Three more name specific causes, which makes a failure diagnosable rather than
@@ -826,9 +846,9 @@ Those three walks descend from the project root, so none of them can see an
 ancestor. html-validate looks for `.htmlvalidateignore` by walking *upward* from
 each document, and `root: true` stops configuration merging without stopping
 ignore discovery, so a file one directory above this project can exclude an
-authored document. That is precisely the case the `--dump-source` comparison
-catches and a walk structurally cannot, which is why the property is asserted
-directly rather than by enumerating one more placement.
+authored document. That is precisely the case the `--dump-source` passes catch
+and a walk structurally cannot, which is why the property is asserted directly
+rather than by enumerating one more placement.
 
 The `<link rel="preload" id="webassembly">` element in `index.html` carries a
 scoped `html-validate-disable-next` directive for `element-required-attributes`.
