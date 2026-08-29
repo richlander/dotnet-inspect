@@ -2901,15 +2901,22 @@ amplify: at worst it examines each byte once. Materializing amplifies, because
 a managed copy is allocated and retained, UTF-8 becomes wider UTF-16, and the
 same entry is reached once per occurrence.
 
-Those costs describe *physical* heap entries, which is every entry a supported
-input contains. SRM can also return **projected** virtual strings, whose bytes
-it synthesizes and allocates inside `GetBlobReader` itself; for those the price
-is paid in the act of reading it, and pricing before materializing is not
-available. Projected strings arise only from Windows Metadata, which
-`MetadataImageFormatClassifier` refuses as `UnsupportedWindowsMetadata` before
-any decode begins, so no supported decode reaches one. That exclusion is what
-makes the allocation-free claim above sound; a decode that ever admitted
-Windows Metadata would need this row reclassified.
+Those costs describe *physical* heap entries. SRM can also return **projected**
+virtual strings, whose bytes it synthesizes and allocates inside
+`GetBlobReader` itself; for those the price is paid in the act of reading it,
+and pricing before materializing is not available. Projected strings arise only
+from Windows Metadata, which `AGENTS.md` excludes as an unsupported input
+format.
+
+That exclusion is **not currently enforced on the decode path**.
+`MetadataImageFormatClassifier` can refuse Windows Metadata, but no product
+code calls it; adoption is tracked by #4877, and `docs/metadata-primitives.md`
+states that the classifier's existence alone does not close the entry-point
+inventory. Until a caller admits images through a `SupportedEcma335` result,
+the allocation-free pricing claim above holds for physical entries and is
+**unverified** for the repository's decode entry points as a whole. A decode
+that admitted Windows Metadata would need this quantity reclassified, because
+its price could not be read before it was paid.
 
 The concrete contrast at a Class B site is therefore:
 
@@ -2944,9 +2951,10 @@ introduces a new quantity must extend this table in the same change.
 | Expanded signature nodes | one provider callback per decoded node | A | `MaxSignatureTypeNodes` node budget |
 | Occurrence copies | copying occurrence arrays through aggregate layers | A | materialization budget, `MaxSignatureTypeNodes * 8` |
 | Type name characters | `TypeDef`/`TypeRef` name projection | A | `MaxTypeNameCharacters`, applied by the aggregate as the budget it hands the name reader, which refuses an over-budget entry before materializing; repetition charged to the ledger |
-| Resolution-scope chain length | walking a `TypeRef` parent chain | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
+| Resolution-scope chain length | walking a `TypeRef` resolution-scope chain | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
+| Declaring-type chain length | walking a `TypeDef` declaring-type chain to project a nested type's full name | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
 | `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | A | `TypeSpecGuard.MaxCumulativeBytes` across the active re-entry closure, not per `TypeSpec`; repetition charged to the ledger |
-| Array shape bounds | array shape materialization | A | the enclosing signature blob, bounded by `SignatureBlobGuard` before decoding begins |
+| Array shape bounds | array shape materialization | A | the node budget, enforced by `SignatureBlobGuard` before decoding begins: it charges the declared size and lower-bound counts against `remainingTypeNodes`, because a byte-length check alone does not bound this work |
 | `AssemblyRef` public-key **token** | terminal scope projection | A | exactly 8 bytes, enforced before the token is projected |
 | `AssemblyRef` **full public key** | terminal scope projection, when `AssemblyFlags.PublicKey` is set | **B** | charged from storage length before materializing |
 | `AssemblyRef` name and culture storage | terminal scope projection | **B** | charged from storage length before materializing |
@@ -3022,10 +3030,13 @@ within one decode:
 
 The census charges `PublicKeyOrToken` at one site and does not record
 `AssemblyFlags.PublicKey`, so it does not separate the two classes by
-measurement. It bounds them together, which is sufficient here: the largest
-single charge was 8 bytes, and a full public key cannot be 8 bytes, so no
-`AssemblyRef` in either corpus carried one. That is an inference from the
-measured maximum, not a separately counted row.
+measurement, and the class split cannot be recovered from the recorded maximum.
+The flag decides the class, not the blob's size or cryptographic validity: an
+artifact may set `AssemblyFlags.PublicKey` on an 8-byte blob, and the
+adversarial probe below does exactly that. The measured 8-byte maximum
+therefore bounds the quantity but does not establish that no full public key
+occurred. **The full-key class is unmeasured in this census**, not measured at
+zero. Instrumenting the flag and re-running would settle it.
 
 Two results set the ceilings. Every Class A quantity stays far below its cap --
 the longest single type name observed is 175 characters against a 4,096
@@ -3033,9 +3044,12 @@ ceiling, and the longest resolution-scope chain is 3 against 256 -- so the caps
 constrain nothing real. And no decode approached any budget, which is what
 makes the budgets available to bound repetition rather than typical cost.
 
-The last three rows were never exercised. That is a statement about the corpus,
-not about reachability: each is reachable by construction, and the two probes
-below drive them. `GetTypeFromSpecification` in particular is unreachable
+The last three rows were never exercised, and no probe below drives the culture
+or `ModuleRef` name paths. That is a statement about the corpus, not about
+reachability: each is reachable by construction. The `TypeSpec` probe below
+drives the last row, and the public-key probe drives the full-key path that the
+merged `PublicKeyOrToken` row cannot separate.
+`GetTypeFromSpecification` in particular is unreachable
 through `ELEMENT_TYPE_CLASS`, which admits only `TypeDef` and `TypeRef`; it is
 reached through a custom modifier, where `TypeDefOrRefOrSpecEncoded` admits a
 `TypeSpec`.
@@ -3074,9 +3088,9 @@ oversized case:
 | 1,029 | 1,040 | decoded |
 | 8,197 | -- | rejected by `TypeSpecGuard` |
 
-Because that guard caps one `TypeSpec` at `MaxCumulativeBytes`, no single
-`TypeSpec` charge in an accepted decode can approach the ledger ceiling, and
-the ledger's role for this quantity is bounding how many times a shared
+Because that guard caps the active re-entry closure at `MaxCumulativeBytes`, no
+single `TypeSpec` charge in an accepted decode can approach the ledger ceiling,
+and the ledger's role for this quantity is bounding how many times a shared
 `TypeSpec` is re-entered.
 
 #### Reproducing
@@ -3163,8 +3177,8 @@ magnitude before the read, so every Class B site holds that number by
 construction; today it is compared against the ledger and discarded. Nothing in
 this contract requires discarding it. A threshold *below* the refusal ceiling
 may report an unusual magnitude as an observation, and the census shows such a
-threshold would be quiet: three of the four Class B quantities never occurred
-across the corpus, and the fourth peaked at 58 bytes.
+threshold would be quiet: the largest Class B charge anywhere in the corpus was
+58 bytes, and two of the four Class B quantities never occurred at all.
 
 Two constraints hold if that is built. A reporting threshold never affects
 acceptance -- it is an observation, and removing it changes no outcome. And it
