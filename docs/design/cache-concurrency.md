@@ -199,21 +199,14 @@ noncanonical NuGet.org URL shortcut.
 
 ## Versioned cache retirement
 
-See also the [CoreCache mechanism](corecache-mechanism.md#versioned-category-retirement)
-for the mechanism-level contract this section's cross-process rationale relies on.
-
-Each versioned cache family registers its prefix and current numeric contract.
-Registration starts best-effort background cleanup, and cache initialization
-rechecks every known family. Cleanup deletes only lower numeric contracts.
-Current, future, and malformed directory suffixes are preserved, so running an
-older dotnet-inspect cannot destroy a cache written by a newer one.
-
-Cleanup scans on every initialization rather than trusting a persisted
-high-water mark. An older executable can still be running and can recreate an
-old contract after a newer process removes it; the next initialization must
-therefore check again. Routine cleanup is silent. An explicit `cache clear`
-waits for in-flight maintenance and includes its reclaimed bytes in the
-reported total.
+See the [CoreCache mechanism](corecache-mechanism.md#versioned-category-retirement)
+for the full scheduling, scanning, draining, and accounting mechanics this
+section owns. The cross-process rationale: retirement deletes only lower
+numeric contracts and preserves current, future, and malformed directory
+suffixes, so running an older dotnet-inspect cannot destroy a cache written
+by a newer one, and an older executable recreating a retired contract after
+a newer process removed it is expected — the next initialization checks
+again rather than trusting a persisted high-water mark.
 
 ## Filesystem coordination
 
