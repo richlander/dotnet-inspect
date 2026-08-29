@@ -659,14 +659,13 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         foreach (TypeDefinitionHandle candidate
             in reader.TypeDefinitions)
         {
-            bool leafCouldMatch;
+            int candidateLeafUtf8Length;
             try
             {
                 TypeDefinition definition =
                     reader.GetTypeDefinition(candidate);
-                leafCouldMatch =
-                    reader.GetBlobReader(definition.Name).Length
-                    == leafUtf8Length;
+                candidateLeafUtf8Length =
+                    reader.GetBlobReader(definition.Name).Length;
             }
             catch (Exception ex) when (IsMalformedMetadata(ex))
             {
@@ -677,15 +676,16 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                 continue;
             }
 
-            if (leafCouldMatch)
+            long candidateWork =
+                candidateLeafUtf8Length == leafUtf8Length
+                    ? comparisonWork
+                    : Math.Max(candidateLeafUtf8Length, 1);
+            remainingComparisonWork -= candidateWork;
+            if (remainingComparisonWork < 0)
             {
-                remainingComparisonWork -= comparisonWork;
-                if (remainingComparisonWork < 0)
-                {
-                    throw new BadImageFormatException(
-                        "The exact TypeDef lookup exceeded its "
-                            + "structural-name work budget.");
-                }
+                throw new BadImageFormatException(
+                    "The exact TypeDef lookup exceeded its "
+                        + "structural-name work budget.");
             }
 
             MetadataTypeDefinitionNameMatchResult result =
@@ -777,10 +777,33 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         budget.Admit(attributes);
         try
         {
-            return AttributeReader.HasExtensionAttribute(
-                reader,
-                attributes,
-                budget.ObserveMaterialization);
+            foreach (CustomAttributeHandle attributeHandle
+                in attributes)
+            {
+                CustomAttribute attribute =
+                    reader.GetCustomAttribute(attributeHandle);
+                string? attributeTypeName =
+                    AttributeReader.GetAttributeTypeName(
+                        reader,
+                        attribute.Constructor,
+                        budget.ObserveMaterialization);
+                if (attributeTypeName is null)
+                {
+                    attributeTypeName =
+                        ResolveRejectedAttributeType(
+                            reader,
+                            attribute.Constructor,
+                            budget);
+                }
+
+                if (attributeTypeName
+                    == KnownAttributeNames.ExtensionAttribute)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch (AttributeInspectionBudgetSignalException ex)
         {
@@ -791,6 +814,49 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                 ex.Message,
                 ex);
         }
+    }
+
+    static string? ResolveRejectedAttributeType(
+        MetadataReader reader,
+        EntityHandle constructor,
+        AttributeInspectionBudget budget)
+    {
+        EntityHandle type = constructor.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)constructor).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructor)
+                    .GetDeclaringType(),
+            _ => default,
+        };
+        if (type.IsNil)
+        {
+            return null;
+        }
+
+        return TypeResolver.ResolveTypeName(reader, type) switch
+        {
+            MetadataTypeNameResult.Resolved resolved =>
+                ChargeResolvedAttributeType(resolved.Value, budget),
+            MetadataTypeNameResult.Absent => null,
+            MetadataTypeNameResult.Rejected rejected =>
+                throw new BadImageFormatException(
+                    rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata type-name result."),
+        };
+    }
+
+    static string ChargeResolvedAttributeType(
+        string value,
+        AttributeInspectionBudget budget)
+    {
+        budget.ObserveMaterialization(
+            Encoding.UTF8.GetByteCount(value));
+        return value;
     }
 
     static AssemblyContextStructuralCloneRetrievalResult MetadataFailure(

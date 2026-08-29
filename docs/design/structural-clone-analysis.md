@@ -295,7 +295,11 @@ count is unverified beyond direct inspection. It does not add ranking,
 comparison, correspondence, semantic, provenance, or vulnerability
 conclusions. Query-owned exact selection uses Metadata safety ceilings for
 cumulative name, member-anchor, method-row, decode-failure, and attribute work;
-selection-budget exhaustion is a typed pre-retrieval metadata failure.
+selection-budget exhaustion and rejected attribute-constructor type metadata
+are typed pre-retrieval metadata failures. The
+`Execute_RepeatedLongUnequalLeafTypeLookupFailsAtAggregateBudget` and
+`Execute_RejectedTypeSpecificationAttributeIsVisible` gates cover those
+boundaries.
 
 ## Correspondence and automorphisms
 

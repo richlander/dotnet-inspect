@@ -624,6 +624,49 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_RepeatedLongUnequalLeafTypeLookupFailsAtAggregateBudget()
+    {
+        const string Namespace = "N";
+        string longLeaf = new('T', 4_000);
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildRepeatedTypeNameAssembly(
+                    Namespace,
+                    longLeaf,
+                    typeCount: 1_100));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(0x06000001),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName(
+                                $"{Namespace}.{longLeaf[..^1]}")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+        Assert.Contains(
+            "structural-name work budget",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
     public void Execute_NearLimitMemberAnchorsShareOneWorkBudget()
     {
         ImmutableArray<byte> image =
@@ -767,6 +810,58 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Contains(
             "custom attribute work budget",
             failed.Failure.Detail);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Execute_RejectedTypeSpecificationAttributeIsVisible(
+        bool attributeOnMethod)
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildRejectedTypeSpecificationAttributeAssembly(
+                    attributeOnMethod));
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle type =
+            MetadataTokens.TypeDefinitionHandle(2);
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                MetadataTokens.MethodDefinitionHandle(1));
+        MemberAnchor anchor =
+            ApiMemberIdentity.CreateMethodAnchorInfo(
+                reader,
+                type,
+                method,
+                isExtensionMethod: false).Anchor;
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed.Member(
+                            TypeName("C"),
+                            anchor),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Seed,
+            failed.Failure.Role);
     }
 
     [Fact]
@@ -1578,6 +1673,102 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         return Serialize(metadata, bodies);
     }
 
+    static byte[] BuildRejectedTypeSpecificationAttributeAssembly(
+        bool attributeOnMethod)
+    {
+        var metadata = CreateMetadata(
+            "RejectedTypeSpecificationAttribute",
+            new Guid(
+                "A295F112-21D2-4DF9-A649-D55759429E98"));
+        AssemblyReferenceHandle assembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle extensionAttribute =
+            metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString(
+                    "System.Runtime.CompilerServices"),
+                metadata.GetOrAddString("ExtensionAttribute"));
+        var malformedTypeSpecSignature = new BlobBuilder();
+        malformedTypeSpecSignature.WriteByte(0x15);
+        TypeSpecificationHandle malformedTypeSpec =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(
+                    malformedTypeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature)
+            .MethodSignature(
+                SignatureCallingConvention.Default,
+                genericParameterCount: 0,
+                isInstanceMethod: true)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                parameters => { });
+        BlobHandle constructorSignatureBlob =
+            metadata.GetOrAddBlob(constructorSignature);
+        MemberReferenceHandle validConstructor =
+            metadata.AddMemberReference(
+                extensionAttribute,
+                metadata.GetOrAddString(".ctor"),
+                constructorSignatureBlob);
+        MemberReferenceHandle rejectedConstructor =
+            metadata.AddMemberReference(
+                malformedTypeSpec,
+                metadata.GetOrAddString(".ctor"),
+                constructorSignatureBlob);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        MethodDefinitionHandle method =
+            AddSyntheticMethod(metadata, encoder, "M");
+        BlobHandle attributeValue =
+            metadata.GetOrAddBlob(
+                new byte[] { 1, 0, 0, 0 });
+        if (attributeOnMethod)
+        {
+            metadata.AddCustomAttribute(
+                type,
+                validConstructor,
+                attributeValue);
+            metadata.AddCustomAttribute(
+                method,
+                rejectedConstructor,
+                attributeValue);
+        }
+        else
+        {
+            metadata.AddCustomAttribute(
+                type,
+                rejectedConstructor,
+                attributeValue);
+        }
+
+        return Serialize(metadata, bodies);
+    }
+
     static MetadataBuilder CreateMetadata(
         string assemblyName,
         Guid moduleVersionId)
@@ -1613,7 +1804,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         return image.ToArray();
     }
 
-    static void AddSyntheticMethod(
+    static MethodDefinitionHandle AddSyntheticMethod(
         MetadataBuilder metadata,
         MethodBodyStreamEncoder bodies,
         string name)
@@ -1630,7 +1821,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                 parameterCount: 0,
                 returnType => returnType.Void(),
                 parameters => { });
-        metadata.AddMethodDefinition(
+        return metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
             metadata.GetOrAddString(name),
