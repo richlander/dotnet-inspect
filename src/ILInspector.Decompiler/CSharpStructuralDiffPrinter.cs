@@ -340,8 +340,7 @@ public static class CSharpStructuralDiffPrinter
 
         if (beforeQualifier is { } qualifier && afterQualifier is null)
         {
-            int argIndex = afterArgs.IndexOf(qualifier);
-            if (argIndex < 0)
+            if (!TryFindInsertedArgumentIndex(beforeArgs, afterArgs, qualifier, out int argIndex))
                 return false;
 
             transition = new QualifierArgumentRoleTransition(
@@ -353,8 +352,7 @@ public static class CSharpStructuralDiffPrinter
 
         if (afterQualifier is { } movedQualifier && beforeQualifier is null)
         {
-            int argIndex = beforeArgs.IndexOf(movedQualifier);
-            if (argIndex < 0)
+            if (!TryFindInsertedArgumentIndex(afterArgs, beforeArgs, movedQualifier, out int argIndex))
                 return false;
 
             transition = new QualifierArgumentRoleTransition(
@@ -365,6 +363,71 @@ public static class CSharpStructuralDiffPrinter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Determines whether <paramref name="larger"/> is exactly
+    /// <paramref name="smaller"/> with one occurrence of <paramref name="value"/>
+    /// inserted, and returns that occurrence's index in
+    /// <paramref name="larger"/>. This is required, not optional: without it,
+    /// merely finding <paramref name="value"/> somewhere in
+    /// <paramref name="larger"/>'s arguments would let an unrelated argument
+    /// change (or a coincidental duplicate value) hide behind a false
+    /// "qualifier moved to argument N" claim. Returns <see langword="false"/>
+    /// -- forcing the caller to fall back to the literal text transition --
+    /// when no removal position reproduces <paramref name="smaller"/>
+    /// exactly, or when more than one position does (an ambiguous match is
+    /// not an honest one).
+    /// </summary>
+    static bool TryFindInsertedArgumentIndex(
+        ImmutableArray<string> smaller,
+        ImmutableArray<string> larger,
+        string value,
+        out int index)
+    {
+        index = -1;
+        if (larger.Length != smaller.Length + 1)
+            return false;
+
+        int found = -1;
+        for (int candidate = 0; candidate < larger.Length; candidate++)
+        {
+            if (!string.Equals(larger[candidate], value, StringComparison.Ordinal))
+                continue;
+
+            bool matches = true;
+            int smallerIndex = 0;
+            for (int largerIndex = 0; largerIndex < larger.Length; largerIndex++)
+            {
+                if (largerIndex == candidate)
+                    continue;
+                if (!string.Equals(smaller[smallerIndex], larger[largerIndex], StringComparison.Ordinal))
+                {
+                    matches = false;
+                    break;
+                }
+                smallerIndex++;
+            }
+
+            if (!matches)
+                continue;
+
+            if (found >= 0)
+            {
+                // More than one removal position reproduces `smaller` exactly
+                // (possible with duplicate argument text): the position is
+                // ambiguous, so no specific claim is honest.
+                index = -1;
+                return false;
+            }
+            found = candidate;
+        }
+
+        if (found < 0)
+            return false;
+
+        index = found;
+        return true;
     }
 
     /// <summary>

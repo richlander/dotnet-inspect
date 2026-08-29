@@ -789,6 +789,17 @@ public static partial class CSharpBodyDiff
             return false;
         }
 
+        // Moved is owner-issued and independent of the text-containment check
+        // below: a nested descendant explains the ancestor's text difference,
+        // but it does not know about (and cannot vouch for) an independent
+        // movement result the ancestor's own correspondence carries. Suppress
+        // only when the ancestor's entire change is explained by text, i.e.
+        // its change kind is exactly Changed.
+        if (ancestor.Change != CSharpStructuralChangeKind.Changed)
+        {
+            return false;
+        }
+
         // Only a single contiguous span per side is eligible: a discontinuous
         // node's "outside the descendant" region is not a simple prefix/suffix
         // pair, and widening this check to that shape is out of scope here.
