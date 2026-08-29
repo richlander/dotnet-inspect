@@ -212,10 +212,19 @@ internal sealed class LibraryBodyAnalysisAccumulator
             results.All(result =>
                 !result.RequiresCompleteFieldAccessCensus
                 || result.FieldAccessCensusComplete);
+        HashSet<TypeRef> typesWithCurrentInstanceMutations =
+        [
+            .. results
+                .Where(result =>
+                    result.Caller is not null
+                    && !result.CurrentInstanceMutations.IsDefaultOrEmpty)
+                .Select(result => result.Caller!.DeclaringType),
+        ];
         RemoveExternallyStoredAsyncFieldSources(
             resultSinks,
             fieldStores,
             fieldLoads,
+            typesWithCurrentInstanceMutations,
             _isScoped || !fieldAccessCensusComplete);
         var nonHeapNewObjOperandTokens = _includeMethodEvidence
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
@@ -270,6 +279,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
         ImmutableArray<MethodResultSink>.Builder resultSinks,
         ImmutableArray<FieldStoreFact>.Builder fieldStores,
         ImmutableArray<FieldLoadFact>.Builder fieldLoads,
+        IReadOnlySet<TypeRef> typesWithCurrentInstanceMutations,
         bool withholdWholeAssemblyProof)
     {
         for (int index = 0; index < resultSinks.Count; index++)
@@ -291,7 +301,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     load.Identity));
             if (!withholdWholeAssemblyProof
                 && !hasExternalStore
-                && !hasExternalAddressEscape)
+                && !hasExternalAddressEscape
+                && !typesWithCurrentInstanceMutations.Contains(
+                    source.Field.DeclaringType))
             {
                 continue;
             }

@@ -1664,6 +1664,158 @@ public class LibraryBodyIndexTests
         Assert.True(
             referenceSuspension
                 .SecondByRefArgumentIsCurrentInstance);
+
+        MethodIdentity multipleReferenceAwaits = Assert.Single(
+            unoptimized.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(UnoptimizedAsyncFixture)
+                && method.Name == nameof(
+                    UnoptimizedAsyncFixture
+                        .ReturnsCallStoredBeforeMultipleAwaits));
+        Assert.Single(
+            unoptimized.ResultSinks,
+            candidate => candidate.Caller
+                    == multipleReferenceAwaits
+                && candidate.StateMachineFieldSource
+                    is not null);
+        DirectCall[] multipleReferenceSuspensions =
+        [
+            .. unoptimized.DirectCalls.Where(call =>
+                call.Caller == multipleReferenceAwaits
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"),
+        ];
+        Assert.Equal(2, multipleReferenceSuspensions.Length);
+        Assert.All(
+            multipleReferenceSuspensions,
+            suspension => Assert.True(
+                suspension
+                    .SecondByRefArgumentIsCurrentInstance));
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectAddressMutatedReferenceStateMachineArgument()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .AddressMutatedReferenceStateMachineSource));
+        DirectCall replacement = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name == "ReplaceStateMachine");
+        DirectCall suspension = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+
+        Assert.True(replacement.ILOffset < suspension.ILOffset);
+        Assert.Equal(
+            suspension.EvidenceMethod.DeclaringType,
+            suspension.Callee.ParameterTypes[1].ElementType);
+        Assert.False(
+            suspension.SecondByRefArgumentIsCurrentInstance);
+        Assert.DoesNotContain(
+            index.ResultSinks,
+            sink => sink.Caller == source
+                && sink.StateMachineFieldSource is not null);
+    }
+
+    [Fact]
+    public async Task
+        ResultSinks_RejectWholeStateMachineInstanceWrite()
+    {
+        string? actual = await ClassicAsyncSiblingFixture
+            .WholeInstanceWriteStateMachineSource();
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .WholeInstanceWriteStateMachineSource));
+        MethodResultSink completion = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == source
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                    FieldIdentity: { } field,
+                }
+                && field.Name == "Payload");
+
+        Assert.Null(actual);
+        Assert.Single(
+            index.FieldStores,
+            store => store.EvidenceMethod
+                    == completion.EvidenceMethod
+                && store.Identity?.Name == "Payload");
+        Assert.DoesNotContain(
+            index.FieldLoads,
+            load => load.EvidenceMethod
+                    == completion.EvidenceMethod
+                && load.Identity?.Name == "Payload"
+                && load.IsAddress);
+        Assert.Null(completion.StateMachineFieldSource);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_InventoryNonGenericFrameworkBuilderSuspensions()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .NonGenericSuspensionBuilderSource));
+        DirectCall[] suspensions =
+        [
+            .. index.DirectCalls.Where(call =>
+                call.Caller == source
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"),
+        ];
+
+        Assert.Equal(2, suspensions.Length);
+        Assert.Contains(
+            suspensions,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder`1"));
+        Assert.Contains(
+            suspensions,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder"));
+        Assert.DoesNotContain(
+            index.ResultSinks,
+            sink => sink.Caller == source
+                && sink.StateMachineFieldSource is not null);
     }
 
     [Fact]

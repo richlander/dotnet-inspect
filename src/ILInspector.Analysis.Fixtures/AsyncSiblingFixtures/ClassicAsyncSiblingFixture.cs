@@ -418,6 +418,170 @@ public static class ClassicAsyncSiblingFixture
     }
 
     [AsyncStateMachine(
+        typeof(AddressMutatedReferenceStateMachine))]
+    public static Task<string>
+        AddressMutatedReferenceStateMachineSource()
+    {
+        var machine = new AddressMutatedReferenceStateMachine
+        {
+            Builder = AsyncTaskMethodBuilder<string>.Create(),
+            State = -1,
+        };
+        machine.Builder.Start(ref machine);
+        return machine.Builder.Task;
+    }
+
+    [CompilerGenerated]
+    public sealed class AddressMutatedReferenceStateMachine :
+        IAsyncStateMachine
+    {
+        public int State;
+        public AsyncTaskMethodBuilder<string> Builder;
+        public string Payload = "";
+
+        public void MoveNext()
+        {
+            if (State == 0)
+                goto Complete;
+
+            Payload = ProducePayload();
+            State = 0;
+            YieldAwaitable.YieldAwaiter awaiter =
+                Task.Yield().GetAwaiter();
+            AddressMutatedReferenceStateMachine machine = this;
+            ReplaceStateMachine(ref machine, Builder);
+            Builder.AwaitUnsafeOnCompleted(
+                ref awaiter,
+                ref machine);
+            return;
+
+        Complete:
+            Builder.SetResult(Payload);
+        }
+
+        public void SetStateMachine(
+            IAsyncStateMachine stateMachine) =>
+            Builder.SetStateMachine(stateMachine);
+    }
+
+    static void ReplaceStateMachine(
+        ref AddressMutatedReferenceStateMachine machine,
+        AsyncTaskMethodBuilder<string> builder) =>
+        machine = new AddressMutatedReferenceStateMachine
+        {
+            Builder = builder,
+            State = 0,
+        };
+
+    [AsyncStateMachine(
+        typeof(WholeInstanceWriteStateMachine))]
+    public static Task<string>
+        WholeInstanceWriteStateMachineSource()
+    {
+        WholeInstanceWriteStateMachine machine = default;
+        machine.Builder =
+            AsyncTaskMethodBuilder<string>.Create();
+        machine.State = -1;
+        machine.Builder.Start(ref machine);
+        return machine.Builder.Task;
+    }
+
+    [CompilerGenerated]
+    public struct WholeInstanceWriteStateMachine :
+        IAsyncStateMachine
+    {
+        public int State;
+        public AsyncTaskMethodBuilder<string> Builder;
+        public string Payload;
+
+        public void MoveNext()
+        {
+            if (State == 0)
+                goto Complete;
+
+            Payload = ProducePayload();
+            State = 0;
+            YieldAwaitable.YieldAwaiter awaiter =
+                Task.Yield().GetAwaiter();
+            Builder.AwaitUnsafeOnCompleted(
+                ref awaiter,
+                ref this);
+            return;
+
+        Complete:
+            Clear();
+            Builder.SetResult(Payload!);
+        }
+
+        public void SetStateMachine(
+            IAsyncStateMachine stateMachine) =>
+            Builder.SetStateMachine(stateMachine);
+
+        void Clear()
+        {
+            AsyncTaskMethodBuilder<string> builder = Builder;
+            this = default;
+            Builder = builder;
+        }
+    }
+
+    [AsyncStateMachine(
+        typeof(NonGenericSuspensionBuilderStateMachine))]
+    public static Task<string>
+        NonGenericSuspensionBuilderSource()
+    {
+        NonGenericSuspensionBuilderStateMachine machine = default;
+        machine.Builder =
+            AsyncTaskMethodBuilder<string>.Create();
+        machine.State = -1;
+        machine.Builder.Start(ref machine);
+        return machine.Builder.Task;
+    }
+
+    [CompilerGenerated]
+    public struct NonGenericSuspensionBuilderStateMachine :
+        IAsyncStateMachine
+    {
+        public int State;
+        public AsyncTaskMethodBuilder<string> Builder;
+        public AsyncTaskMethodBuilder OtherBuilder;
+        public string Payload;
+
+        public void MoveNext()
+        {
+            if (State == 0)
+                goto Second;
+            if (State == 1)
+                goto Complete;
+
+            Payload = ProducePayload();
+            State = 0;
+            YieldAwaitable.YieldAwaiter first =
+                Task.Yield().GetAwaiter();
+            Builder.AwaitUnsafeOnCompleted(
+                ref first,
+                ref this);
+            return;
+
+        Second:
+            State = 1;
+            YieldAwaitable.YieldAwaiter second =
+                Task.Yield().GetAwaiter();
+            OtherBuilder.AwaitUnsafeOnCompleted(
+                ref second,
+                ref this);
+            return;
+
+        Complete:
+            Builder.SetResult(Payload);
+        }
+
+        public void SetStateMachine(
+            IAsyncStateMachine stateMachine) =>
+            Builder.SetStateMachine(stateMachine);
+    }
+
+    [AsyncStateMachine(
         typeof(FailedExternalStoreStateMachine))]
     public static Task<string> FailedExternalStoreSource() =>
         Task.FromResult("raw");

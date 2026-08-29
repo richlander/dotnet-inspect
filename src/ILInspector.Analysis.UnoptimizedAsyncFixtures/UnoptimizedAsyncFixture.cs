@@ -10,5 +10,14 @@ public static class UnoptimizedAsyncFixture
         return payload;
     }
 
+    public static async Task<string>
+        ReturnsCallStoredBeforeMultipleAwaits()
+    {
+        string payload = ProducePayload();
+        await Task.Yield();
+        await Task.Yield();
+        return payload;
+    }
+
     static string ProducePayload() => "payload";
 }

@@ -132,22 +132,31 @@ value across those transitions. Every recognizable trusted framework builder
 suspension must use the same exact local builder field, authenticate the current
 state-machine instance as its by-ref state-machine argument, and have no
 control-flow path to the selected load; completion uses that same field. The
-builder family and result type must match the authenticated kickoff source's
-`Task<T>` or `ValueTask<T>`. The fact retains the result field identity and
+census enumerates generic, non-generic, pooled, void, and iterator framework
+builder families so an incompatible family rejects rather than disappearing;
+the qualifying builder family and result type must match the authenticated
+kickoff source's `Task<T>` or `ValueTask<T>`. A local-address form used by
+reference-type lowering must have no possibly mutating earlier address use that
+can reach the registration. The fact retains the result field identity and
 physical store, load, and source-call offsets; null cleanup stores emitted after
 the load are allowed only when they cannot flow back to that load. Unknown
 reachability, an unresolved or foreign field, another non-null write, a
-possible-alias store or address escape outside the physical state-machine body,
-an address escape inside it, a looped or initially non-dominating source store,
-another builder field, a custom async builder, or an incomplete field-access
-census remains unresolved. A scoped body census withholds the fact because it
-cannot establish whole-assembly absence of external writes and address escapes.
+whole-current-instance indirect write or unrecognized by-ref escape in any
+analyzed method on the physical state-machine type, a possible-alias store or
+address escape outside the physical state-machine body, a result-field address
+escape inside it, a looped or initially non-dominating source store, another
+builder field, a custom async builder, or an incomplete field-access census
+remains unresolved. A scoped body census withholds the fact because it cannot
+establish whole-assembly absence of external writes and address escapes.
 The shared exception-aware block graph conservatively joins a finally handler's
 possible leave continuations, so a suspension enclosed by `try`/`finally` may
 remain unresolved when that join can reach the result load.
 `LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
 and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
+`ResultSinks_RejectAddressMutatedReferenceStateMachineArgument`,
+`ResultSinks_RejectWholeStateMachineInstanceWrite`,
+`ResultSinks_InventoryNonGenericFrameworkBuilderSuspensions`,
 `ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
 `ResultSinks_RejectUnresolvedExternalFieldStoreAlias`,
 `ResultSinks_AuthenticateStateMachineCompletionBuilderField`,

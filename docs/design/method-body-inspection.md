@@ -391,17 +391,28 @@ field-access census must be complete. Every recognizable trusted framework
 builder suspension must use the same exact local builder field, match the
 kickoff source's task/value-task family and result type, pass the current state
 machine as its by-ref state-machine argument, and have no control-flow path to
-the selected result load. Completion uses that same exact builder field.
-Address escapes inside the body, custom or spoofed builders, re-entering null
-cleanup, and every ambiguous identity, store, census, or reachability case
-remain unresolved. Scoped body indexes withhold this whole-assembly absence
-proof. The shared exception-aware block graph conservatively joins a finally
-handler's possible leave continuations, so a suspension enclosed by
-`try`/`finally` may remain unresolved when that join can reach the result load.
+the selected result load. The suspension census enumerates generic,
+non-generic, pooled, void, and iterator framework builder families so an
+incompatible family rejects the proof instead of disappearing; only the exact
+result-compatible generic builder can qualify. Completion uses that same exact
+builder field. A reference-type state-machine local remains the current
+instance only when no earlier address use that can reach its selected
+registration may replace it. A whole-current-instance indirect write or
+unrecognized by-ref escape in any analyzed method on the physical state-machine
+type invalidates its candidates. Result-field address escapes inside the body,
+custom or spoofed builders, re-entering null cleanup, and every ambiguous
+identity, store, census, or reachability case also remain unresolved. Scoped
+body indexes withhold this whole-assembly absence proof. The shared
+exception-aware block graph conservatively joins a finally handler's possible
+leave continuations, so a suspension enclosed by `try`/`finally` may remain
+unresolved when that join can reach the result load.
 `ResultSinks_WithholdFieldSourceForConservativeFinallyFlow` gates this
 fail-closed boundary.
 `ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField` and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
+`ResultSinks_RejectAddressMutatedReferenceStateMachineArgument`,
+`ResultSinks_RejectWholeStateMachineInstanceWrite`,
+`ResultSinks_InventoryNonGenericFrameworkBuilderSuspensions`,
 `ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
 `ResultSinks_RejectUnresolvedExternalFieldStoreAlias`,
 `ResultSinks_AuthenticateStateMachineCompletionBuilderField`,

@@ -146,6 +146,9 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<FieldStoreFact> FieldStores;
     public ImmutableArray<FieldLoadFact> FieldLoads;
     public ImmutableArray<MethodReturnFlow> ReturnFlows;
+    // Reachable whole-value writes or unrecognized by-ref escapes of this
+    // method's current instance, consumed only by the assembly-level proof.
+    public ImmutableArray<int> CurrentInstanceMutations;
     // Set before metadata/body classification; only a proven bodiless method
     // can opt out of the unscoped absence census.
     public bool RequiresCompleteFieldAccessCensus;
@@ -578,6 +581,10 @@ internal sealed class LibraryMethodAnalysisRunner(
             includeJsonWireContractFlow
                 ? ImmutableArray.CreateBuilder<FieldLoadFact>()
                 : null;
+        ImmutableArray<int>.Builder? currentInstanceMutations =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<int>()
+                : null;
         ImmutableArray<MethodReturnFlow>.Builder? returnFlows =
             includeJsonWireContractFlow
                 ? ImmutableArray.CreateBuilder<MethodReturnFlow>()
@@ -937,6 +944,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                     resultSinks: resultSinks,
                     fieldStores: fieldStores,
                     fieldLoads: fieldLoads,
+                    currentInstanceMutations:
+                        currentInstanceMutations,
                     returnFlows: returnFlows);
                 result.FieldAccessCensusComplete =
                     result.RequiresCompleteFieldAccessCensus;
@@ -976,6 +985,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                             calls,
                             fieldStores,
                             fieldLoads,
+                            currentInstanceMutations!,
                             resultSinks);
                 }
             }
@@ -1146,6 +1156,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.ResultSinks = resultSinks?.ToImmutable() ?? [];
             result.FieldStores = fieldStores?.ToImmutable() ?? [];
             result.FieldLoads = fieldLoads?.ToImmutable() ?? [];
+            result.CurrentInstanceMutations =
+                currentInstanceMutations?.ToImmutable() ?? [];
             result.ReturnFlows = returnFlows?.ToImmutable() ?? [];
         }
         return result;
