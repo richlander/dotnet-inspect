@@ -517,10 +517,11 @@ replacement within an authorized block dispatches without asking, setting
 `HELP`, or waiting for user input. Approval is required only before rounds 7,
 13, 19, and so on; each approval authorizes at most six more rounds.
 
-At a block boundary, conflict recovery may push immediately, but reviewer
-dispatch waits for approval. Before asking, acquire fresh green current-head
-`ci-required` and definite positive mergeability under the 60-minute status
-budget; if it expires, publish its report and stop without asking.
+At a block boundary, conflict recovery may push immediately unless an immutable
+split decision hold is active; reviewer dispatch waits for approval. Before
+asking, acquire fresh green current-head `ci-required` and definite positive
+mergeability under the 60-minute status budget; if it expires, publish its
+report and stop without asking.
 
 Round 12 and every later six-round boundary presume splitting into focused
 successors unless a strong, user-approved reason keeps the PR intact. Full

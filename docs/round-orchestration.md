@@ -42,16 +42,17 @@ locked candidate.
 
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
-| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
-| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to [Bounded status waiting](#bounded-status-waiting) |
-| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
-| Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to [Bounded status waiting](#bounded-status-waiting) |
+| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, applicable CI rule below | Mergeability; eligible pending CI |
+| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
+| Conflict-recovery attempt | Resolution head pushed, round number authorized, applicable CI rule below | Post-push local gates, mergeability; eligible pending CI |
+| Failed-gate restart | Required fix pushed, one status attempt, applicable CI rule below, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-A Markdown-only candidate (every changed file is `*.md`) substitutes pre-commit
-`markdownlint` for green `ci-required` at non-boundary rounds; `ci-required`
-remains mandatory at every six-round boundary and for final merge readiness.
-The user may authorize review in parallel with CI for other changes.
+A non-Markdown candidate requires green current-head `ci-required` before
+reviewer dispatch unless the user authorized parallel review. A Markdown-only
+candidate (every changed file is `*.md`) substitutes pre-commit `markdownlint`
+at non-boundary rounds. Only those two exceptions make pending CI eligible;
+`ci-required` remains mandatory at six-round boundaries and final merge.
 
 ### Review-clean, and recovery
 
@@ -150,10 +151,10 @@ fetched base tip, not by undocumented REST `mergeable_state` values.
 
 *This section defines repository policy, not GitHub timing guarantees.*
 
-Every round attempts one current-head snapshot. At an ordinary round, a
-pending, rate-limited, or transient result is recorded and the next round
-continues. A known conflict, non-green `ci-required`, or terminal query failure
-still takes its transition.
+Every round attempts one current-head snapshot. When CI is eligible to remain
+pending, a pending, rate-limited, or transient result is recorded and the next
+round continues. A known conflict, ineligible non-green `ci-required`, or
+terminal query failure still takes its transition.
 
 Every third round spends up to a 60-minute status budget before it may advance;
 a merge or readiness goal may use the same bound. Every sixth round uses that
