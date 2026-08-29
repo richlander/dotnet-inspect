@@ -869,6 +869,41 @@ fail.
 
 CSS is not linted. Adopting Stylelint is tracked separately.
 
+### Protections the linters cannot provide
+
+Everything above reads source text at build time. Two properties matter here that
+no amount of reading source text can establish.
+
+The first is what a browser is allowed to do with the page once it ships.
+`staticwebapp.config.json` sets four response headers globally —
+`X-Content-Type-Options: nosniff`, which stops content-type guessing on the JSON,
+TSV and wasm this site serves, plus `Referrer-Policy`, `X-Frame-Options` and
+`Strict-Transport-Security`. Azure Static Web Apps returns the union of
+`globalHeaders` and a matching route's `headers`, with the route winning per key,
+so a route that names one of these keys replaces the global value for its own
+paths and the file still reads as though the protection is global. A toolchain
+test pins the header set and requires the route keys to stay disjoint from it,
+which is what makes "on every response" true rather than merely intended. CI
+re-checks the headers in the published artifact, because the site is deployed
+from that copy rather than from the source file.
+
+The second is whether the third-party digests in `index.html` still describe what
+the CDN serves. `require-sri` enforces that a cross-origin subresource *carries*
+a digest, and that is the whole of what a linter can see; whether the digest is
+still current is a fact about the network that changes without any commit here.
+`eng/check-inspect-web-sri.sh` re-fetches each pinned URL and compares hashes,
+reading the pins out of the document so they cannot drift from what the site
+actually loads. It runs weekly rather than per pull request — reaching jsDelivr
+is required, and an outage there is not a defect in somebody's change — and files
+a tracking issue on drift. The exposure it closes is narrow and worth stating
+precisely: SRI means the browser *refuses* mismatched bytes, so a stale pin does
+not execute anything unexpected. It silently drops the subresource, which on this
+site means syntax highlighting stops working with nothing in CI to say why.
+
+A Content-Security-Policy is not yet in place; it is tracked separately, because
+the generated `<script type="importmap">` needs a per-build hash before
+`script-src` can be strict.
+
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
 `knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated

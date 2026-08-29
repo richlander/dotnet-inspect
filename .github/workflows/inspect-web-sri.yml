@@ -1,0 +1,61 @@
+name: Inspect Web SRI freshness
+
+# `require-sri` in .htmlvalidate.json checks that the third-party subresources in
+# index.html carry a digest. Whether that digest still describes what the CDN serves is a
+# fact about the network, not about the source tree, so no linter and no offline test can
+# answer it -- and it can change without any commit to this repository.
+#
+# This runs on a schedule rather than as a pull-request gate on purpose. It needs to reach
+# jsDelivr, and jsDelivr being unreachable is not a defect in somebody's pull request.
+# Wiring it into `ci-required` would convert an external outage into a merge block, which
+# is a flake rather than a protection.
+on:
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: inspect-web-sri
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Verify pinned subresource digests
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check pinned subresource digests
+        run: ./eng/check-inspect-web-sri.sh
+
+  report:
+    name: Report drift
+    needs: check
+    if: ${{ github.event_name == 'schedule' && failure() }}
+    runs-on: ubuntu-26.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="Pinned inspect-web subresource digests no longer match the CDN"
+          num=$(gh issue list --repo "${{ github.repository }}" \
+            --state open --search "$title in:title" \
+            --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$num" ]; then
+            gh issue comment --repo "${{ github.repository }}" "$num" \
+              --body "The scheduled check failed again: $RUN_URL"
+          else
+            gh issue create --repo "${{ github.repository }}" \
+              --title "$title" \
+              --body $'A scheduled SRI freshness check failed. The run log names each URL and shows the pinned and served digests.\n\nRun: '"$RUN_URL"$'\n\nSubresource Integrity means the browser refuses a resource whose bytes do not match, so the visible effect is a subresource that silently stops loading -- on this site, syntax highlighting. Re-pin the digests in `prototypes/inspect-web/index.html`, or pin a different version deliberately.\n\nReproduce locally with `./eng/check-inspect-web-sri.sh`. This issue was opened automatically and will not auto-close.'
+          fi

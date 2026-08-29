@@ -93,6 +93,7 @@ interface StaticWebAppRoute {
 }
 
 interface StaticWebAppConfig {
+  readonly globalHeaders: Readonly<Record<string, string>>;
   readonly routes: readonly StaticWebAppRoute[];
   readonly navigationFallback: {
     readonly rewrite: string;
@@ -2319,6 +2320,37 @@ test("static hosting serves credits links through the application entry point", 
     ["/api/*", "/assets/*", "/_framework/*"],
   );
   assert.match(siteIndexHtml, /<base href="\/" \/>/);
+});
+
+test("static hosting sends its security headers on every response", () => {
+  // These are response-header protections, so nothing in the source tree can stand in for
+  // them: a linter reads the markup this project ships, while these constrain what a
+  // browser will do with it once shipped. `nosniff` stops content-type guessing on the
+  // JSON, TSV and wasm this site serves, and the other three are the cheap defaults that
+  // need no coordination with page content.
+  assert.deepEqual(staticWebAppConfig.globalHeaders, {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+  });
+
+  // Azure Static Web Apps returns the union of `globalHeaders` and a matching route's
+  // `headers`, with the route winning per key. A route that names one of these keys
+  // therefore replaces the global value for its own paths, and the response says nothing
+  // about the substitution -- the file still reads as though the protection is global.
+  // Requiring the two key sets to stay disjoint is what keeps "on every response" in this
+  // test's name true, and it is a property of the config rather than an enumeration of
+  // the ways a route could weaken one.
+  const overriding = staticWebAppConfig.routes
+    .filter(route => Object.keys(route.headers ?? {})
+      .some(header => Object.hasOwn(staticWebAppConfig.globalHeaders, header)))
+    .map(route => route.route);
+
+  assert.deepEqual(overriding, [],
+    "this route sets a header that `globalHeaders` also sets, and Azure Static Web Apps "
+      + "lets the route value win, so paths under it would carry a weaker policy than "
+      + "this file appears to apply everywhere");
 });
 
 const linuxLibcs = ["glibc", "musl"];
