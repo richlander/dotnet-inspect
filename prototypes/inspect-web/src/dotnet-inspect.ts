@@ -6954,6 +6954,7 @@ function runHomeDemo(kind: ProductHomeDemoId) {
 // workbench; the home search reuses the still-resident package list.
 function goHome() {
   navigationSequence.begin();
+  state.loading = false;
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   invalidateGraphMemberNavigation();
@@ -6977,6 +6978,7 @@ function openCredits() {
     return;
   }
   navigationSequence.begin();
+  state.loading = false;
   state.packageQueryOpen = false;
   packageQueryController.cancel();
   state.credits = true;
@@ -9822,13 +9824,20 @@ function applyLocationView(loc: ParsedLocation) {
 // target for a lone/legacy link), loading each tab in order so the tab bar and any
 // cross-package dependency edges come back. Only the focused target restores its deep-link.
 async function restoreInitialWorkspace() {
-  const loc = initialWorkspace.resolve();
+  const navigationSeq = navigationSequence.current();
+  const loc = workspaceLocation.preflightCurrent().resolve();
   if (loc.routeFailure) {
-    await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+    await restoreWorkspaceFromLocation(
+      loc,
+      deepLinkFromLocation(loc),
+      navigationSeq);
     return;
   }
   if (loc.hasWorkspaceState && !loc.shareState) {
-    await restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
+    await restoreWorkspaceFromLocation(
+      loc,
+      deepLinkFromLocation(loc),
+      navigationSeq);
     return;
   }
   const packageId = loc.package;
@@ -9850,7 +9859,8 @@ async function restoreInitialWorkspace() {
   state.requestedFramework = resolvedLocation.framework;
   await restoreWorkspaceFromLocation(
     resolvedLocation,
-    deepLinkFromLocation(resolvedLocation));
+    deepLinkFromLocation(resolvedLocation),
+    navigationSeq);
 }
 
 function isStyleTier(value: unknown): value is StyleTier {
@@ -10440,6 +10450,7 @@ function dismissModalsForRoutedNavigation() {
 }
 
 window.addEventListener("popstate", () => {
+  const leftPackageQueryHandoff = currentPackageQueryHandoff();
   const navigationSeq = navigationSequence.begin();
   let leftPackageQueryForWorkspaceSuccessor = false;
   dismissModalsForRoutedNavigation();
@@ -10458,7 +10469,7 @@ window.addEventListener("popstate", () => {
     return;
   }
   state.loading = false;
-  if (state.packageQueryOpen || currentPackageQueryHandoff()) {
+  if (state.packageQueryOpen || leftPackageQueryHandoff) {
     state.packageQueryOpen = false;
     packageQueryHandoffNavigationSeq = null;
     packageQueryController.cancel();
@@ -10470,7 +10481,6 @@ window.addEventListener("popstate", () => {
     leftPackageQueryForWorkspaceSuccessor =
       !state.packageQueryReturnFocusPending;
   }
-  const loc = parseLocation();
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();
     if (!clearWorkspaceRouteFailure()) {
@@ -10485,6 +10495,25 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
+  if (leftPackageQueryForWorkspaceSuccessor) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+  }
+  if (!state.engineReady) {
+    const pendingWorkspace = workspaceLocation.preflightCurrent();
+    const pendingLocation = pendingWorkspace.visible;
+    state.queryNotice = pendingLocation.workspaceNotice || "";
+    state.queryNoticeRetryAction = null;
+    state.credits = false;
+    state.home =
+      !pendingLocation.package
+      && !pendingWorkspace.hasWorkspaceState
+      && !pendingLocation.routeFailure;
+    state.loading = !state.home;
+    if (state.home) clearNavigationError();
+    render();
+    return;
+  }
+  const loc = parseLocation();
   if (loc.routeFailure) {
     failWorkspaceRoute(loc.routeFailure.message);
     return;
@@ -10517,9 +10546,6 @@ window.addEventListener("popstate", () => {
     spotlight.reset();
     render();
     return;
-  }
-  if (leftPackageQueryForWorkspaceSuccessor) {
-    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   state.credits = false;
   resetLocationFilters();
