@@ -81,6 +81,50 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
+    public void Select_PreservesBindingPolicyShadows()
+    {
+        ResolvedAssemblyReference selected = Descriptor(
+            AssemblyResolutionProvenance.Designated("selected"));
+        ResolvedAssemblyReference shadow = Descriptor(
+            AssemblyResolutionProvenance.Platform(
+                "platform",
+                frameworkVersion: null,
+                "shadow"));
+        var resolver = new RecordingResolverPolicy(
+            AssemblyBindingSelection.Found(selected, [shadow]));
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+
+        var result = Assert.IsType<AssemblyBindingSelection.Selected>(
+            policy.Select(
+                Request(AssemblyBindingTarget.Reference(Reference))));
+
+        Assert.Same(selected, result.Assembly);
+        Assert.Same(shadow, Assert.Single(result.ShadowedAssemblies));
+        Assert.Equal(1, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
+    }
+
+    [Fact]
+    public void Select_PreservesBindingPolicyAmbiguity()
+    {
+        ResolvedAssemblyReference first = Descriptor(
+            AssemblyResolutionProvenance.Designated("first"));
+        ResolvedAssemblyReference second = Descriptor(
+            AssemblyResolutionProvenance.Designated("second"));
+        var resolver = new RecordingResolverPolicy(
+            AssemblyBindingSelection.Multiple([first, second]));
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+
+        var result = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            policy.Select(
+                Request(AssemblyBindingTarget.Reference(Reference))));
+
+        Assert.Equal([first, second], result.Assemblies);
+        Assert.Equal(1, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
+    }
+
+    [Fact]
     public void NoResolverPolicy_NeverSelectsAnyBindingTarget()
     {
         Assert.IsType<AssemblyBindingSelection.Missing>(
@@ -104,6 +148,15 @@ public class AssemblyReferenceBindingPolicyTests
             AssemblyBindingOrigin.Global(),
             AssemblyResolutionScope.Any);
 
+    static ResolvedAssemblyReference Descriptor(
+        AssemblyResolutionProvenance provenance) =>
+        ResolvedAssemblyReference.Create(
+            Reference,
+            path: null,
+            () => throw new InvalidOperationException(
+                "The adapter must not open binding descriptors."),
+            provenance);
+
     sealed class RecordingResolver(
         Func<AssemblyReferenceIdentity, AssemblyResolutionScope, ResolvedAssemblyReference?> resolve)
         : IAssemblyReferenceResolver
@@ -116,6 +169,30 @@ public class AssemblyReferenceBindingPolicyTests
         {
             Requests.Add((identity, scope));
             return resolve(identity, scope);
+        }
+    }
+
+    sealed class RecordingResolverPolicy(
+        AssemblyBindingSelection selection)
+        : IAssemblyReferenceResolver, IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+        public int ResolutionCount { get; private set; }
+        public int SelectionCount { get; private set; }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+        {
+            ResolutionCount++;
+            return null;
+        }
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            SelectionCount++;
+            return selection;
         }
     }
 }
