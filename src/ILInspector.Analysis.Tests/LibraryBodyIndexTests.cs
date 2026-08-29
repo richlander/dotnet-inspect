@@ -1563,6 +1563,159 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == source
+                && candidate.StateMachineFieldSource is not null);
+        AsyncStateMachineFieldResultSource fieldSource =
+            sink.StateMachineFieldSource!;
+
+        Assert.False(sink.IsComplete);
+        Assert.Empty(sink.SourceCallOffsets);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            sink.AsyncBody?.Lowering);
+        Assert.Equal("MoveNext", sink.EvidenceMethod.Name);
+        Assert.Equal(
+            sink.EvidenceMethod.DeclaringType,
+            fieldSource.Field.DeclaringType);
+        Assert.NotEqual(0, fieldSource.Field.LocalDefinitionToken);
+        Assert.True(fieldSource.StoreOffset < fieldSource.LoadOffset);
+        DirectCall producer = Assert.Single(
+            index.DirectCalls,
+            call => call.EvidenceMethod == sink.EvidenceMethod
+                && fieldSource.SourceCallOffsets.Contains(
+                    call.ILOffset));
+        Assert.Equal("ProducePayload", producer.Callee.Name);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        string[] rejected =
+        [
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .DoesNotBorrowUnrelatedFieldStore),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .HasMultipleStoresBeforeAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .StoresAfterDifferentSuspension),
+        ];
+
+        foreach (string methodName in rejected)
+        {
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == methodName);
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                sink => sink.Caller == source
+                    && sink.StateMachineFieldSource is not null);
+        }
+
+        MethodIdentity lookalike = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .AuthoredFieldLookalike
+                        .ReturnCallThroughField));
+        Assert.DoesNotContain(
+            index.ResultSinks,
+            sink => sink.Caller == lookalike
+                && sink.StateMachineFieldSource is not null);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == source
+                && candidate.StateMachineFieldSource is not null);
+        AsyncStateMachineFieldResultSource fieldSource =
+            sink.StateMachineFieldSource!;
+        FieldStoreFact store = Assert.Single(
+            index.FieldStores,
+            candidate =>
+                candidate.EvidenceMethod == sink.EvidenceMethod
+                && candidate.ILOffset == fieldSource.StoreOffset);
+        FieldStoreFact physicalStore = store with
+        {
+            Caller = sink.EvidenceMethod,
+        };
+
+        Assert.True(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore],
+                    out FieldStoreFact? exact));
+        Assert.Equal(physicalStore, exact);
+
+        Assert.False(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore with { Identity = null }],
+                    out _));
+        FieldIdentity possibleAlias = Assert.IsType<FieldIdentity>(
+            FieldIdentity.TryCreate(
+                fieldSource.Field.DeclaringType,
+                fieldSource.Field.Name));
+        Assert.True(
+            fieldSource.Field.MightBeSameFieldAs(possibleAlias));
+        Assert.NotEqual(fieldSource.Field, possibleAlias);
+        Assert.False(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore with { Identity = possibleAlias }],
+                    out _));
+    }
+
+    [Fact]
+    public void
         ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync()
     {
         string path =

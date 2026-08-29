@@ -188,6 +188,73 @@ public sealed class ResolvedValueSet : IEquatable<ResolvedValueSet>
 }
 
 /// <summary>
+/// Exact call-result provenance carried through one compiler async
+/// state-machine field across suspension.
+/// </summary>
+/// <remarks>
+/// The field, store, and load coordinates are physical evidence in the
+/// containing <see cref="MethodResultSink.EvidenceMethod"/>. This fact is
+/// issued only for a sink with authenticated
+/// <see cref="AsyncLoweringKind.StateMachine"/> attribution, one unambiguous
+/// pre-suspension store, one exact post-suspension load, and a trusted
+/// framework async-builder completion. It does not infer provenance from
+/// generated field names. Custom async builders remain unresolved.
+/// <c>LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias</c>
+/// gate the positive and fail-closed boundaries.
+/// </remarks>
+public sealed class AsyncStateMachineFieldResultSource
+{
+    internal AsyncStateMachineFieldResultSource(
+        FieldIdentity field,
+        int storeOffset,
+        int loadOffset,
+        ImmutableArray<int> sourceCallOffsets)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (field.LocalDefinitionToken == 0)
+        {
+            throw new ArgumentException(
+                "Async state-machine field provenance requires a local field definition.",
+                nameof(field));
+        }
+        if (storeOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(storeOffset));
+        if (loadOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(loadOffset));
+        if (storeOffset >= loadOffset)
+        {
+            throw new ArgumentException(
+                "The field store must precede the field load.",
+                nameof(storeOffset));
+        }
+        sourceCallOffsets =
+            ImmutableArrayValueEquality.RequireInitialized(
+                sourceCallOffsets,
+                nameof(sourceCallOffsets));
+        if (sourceCallOffsets.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Async state-machine field provenance requires a call source.",
+                nameof(sourceCallOffsets));
+        }
+
+        Field = field;
+        StoreOffset = storeOffset;
+        LoadOffset = loadOffset;
+        SourceCallOffsets = sourceCallOffsets;
+    }
+
+    public FieldIdentity Field { get; }
+    public int StoreOffset { get; }
+    public int LoadOffset { get; }
+    public ImmutableArray<int> SourceCallOffsets { get; }
+}
+
+/// <summary>
 /// Equality-stable, position-indexed collection of <see cref="ResolvedValueSet"/>.
 /// </summary>
 public sealed class ResolvedValueSets :

@@ -203,6 +203,7 @@ the unpatched control still publishes.
 | `FieldStoreFact`, `FieldLoadFact` | One `stsfld`/`stfld` or `ldsfld`/`ldfld` instruction | Which field the instruction touches, whether its receiver is an argument, whether the block is reachable, and (for stores) the resolved stored value | Whether some other body also writes the field, or aliased/indirect access |
 | `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef` whatever its parent encoding; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
 | `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
+| `AsyncStateMachineFieldResultSource` | One authenticated compiler async `MethodResultSink` | Which exact local state-machine field carried direct call results from one store before every suspension to the corresponding load after every suspension | Custom async builders, authored lookalikes, ambiguous or non-call stores, loops, foreign or unresolved fields, and unknown reachability |
 | `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
 
 `ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
@@ -214,6 +215,20 @@ reads the other, so existing consumers keep their exact semantics.
 `MethodCallResolvedValueTests` is the gate for the union; the call-only
 completeness boundary keeps its own
 `MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources` gate.
+
+`AsyncStateMachineFieldResultSource` is likewise additive: a field-carried
+compiler result keeps historical `MethodResultSink.IsComplete == false` and an
+empty `SourceCallOffsets`, while the typed field fact preserves the exact
+physical field, store, load, and direct-call coordinates. Analysis issues it
+only after `AsyncBodyAttribution` authenticates a distinct state-machine body
+and kickoff source, and only for trusted framework `Task`/`ValueTask` builder
+completion. Compiler-emitted null cleanup after the load does not erase the
+already-proven transfer; every other possible same-field write fails closed.
+`LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
+and
+`ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
+`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` gate the positive and
+negative contract.
 
 `MethodReturnFlow` is a **whole-body** fact, not a per-sink one, and it is
 likewise separate from `MethodResultSink`, which keeps its historical call-only

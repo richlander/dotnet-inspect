@@ -952,6 +952,18 @@ internal sealed class LibraryMethodAnalysisRunner(
                         AsyncBody = asyncBody,
                     };
                 }
+                if (fieldStores is not null
+                    && fieldLoads is not null)
+                {
+                    MethodCallAnalysis
+                        .AttachAsyncStateMachineFieldResultSources(
+                            context,
+                            asyncBody,
+                            calls,
+                            fieldStores,
+                            fieldLoads,
+                            resultSinks);
+                }
             }
             if (includeOpportunities)
             {

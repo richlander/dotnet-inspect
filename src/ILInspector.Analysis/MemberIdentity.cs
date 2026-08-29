@@ -686,6 +686,27 @@ public sealed record MethodResultSink(
     /// <c>MethodCallResolvedValueTests.ResolvesResultSinkValues</c> gates it.
     /// </remarks>
     public ResolvedValueSet? ResolvedValue { get; init; }
+
+    /// <summary>
+    /// Exact direct-call sources recovered through one authenticated compiler
+    /// async state-machine field. Null unless Analysis proves one unambiguous
+    /// store before every suspension and the corresponding load after every
+    /// suspension in the physical body, into a trusted framework async-builder
+    /// completion sink.
+    /// </summary>
+    /// <remarks>
+    /// This augments rather than reinterprets
+    /// <see cref="SourceCallOffsets"/>/<see cref="IsComplete"/>: those members
+    /// retain their direct evaluation-stack meaning.
+    /// <c>LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias</c>
+    /// gate this contract.
+    /// </remarks>
+    public AsyncStateMachineFieldResultSource? StateMachineFieldSource
+        { get; init; }
 }
 
 /// <summary>

@@ -38,6 +38,57 @@ public static class ClassicAsyncSiblingFixture
         return ReadValue(value);
     }
 
+    public static async Task<string>
+        ReturnsCallStoredBeforeAwait()
+    {
+        string payload = ProducePayload();
+        await Task.Yield();
+        return payload;
+    }
+
+    public static async Task<string>
+        DoesNotBorrowUnrelatedFieldStore(string payload)
+    {
+        string unrelated = ProducePayload();
+        await Task.Yield();
+        GC.KeepAlive(unrelated);
+        return payload;
+    }
+
+    public static async Task<string>
+        HasMultipleStoresBeforeAwait(bool first)
+    {
+        string payload = first
+            ? ProducePayload()
+            : ProduceOtherPayload();
+        await Task.Yield();
+        return payload;
+    }
+
+    public static async Task<string>
+        StoresAfterDifferentSuspension()
+    {
+        await Task.Yield();
+        string payload = ProducePayload();
+        await Task.Yield();
+        return payload;
+    }
+
+    public sealed class AuthoredFieldLookalike
+    {
+        string _payload = "";
+
+        public string ReturnCallThroughField()
+        {
+            _payload = ProducePayload();
+            return _payload;
+        }
+    }
+
+    static string ProducePayload() => "payload";
+
+    static string ProduceOtherPayload() => "other";
+
     public static async Task<bool> AsyncGenBoxed<T>(
         T left,
         T right)

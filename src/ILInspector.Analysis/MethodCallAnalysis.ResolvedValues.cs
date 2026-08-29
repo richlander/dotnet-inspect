@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 
 using ILInspector.ControlFlow;
@@ -158,6 +159,231 @@ internal static partial class MethodCallAnalysis
                 { Kind: ResolvedValueSourceKind.Argument } argument
                 ? argument.ArgumentIndex
                 : -1;
+    }
+
+    internal static void AttachAsyncStateMachineFieldResultSources(
+        MethodBodyAnalysisContext context,
+        AsyncBodyAttribution asyncBody,
+        ImmutableArray<DirectCall>.Builder calls,
+        ImmutableArray<FieldStoreFact>.Builder fieldStores,
+        ImmutableArray<FieldLoadFact>.Builder fieldLoads,
+        ImmutableArray<MethodResultSink>.Builder resultSinks)
+    {
+        if (asyncBody.Lowering != AsyncLoweringKind.StateMachine
+            || asyncBody.SourceMethod == context.Method)
+        {
+            return;
+        }
+
+        int[] suspensionOffsets =
+        [
+            .. calls
+                .Where(call =>
+                    call.Caller == context.Method
+                    && call.IsReachable == true
+                    && IsAsyncBuilderSuspension(call.Callee))
+                .Select(call => call.ILOffset)
+                .Order(),
+        ];
+        if (suspensionOffsets.Length == 0)
+            return;
+
+        for (int index = 0; index < resultSinks.Count; index++)
+        {
+            MethodResultSink sink = resultSinks[index];
+            DirectCall? sinkCall = calls.FirstOrDefault(
+                call => call.Caller == context.Method
+                    && call.ILOffset == sink.ILOffset);
+            if (sink.Caller != context.Method
+                || sink.EvidenceMethod != context.Method
+                || sink.Kind
+                    != MethodResultSinkKind.SingleArgumentCall
+                || sinkCall is null
+                || !IsAsyncBuilderResult(sinkCall.Callee)
+                || sink.ResolvedValue?.Single is not
+                    {
+                        Kind: ResolvedValueSourceKind.InstanceFieldLoad,
+                        ArgumentIndex: 0,
+                        FieldIdentity: { LocalDefinitionToken: not 0 } field,
+                    } loadSource
+                || !field.DeclaringType.Equals(
+                    context.Method.DeclaringType))
+            {
+                continue;
+            }
+
+            FieldLoadFact[] matchingLoads =
+            [
+                .. fieldLoads.Where(load =>
+                    load.Caller == context.Method
+                    && load.EvidenceMethod == context.Method
+                    && load.ILOffset == loadSource.ILOffset
+                    && !load.IsStatic
+                    && load.ReceiverArgumentIndex == 0
+                    && load.IsReachable == true
+                    && field.Equals(load.Identity)),
+            ];
+            if (matchingLoads.Length != 1)
+                continue;
+
+            if (!TryFindAsyncStateMachineFieldSourceStore(
+                    context.Method,
+                    field,
+                    loadSource.ILOffset,
+                    fieldStores,
+                    out FieldStoreFact? sourceStore)
+                || context.IsInLoopRegion(sourceStore.ILOffset)
+                || sourceStore.ILOffset >= suspensionOffsets[0]
+                || loadSource.ILOffset
+                    <= suspensionOffsets[^1]
+                || !TryCallResultOffsets(
+                    sourceStore.Value,
+                    out ImmutableArray<int> sourceCallOffsets))
+            {
+                continue;
+            }
+
+            resultSinks[index] = sink with
+            {
+                StateMachineFieldSource =
+                    new AsyncStateMachineFieldResultSource(
+                        field,
+                        sourceStore.ILOffset,
+                        loadSource.ILOffset,
+                        sourceCallOffsets),
+            };
+        }
+    }
+
+    internal static bool TryFindAsyncStateMachineFieldSourceStore(
+        MethodIdentity method,
+        FieldIdentity field,
+        int loadOffset,
+        IEnumerable<FieldStoreFact> fieldStores,
+        [NotNullWhen(true)]
+        out FieldStoreFact? sourceStore)
+    {
+        sourceStore = null;
+        foreach (FieldStoreFact store in fieldStores)
+        {
+            if (store.Caller != method
+                || store.EvidenceMethod != method
+                || !field.MightBeSameFieldAs(store.Identity)
+                || store.IsReachable == false)
+            {
+                continue;
+            }
+
+            // A possible alias blocks the proof but can never supply it.
+            if (store.Identity is null
+                || !field.Equals(store.Identity)
+                || store.IsReachable != true
+                || store.IsStatic
+                || store.ReceiverArgumentIndex != 0)
+            {
+                sourceStore = null;
+                return false;
+            }
+
+            if (store.ILOffset < loadOffset)
+            {
+                if (sourceStore is not null
+                    || IsNullReference(store.Value))
+                {
+                    sourceStore = null;
+                    return false;
+                }
+                sourceStore = store;
+                continue;
+            }
+
+            if (!IsNullReference(store.Value))
+            {
+                sourceStore = null;
+                return false;
+            }
+        }
+
+        return sourceStore is not null;
+    }
+
+    static bool TryCallResultOffsets(
+        ResolvedValueSet value,
+        out ImmutableArray<int> offsets)
+    {
+        if (!value.IsResolved
+            || value.Sources.IsDefaultOrEmpty
+            || value.Sources.Any(source =>
+                source.Kind != ResolvedValueSourceKind.CallResult))
+        {
+            offsets = [];
+            return false;
+        }
+
+        offsets =
+        [
+            .. value.Sources
+                .Select(source => source.ILOffset)
+                .Distinct()
+                .Order(),
+        ];
+        return offsets.Length != 0;
+    }
+
+    static bool IsNullReference(ResolvedValueSet value)
+        => value.Single is
+        {
+            Kind: ResolvedValueSourceKind.NullReference,
+        };
+
+    static bool IsAsyncBuilderSuspension(MemberRef callee)
+    {
+        if (callee.Name is not ("AwaitOnCompleted"
+                or "AwaitUnsafeOnCompleted")
+            || !callee.HasThis
+            || callee.ParameterTypes.Length != 2
+            || !callee.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void")))
+        {
+            return false;
+        }
+
+        return IsSystemAsyncMethodBuilder(
+            callee.DeclaringType,
+            allowNonGeneric: true);
+    }
+
+    static bool IsAsyncBuilderResult(MemberRef callee)
+        => callee.Name == "SetResult"
+            && callee.HasThis
+            && callee.ParameterTypes.Length == 1
+            && callee.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void"))
+            && IsSystemAsyncMethodBuilder(
+                callee.DeclaringType,
+                allowNonGeneric: false);
+
+    static bool IsSystemAsyncMethodBuilder(
+        TypeRef declaringType,
+        bool allowNonGeneric)
+    {
+        TypeRef identity =
+            declaringType.Kind
+                == TypeRefKind.GenericInstance
+                && declaringType.ElementType is { } definition
+                ? definition
+                : declaringType;
+        return identity.Kind == TypeRefKind.Definition
+            && identity.Assembly == TypeRef.CoreLibrary
+            && identity.Namespace
+                == "System.Runtime.CompilerServices"
+            && (identity.Name is "AsyncTaskMethodBuilder`1"
+                    or "AsyncValueTaskMethodBuilder`1"
+                || allowNonGeneric
+                    && identity.Name is (
+                        "AsyncTaskMethodBuilder"
+                        or "AsyncValueTaskMethodBuilder"
+                        or "AsyncVoidMethodBuilder"));
     }
 
     /// <summary>
