@@ -19,9 +19,9 @@ documentation.
 - **Design first.** Work must be covered by a design or reasonably extend one;
   ask the user when it is unclear whether a new design is needed. Finding
   defects in a design is always cheaper than finding them in code.
-  Docs-only PRs move faster than code PRs: a code PR must wait on CI before
-  review, to avoid spending agent time reviewing a broken build, but a
-  docs-only PR only needs `markdownlint` and does not wait on CI at all.
+- **Markdown-only PRs do not wait on CI.** When every changed file is `*.md`,
+  `markdownlint` is the only pre-review and per-round gate. Dispatch review
+  without checking or waiting for `ci-required`.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -45,8 +45,8 @@ documentation.
   executes code, which narrows the threat model. We don't defend against
   local or intra-repo actors. `InertString` and `HardenedJson` are the model:
   construction-time containment threaded through the object model (see
-  [Security work follows the actual trust
-  boundary](#security-work-follows-the-actual-trust-boundary)).
+  [Keep design and adversarial review within
+  scope](#keep-design-and-adversarial-review-within-scope)).
 
 > A change spanning Markout and this repo is rare and uses a separate
 > co-development loop: read
@@ -267,19 +267,19 @@ over-broad-design recovery procedure live in
   "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
   "deny-listed").
 
-### Security work follows the actual trust boundary
+### Keep design and adversarial review within scope
 
-Our primary scenario is downloading and processing untrusted internet data; the
-tool never executes inspected code. Local actors, contributors, and agents are
-not part of the threat model — that is a code-review or repository-hygiene
-concern, not product hardening. The full trust-boundary table, existing
-controls, and structural-containment guidance (`HardenedJson`,
-`InertText.InertString`) live in
+Do not add design requirements or adversarial-review findings for symlinks or
+reparse points; other users or agents acting on the same machine; or files
+mutating during inspection unless an owning design explicitly opts in.
+nuget.org content is immutable; local files may change freely between
+operations rather than provide stable snapshots. The primary threat is
+untrusted internet data; the tool never executes inspected code. Additional
+trust-boundary and containment guidance:
 [`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
-When a credible external-input threat exists, define it in the focused owning
-design first: name the actor, input path, boundary, containment invariant, and
-enforcement gate. Prefer a constrained type whose construction establishes the
-invariant over string conventions or scattered checks.
+For a credible external-input threat, first define its actor, input path,
+boundary, containment invariant, and enforcement gate in the owning design.
+Prefer construction-time containment (`HardenedJson`, `InertText.InertString`).
 
 ### Platform compatibility
 
@@ -392,8 +392,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    A known-red current-head `ci-required` still blocks; unavailable or pending
    status follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   A documentation-only PR's per-round gate is pre-commit `markdownlint`. A
-   failure requiring an author change restarts the *same* round.
+   A Markdown-only PR never waits for `ci-required`; its per-round gate is
+   pre-commit `markdownlint`. An author-change failure restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -549,12 +549,11 @@ Put it under `## Demo` above validation in the PR body.
 ## PR and CI discipline
 
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
-  Label a documentation-only PR (no product code, test, or build changes)
-  `documentation` when opening it.
+  Label a Markdown-only PR (every changed file is `*.md`) `documentation`.
 - Use REST endpoints via `gh api`, not `gh pr edit`, for PR/issue metadata
   changes; see [GitHub API operations](docs/github-api-operations.md) for the
   exact commands and the `-F`/`-f` distinction that matters for PR bodies.
-- Treat CI as confirmation: run the focused local gate, then push promptly;
+- For non-Markdown-only PRs, treat CI as confirmation: run the focused gate;
   run eligible local suites, CI, and review concurrently. Query GitHub status
   only when the round cadence requires it, using response headers instead of
   quota probes, and follow
