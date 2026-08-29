@@ -25,6 +25,10 @@ it or a recovery transition supersedes it. Both integrations (steps 1 and 4)
 happen before the push — base movement after the push does not reopen the
 locked candidate.
 
+Before step 1 for new work, visibly state `Design basis:` followed by every
+owning design document and the specific claim the work extends. Do not begin
+without naming that basis; return to design or ask the user when it is unclear.
+
 1. Integrate the effective base.
 2. Make the initial or review-driven change.
 3. Run the focused gate.
@@ -327,6 +331,7 @@ prompt:
 ```text
 Round <n> is complete for PR <number>.
 - Review models <model-a> and <model-b> were used for adversarial review.
+- Design basis: <owning design paths and the claims this work extends>.
 - Review feedback is: [converging, diverging, neutral, clean].
 - Round start: <datetime>.
 - Round end: <datetime>.
@@ -345,7 +350,9 @@ Use `Fix description` to state the concrete review-driven changes.
 Classification must match the reviewer outcomes:
 
 - If every required reviewer returned no findings and the locked head remained
-  unchanged, use `clean`. Do not use `converging` as a generic positive label.
+  unchanged, use `clean`. The report's `Design basis` must restate the owning
+  designs as part of that clean completion. Do not use `converging` as a generic
+  positive label.
 - If any reviewer returned a finding, use `converging`, `diverging`, or
   `neutral`, even when every finding was dismissed and the head stayed
   unchanged. Explain dismissals in the public reconciliation.
