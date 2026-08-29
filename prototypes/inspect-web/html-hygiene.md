@@ -20,10 +20,11 @@ Two rules, in order of importance:
 1. **Script belongs in a module under `src/`.** A document may *reference* script and
    should not *contain* any. `index.html` loads `src/bootstrap.ts` with `src=`, and that
    file is compiled and linted like any other source file.
-2. **Maintained linters check the documents themselves.** They own general HTML validity,
-   subresource integrity, and inline event handlers outright. They own external-reference
-   and `javascript:` URL policy only for the specific attributes named in
-   [What the tools own](#what-the-tools-own); every other route is review's.
+2. **Maintained linters check the documents themselves**, in their standard
+   configuration. They own general HTML validity, document structure, accessibility, and
+   the presence of subresource integrity on cross-origin loads. They do **not** own URL
+   policy or inline event handlers; see
+   [Custom validation we would need](#custom-validation-we-would-need).
 
 ### Why linters rather than a bespoke gate
 
@@ -35,10 +36,16 @@ The instrument was wrong for the claim. Proving that property means reimplementi
 tokenization and, in the end, reconstructing a bundler's private behaviour from its
 compiled output. Each review round found one more construct the enumeration had missed,
 because a shape recognizer over someone else's semantics has no closure argument
-available to it. The linters answer more of the question than the bespoke gate ever did:
+available to it.
+
+The replacement is not strictly larger, and it is worth being precise about the trade.
 `require-sri` covers `<link rel="stylesheet">`, `rel="modulepreload"`, and `rel="preload"`
-with `as="script"` or `as="style"`, as well as `<script>`, none of which the bespoke gate
-checked.
+with `as="script"` or `as="style"` as well as `<script>`, none of which the bespoke gate
+checked, and the presets bring validity, document-structure and accessibility rules it
+never had. In exchange, inline event handlers and external-URL policy moved from a gate
+that claimed them to the review list below. That is the honest position: a maintained tool
+that covers less, plus a written record of the remainder, beats a bespoke gate whose
+coverage claims did not survive review.
 
 The bespoke gate also drifted across the trust boundary this repository actually defends.
 It ended up decoding character references to catch a URL disguised inside our own
@@ -48,41 +55,22 @@ our own source.
 
 ## What the tools own
 
-Both linters run in `npm run lint`, which CI invokes through `npm run analyze`.
+Both linters run in their **standard configuration**. That is a deliberate choice rather
+than a starting point: the configuration carries exactly one option change, and every
+rule it enables is one the upstream projects maintain.
 
-| Tool | Configuration | What it covers |
+| Tool | Config | Owns |
 | --- | --- | --- |
-| [html-validate][hv] | `.htmlvalidate.json`, `html-elements.json` | HTML validity and the `recommended` preset; `attr-pattern` rejecting every `on*` event handler attribute on HTML elements and on the root of an inline SVG or MathML subtree, but *not* on their descendants; `require-sri` for cross-origin `<script>` and `<link rel="stylesheet\|modulepreload">` and `rel="preload"` with `as="script\|style"`; the SRI digest grammar, declared as element metadata; `allowed-links` restricting external references to an allow list, on `<a href>`, `<img src>`, `<link href>` and `<script src>` only |
-| [htmlhint][hh] | `.htmlhintrc` | `inline-script-disabled` -- `javascript:` URLs in link and source attributes |
+| [html-validate][hv] | `.htmlvalidate.json` | The `standard`, `document`, and `a11y` presets: HTML validity, element and attribute conformance, document structure, and WCAG rules. Plus `require-sri`, which requires an `integrity` attribute on cross-origin `<script>` and on `<link>` with `rel="stylesheet"`, `rel="modulepreload"`, or `rel="preload"` with `as="script"` or `as="style"` |
+| [htmlhint][hh] | `.htmlhintrc` | Its default ruleset, plus `inline-script-disabled` for `javascript:` URLs in link and source attributes |
 
-Inline event handlers are owned by html-validate's `attr-pattern`, configured with a
-pattern that rejects any attribute name beginning `on`, with `ignoreForeign` turned off so
-that it also applies to the root of an inline SVG or MathML subtree (its descendants are a
-[review responsibility](#script-inside-svg)). That is deliberately a *shape*
-rather than a list. htmlhint's `inline-script-disabled` also flags event handlers, but it
-enumerates event names and its list predates the modern ones -- `onpointerdown`,
-`onbeforeinput`, `onanimationstart` and `ontoggle` all pass it. A rule that has to be
-extended every time the platform grows an event is the same losing position this project
-just left, so the pattern does that work and htmlhint is kept only for `javascript:` URLs.
+The one option change is `require-sri`'s `target`, set to `crossorigin` rather than the
+preset's `all`. Without it the rule asks for a digest on same-origin files such as
+`/src/styles.css`, where there is no third party to pin.
 
-The pattern is `^(?!on[a-z]).+$` -- purely a negative prefix, with no allow list of
-permitted attribute-name characters after it. That matters: an earlier draft spelled the
-tail as `[a-zA-Z0-9:_.-]+`, which rejected template and framework attribute syntax such as
-`[class.active]`, `#panel` and `*ngIf`, and so quietly recreated the enumeration this PR
-exists to delete. The remaining cost is that `on[a-z]*` is reserved wholesale, so an inert
-attribute that happens to start that way -- `once` is the realistic example -- is rejected
-too. That is the intended trade: the false positive is visible at author time and takes a
-scoped disable directive to clear, whereas a missed handler is silent.
-
-Read that third column narrowly; both tools are more specific than a summary suggests.
-`inline-script-disabled` inspects `href` and `src`, so a `javascript:` URL reached through
-any other executable attribute is [review's](#javascript-urls-outside-href-and-src). It
-also matches the literal scheme text, so an entity-encoded spelling such as
-`java&#x73;cript:` passes it; that is left alone deliberately, because obfuscation of that
-kind is not an honest mistake, and the trust boundary here is the bytes a CDN serves, not
-the contributors writing these files. `allowed-links` is narrower still: it inspects
-exactly four element/attribute pairs, and everything else that loads or navigates is
-[review's](#external-loads-allowed-links-does-not-see).
+A toolchain test hands each linter a specimen its configuration must reject, and requires
+the rejection to name the expected rule. That is what keeps a linter that has stopped
+running, lost its configuration, or been handed no documents from reading as a clean pass.
 
 ### Suppressions
 
@@ -97,17 +85,10 @@ the rule off across the project.
 Prefer that shape for any future exemption. A directive at the element leaves the rule
 working everywhere else and puts the justification where the next reader will be standing.
 
-`toolchain.test.ts` owns the wiring rather than the analysis. It hands both linters every
-document the project owns and requires a clean report, then requires the same committed
-configuration to reject a specimen *by name of the rule that must reject it*. A linter
-that stops running, loses its rules, or is never handed a document fails there instead of
-going quietly green.
-
 ## What review owns
 
-The linters do not cover everything the bespoke gate attempted. These are the hazards to
-watch for when reviewing any change that touches a document. None of them is
-tool-enforced.
+These are the hazards a standard linter configuration does not cover. None of them is
+tool-enforced; each is something to look for in any change that touches a document.
 
 ### Inline `<script>` bodies
 
@@ -128,11 +109,11 @@ reference it with `src=`.
 
 `<iframe srcdoc="&lt;script&gt;...">` runs script on load and needs no interaction.
 Neither linter flags it. The same is true of the other route to an inline active document,
-`<iframe src="data:text/html,...">`: the markup is a *value*, so `attr-pattern` sees only
-an ordinary `src` attribute and the handler inside it is invisible to every gate here --
-and to TypeScript and oxlint, which is exactly the outcome this document exists to
-prevent. `allowed-links` does not reach it either, because it does not inspect `<iframe>`
-at all. There are no `<iframe>` elements in this project today.
+`<iframe src="data:text/html,...">`: the markup is a *value*, so a linter sees only an
+ordinary `src` attribute and the handler inside it is invisible to every gate here -- and
+to TypeScript and oxlint, which is exactly the outcome this document exists to
+prevent. Nothing here inspects `<iframe>` at all. There are no `<iframe>` elements in this
+project today.
 
 **In review, reject:** `srcdoc` outright, and any `data:` URL bearing an HTML or
 script media type in an attribute that loads a document.
@@ -146,183 +127,131 @@ before any preload or import map, but nothing checks that a base is local.
 
 **In review, reject:** any `<base>` whose `href` is not `/`.
 
+### Inline event handlers
+
+Neither linter rejects `onclick`, `onpointerdown`, or any other `on*` attribute in its
+standard configuration. htmlhint's `inline-script-disabled` flags some of them, but it
+enumerates event names against a list that predates the modern ones: `onpointerdown`,
+`onbeforeinput`, `onanimationstart` and `ontoggle` all pass it.
+
+**In review, reject:** any attribute whose name begins `on`, anywhere, including inside
+SVG and MathML.
+
 ### Third-party bytes
 
-`require-sri` enforces that cross-origin `<script>` and `<link>` carry an `integrity`
-attribute, and `attribute-allowed-values` enforces that its value is a digest a browser
-will actually honour. That second half is not html-validate's default: `require-sri` is a
-presence check, and out of the box `integrity="bogus"` satisfies it. A browser discards
-metadata it cannot use and fetches the resource *unpinned*, so a malformed digest looks
-pinned to a reader and behaves like no SRI at all. `html-elements.json` closes that gap by
-declaring the SRI grammar as element metadata for `<script>` and `<link>`.
+`index.html` loads three Prism files from jsDelivr. Each is pinned to an exact version in
+the URL and carries a subresource integrity digest, and `require-sri` is what keeps the
+digest from being dropped. **Nothing enforces the version pin, the host, or the digest's
+correctness** -- see [Custom validation we would need](#custom-validation-we-would-need).
 
-Read "cross-origin `<link>`" narrowly. `require-sri` covers `rel="stylesheet"`,
-`rel="modulepreload"`, and `rel="preload"` only when `as` is `script` or `style`. A
-preload with `as="font"`, `as="image"`, `as="fetch"`, `as="document"` or `as="worker"`
-loads third-party bytes with no `integrity` and no complaint from either linter.
+A CDN is untrusted internet-origin data. That is the trust boundary [`AGENTS.md`][agents]
+names, and it is the reason a floating version is a real hazard rather than a tidiness
+concern: `@latest` resolves to whatever the CDN serves that day, and for elements SRI does
+not cover -- `<img>` has no `integrity` -- the URL is the only pin available.
 
-**In review, reject:** an external `<link rel="preload">` whose `as` is anything other
-than `script` or `style` carrying no `integrity`, and treat any new external preload
-destination as a decision about whose bytes we run.
+Do not read the current jsDelivr URLs as a safe-by-construction allow list. jsDelivr is a
+*public* CDN that serves any package published to npm, plus arbitrary GitHub repositories
+through its `/gh/` route, so "it is the same host we already use" bounds far less than it
+appears to.
 
-That grammar follows the [SRI][sri] and [CSP3][csp] productions rather than being
-tightened to taste, because a false rejection here blocks a legitimate dependency bump.
-It accepts both the base64 and base64url alphabets, optional padding, surrounding and
-separating whitespace, multiple digests, and the `?options` suffix. Algorithm tokens are
-ASCII case-insensitive per the SRI production, so `SHA384-` and `Sha384-` are accepted
-alongside `sha384-`. It pins the *significant length* of each digest -- 43, 64, and 86
-characters for SHA-256, SHA-384, and SHA-512 -- because length is what distinguishes a
-real digest from a truncated paste.
+**In review, reject:** a new external origin; a URL without an exact `major.minor.patch`
+version; a `/gh/` URL; any URL containing `..`; a cross-origin `<script>` or stylesheet
+`<link>` without `integrity`; and any `integrity` value not copied from the CDN's own
+published digest.
 
-Be precise about what that length check buys, because SRI has two failure modes and only
-one is fail-open. A truncated `sha256-` value still names a *recognised* algorithm, so the
-browser keeps it as metadata and blocks the resource when the digest does not match: it
-fails closed, at runtime, as a broken page. The fail-open branch is metadata with no
-recognised algorithm at all, like `integrity="bogus"`, which parses to the empty set and
-lets the fetch proceed unpinned. So the grammar converts a plausible truncation typo from
-a runtime failure into a build-time one, and it is `integrity="bogus"` that it stops from
-running unpinned.
+### Elements the linters do not check for external loads
 
-`allowed-links` then restricts external references to the CDN allow list in
-`.htmlvalidate.json`. That pattern pins the *version*, not just the host: it matches
-`cdn.jsdelivr.net/npm/<package>@<major>.<minor>.<patch>/`, so `@latest`, a major-only
-`@1`, a bare package name with no version, and `/gh/<user>/<repo>@<branch>/` are all
-rejected. Path segments after the version accept `+`, so jsDelivr's `/+esm` module form
-stays available to a future dependency.
+`require-sri` covers `<script>` and three `<link>` relations. Nothing else in the standard
+configuration looks at where bytes come from, so all of the following can load
+unpinned third-party content with a clean lint run:
 
-The pattern is anchored at both ends and refuses any URL containing `..`, which is load
-bearing rather than defensive. `allowed-links` matches the **raw attribute string**, not
-the URL a browser will actually fetch, and a browser resolves dot segments before
-fetching: an unanchored prefix match accepted
-`npm/prismjs@1.30.0/../../gh/user/repo/x.js`, which normalises to the `/gh/` route the
-pattern is supposed to reject, and reached real bytes.
+- `<video>`, `<audio>`, `<source>`, and `<track>`
+- `srcset` on `<img>` and `<source>`, which the SRI mechanism does not cover at all
+- `<use href>` and `<image href>` inside SVG
+- `<iframe>`, `<embed>`, and `<object>`
+- `@import` and `url()` inside a `<style>` block or a stylesheet
+- `<link>` relations outside the three `require-sri` recognises, including `icon`,
+  `manifest`, `prefetch`, `preconnect`, and `preload` with any other `as` value
 
-That raw-string matching also drives the "external or relative?" decision, and it decided
-wrongly for a whole family of spellings. A leading space or tab, an upper-cased scheme
-(`HTTPS://unpkg.com/...`), a protocol-relative `//host/x.js`, and backslash separators
-(`https:\\host\x.js`) were each classified *relative* -- and a value classified relative
-is never tested against the allow list or by `require-sri`, so any of them loaded
-unpinned third-party code past the entire configuration. Round 5 review found this, and
-it is closed in configuration by `allowRelative.exclude`, which forces anything that
-looks like a scheme or an authority down the external path:
+**In review, reject:** any of these pointing at an origin this project does not already
+depend on.
 
-```text
-^[ \t\n\f\r]*(?:[A-Za-z][A-Za-z0-9+.-]*:|[/\\]{2})
-```
+### `javascript:` URLs outside link and source attributes
 
-`/local/x`, `./local/x`, and `src/styles.css` remain relative and are unaffected.
-Specimens in `toolchain.test.ts` hold the setting in place.
+htmlhint's `inline-script-disabled` covers the attributes it knows about. A
+`javascript:` URL reaches script from other places too, including `<form action>`,
+`<button formaction>`, and `xlink:href` inside SVG.
 
-**In review, reject:** any URL containing `..`, wherever it appears.
-
-Pinning the version there is not redundant with SRI. SRI does not apply to every element
-that loads bytes -- `<img>` has no `integrity` -- so for those the URL is the only pin
-available, and a floating URL serves whatever the CDN has today. Where SRI does apply, a
-floating URL at least fails closed once the digest stops matching, which is a broken page
-rather than unreviewed code. An exact version avoids both.
-
-These are real: a CDN can change the bytes it serves, and this is the one boundary in this
-project where an actor outside the machine is in scope.
-
-The tools enforce the mechanics, so what is left for review is the judgement:
-
-**In review, check:** widening `allowExternal` -- adding a host, or loosening the version
-pattern -- is a deliberate decision about whose bytes we run, not a lint fix. Bumping a
-pinned dependency means a new version *and* a new digest, together.
-
-### External loads `allowed-links` does not see
-
-`allowed-links` maps exactly four element/attribute pairs -- `<a href>`, `<img src>`,
-`<link href>` and `<script src>`. Nothing else it might plausibly cover is covered, so
-these all pass both linters as configured:
-
-```html
-<meta http-equiv="refresh" content="0;url=https://elsewhere.example/app" />
-<iframe title="x" src="https://elsewhere.example/app"></iframe>
-<object data="https://elsewhere.example/x.swf"></object>
-<embed title="x" src="https://elsewhere.example/x" />
-<form action="https://elsewhere.example/collect"><button type="submit">go</button></form>
-```
-
-Those specimens carry a `title` and a submit button because otherwise html-validate rejects
-them for missing one -- an accessibility rule, not a URL policy. Satisfy that and the
-external destination itself draws no complaint from either tool.
-
-The meta refresh is the sharpest of these: it navigates the whole application to another
-origin with no interaction at all, and the CDN allow list never sees it. There are no
-`<iframe>`, `<object>`, `<embed>` or `<form>` elements in this project today, and no
-`<meta http-equiv>` of any kind.
-
-**In review, reject:** any absolute external URL in an attribute other than those four
-pairs, unless it is a deliberate, named decision the way the CDN allow list is.
-
-### Link relations that `require-sri` does not recognise
-
-`require-sri` matches the whole `rel` attribute against a small set of values instead of
-tokenizing it. `rel="stylesheet"` is checked; `rel="alternate stylesheet"`,
-`rel="stylesheet license"`, and `rel="STYLESHEET"` are not, and load without `integrity`.
-This is an upstream matching bug and cannot be closed from configuration: `require-sri`'s
-`target: "all"` setting still keys off the same `rel` match, and requiring `integrity` on
-every `<link>` outright would break the local stylesheet and the preload anchor.
-
-Do not read the allow list as neutralising this. jsDelivr is a *public* CDN that serves
-any package published to npm, so "it can only reach the allow-listed host" bounds far less
-than it sounds like it does. What the version-exact pattern buys is narrower and worth
-stating precisely: it rejects the `/gh/<user>/<repo>` route outright, so such a link must
-name a real npm package at an exact version rather than arbitrary repository content. The
-residual is a real npm package, at a pinned version, loaded without a digest -- smaller
-than it was, and still not nothing.
-
-**In review, reject:** any `<link>` with a multi-token or unusually cased `rel` that
-carries no `integrity`.
-
-### `javascript:` URLs outside `href` and `src`
-
-htmlhint's `inline-script-disabled` catches `javascript:` in `href` and `src`, which is
-where it usually appears. It does not look anywhere else, and several other attributes
-navigate or load:
-
-```html
-<form action="javascript:alert(1)"></form>
-<object data="javascript:alert(1)"></object>
-<meta http-equiv="refresh" content="0;url=javascript:alert(1)" />
-```
-
-Both linters accept all three as configured. html-validate's `meta-refresh` rule does not
-help -- it governs the refresh *delay*, for accessibility, and is indifferent to the
-scheme.
-
-**In review, reject:** the `javascript:` scheme in any attribute, not just `href` and
-`src`.
+**In review, reject:** a `javascript:` URL anywhere.
 
 ### Script inside SVG
 
-SVG loads external code through `<script href="...">`, not HTML's `src`. It is a
-different attribute in a different namespace, and none of the URL rules look at it:
-`require-sri` and `allowed-links` both key off HTML's `src`/`href` on HTML elements, so an
-SVG `<script href>` passes those gates. Element metadata does not help either, because
-html-validate does not apply it to foreign-namespace content.
-
-Inline event handlers on the SVG *root* are covered, but only because the configuration
-says so. `attr-pattern` defaults to `ignoreForeign: true`, which skips foreign-namespace
-content entirely and let `<svg onpointerdown="...">` through both linters while the
-identical handler on an HTML element was rejected. `.htmlvalidate.json` sets
-`ignoreForeign: false`, and a specimen in `toolchain.test.ts` holds it there.
-
-That setting covers the root element and nothing below it. Handlers on SVG and MathML
-*descendants* -- `<circle onpointerdown="...">`, `<path onclick="...">` -- pass both
-linters, because html-validate has no metadata for those elements and skips them.
-Round 5 found this; the round before had shipped a root-element specimen as evidence for
-the broader claim. Closing it in configuration would mean enumerating every SVG element
-in `html-elements.json`, which is the failure mode this whole document exists to get out
-of, so it stays a review responsibility. `toolchain.test.ts` pins the gap, so if a later
-html-validate covers descendants the test fails and this paragraph gets narrowed.
+SVG loads external code through `<script href="...">`, not HTML's `src`, and
+html-validate does not apply element rules to foreign-namespace content at all. Nothing
+here inspects the inside of an SVG subtree.
 
 There are no `.svg` files in this project today, and no inline SVG in `index.html`.
 
 **In review, reject:** `<script>` inside SVG, whether it carries `href`, `xlink:href`, or
-a body; and any `on*` handler attribute on any SVG or MathML element other than the root,
-including in standalone `.svg` files.
+a body; any `on*` handler on any SVG or MathML element; and `<use>` or `<image>` fetching
+a remote resource.
+
+## Custom validation we would need
+
+Everything in [What review owns](#what-review-owns) is unenforced by choice. This section
+records what closing the largest of those gaps would actually take, so the next person to
+consider it starts from evidence rather than from scratch.
+
+The gap worth closing first is **URL policy**: requiring that every external reference
+names an allow-listed host at an exact version. A previous revision of this branch tried
+it with html-validate's `allowed-links` rule and an allow-list pattern, and six review
+rounds found six ways past it. The reason is structural rather than a bad regex.
+`allowed-links` first *classifies* a URL with a short heuristic -- roughly "does it start
+with `scheme://` or `//`?" -- and applies policy only to what it labels external. Anything
+the heuristic mislabels skips the allow list and `require-sri` together. Confirmed
+spellings that the browser's URL parser resolves to a real external origin, and that the
+heuristic classified as relative or absolute:
+
+- a leading space or tab, `" https://host/x.js"`
+- an upper-cased scheme, `"HTTPS://host/x.js"`
+- a protocol-relative reference, `"//host/x.js"`
+- backslash separators, `"https:\\host\x.js"`
+- a tab *inside* the scheme, `"ht<TAB>tps://host/x.js"`, since URL parsing strips tab,
+  LF and CR from anywhere in the input
+- the same tab written as a character reference, `"h&#x09;ttps://host/x.js"`, which
+  html-validate does not decode before matching
+- `"/<TAB>/host/x.js"`, which takes the rule's *absolute* branch and never consults the
+  relative allow list at all
+
+Patching the classifier is the losing move, and it is the same enumeration failure that
+removed the bespoke gate: each round closed the spellings that were known and the next
+round found another.
+
+The shape that works is **deny-by-default on the attribute value itself**, using
+html-validate's `attribute-allowed-values` through element metadata. That rule matches the
+raw attribute value with no classification step, so an unrecognised spelling fails because
+it does not match the allow list, not because someone predicted it. A prototype of this
+enumerating what is *allowed* -- this project's own relative paths, plus one pinned CDN
+pattern -- rejected all seven spellings above along with a foreign host, a floating
+`@latest` version, and a `..` traversal, across all four of `a href`, `img src`,
+`link href`, and `script src`, while still accepting relative paths, fragments, the
+committed Prism URLs, and jsDelivr's `+esm` form.
+
+It was not adopted here because it is a bespoke security control with a real maintenance
+cost, and this project's documents are small enough to read. Two things to keep in mind if
+it is revisited:
+
+- **Enumerate what is allowed, never what is forbidden.** The allow list is short and
+  known; the set of hostile spellings is not.
+- **Verify by running the linter, not by reading the regex.** html-validate merges a
+  directory's `.htmlvalidate.json` on top of a `--config` file, so a probe can silently
+  test the committed configuration instead of the candidate one. Set `root: true` in the
+  candidate config to stop the cascade.
+
+The other gaps -- inline event handlers, the unchecked elements, SVG subtree contents --
+have no configuration-level answer in either linter today. Closing them means either a
+custom html-validate rule or a different tool, and neither is worth it while the review
+list above is this short.
 
 ## Adding a document
 
@@ -345,5 +274,3 @@ Two structural defaults are worth preserving:
 [agents]: ../../AGENTS.md
 [hv]: https://html-validate.org/
 [hh]: https://htmlhint.com/
-[sri]: https://www.w3.org/TR/sri/
-[csp]: https://www.w3.org/TR/CSP3/

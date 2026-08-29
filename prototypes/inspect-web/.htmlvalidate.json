@@ -1,23 +1,10 @@
 {
-  "extends": ["html-validate:recommended"],
-  "elements": ["html5", "./html-elements.json"],
+  "extends": [
+    "html-validate:standard",
+    "html-validate:document",
+    "html-validate:a11y"
+  ],
   "rules": {
-    "doctype-style": "off",
-    "void-style": "off",
-    "long-title": "off",
-    "attr-pattern": ["error", { "pattern": "^(?!on[a-z]).+$", "ignoreForeign": false }],
-    "require-sri": ["error", { "target": "crossorigin" }],
-    "allowed-links": ["error", {
-      "allowExternal": {
-        "include": [
-          "^(?!.*\\.\\.)https://cdn\\.jsdelivr\\.net/npm/(@[a-zA-Z0-9._-]+/)?[a-zA-Z0-9._-]+@[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.-]+)?(/[a-zA-Z0-9._+-]+)*$"
-        ]
-      },
-      "allowRelative": {
-        "exclude": [
-          "^[ \\t\\n\\f\\r]*(?:[A-Za-z][A-Za-z0-9+.-]*:|[/\\\\]{2})"
-        ]
-      }
-    }]
+    "require-sri": ["error", { "target": "crossorigin" }]
   }
 }

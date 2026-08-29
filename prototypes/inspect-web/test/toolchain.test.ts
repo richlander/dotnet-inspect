@@ -438,116 +438,32 @@ interface MarkupLinter {
   readonly specimens: readonly MarkupSpecimen[];
 }
 
-const remoteScript = (attributes: string): string =>
-  '<!DOCTYPE html><html lang="en"><head><title>t</title>'
-    + `<script src="https://cdn.jsdelivr.net/x.js"${attributes}></script>`
-    + "</head><body></body></html>";
-
 const markupLinters: readonly MarkupLinter[] = [
   {
     command: "html-validate",
     config: ".htmlvalidate.json",
     specimens: [
-      // Remote bytes with no integrity attribute at all.
-      { markup: remoteScript(""), rule: "require-sri" },
-      // Remote bytes carrying integrity metadata a browser cannot honour. The digest
-      // here is one character short of a SHA-256, which is what a truncated copy-paste
-      // produces; `require-sri` is satisfied by any non-empty string, and a grammar that
-      // checked only the shape and not the length would accept it too.
-      // `html-elements.json` is what makes it fail.
-      //
-      // Be precise about why this matters, because SRI has two distinct failure modes
-      // and only one of them is fail-open. `sha256` is a recognised algorithm, so a
-      // browser keeps this as metadata and the resource is *blocked* when the digest
-      // does not match -- it fails closed, at runtime, as a broken page. The fail-open
-      // branch is metadata with no recognised algorithm at all, such as
-      // `integrity="bogus"`, which parses to the empty set and lets the fetch proceed
-      // unpinned. So this specimen buys a build-time failure instead of a runtime one
-      // for a plausible typo, rather than preventing unpinned execution.
-      {
-        markup: remoteScript(
-          ' integrity="sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSu"'),
-        rule: "attribute-allowed-values",
-      },
-      // An inline event handler. `attr-pattern` rejects any attribute whose name begins
-      // `on`, so this holds for handlers that did not exist when it was written --
-      // htmlhint's equivalent rule enumerates event names and misses the modern ones.
-      {
-        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
-          + '<body><button type="button" onpointerdown="doThing()">x</button>'
-          + "</body></html>",
-        rule: "attr-pattern",
-      },
-      // The same handler on the SVG *root*. This is a separate specimen rather than a
-      // variant of the one above because `attr-pattern` defaults to `ignoreForeign:
-      // true` and so skips foreign-namespace content entirely: with that default an
-      // inline SVG handler passes both linters while the HTML one is rejected. The
-      // config turns it off, and this is what holds that setting in place.
-      //
-      // Read this specimen for exactly what it says. It proves `ignoreForeign: false`
-      // is in effect on the foreign root, and nothing about the elements underneath it
-      // -- handlers on SVG *descendants* are not covered by either linter, which is a
-      // review responsibility recorded in `html-hygiene.md` and pinned by
-      // `MARKUP_DESCENDANT_GAP` below. Round 4 shipped this specimen as evidence for
-      // the broader claim, and rounds 5 (GPT-5.6 Sol and Gemini 3.1 Pro, concurrently)
-      // showed the broader claim was false.
-      {
-        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
-          + '<svg xmlns="http://www.w3.org/2000/svg" onpointerdown="doThing()">'
-          + '<circle cx="5" cy="5" r="5" /></svg></body></html>',
-        rule: "attr-pattern",
-      },
-      // A host that is not the one CDN this project pins bytes from.
+      // Cross-origin bytes with no integrity attribute. `require-sri` is the one rule
+      // this project configures away from its preset default -- `target: "crossorigin"`,
+      // so that same-origin files are not asked for a digest they do not need. This
+      // specimen is what proves that option is still wired up.
       {
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title>'
-          + '<link rel="stylesheet" href="https://cdn.example.com/x.css" />'
+          + '<script src="https://cdn.jsdelivr.net/x.js"></script>'
           + "</head><body></body></html>",
-        rule: "allowed-links",
+        rule: "require-sri",
       },
-      // The right CDN, but a floating version. `@latest` resolves to whatever the CDN
-      // is serving today, so the bytes are not pinned by the URL. Subresource integrity
-      // does not rescue this in general: it does not apply to `<img>` at all, so for
-      // some elements the URL is the only pin available. This specimen is what holds
-      // the version half of the allow-list pattern in place -- a host-only pattern
-      // passes it.
+      // A structural error from the `standard` preset: an element that is not closed.
       {
-        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
-          + '<img src="https://cdn.jsdelivr.net/npm/prismjs@latest/x.png" alt="x" />'
-          + "</body></html>",
-        rule: "allowed-links",
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
+          + "<body><div></body></html>",
+        rule: "close-order",
       },
-      // The right CDN and an exact version, but with dot segments after it. A browser
-      // normalises `npm/pkg@1.2.3/../../gh/user/repo/x.js` to `gh/user/repo/x.js` before
-      // fetching, so a prefix match on the raw attribute sees a pinned npm package while
-      // the bytes come from an arbitrary GitHub repository. This is what holds the
-      // traversal guard and the end anchor in the allow-list pattern in place: without
-      // either one, the pattern matches this string.
+      // An accessibility error from the `a11y` preset.
       {
-        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
-          + '<img src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/../../gh/u/r/x.png"'
-          + ' alt="x" /></body></html>',
-        rule: "allowed-links",
-      },
-      // `allowed-links` decides "external or relative?" by looking at the raw attribute
-      // string, and it decides wrongly for several spellings the browser's URL parser
-      // resolves to a real external origin: a leading space, a leading tab, an
-      // upper-cased scheme, a protocol-relative `//host`, and backslash separators.
-      // Each was classified relative, and a value classified relative is never tested
-      // against `allowExternal` or by `require-sri` -- so an unpinned third-party
-      // script loaded by any of those spellings passed the whole configuration. Round 5
-      // (GPT-5.6 Sol) found this and validated the `allowRelative.exclude` pattern now
-      // in `.htmlvalidate.json`, which forces every one of them down the external path.
-      // These two specimens are what hold that setting in place.
-      {
-        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
-          + '<script src=" https://evil.example/x.js"></script>'
-          + "</body></html>",
-        rule: "allowed-links",
-      },
-      {
-        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head><body>'
-          + '<img src="HTTPS://evil.example/x.png" alt="x" /></body></html>',
-        rule: "allowed-links",
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
+          + '<body><img src="/x.png" /></body></html>',
+        rule: "wcag/h37",
       },
     ],
   },
@@ -555,16 +471,20 @@ const markupLinters: readonly MarkupLinter[] = [
     command: "htmlhint",
     config: ".htmlhintrc",
     specimens: [
-      // htmlhint is retained for exactly one property: a `javascript:` URL in `href` or
-      // `src`. html-validate covers neither form -- `allowed-links` inspects only the
-      // destination of links it considers external, and a `javascript:` URL is not one.
-      // So this specimen, not an inline handler, is what holds htmlhint in the
-      // toolchain: inline handlers are `attr-pattern`'s property now, and testing them
-      // here would leave htmlhint's only reason to exist unproven.
+      // htmlhint is kept for `javascript:` URLs, which html-validate does not reject.
+      // Its own event-handler coverage enumerates event names and misses the modern
+      // ones, so it is not relied on for that.
       {
         markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
-          + '<body><a href="javascript:doThing()">x</a></body></html>',
+          + '<body><a href="javascript:alert(1)">x</a></body></html>',
         rule: "inline-script-disabled",
+      },
+      // A default-ruleset error, proving the committed ruleset is the standard one
+      // rather than a file that silently disabled everything.
+      {
+        markup: '<!DOCTYPE html><html lang="en"><head><title>t</title></head>'
+          + "<body><DIV></DIV></body></html>",
+        rule: "tagname-lowercase",
       },
     ],
   },
@@ -627,38 +547,6 @@ test("the HTML linter configuration in this project still rejects markup", () =>
             + `so that rule is no longer doing the work this project relies on it for:\n${
               markup}\n${run.output}`);
       }
-    }
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
-});
-
-// `html-hygiene.md` says inline handlers on SVG and MathML *descendants* are review's
-// job rather than a linter's. That caveat is a claim about tool behavior, and an
-// unverified one goes stale silently in whichever direction upstream moves: if a later
-// html-validate covers descendants, the document keeps telling reviewers to hand-check
-// something now gated, and the residual it describes reads as larger than it is.
-//
-// So pin it. A failure here is not a vulnerability -- it means the hole closed and the
-// document should be narrowed to match.
-const MARKUP_DESCENDANT_GAP = '<!DOCTYPE html><html lang="en"><head><title>t</title>'
-  + '</head><body><svg xmlns="http://www.w3.org/2000/svg">'
-  + '<circle cx="5" cy="5" r="5" onpointerdown="doThing()" /></svg></body></html>';
-
-test("the documented SVG-descendant handler gap is still the tools' behavior", () => {
-  const root = fileURLToPath(new URL("../", import.meta.url));
-  const scratch = mkdtempSync(join(tmpdir(), "inspect-web-markup-gap-"));
-
-  try {
-    const specimen = join(scratch, "specimen.html");
-    writeFileSync(specimen, MARKUP_DESCENDANT_GAP);
-
-    for (const linter of markupLinters) {
-      const run = runMarkupLinter(linter, root, [specimen]);
-      assert.equal(run.status, 0,
-        `${linter.command} now rejects an inline handler on an SVG descendant. That is `
-          + "an improvement, not a regression: narrow the SVG caveat in "
-          + `html-hygiene.md and drop this test.\n${run.output}`);
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
