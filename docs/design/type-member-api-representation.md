@@ -58,6 +58,21 @@ of repeated in every row.
 | `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
 | `MetadataNameArity` | One metadata-name segment, or a name in a stated nesting spelling | Whether a trailing `` `N `` is the canonical CLR generic-arity suffix, and the simple name left once it is removed | Whether the remaining name is spellable, unique, or resolvable, or where a namespace ends |
 
+`ApiMemberIdentity` owns the complete SRM-to-`MemberAnchor` projection.
+Its caller-owned cumulative overload charges MethodDef, generic-parameter, and
+declaring-type names together with signature trees, rendered signatures,
+canonical identity, selector output, and fingerprint input. Exhaustion is a
+visible `BadImageFormatException` and consumes the shared counter; the ordinary
+single-anchor overload keeps the same identity without adopting an
+operation-wide policy.
+`CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget`,
+`CreateMethodAnchorInfo_HighGenericArityExhaustsBeforeContextAllocation`, and
+`CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity` gate the aggregate
+bound and identity parity. The selector, fingerprint, and stable-selector
+`CreateMethodAnchorInfo_*ProjectionHasANonVacuousBudgetGate` tests each exhaust
+at its named projection stage, so removing one charge cannot leave the safety
+claim green.
+
 The target [assembly image lifetime](assembly-image-lifetime.md) contract adds
 owner-authorized image binding before current MVID and row validation. That
 binding is unverified pending

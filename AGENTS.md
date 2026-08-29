@@ -16,12 +16,17 @@ documentation.
 
 ### How work runs on this repo
 
-- **Design first.** Work must be covered by a design or reasonably extend one;
-  ask the user when it is unclear whether a new design is needed. Finding
-  defects in a design is always cheaper than finding them in code.
-  Docs-only PRs move faster than code PRs: a code PR must wait on CI before
-  review, to avoid spending agent time reviewing a broken build, but a
-  docs-only PR only needs `markdownlint` and does not wait on CI at all.
+- **Design first and state the basis.** Before starting new work, visibly name
+  one normative owner and exact owned claim, then supporting designs and models
+  by role. If ownership is unclear or multiple, apply the design-scope rules or
+  ask the user; finding design defects is cheaper than finding them in code.
+- **Requested work hot-starts through PR and review.** Agents may branch, commit,
+  push, and open its PR without separate approval. Once eligible, round 1 and
+  replacements inside the current six-round block dispatch automatically; only
+  a new block requires approval. Merge remains separately authorized.
+- **Markdown-only PRs hot-start immediately at non-boundary rounds.** When every
+  changed file is `*.md`, `markdownlint` is the pre-review and per-round gate.
+  Open the PR and dispatch review without asking or waiting for `ci-required`.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -45,8 +50,8 @@ documentation.
   executes code, which narrows the threat model. We don't defend against
   local or intra-repo actors. `InertString` and `HardenedJson` are the model:
   construction-time containment threaded through the object model (see
-  [Security work follows the actual trust
-  boundary](#security-work-follows-the-actual-trust-boundary)).
+  [Keep design and adversarial review within
+  scope](#keep-design-and-adversarial-review-within-scope)).
 
 > A change spanning Markout and this repo is rare and uses a separate
 > co-development loop: read
@@ -128,9 +133,9 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 
 ### Standing adjustments
 
-- **Review in parallel with CI:** requires the user's approval for that PR. A CI
-  failure requiring an author change still supersedes the attempt, and all
-  findings carry forward.
+- **Review ordinary non-Markdown changes in parallel with CI:** requires user
+  approval; conflict recovery is the explicit exception. A CI failure requiring
+  an author change still supersedes the attempt, and all findings carry forward.
 - **Auto-merge on the final push:** once every required review is review-clean,
   or the intended final head/base carries an approved exact-head
   trivial-interaction waiver, the user may authorize auto-merge for that exact
@@ -267,19 +272,20 @@ over-broad-design recovery procedure live in
   "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
   "deny-listed").
 
-### Security work follows the actual trust boundary
+### Keep design and adversarial review within scope
 
-Our primary scenario is downloading and processing untrusted internet data; the
-tool never executes inspected code. Local actors, contributors, and agents are
-not part of the threat model — that is a code-review or repository-hygiene
-concern, not product hardening. The full trust-boundary table, existing
-controls, and structural-containment guidance (`HardenedJson`,
-`InertText.InertString`) live in
+Unless an owning design explicitly opts in, do not add design requirements or
+adversarial-review findings for symlinks/reparse points, same-machine users or
+agents, or files mutating during inspection. Existing explicit controls remain
+governed by their owning designs.
+nuget.org content is immutable; local files may change freely between
+operations rather than provide stable snapshots. The primary threat is
+untrusted internet data; the tool never executes inspected code. Additional
+trust-boundary and containment guidance:
 [`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
-When a credible external-input threat exists, define it in the focused owning
-design first: name the actor, input path, boundary, containment invariant, and
-enforcement gate. Prefer a constrained type whose construction establishes the
-invariant over string conventions or scattered checks.
+For a credible external-input threat, first define its actor, input path,
+boundary, containment invariant, and enforcement gate in the owning design.
+Prefer construction-time containment (`HardenedJson`, `InertText.InertString`).
 
 ### Platform compatibility
 
@@ -389,11 +395,11 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    CI and GitHub's live mergeability immediately before every merge attempt,
    even when `review-clean` is present.
 6. **A round closes only when reconciled and its applicable gates are green.**
-   A known-red current-head `ci-required` still blocks; unavailable or pending
-   status follows
+   For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   A documentation-only PR's per-round gate is pre-commit `markdownlint`. A
-   failure requiring an author change restarts the *same* round.
+   At non-boundary rounds, a Markdown-only PR's gate is pre-commit
+   `markdownlint`; do not wait for CI before review. A gate failure requiring an
+   author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -506,25 +512,20 @@ follow-up work unless the operator explicitly approves it.
 
 ### Stop after six rounds
 
-Rounds 1-6 are the initial authorized block. Within an authorized block, a
-fix-producing round that requires replacement review continues automatically:
-report `Recommendation: continue` and begin the next candidate cycle without
-asking for approval, setting `HELP`, or waiting for user input.
+Review blocks hot-start. Rounds 1-6 begin automatically, and every fix-producing
+replacement within an authorized block dispatches without asking, setting
+`HELP`, or waiting for user input. Approval is required only before rounds 7,
+13, 19, and so on; each approval authorizes at most six more rounds.
 
-Approval is required only before rounds 7, 13, 19, and so on. Each approval
-allows at most six more rounds; stop sooner when review converges. At a block
-boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval unless an immutable split decision hold is active — a
-boundary push resets the status prerequisite, so checks from the previous head
-do not satisfy it. Before offering `approve next rounds`, acquire fresh green
-current-head `ci-required` and definite positive mergeability under the
-60-minute status budget; if it expires, publish the status budget report and
-stop observation without opening an approval prompt.
+At a block boundary, conflict recovery may push immediately unless an immutable
+split decision hold is active; reviewer dispatch waits for approval. Before
+asking, acquire fresh green current-head `ci-required` and definite positive
+mergeability under the 60-minute status budget; if it expires, publish its
+report and stop without asking.
 
-Round 12, and every six-round boundary after it, carries a presumption to
-split remaining work into focused successors rather than continue, unless a
-strong, user-approved reason keeps the PR intact. Checkpoint questions, the
-split exception, and execution mechanics:
+Round 12 and every later six-round boundary presume splitting into focused
+successors unless a strong, user-approved reason keeps the PR intact. Full
+checkpoint and split mechanics:
 [Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
 
 ## Lead with the demo
@@ -549,15 +550,14 @@ Put it under `## Demo` above validation in the PR body.
 ## PR and CI discipline
 
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
-  Label a documentation-only PR (no product code, test, or build changes)
-  `documentation` when opening it.
+  Label a Markdown-only PR (every changed file is `*.md`) `documentation`.
 - Use REST endpoints via `gh api`, not `gh pr edit`, for PR/issue metadata
   changes; see [GitHub API operations](docs/github-api-operations.md) for the
   exact commands and the `-F`/`-f` distinction that matters for PR bodies.
-- Treat CI as confirmation: run the focused local gate, then push promptly;
-  run eligible local suites, CI, and review concurrently. Query GitHub status
-  only when the round cadence requires it, using response headers instead of
-  quota probes, and follow
+- For non-Markdown-only PRs, run the focused gate, push promptly, and start
+  eligible local suites and CI concurrently. Reviewer dispatch waits for green
+  `ci-required` unless parallel review is approved or conflict recovery applies.
+  Query GitHub status only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
   instead of polling. If an hour passes without an authored change while an
   independent gate hasn't started, fix the sequencing or record the blocker.
