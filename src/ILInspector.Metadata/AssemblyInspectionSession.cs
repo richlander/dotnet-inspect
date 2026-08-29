@@ -460,6 +460,7 @@ public sealed class AssemblyInspectionSession : IDisposable
 
         try
         {
+            var provider = new SignatureOccurrenceProvider();
             SignatureTypeOccurrences occurrences;
             switch (subject.MemberKind)
             {
@@ -475,7 +476,7 @@ public sealed class AssemblyInspectionSession : IDisposable
                         return SignatureRejected();
                     }
                     occurrences = field.DecodeSignature(
-                        SignatureOccurrenceProvider.Instance,
+                        provider,
                         genericContext: null);
                     break;
                 }
@@ -493,9 +494,9 @@ public sealed class AssemblyInspectionSession : IDisposable
                     }
                     MethodSignature<SignatureTypeOccurrences>
                         propertySignature = property.DecodeSignature(
-                            SignatureOccurrenceProvider.Instance,
+                            provider,
                             genericContext: null);
-                    occurrences = SignatureTypeOccurrences.Combine(
+                    occurrences = provider.Combine(
                         propertySignature.ReturnType,
                         propertySignature.ParameterTypes);
                     break;
@@ -514,9 +515,9 @@ public sealed class AssemblyInspectionSession : IDisposable
                     }
                     MethodSignature<SignatureTypeOccurrences>
                         methodSignature = method.DecodeSignature(
-                            SignatureOccurrenceProvider.Instance,
+                            provider,
                             genericContext: null);
-                    occurrences = SignatureTypeOccurrences.Combine(
+                    occurrences = provider.Combine(
                         methodSignature.ReturnType,
                         methodSignature.ParameterTypes);
                     break;

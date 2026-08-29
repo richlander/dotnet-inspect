@@ -1252,6 +1252,46 @@ public sealed class SignatureSpellabilityAggregateTests
     }
 
     [Fact]
+    public void SignatureSpellability_BoundsTypeSpecDagExpansion()
+    {
+        using var catalog = new TypeResolutionCatalog();
+        SyntheticAssembly bounded = BuildTypeSpecDagSource(
+            "BoundedDag",
+            branchingLevels: 8);
+        SignatureSpellabilityPlan plan = Plan(
+            catalog,
+            Descriptor(bounded.Image),
+            bounded.Coordinates);
+        Assert.Equal(512, plan.Occurrences.Length);
+
+        SyntheticAssembly zeroOccurrenceDag = BuildTypeSpecDagSource(
+            "ZeroOccurrenceDag",
+            branchingLevels: 16,
+            namedOccurrences: false);
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(zeroOccurrenceDag.Image),
+                            zeroOccurrenceDag.Coordinates))).Failure);
+
+        SyntheticAssembly materializationDag = BuildTypeSpecDagSource(
+            "MaterializationDag",
+            branchingLevels: 13,
+            wrapperLevels: 8);
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(materializationDag.Image),
+                            materializationDag.Coordinates))).Failure);
+    }
+
+    [Fact]
     public void SignatureSpellability_RejectsAccessibilityKeyFromAnotherGeneration()
     {
         byte[] targetImage = BuildVisibilityTarget(
@@ -1812,6 +1852,76 @@ public sealed class SignatureSpellabilityAggregateTests
         returnType.WriteCompressedInteger(
             CodedIndex.TypeDefOrRefOrSpec(spec));
         returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
+        MethodDefinitionHandle method = AddMethod(
+            metadata,
+            MethodSignature(returnType));
+        return Synthetic(metadata, mvid, declaring, method);
+    }
+
+    static SyntheticAssembly BuildTypeSpecDagSource(
+        string assemblyName,
+        int branchingLevels,
+        bool namedOccurrences = true,
+        int wrapperLevels = 0)
+    {
+        MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
+        AssemblyReferenceHandle assembly = AddAssemblyReference(
+            metadata,
+            Identity("Ext"));
+        TypeReferenceHandle leaf = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Leaf"));
+        var terminal = new BlobBuilder();
+        if (namedOccurrences)
+        {
+            terminal.LinkSuffix(Class(leaf));
+        }
+        else
+        {
+            terminal.WriteByte(0x13);
+            terminal.WriteCompressedInteger(0);
+        }
+        TypeSpecificationHandle child = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(terminal));
+        for (int level = 0; level < branchingLevels; level++)
+        {
+            var branch = new BlobBuilder();
+            branch.WriteByte(0x1f);
+            branch.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(child));
+            branch.WriteByte(0x1f);
+            branch.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(child));
+            if (namedOccurrences)
+            {
+                branch.WriteByte(0x08);
+            }
+            else
+            {
+                branch.WriteByte(0x13);
+                branch.WriteCompressedInteger(0);
+            }
+            child = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(branch));
+        }
+        for (int level = 0; level < wrapperLevels; level++)
+        {
+            var wrapper = new BlobBuilder();
+            wrapper.WriteByte(0x1f);
+            wrapper.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(child));
+            wrapper.WriteByte(0x08);
+            child = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(wrapper));
+        }
+
+        TypeDefinitionHandle declaring = AddDeclaringType(metadata);
+        var returnType = new BlobBuilder();
+        returnType.WriteByte(0x1f);
+        returnType.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(child));
+        returnType.WriteByte(0x08);
         MethodDefinitionHandle method = AddMethod(
             metadata,
             MethodSignature(returnType));

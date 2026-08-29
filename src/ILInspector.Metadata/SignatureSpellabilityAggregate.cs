@@ -867,32 +867,18 @@ internal readonly record struct SignatureTypeOccurrences(
 {
     internal static SignatureTypeOccurrences Empty =>
         new(ImmutableArray<RawOccurrence>.Empty);
-
-    internal SignatureTypeOccurrences WithRole(
-        SignatureSpellabilityOccurrenceRole role) =>
-        new(Values.Select(value => value with { Role = role })
-            .ToImmutableArray());
-
-    internal static SignatureTypeOccurrences Combine(
-        SignatureTypeOccurrences first,
-        IEnumerable<SignatureTypeOccurrences> rest)
-    {
-        var builder = ImmutableArray.CreateBuilder<RawOccurrence>();
-        builder.AddRange(first.Values);
-        foreach (SignatureTypeOccurrences value in rest)
-            builder.AddRange(value.Values);
-        return new SignatureTypeOccurrences(builder.ToImmutable());
-    }
 }
 
 internal sealed class SignatureOccurrenceProvider
     : ISignatureTypeProvider<SignatureTypeOccurrences, object?>
 {
-    internal static SignatureOccurrenceProvider Instance { get; } = new();
+    readonly SignatureOccurrenceWorkBudget _workBudget = new();
 
     public SignatureTypeOccurrences GetPrimitiveType(
-        PrimitiveTypeCode typeCode) =>
-        Named(
+        PrimitiveTypeCode typeCode)
+    {
+        _workBudget.ChargeNode();
+        return Named(
             new MetadataTypeReferenceScope.IntrinsicCoreLibrary(),
             "System",
             typeCode switch
@@ -918,12 +904,15 @@ internal sealed class SignatureOccurrenceProvider
                 _ => throw new BadImageFormatException(
                     "The primitive type code is unsupported."),
             });
+    }
 
     public SignatureTypeOccurrences GetTypeFromDefinition(
         MetadataReader reader,
         TypeDefinitionHandle handle,
-        byte rawTypeKind) =>
-        MetadataTypeDefinitionNameReader.Read(reader, handle)
+        byte rawTypeKind)
+    {
+        _workBudget.ChargeNode();
+        return MetadataTypeDefinitionNameReader.Read(reader, handle)
             is MetadataTypeDefinitionNameReadResult.Read read
                 ? One(
                     new MetadataNamedTypeReference(
@@ -931,12 +920,14 @@ internal sealed class SignatureOccurrenceProvider
                         read.Name))
                 : throw new BadImageFormatException(
                     "The signature TypeDef name could not be read.");
+    }
 
     public SignatureTypeOccurrences GetTypeFromReference(
         MetadataReader reader,
         TypeReferenceHandle handle,
         byte rawTypeKind)
     {
+        _workBudget.ChargeNode();
         if (MetadataTypeDefinitionNameReader.Read(reader, handle)
             is not MetadataTypeDefinitionNameReadResult.Read read)
         {
@@ -985,6 +976,7 @@ internal sealed class SignatureOccurrenceProvider
         TypeSpecificationHandle handle,
         byte rawTypeKind)
     {
+        _workBudget.ChargeNode();
         // A nested TypeSpec must be fully consumed by the TypeSpec grammar.
         // SRM decodes one Type and stops, so a safe-prefix-only check would let
         // unconsumed trailing bytes ride along with the named children this
@@ -1003,67 +995,146 @@ internal sealed class SignatureOccurrenceProvider
     }
 
     public SignatureTypeOccurrences GetSZArrayType(
-        SignatureTypeOccurrences elementType) =>
-        elementType;
+        SignatureTypeOccurrences elementType)
+    {
+        _workBudget.ChargeNode();
+        return elementType;
+    }
 
     public SignatureTypeOccurrences GetArrayType(
         SignatureTypeOccurrences elementType,
-        ArrayShape shape) =>
-        elementType;
+        ArrayShape shape)
+    {
+        _workBudget.ChargeNode();
+        return elementType;
+    }
 
     public SignatureTypeOccurrences GetByReferenceType(
-        SignatureTypeOccurrences elementType) =>
-        elementType;
+        SignatureTypeOccurrences elementType)
+    {
+        _workBudget.ChargeNode();
+        return elementType;
+    }
 
     public SignatureTypeOccurrences GetPointerType(
-        SignatureTypeOccurrences elementType) =>
-        elementType;
+        SignatureTypeOccurrences elementType)
+    {
+        _workBudget.ChargeNode();
+        return elementType;
+    }
 
     public SignatureTypeOccurrences GetPinnedType(
-        SignatureTypeOccurrences elementType) =>
-        elementType;
+        SignatureTypeOccurrences elementType)
+    {
+        _workBudget.ChargeNode();
+        return elementType;
+    }
 
     public SignatureTypeOccurrences GetGenericInstantiation(
         SignatureTypeOccurrences genericType,
-        ImmutableArray<SignatureTypeOccurrences> typeArguments) =>
-        SignatureTypeOccurrences.Combine(genericType, typeArguments);
+        ImmutableArray<SignatureTypeOccurrences> typeArguments)
+    {
+        _workBudget.ChargeNode();
+        return Combine(genericType, typeArguments);
+    }
 
     public SignatureTypeOccurrences GetGenericTypeParameter(
         object? context,
-        int index) =>
-        SignatureTypeOccurrences.Empty;
+        int index)
+    {
+        _workBudget.ChargeNode();
+        return SignatureTypeOccurrences.Empty;
+    }
 
     public SignatureTypeOccurrences GetGenericMethodParameter(
         object? context,
-        int index) =>
-        SignatureTypeOccurrences.Empty;
+        int index)
+    {
+        _workBudget.ChargeNode();
+        return SignatureTypeOccurrences.Empty;
+    }
 
     public SignatureTypeOccurrences GetFunctionPointerType(
-        MethodSignature<SignatureTypeOccurrences> signature) =>
-        SignatureTypeOccurrences.Combine(
+        MethodSignature<SignatureTypeOccurrences> signature)
+    {
+        _workBudget.ChargeNode();
+        return Combine(
             signature.ReturnType,
             signature.ParameterTypes);
+    }
 
     public SignatureTypeOccurrences GetModifiedType(
         SignatureTypeOccurrences modifier,
         SignatureTypeOccurrences unmodifiedType,
-        bool isRequired) =>
-        SignatureTypeOccurrences.Combine(
-            modifier.WithRole(
+        bool isRequired)
+    {
+        _workBudget.ChargeNode();
+        return Combine(
+            WithRole(
+                modifier,
                 isRequired
                     ? SignatureSpellabilityOccurrenceRole.RequiredModifier
                     : SignatureSpellabilityOccurrenceRole.OptionalModifier),
             [unmodifiedType]);
+    }
 
-    static SignatureTypeOccurrences One(
-        MetadataNamedTypeReference reference) =>
-        new(
+    internal SignatureTypeOccurrences Combine(
+        SignatureTypeOccurrences first,
+        IEnumerable<SignatureTypeOccurrences> rest)
+    {
+        var remaining = new List<SignatureTypeOccurrences>();
+        int count = first.Values.Length;
+        if (count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
+        {
+            throw new BadImageFormatException(
+                "The signature occurrence result exceeds its node budget.");
+        }
+
+        foreach (SignatureTypeOccurrences value in rest)
+        {
+            if (value.Values.Length
+                > MetadataSafetyPolicy.MaxSignatureTypeNodes - count)
+            {
+                throw new BadImageFormatException(
+                    "The signature occurrence result exceeds its node budget.");
+            }
+
+            count += value.Values.Length;
+            remaining.Add(value);
+        }
+
+        _workBudget.ChargeMaterialization(count);
+        var builder = ImmutableArray.CreateBuilder<RawOccurrence>(count);
+        builder.AddRange(first.Values);
+        foreach (SignatureTypeOccurrences value in remaining)
+            builder.AddRange(value.Values);
+        return new SignatureTypeOccurrences(builder.MoveToImmutable());
+    }
+
+    SignatureTypeOccurrences WithRole(
+        SignatureTypeOccurrences value,
+        SignatureSpellabilityOccurrenceRole role)
+    {
+        _workBudget.ChargeMaterialization(value.Values.Length);
+        var builder = ImmutableArray.CreateBuilder<RawOccurrence>(
+            value.Values.Length);
+        foreach (RawOccurrence occurrence in value.Values)
+            builder.Add(occurrence with { Role = role });
+        return new SignatureTypeOccurrences(builder.MoveToImmutable());
+    }
+
+    SignatureTypeOccurrences One(
+        MetadataNamedTypeReference reference)
+    {
+        _workBudget.ChargeMaterialization(1);
+        return new(
             ImmutableArray.Create(
                 new RawOccurrence(
                     reference,
                     SignatureSpellabilityOccurrenceRole.Ordinary)));
+    }
 
-    static SignatureTypeOccurrences Named(
+    SignatureTypeOccurrences Named(
         MetadataTypeReferenceScope scope,
         string @namespace,
         string name) =>
@@ -1074,6 +1145,41 @@ internal sealed class SignatureOccurrenceProvider
                 ? One(new MetadataNamedTypeReference(scope, valid.Name))
                 : throw new BadImageFormatException(
                     "A primitive type name could not be represented.");
+
+    sealed class SignatureOccurrenceWorkBudget
+    {
+        // Normal decoding copies occurrences through a few immutable aggregate
+        // layers. Keep that work linear in the expanded-node ceiling.
+        const int MaxMaterializationWork =
+                MetadataSafetyPolicy.MaxSignatureTypeNodes * 8;
+
+        int _remainingNodes = MetadataSafetyPolicy.MaxSignatureTypeNodes;
+        int _remainingMaterializationWork = MaxMaterializationWork;
+
+        internal void ChargeNode()
+        {
+            if (_remainingNodes == 0)
+            {
+                throw new BadImageFormatException(
+                    "The expanded signature exceeds its node budget.");
+            }
+
+            _remainingNodes--;
+        }
+
+        internal void ChargeMaterialization(int occurrences)
+        {
+                if (occurrences < 0
+                    || occurrences > _remainingMaterializationWork)
+                {
+                    throw new BadImageFormatException(
+                        "The signature occurrence materialization exceeds its "
+                        + "work budget.");
+                }
+
+                _remainingMaterializationWork -= occurrences;
+        }
+    }
 
     static MetadataTypeReferenceScope ModuleScope(
         MetadataReader reader,

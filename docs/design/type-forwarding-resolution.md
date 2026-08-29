@@ -1968,11 +1968,15 @@ module address, or declaring-type mismatch produces a typed subject rejection.
 No rejected subject can construct a plan.
 
 One guarded, bounded decode produces an immutable reader-independent
-signature-spellability plan. It retains the source subject, the source
-candidate's authorized baseline `AssemblyResolutionScope`, and every named type
-occurrence in stable signature order. A rejected signature produces a typed
-plan rejection and no success-shaped partial occurrence or request set.
-Evaluation consumes this exact plan; it does not decode the signature again.
+signature-spellability plan. The decode applies both the active-path
+`TypeSpecGuard` limits and one plan-wide expanded-node and
+occurrence-materialization budget, so a shallow TypeSpec DAG cannot repeatedly
+decode the same child into exponentially growing work or arrays. The plan
+retains the source subject, the source candidate's authorized baseline
+`AssemblyResolutionScope`, and every named type occurrence in stable signature
+order. A rejected signature produces a typed plan rejection and no
+success-shaped partial occurrence or request set. Evaluation consumes this
+exact plan; it does not decode the signature again.
 
 Each occurrence retains:
 
@@ -3172,6 +3176,11 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   `CompleteTypeSpecEntry_RejectsTrailingAndTruncatedBlobs` and
   `SignatureSpellabilityProvider_EntersCompleteTypeSpecs` are its guard-contract
   and wiring gates.
+- `SignatureSpellability_BoundsTypeSpecDagExpansion` accepts a neighboring
+  shallow DAG, then proves that repeated child expansion whose TypeSpecs
+  produce no named occurrences is rejected by the expanded-node work budget. A
+  second hostile shape remains below the node ceiling but exceeds the
+  cumulative occurrence-copy budget.
 - `SignatureSpellability_RejectsAccessibilityKeyFromAnotherGeneration` proves
   that a context rejects an accessibility key issued by any generation other
   than its own, including a newer generation that is current for the catalog.
