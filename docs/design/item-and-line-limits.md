@@ -20,7 +20,7 @@ This table identifies authority; it does not define a participant's behavior.
 | Responsibility | Architectural owner | Focused design |
 | --- | --- | --- |
 | Ordered Head, Tail, Window, and Top stages | Shared `DotnetInspector.RowSelection` leaf component | [Semantic row selection](semantic-row-selection.md) |
-| Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | [Row query and ordering](row-query-order.md) |
+| Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | [Row-query authority boundary](row-query-order.md#authority-boundary) |
 | Declared row sets, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | Pending focused design |
 | CLI aliases, argv lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | Pending focused design |
 | Source execution, exact upstream optimization, merge, deduplication, and completion evidence | L1 query or source-owning component | Pending focused design |

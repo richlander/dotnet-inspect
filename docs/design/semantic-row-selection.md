@@ -20,8 +20,9 @@ Related designs:
   behavior.
 - [Inspection layers](inspection-layers.md) places the consumer-neutral
   component below L2 so CLI and browser-facing section pipelines can share it.
-- [Row query and ordering](row-query-order.md) owns predicate evaluation,
-  effective order, ranking metadata, and schema validation.
+- [The row-query authority boundary](row-query-order.md#authority-boundary)
+  owns predicate evaluation, effective order, ranking metadata, and schema
+  validation.
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
 - [Semantic row-selection interaction model](../models/semantic-row-selection/SemanticRowSelection.tla)

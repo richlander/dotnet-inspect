@@ -5,10 +5,25 @@
 Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
+## Authority boundary
+
+For the composition map, this document is authoritative only for these L2
+contracts:
+
+- field-predicate and order-expression semantics after command-level option
+  extraction;
+- section-schema binding and validation;
+- effective-order identities and ranking metadata; and
+- whether an order identity qualifies as ranking input for semantic Top.
+
+CLI-looking examples elsewhere in this proposal are provisional illustrations.
+They do not settle option spellings, arity, repetition, conflicts, diagnostics,
+compatibility lowering, count/window composition, field projection,
+result-binding, rendering order, or current-command behavior. The pending L3,
+L2 binding, and payload designs own those contracts.
+
 [Item and line selection composition](item-and-line-limits.md#composition)
-identifies this document as the L2 owner for row predicates, effective order,
-and ranking metadata. It does not settle CLI spellings or count/window
-composition; the pending L3 and L2 binding designs own those contracts.
+links to this boundary rather than adopting the mixed proposal as a whole.
 
 [The package query CLI](package-query-cli.md) proposes reusing this model's
 `--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
