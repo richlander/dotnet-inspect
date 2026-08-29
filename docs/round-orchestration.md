@@ -11,6 +11,97 @@ owns operational transitions and reporting, not the rules that decide
 eligibility, recovery, completion, or carry-forward. Where it applies one of
 those rules, it cites the owner rather than restating it.
 
+## Candidate lifecycle
+
+[Canonical round flow](../AGENTS.md#canonical-round-flow) and
+[Forming a candidate](../AGENTS.md#forming-a-candidate) state the binding
+summary. This section owns the full round cycle, eligibility table,
+review-clean definition, and recovery transitions.
+
+### The round cycle
+
+Steps 1-5 run unlocked; the push at step 6 locks the head until step 10 closes
+it or a recovery transition supersedes it. Both integrations (steps 1 and 4)
+happen before the push — base movement after the push does not reopen the
+locked candidate.
+
+1. Integrate the effective base.
+2. Make the initial or review-driven change.
+3. Run the focused gate.
+4. Integrate the effective base again.
+5. Re-run focused gates for anything the integrated range can affect.
+6. Push and record the candidate head and effective base; the lock begins.
+7. Satisfy the applicable eligibility row below.
+8. Dispatch every required reviewer at the exact candidate head.
+9. Reconcile all feedback publicly.
+10. Close only when reconciliation, the applicable local gates, and the status
+    acquisition cadence are satisfied. The lock ends, the round number is
+    spent, and the visible [round report](#the-round-report) is required.
+
+### Eligibility table
+
+| Attempt | Required before reviewer dispatch | May remain pending |
+| --- | --- | --- |
+| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
+| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to [Bounded status waiting](#bounded-status-waiting) |
+| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
+| Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to [Bounded status waiting](#bounded-status-waiting) |
+| Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
+
+A documentation-only candidate substitutes pre-commit `markdownlint` for green
+`ci-required` at non-boundary rounds; `ci-required` is still mandatory at every
+six-round boundary and for final merge readiness. The user may authorize review
+in parallel with CI for other changes.
+
+### Review-clean, and recovery
+
+A review is **review-clean** when public reconciliation leaves no finding
+unresolved (a justified dismissal counts if recorded publicly) and the head did
+not move in response. Only a replacement head can earn `review-clean` after a
+fix-producing round. The report classification `clean` requires every required
+reviewer to return no findings against an unchanged locked head; use
+`converging`, `neutral`, or `diverging` when at least one finding was returned.
+
+Recovery transitions, applied without waiting for CI:
+
+- **Conflict:** supersede, integrate, resolve, push immediately, and restart
+  the same round. A conflict after clean review may instead take the
+  [exact-head trivial-interaction waiver](#trivial-interaction-re-review-waiver)
+  path when its resolution satisfies every stated condition; don't dispatch
+  replacement reviewers while that decision is pending.
+- **Scope violation:** keep the locked head unchanged while the user chooses
+  split, abandonment, or an approved broad exception (see
+  [Recovering from an over-broad design](design-scope.md#recovering-from-an-over-broad-design)).
+  A resulting head change follows the author-change transition at the same
+  round.
+- **Failure requiring an author change:** supersede, push the fix, satisfy the
+  failed-gate row, and restart the same round.
+- **Cancelled or evidenced transient failure:** keep the lock and retry the
+  unchanged head; repeat only with concrete transient evidence, otherwise treat
+  it as an author change.
+
+A final-gate `ci-required` regression discovered after a documentation-only
+round closes does not reopen that round: retry the unchanged head only with
+concrete transient evidence, otherwise remove `review-clean` and form a
+candidate at the next round number. Never close with a required check red. A
+superseded attempt spends no round and gets no completion report; let its
+reviewers finish or acknowledge cancellation, and carry every returned finding
+forward.
+
+### Merge preflight
+
+Before merge, re-read GitHub state and confirm the expected head, non-draft
+status, positive mergeability, and successful current-head `ci-required`. A
+true draft flag, REST `mergeable: null` or GraphQL `mergeable: UNKNOWN`, a
+missing gate, or a gate from another head is not ready. Use a GraphQL snapshot
+so documented `mergeStateStatus: BLOCKED` can also block the action; do not
+infer that enum from undocumented REST `mergeable_state` values. Follow
+[GitHub status queries](github-status-queries.md).
+
+For stacks, every open layer must meet its applicable eligibility row above. A
+known-red or conflicted parent blocks upper slices; a pending parent does not
+block a first or conflict-recovery attempt.
+
 ## Status discovery
 
 Two questions matter: is the PR mergeable, and is it green. The eligibility
@@ -117,6 +208,23 @@ snapshot satisfies the prerequisite. The duration context comes from
 [GitHub Actions limits](https://docs.github.com/en/actions/reference/limits).
 
 ## Running a round
+
+### Reviewer roster
+
+[How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
+states the binding tier table and roster names. Pick the second seat from the
+prior round's clean count:
+
+- **No prior round, or 0/2 clean:** prefer GPT-5.6 Sol again for the second
+  seat.
+- **1/2 clean:** keep GPT-5.6 Sol fixed, rule out last round's second seat,
+  then prefer a different family than the author (the author's family only as
+  a fallback) at that model's highest available quality.
+
+Record the choice and its reasoning on the PR. If a roster model is
+unavailable, substitute another model for that seat, report the substitution
+on the PR, and proceed without approval — a substituted seat still counts as
+filled. One round evaluates one settled head with all required reviewers.
 
 ### Dispatch
 
@@ -365,3 +473,72 @@ workflow when work continues. A resolution that no longer satisfies the
 criteria requires ordinary re-review. Any later head or base movement
 invalidates a pending or approved waiver and requires fresh carry-forward
 classification.
+
+## Block boundaries and splitting
+
+[Stop after six rounds](../AGENTS.md#stop-after-six-rounds) states the binding
+rules: rounds 1-6 run without approval, approval is required only before
+rounds 7, 13, 19, and so on, and round 12 (and every six-round boundary after
+it) carries a presumption to split remaining work into focused successors.
+This section owns the checkpoint procedure and the split mechanics.
+
+### The block-approval checkpoint
+
+Before requesting another block, answer:
+
+1. **What changed?** Summarize product, architecture, and test improvements,
+   findings retired, and confidence gained. Separate durable progress from
+   churn.
+2. **Are reviews converging?** Cite clean counts and repeated versus new finding
+   categories. State why dual-clean is or is not likely in the next block.
+3. **Are the foundations sound?** Classify remaining findings as architectural,
+   coverage gaps, contract expansion, or harness-only concerns.
+4. **Should implementation pause for a docs-only design PR?** Recommend it when
+   contracts, ownership, or architecture need direct repository-owner
+   engagement.
+5. **If design work was skipped last block, why skip it again?** The prior
+   decision is not standing authorization; identify the new evidence that makes
+   implementation rounds the better investment.
+
+Publish the complete checkpoint as normal session output before opening the
+approval prompt. The prompt asks only which recommended action to authorize; it
+must not contain the checkpoint itself.
+
+### Round 12 and later six-round boundaries
+
+At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
+
+1. **Would a design doc better define the design space?** Foundational APIs
+   weigh heavily toward yes.
+2. **Can hardening move to followups?** State whether deferring remaining
+   hardening to followup work would unlock this PR's value for other agent
+   work sooner.
+
+Split the remaining work into focused successors unless the checkpoint
+establishes a strong reason to keep the PR intact and the user explicitly
+approves that exception. The strong reason must explain why the remaining
+claims cannot become independently reviewable successors, why the reviews are
+still converging, and why continuing the same PR is safer than splitting it.
+Reviewer familiarity, sunk cost, or the inconvenience of restacking are not
+strong reasons. Sprawling changes accumulated across review comments are
+themselves a sign that the remaining work should be split.
+
+State the proposed remedy and end with one recommendation: split into focused
+successors, approve the next implementation block under the strong-reason
+exception, switch to a docs-only design PR, or stop. If consecutive rounds only
+strengthen the harness while the product goes unchallenged, report that count
+and recommend splitting or stopping rather than continuing by reflex.
+
+### Executing a split
+
+After round 12 or a later six-round boundary closes, the split recommendation
+puts the completed head in an immutable decision hold while the user decides.
+This is not a round lock; do not mutate the head or dispatch another round
+during the hold, including for conflict recovery.
+
+If approved, publicly assign every current change, claim, and finding —
+including resolved or dismissed findings and their resulting changes or
+rationale — to a focused successor, or explicitly record why an item is being
+dropped. Close the current PR as superseded without merging it, and open the
+successors from their effective base. Each successor starts at round 1;
+reviews, round counts, and authorization blocks do not carry forward.
