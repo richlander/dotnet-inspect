@@ -37,17 +37,23 @@ internal sealed class PluginConnection : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskCompletionSource _closed =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly PluginConnectionTestHooks? _testHooks;
     private readonly TimeSpan _requestTimeout;
     private readonly Action<string>? _log;
     private Task? _readLoop;
     private bool _acceptingRequests = true;
     private bool _disposed;
 
-    private PluginConnection(Process process, TimeSpan requestTimeout, Action<string>? log)
+    private PluginConnection(
+        Process process,
+        TimeSpan requestTimeout,
+        Action<string>? log,
+        PluginConnectionTestHooks? testHooks)
     {
         _process = process;
         _requestTimeout = requestTimeout;
         _log = log;
+        _testHooks = testHooks;
     }
 
     /// <summary>
@@ -62,7 +68,8 @@ internal sealed class PluginConnection : IAsyncDisposable
     public static async Task<PluginConnection?> StartAsync(
         PluginExecutable plugin,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PluginConnectionTestHooks? testHooks = null)
     {
         TimeSpan requestTimeout = ReadTimeoutOverride("NUGET_PLUGIN_REQUEST_TIMEOUT_IN_SECONDS", DefaultRequestTimeout);
         var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -112,7 +119,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             return null;
         }
 
-        var connection = new PluginConnection(process, requestTimeout, log);
+        var connection = new PluginConnection(process, requestTimeout, log, testHooks);
         connection._readLoop = Task.Run(connection.ReadLoopAsync, CancellationToken.None);
 
         try
@@ -231,6 +238,8 @@ internal sealed class PluginConnection : IAsyncDisposable
 
         try
         {
+            _testHooks?.RequestAdmissionAttempted?.Invoke();
+
             lock (_pendingGate)
             {
                 if (!_acceptingRequests)
@@ -239,6 +248,7 @@ internal sealed class PluginConnection : IAsyncDisposable
                 }
 
                 _pending[requestId] = pending;
+                _testHooks?.RequestRegistered?.Invoke();
             }
 
             await WriteAsync(
@@ -336,6 +346,7 @@ internal sealed class PluginConnection : IAsyncDisposable
         {
             _acceptingRequests = false;
             pending = [.. _pending.Values];
+            _testHooks?.PendingSnapshotCaptured?.Invoke();
             _pending.Clear();
         }
 
@@ -346,6 +357,15 @@ internal sealed class PluginConnection : IAsyncDisposable
             request.Completion.TrySetException(
                 new IOException("Credential plugin closed the connection."));
         }
+    }
+
+    internal sealed class PluginConnectionTestHooks
+    {
+        public Action? RequestAdmissionAttempted { get; init; }
+
+        public Action? RequestRegistered { get; init; }
+
+        public Action? PendingSnapshotCaptured { get; init; }
     }
 
     /// <summary>

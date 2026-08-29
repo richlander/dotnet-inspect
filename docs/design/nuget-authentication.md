@@ -170,8 +170,10 @@ abandoned work, checked by `InboundFailureIsContained` and
 `MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
 stalled-write rule. Terminal admission and pending settlement are enforced by
 `PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout` and
-`PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`. Malformed
-inbound Handshake and Log payload handling is enforced by
+`PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, with the
+atomic overlap enforced by
+`PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot`. Malformed inbound
+Handshake and Log payload handling is enforced by
 `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and
 `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse`.
 
