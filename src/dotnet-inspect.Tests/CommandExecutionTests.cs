@@ -14121,11 +14121,11 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Type_SourceFiles_UrlsRejectsRowsMode()
+    public async Task Type_SourceFiles_UrlsRejectsAbsoluteRowsMode()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--urls", "--rows", "1", "--raw", "--tips", "q");
+            "-S", "Source Files", "--urls", "--rows", "1..1", "--raw", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
