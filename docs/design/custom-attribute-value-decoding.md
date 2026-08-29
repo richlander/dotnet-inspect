@@ -72,9 +72,12 @@ while the others hold, and each has produced a real defect.
 > named-argument counts, nesting depth, and charged work — regardless of
 > whether the two walkers agree about where those quantities live.
 >
-> **I3 — Guard work.** The guard's own cost must stay proportional to the blob
-> it is bounding. Work repeated per declared element must be performed once per
-> distinct input, or charged, even when I1 and I2 both hold.
+> **I3 — Guard work.** The guard's total cost must stay near-linear in the size
+> of the metadata it is given, across *every* attacker-controlled cardinality
+> together — declared element counts, declared parameter counts, distinct
+> handles and names, and the size of the tables a resolution scans. Bounding
+> each dimension separately is not sufficient, because the attacker chooses
+> them jointly.
 
 I1 is about *agreement*; I2 is about *magnitude*; I3 is about *the cost of
 asking*.
@@ -91,6 +94,25 @@ I3 exists because a guard that refuses an attack expensively has not prevented
 it. The guard walks each declared element, so any work placed on the
 per-element path is multiplied by an attacker-chosen count *before* the refusal
 that count would eventually trigger.
+
+**I3 is deliberately stated over aggregate cost rather than per-element
+repetition.** "Perform this work once per distinct input" is the right *fix*
+for the four amplifications found so far, but it is the wrong *invariant*,
+because it is satisfied by a walk that is still quadratic. A constructor
+declaring `P` fixed arguments, each naming a distinct unresolvable `TypeRef`,
+resolved against an image holding `T` type definitions, costs `Θ(P × T)` on
+metadata of size `Θ(P + T)` — because `EnumUnderlyingPrimitive.TryFindDefinition`
+scans every definition, and each comparison is itself a recursive structural
+match. Every handle is resolved exactly once. No count is repeated. I1 and I2
+both hold. The signature-node cap bounds `P`, but two capped dimensions
+multiplied are still billions of comparisons. Tracked as issue #5091.
+
+**Charging is not an escape hatch for I3.** The `beforeMaterialize` observer is
+optional and is frequently absent, and `Charge` returns immediately when it is
+null. Work that is "charged" to nobody is unbounded work. A cost may be
+delegated to an observer only where a caller is guaranteed to be present and
+its refusal is guaranteed to stop the walk — which, per issue #5085, is not
+currently true either.
 
 Defects therefore fall into four categories:
 
@@ -227,13 +249,29 @@ I2 is checked separately and does not depend on these: the gate asserts that a
 blob whose declared quantities exceed the remaining bytes is refused *before*
 `DecodeValue` is invoked at all.
 
-I3 is checked separately as well, and cannot be observed from SRM at all. The
-gate asserts that guard-side work does not scale with attacker-declared
-quantities: hold the blob's distinct content fixed, raise the declared element
-count, and require that per-distinct-input work — signature reparses, name
-renderings, definition scans, enum-width resolutions — stays flat. Four
-existing tests, each named for the defect it pins, already assert exactly this
-shape one instance at a time; the gate generalizes them.
+I3 is checked separately as well, and cannot be observed from SRM at all. It is
+also the hardest of the three to gate, because a one-dimensional check is
+misleading: raising a single declared count while holding everything else fixed
+is exactly the measurement that the existing per-element memoization already
+passes, and it is blind to the quadratic described above.
+
+The gate must therefore vary the attacker-controlled dimensions **jointly**, at
+minimum:
+
+- declared `SZArray` element counts,
+- declared constructor parameter counts,
+- the number of *distinct* handles and names referenced,
+- the number of rows in the tables a failed resolution scans, and
+- the number of attributes decoded from one image.
+
+and assert that total work — signature reparses, name renderings, definition
+scans, enum-width resolutions, and structural match steps — stays near-linear
+in total metadata size across the product of those dimensions, not merely flat
+along any one of them.
+
+Four existing tests, each named for the defect it pins, assert the
+one-dimensional property one instance at a time. The gate must generalize them
+*and* cover the dimension none of them measures.
 
 Seed the corpus with the regressions already found by hand so the gate is
 demonstrably non-vacuous, and pin any failing seed as an ordinary case.
@@ -352,22 +390,42 @@ The resolver-less overload is a conservative test-only path.
 
 `ResolveEnum` tries the structural definition path first and consults the
 name-keyed resolver only when that fails. `Int32` is the **last** fallback, not
-the answer for every unknown name. The full order is:
+the answer for every unknown name.
+
+**The order depends on whether a resolver was supplied**, and the two orders
+are different. `enumUnderlyingType` is an optional parameter, so the guard has
+two distinct resolution behaviors:
+
+*With a resolver — the product path, used by `AttributeDecoder.TryDecode`:*
 
 1. Structural resolution from the handle.
 2. The provider's name-keyed resolution, which consults the local
    `TypeDefinitionsByName` index and any trusted external width table.
 3. `Int32`.
 
-The middle step matters for threat modelling: a cross-assembly `TypeRef` that
-fails structural resolution can still match a *local* definition whose
-flattened spelling collides with it, and take that definition's width. The
-inspected image therefore has some influence over the width chosen for a name
-it does not define. This is currently a **fidelity** risk rather than a
-divergence, because both walkers reach the same definition through the same
-shared index — `ExternalReferenceCollidingWithNestedName_IsRefusedNotDecoded`
-pins exactly that case, with both sides agreeing on eight bytes and the blob
-refused on the count.
+*Without a resolver — the bare `IsSafeToDecode` overload:*
+
+1. Structural resolution from the handle.
+2. `EnumUnderlyingPrimitive.FromHandle`, which retries structural matching and
+   then returns `Int32` directly. **There is no name-index step.**
+
+That difference is real and is pinned by an existing regression: the bare
+overload reaches a different width than product `TryDecode` for the same blob.
+Anyone reasoning about the guard's alignment must therefore be explicit about
+which overload they mean — the resolver-less overload is not a simplified
+version of the product path, it is a *different* resolution order, and only the
+product path's order is the one SRM's provider mirrors.
+
+The middle step of the product path matters for threat modelling: a
+cross-assembly `TypeRef` that fails structural resolution can still match a
+*local* definition whose flattened spelling collides with it, and take that
+definition's width. The inspected image therefore has some influence over the
+width chosen for a name it does not define. This is currently a **fidelity**
+risk rather than a divergence, because both walkers reach the same definition
+through the same shared index —
+`ExternalReferenceCollidingWithNestedName_IsRefusedNotDecoded` pins exactly
+that case, with both sides agreeing on eight bytes and the blob refused on the
+count.
 
 Say "resolves to `Int32` when structural, local-name, and trusted-external
 resolution all fail" rather than "unknown names resolve to `Int32`."
@@ -491,7 +549,8 @@ a malformed state is detected decides which one you get.
 | Condition | Result | Why |
 | --- | --- | --- |
 | Value-walk read runs out of bytes (`Result.Truncated`) | `true` | SRM's failure is catchable and precise; ours would be a guess. Let the decoder own the error. |
-| Truncation inside a generic-substitution helper | `false` | These helpers report failure rather than a plausible offset, and the caller maps that to `Unsafe`. Truncation is **not** uniformly `true`. |
+| Truncation while *skipping an earlier generic argument* | `false` | `TrySkipSrmAttributeType` reports failure rather than a plausible offset, and the caller maps that to `Unsafe`. |
+| Truncation of the constructor `TypeSpec` *header or body* | `true` | `ResolveConstructorInstantiation` returns `Safe` with `found == false` at each of its truncation points, and the caller propagates that. |
 | Unknown fixed-argument element code, unsupported serialized type, invalid named-argument kind | `false` | The guard positively classifies these as forms it cannot track. It refuses rather than walking blind alongside a decoder it can no longer follow. |
 | Declared count exceeds what the remaining bytes can describe | `false` | Invariant I2. The count is the amplification vector and must be refused before SRM allocates from it. |
 | Serialized nesting past `MaxSerializedDepth` | `false` | Refuse rather than truncate. |
@@ -523,6 +582,7 @@ malformed blob.
 | #5047 | Per-element element-type replay; resolve once and loop, as SRM does. Closing it would discharge much of I3 structurally. |
 | #5065 | The differential oracle named above as this design's enforcement gate. |
 | #5085 | An observer exception can be caught as malformed metadata and turned into an approval. Found while reviewing this document. |
+| #5091 | Quadratic guard work across declared parameter count and type-definition count. The I3 case that no existing test measures. Found while reviewing this document. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 
