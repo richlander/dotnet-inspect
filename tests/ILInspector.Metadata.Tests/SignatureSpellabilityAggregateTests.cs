@@ -1292,6 +1292,98 @@ public sealed class SignatureSpellabilityAggregateTests
     }
 
     [Fact]
+    public void SignatureSpellability_CachesRepeatedTypeReferenceProjection()
+    {
+        // The DAG re-enters one shared leaf TypeRef once per occurrence.
+        // Re-projecting its name every time would charge 128 maximum-length
+        // names against the metadata work budget and reject a signature the
+        // node budget admits. Projecting once per handle keeps the cost
+        // proportional to the distinct metadata the signature names.
+        SyntheticAssembly source = BuildTypeSpecDagSource(
+            "SharedLongName",
+            branchingLevels: 6,
+            leafName: new string(
+                'N',
+                MetadataSafetyPolicy.MaxTypeNameCharacters - 96));
+        using var catalog = new TypeResolutionCatalog();
+        SignatureSpellabilityPlan plan = Plan(
+            catalog,
+            Descriptor(source.Image),
+            source.Coordinates);
+
+        Assert.Equal(128, plan.Occurrences.Length);
+    }
+
+    [Fact]
+    public void SignatureSpellability_BoundsDistinctNameMaterialization()
+    {
+        // Distinct names cannot be served from the projection cache, so the
+        // work ledger is the only thing bounding them. A handful stays inside
+        // the per-decode budget; ninety-six maximum-length names do not. The
+        // modest plan carries one occurrence per modifier plus the primitive
+        // the modifiers decorate.
+        int nameLength = MetadataSafetyPolicy.MaxTypeNameCharacters - 96;
+        using var catalog = new TypeResolutionCatalog();
+        SyntheticAssembly modest = BuildDistinctLongNameSource(
+            "FewLongNames",
+            names: 8,
+            nameLength: nameLength);
+        Assert.Equal(
+            9,
+            Plan(
+                catalog,
+                Descriptor(modest.Image),
+                modest.Coordinates).Occurrences.Length);
+
+        SyntheticAssembly hostile = BuildDistinctLongNameSource(
+            "ManyLongNames",
+            names: 96,
+            nameLength: nameLength);
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(hostile.Image),
+                            hostile.Coordinates))).Failure);
+    }
+
+    [Fact]
+    public void SignatureSpellability_BoundsRepeatedTypeSpecScanning()
+    {
+        // A shared TypeSpec is re-entered once per occurrence, and each entry
+        // scans the whole blob for completeness before SRM decodes it. A
+        // narrow shape stays inside the per-decode metadata work budget; a wide
+        // one re-scanned across every occurrence does not, even though both
+        // stay inside the recursion guard's cumulative byte limit.
+        using var catalog = new TypeResolutionCatalog();
+        SyntheticAssembly narrow = BuildTypeSpecDagSource(
+            "NarrowShape",
+            branchingLevels: 7,
+            arraySizes: 500);
+        Assert.Equal(
+            256,
+            Plan(
+                catalog,
+                Descriptor(narrow.Image),
+                narrow.Coordinates).Occurrences.Length);
+
+        SyntheticAssembly wide = BuildTypeSpecDagSource(
+            "WideShape",
+            branchingLevels: 7,
+            arraySizes: 3000);
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(wide.Image),
+                            wide.Coordinates))).Failure);
+    }
+
+    [Fact]
     public void SignatureSpellability_RejectsAccessibilityKeyFromAnotherGeneration()
     {
         byte[] targetImage = BuildVisibilityTarget(
@@ -1858,11 +1950,45 @@ public sealed class SignatureSpellabilityAggregateTests
         return Synthetic(metadata, mvid, declaring, method);
     }
 
+    static SyntheticAssembly BuildDistinctLongNameSource(
+        string assemblyName,
+        int names,
+        int nameLength)
+    {
+        MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
+        AssemblyReferenceHandle assembly = AddAssemblyReference(
+            metadata,
+            Identity("Ext"));
+        var returnType = new BlobBuilder();
+        for (int index = 0; index < names; index++)
+        {
+            string suffix = index.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+            TypeReferenceHandle reference = metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    suffix + new string('N', nameLength - suffix.Length)));
+            returnType.WriteByte(0x1f);             // ELEMENT_TYPE_CMOD_REQD
+            returnType.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(reference));
+        }
+
+        returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
+        TypeDefinitionHandle declaring = AddDeclaringType(metadata);
+        MethodDefinitionHandle method = AddMethod(
+            metadata,
+            MethodSignature(returnType));
+        return Synthetic(metadata, mvid, declaring, method);
+    }
+
     static SyntheticAssembly BuildTypeSpecDagSource(
         string assemblyName,
         int branchingLevels,
         bool namedOccurrences = true,
-        int wrapperLevels = 0)
+        int wrapperLevels = 0,
+        string leafName = "Leaf",
+        int arraySizes = 0)
     {
         MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
         AssemblyReferenceHandle assembly = AddAssemblyReference(
@@ -1871,9 +1997,19 @@ public sealed class SignatureSpellabilityAggregateTests
         TypeReferenceHandle leaf = metadata.AddTypeReference(
             assembly,
             metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("Leaf"));
+            metadata.GetOrAddString(leafName));
         var terminal = new BlobBuilder();
-        if (namedOccurrences)
+        if (arraySizes > 0)
+        {
+            terminal.WriteByte(0x14);              // ELEMENT_TYPE_ARRAY
+            terminal.LinkSuffix(Class(leaf));
+            terminal.WriteCompressedInteger(1);    // rank
+            terminal.WriteCompressedInteger(arraySizes);
+            for (int index = 0; index < arraySizes; index++)
+                terminal.WriteCompressedInteger(1);
+            terminal.WriteCompressedInteger(0);    // lower bounds
+        }
+        else if (namedOccurrences)
         {
             terminal.LinkSuffix(Class(leaf));
         }

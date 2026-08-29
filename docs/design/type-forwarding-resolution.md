@@ -1971,7 +1971,23 @@ One guarded, bounded decode produces an immutable reader-independent
 signature-spellability plan. The decode applies both the active-path
 `TypeSpecGuard` limits and one plan-wide expanded-node and
 occurrence-materialization budget, so a shallow TypeSpec DAG cannot repeatedly
-decode the same child into exponentially growing work or arrays. The plan
+decode the same child into exponentially growing work or arrays.
+
+Those budgets count callbacks and occurrence copies, which bounds how much work
+happens but not what each unit of work costs. Names, resolution-scope chains,
+and TypeSpec completeness scans each read a different amount of metadata, so
+the decode adds two further protections. It projects each `TypeRef` and
+`TypeDef` handle at most once per decode, so a shared child re-entered through a
+DAG is named once rather than once per occurrence; and it charges the metadata
+actually examined -- name characters, resolution-scope hops, and scanned
+TypeSpec bytes -- against a separate per-decode work ledger. The ledger is
+charged before the corresponding decode, so it bounds the cost of reaching a
+rejection rather than only reporting one afterwards. Handle projections are
+keyed to the reader that owns the signature and are dropped if a different
+reader appears; the ledger is never reset, so alternating readers cannot buy
+back budget.
+
+The plan
 retains the source subject, the source candidate's authorized baseline
 `AssemblyResolutionScope`, and every named type occurrence in stable signature
 order. A rejected signature produces a typed plan rejection and no
@@ -3181,6 +3197,17 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   produce no named occurrences is rejected by the expanded-node work budget. A
   second hostile shape remains below the node ceiling but exceeds the
   cumulative occurrence-copy budget.
+- `SignatureSpellability_CachesRepeatedTypeReferenceProjection` proves that a
+  shared leaf `TypeRef` re-entered once per occurrence is projected once per
+  handle. Without the cache the shared name is re-read on every occurrence and
+  the metadata work ledger rejects a signature the node budget admits.
+- `SignatureSpellability_BoundsDistinctNameMaterialization` covers the case the
+  cache cannot serve. It accepts a signature naming eight maximum-length types
+  and proves that ninety-six exceed the per-decode metadata work ledger.
+- `SignatureSpellability_BoundsRepeatedTypeSpecScanning` accepts a shared
+  TypeSpec carrying a narrow array shape, then proves that a wide shape
+  re-scanned once per occurrence exceeds the ledger, even though both shapes
+  stay inside the recursion guard's cumulative byte limit.
 - `SignatureSpellability_RejectsAccessibilityKeyFromAnotherGeneration` proves
   that a context rejects an accessibility key issued by any generation other
   than its own, including a newer generation that is current for the catalog.

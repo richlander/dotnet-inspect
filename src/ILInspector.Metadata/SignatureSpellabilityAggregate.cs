@@ -873,6 +873,11 @@ internal sealed class SignatureOccurrenceProvider
     : ISignatureTypeProvider<SignatureTypeOccurrences, object?>
 {
     readonly SignatureOccurrenceWorkBudget _workBudget = new();
+    readonly Dictionary<TypeReferenceHandle, MetadataNamedTypeReference>
+        _referenceProjections = [];
+    readonly Dictionary<TypeDefinitionHandle, MetadataNamedTypeReference>
+        _definitionProjections = [];
+    MetadataReader? _projectionReader;
 
     public SignatureTypeOccurrences GetPrimitiveType(
         PrimitiveTypeCode typeCode)
@@ -912,14 +917,26 @@ internal sealed class SignatureOccurrenceProvider
         byte rawTypeKind)
     {
         _workBudget.ChargeNode();
-        return MetadataTypeDefinitionNameReader.Read(reader, handle)
-            is MetadataTypeDefinitionNameReadResult.Read read
-                ? One(
-                    new MetadataNamedTypeReference(
-                        new MetadataTypeReferenceScope.CurrentAssembly(),
-                        read.Name))
-                : throw new BadImageFormatException(
+        BindProjectionReader(reader);
+        if (!_definitionProjections.TryGetValue(
+                handle,
+                out MetadataNamedTypeReference? projection))
+        {
+            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+                is not MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                throw new BadImageFormatException(
                     "The signature TypeDef name could not be read.");
+            }
+
+            ChargeName(read.Name);
+            projection = new MetadataNamedTypeReference(
+                new MetadataTypeReferenceScope.CurrentAssembly(),
+                read.Name);
+            _definitionProjections.Add(handle, projection);
+        }
+
+        return One(projection);
     }
 
     public SignatureTypeOccurrences GetTypeFromReference(
@@ -928,6 +945,14 @@ internal sealed class SignatureOccurrenceProvider
         byte rawTypeKind)
     {
         _workBudget.ChargeNode();
+        BindProjectionReader(reader);
+        if (_referenceProjections.TryGetValue(
+                handle,
+                out MetadataNamedTypeReference? cached))
+        {
+            return One(cached);
+        }
+
         if (MetadataTypeDefinitionNameReader.Read(reader, handle)
             is not MetadataTypeDefinitionNameReadResult.Read read)
         {
@@ -935,6 +960,7 @@ internal sealed class SignatureOccurrenceProvider
                 "The signature TypeRef name could not be read.");
         }
 
+        ChargeName(read.Name);
         Span<TypeReferenceHandle> chain =
             stackalloc TypeReferenceHandle[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -943,7 +969,7 @@ internal sealed class SignatureOccurrenceProvider
                     reader,
                     handle,
                     chain,
-                    out _,
+                    out int chainLength,
                     out EntityHandle terminal,
                     out _))
         {
@@ -951,6 +977,7 @@ internal sealed class SignatureOccurrenceProvider
                 "The TypeRef resolution-scope chain was rejected.");
         }
 
+        _workBudget.ChargeMetadataWork(chainLength);
         MetadataTypeReferenceScope scope = terminal.Kind switch
         {
             HandleKind.AssemblyReference =>
@@ -967,7 +994,9 @@ internal sealed class SignatureOccurrenceProvider
             _ => throw new BadImageFormatException(
                 "The TypeRef has an unsupported resolution scope."),
         };
-        return One(new MetadataNamedTypeReference(scope, read.Name));
+        var projection = new MetadataNamedTypeReference(scope, read.Name);
+        _referenceProjections.Add(handle, projection);
+        return One(projection);
     }
 
     public SignatureTypeOccurrences GetTypeFromSpecification(
@@ -977,6 +1006,13 @@ internal sealed class SignatureOccurrenceProvider
         byte rawTypeKind)
     {
         _workBudget.ChargeNode();
+        // The completeness check below scans the whole TypeSpec blob, and a
+        // shared TypeSpec is re-entered once per occurrence. Charge the bytes
+        // that scan reads so repetition is bounded by cost, not by entry count.
+        _workBudget.ChargeMetadataWork(
+            reader.GetBlobReader(
+                reader.GetTypeSpecification(handle).Signature).Length);
+
         // A nested TypeSpec must be fully consumed by the TypeSpec grammar.
         // SRM decodes one Type and stops, so a safe-prefix-only check would let
         // unconsumed trailing bytes ride along with the named children this
@@ -1005,6 +1041,9 @@ internal sealed class SignatureOccurrenceProvider
         SignatureTypeOccurrences elementType,
         ArrayShape shape)
     {
+        // A wide shape costs more than the single node charged here, but its
+        // bounds live in the TypeSpec blob that GetTypeFromSpecification
+        // already charges before SRM decodes it.
         _workBudget.ChargeNode();
         return elementType;
     }
@@ -1123,6 +1162,33 @@ internal sealed class SignatureOccurrenceProvider
         return new SignatureTypeOccurrences(builder.MoveToImmutable());
     }
 
+    // A decode runs against the reader that owns the signature. If a different
+    // reader ever appears, drop the projections rather than answering from
+    // another module's tables; the work ledger is not reset, so alternating
+    // readers cannot buy back budget.
+    void BindProjectionReader(MetadataReader reader)
+    {
+        if (ReferenceEquals(_projectionReader, reader))
+        {
+            return;
+        }
+
+        _projectionReader = reader;
+        _referenceProjections.Clear();
+        _definitionProjections.Clear();
+    }
+
+    void ChargeName(MetadataTypeDefinitionName name)
+    {
+        long characters = name.Namespace.Length;
+        foreach (string segment in name.Segments)
+        {
+            characters += segment.Length;
+        }
+
+        _workBudget.ChargeMetadataWork(characters);
+    }
+
     SignatureTypeOccurrences One(
         MetadataNamedTypeReference reference)
     {
@@ -1153,8 +1219,18 @@ internal sealed class SignatureOccurrenceProvider
         const int MaxMaterializationWork =
                 MetadataSafetyPolicy.MaxSignatureTypeNodes * 8;
 
+        // Counting callbacks bounds how many run, not what each one costs.
+        // Names, resolution-scope chains, TypeSpec completeness scans, and
+        // array shapes each read a different amount of metadata, so charge the
+        // metadata actually examined against its own ceiling. One decode may
+        // examine the equivalent of 64 maximum-length type names; real member
+        // signatures reference tens of types, not thousands.
+        const int MaxMetadataWork =
+                MetadataSafetyPolicy.MaxTypeNameCharacters * 64;
+
         int _remainingNodes = MetadataSafetyPolicy.MaxSignatureTypeNodes;
         int _remainingMaterializationWork = MaxMaterializationWork;
+        long _remainingMetadataWork = MaxMetadataWork;
 
         internal void ChargeNode()
         {
@@ -1165,6 +1241,17 @@ internal sealed class SignatureOccurrenceProvider
             }
 
             _remainingNodes--;
+        }
+
+        internal void ChargeMetadataWork(long units)
+        {
+            if (units < 0 || units > _remainingMetadataWork)
+            {
+                throw new BadImageFormatException(
+                    "The signature decode exceeds its metadata work budget.");
+            }
+
+            _remainingMetadataWork -= units;
         }
 
         internal void ChargeMaterialization(int occurrences)
