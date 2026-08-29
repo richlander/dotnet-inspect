@@ -594,11 +594,10 @@ public sealed class StateMachineCompletenessTests
     /// <c>Truncated</c> retains the PE headers, so it still claims to be
     /// managed and fails later, at the metadata it points at. One byte of
     /// <c>HeaderTruncated</c> cannot answer the question either way, so it is
-    /// undecidable rather than a claim. Which problem category the sweep files
-    /// each under is deliberately not asserted: that is a branch detail, and
-    /// pinning it is how the previous apparatus grew. The property is that the
-    /// sweep does not come
-    /// back clean and names the file.
+    /// undecidable rather than a claim. The property is that the sweep does not
+    /// come back clean and names the file; each case's expected survey line then
+    /// follows from that difference, because the one-byte specimen is counted
+    /// unclassifiable and the other two leave a decodable claim.
     ///
     /// An undamaged assembly sits alongside the damaged one on purpose. Without
     /// it a corpus of one file fails for an unrelated reason — nothing was
@@ -706,6 +705,15 @@ public sealed class StateMachineCompletenessTests
     ///
     /// This is the one damage that leaves a decodable assembly, so it is the
     /// only one that exercises the rejection path rather than an outcome branch.
+    ///
+    /// The conversion has to be total, not partial: the rename works because the
+    /// string heap deduplicates, so one patched byte reaches every reference. If
+    /// that ever stops holding, some machines would still resolve and the
+    /// fixture would only half-reproduce the trimming shape while still failing
+    /// the sweep. The assertions below are what enforce it — <c>Resolved</c> is
+    /// zero and <c>Rejected</c> equals <c>Structural</c>, derived rather than
+    /// written down, so adding an async method to the fixtures does not break
+    /// them. It was 9 of 9 when this was written.
     /// </summary>
     [Fact]
     public void Sweep_RejectedStateMachine_FailsTheSweep()
@@ -714,9 +722,15 @@ public sealed class StateMachineCompletenessTests
         try
         {
             byte[] image = File.ReadAllBytes(typeof(Fixtures).Assembly.Location);
-            File.WriteAllBytes(
-                Path.Combine(corpus, "unauthenticatable.dll"),
-                Unauthenticatable(image));
+            string damaged = Path.Combine(corpus, "unauthenticatable.dll");
+            File.WriteAllBytes(damaged, Unauthenticatable(image));
+
+            Assert.Equal(
+                CorpusOutcome.Measured,
+                TryMeasure(damaged, out CompletenessReport report, out _));
+            Assert.NotEqual(0, report.Structural);
+            Assert.Equal(0, report.Resolved);
+            Assert.Equal(report.Structural, report.Rejected);
 
             string? problems = SweepProblems(corpus, out string surveyed);
 
