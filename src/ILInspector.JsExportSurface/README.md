@@ -127,20 +127,26 @@ Two matching generated-root PropertyDefs with the same metadata identity also
 fail rather than letting declaration metadata select one while runtime code
 calls the other.
 
-Return JSON-wire facts are lowering-independent. A synchronous `string` export
-must return only authenticated source-generated `Serialize<T>` results.
-A compiler-async `Task<string>` export must feed those results into the
-authenticated `MoveNext` builder completion sink. A runtime-async
-`Task<string>` export must instead carry Analysis's explicit `Runtime`
-attribution on the exact exported physical method and return those same
-serializer results from that method's own `ret`. The resolver does not infer
-lowering from identity coincidences or recognize runtime-async IL shapes.
+For a direct serializer-to-completion contract, return JSON-wire facts are
+lowering-independent. A synchronous `string` export must return only
+authenticated source-generated `Serialize<T>` results. A compiler-async
+`Task<string>` export must feed those results into the authenticated `MoveNext`
+builder completion sink. A runtime-async `Task<string>` export must instead
+carry Analysis's explicit `Runtime` attribution on the exact exported physical
+method and return those same serializer results from that method's own `ret`.
+The resolver does not infer lowering from identity coincidences or recognize
+runtime-async IL shapes.
 Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
 declaration, or serializer evidence from a lifted local function or another
 method leaves `ReturnWireType` unset.
-`JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLowerings`
+When compiler lowering hoists a serialized value across a suspension,
+Analysis does not yet carry its call provenance through the state-machine
+field. Issue #5025 owns that prerequisite; this layer leaves the compiler form
+unresolved rather than reconstructing field flow or weakening the runtime
+form.
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
 gates equal owner-issued facts from paired compilations of the same genuinely
-awaited export.
+awaited direct-result export.
 `RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata`,
 `Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns`,
 `Build_RuntimeAsyncRejectsIncompleteReturnCoverage`, and

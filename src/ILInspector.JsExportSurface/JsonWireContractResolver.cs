@@ -45,6 +45,10 @@ namespace ILInspector.JsExportSurface;
 /// <see cref="JsExportFunction.ReturnWireType"/> unset rather than guessing. "Distinct" is judged
 /// by assembly-scoped structural identity, preventing an external type from aliasing an unrelated
 /// discovered local DTO that shares its qualified name.
+/// When compiler lowering hoists a serialized local across a suspension, Analysis does not yet
+/// carry that call provenance through the state-machine field; issue #5025 owns that prerequisite.
+/// This resolver leaves the compiler form unresolved rather than reconstructing field flow or
+/// weakening the runtime form.
 /// </para>
 /// <para>
 /// A compiler-async sink is authentic only when Analysis's declared-body mapping proves that its
@@ -52,7 +56,7 @@ namespace ILInspector.JsExportSurface;
 /// not qualify. Runtime-async evidence must remain on the export itself, so a serializer return
 /// from a lifted local function or another method cannot be borrowed. Serializer evidence likewise
 /// requires complete argument provenance to a registered context property's getter.
-/// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLowerings</c>,
+/// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>,
 /// <c>JsonWireContractResolverTests.RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata</c>,
 /// <c>JsonWireContractResolverTests.Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns</c>,
 /// <c>JsonWireContractResolverTests.Build_RuntimeAsyncRejectsIncompleteReturnCoverage</c>, and

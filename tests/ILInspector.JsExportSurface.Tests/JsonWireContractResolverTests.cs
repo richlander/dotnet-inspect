@@ -465,7 +465,7 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
-    public void Build_ProducesEqualWireFactsAcrossAsyncLowerings()
+    public void Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult()
     {
         var (compilerSurface, compilerBodyIndex) =
             BuildFixtureSurfaceWithWireContracts(

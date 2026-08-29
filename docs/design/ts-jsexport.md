@@ -346,10 +346,14 @@ byte-identical TypeScript.
 Lowering-independent body and JSON-wire authentication is a precondition on
 the input surface, owned by `ILInspector.JsExportSurface`. The paired compiled
 fixture gate
-`JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLowerings`
-proves that owner issues equivalent authenticated return facts for compiler
-async and runtime async. The target supports both lowerings by consuming that
-owner-issued invariant, not by reconstructing its evidence.
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
+proves that owner issues equivalent authenticated return facts when the
+serializer result reaches completion with direct call provenance. Analysis
+does not yet carry that provenance through a compiler state-machine field when
+the value is serialized before a suspension and returned afterward; issue
+[#5025](https://github.com/richlander/dotnet-inspect/issues/5025) owns that
+prerequisite. The target supports both lowerings by consuming
+owner-issued facts, not by reconstructing missing evidence.
 
 Inspect-web's paired deployment canary is a separate consumer responsibility.
 [#4792](https://github.com/richlander/dotnet-inspect/issues/4792) owns its
@@ -621,6 +625,9 @@ The current implementation predates this decision:
   that remain reachable for hand-composed surfaces, although the SDK's
   JavaScript interop source generator rejects a compiled `[JSExport]`
   `ValueTask` signature with `SYSLIB1072`;
+- owner-issued return-wire facts can differ when compiler lowering hoists a
+  serialized result through a state-machine field, pending Analysis issue
+  #5025;
 - `JsExportSurfaceBuilder` authenticates each generated registration's
   signature hash and preserves the exact dispatch identity as
   `JsExportFunction.RuntimeDispatchKey`, but the current emitter does not
@@ -654,8 +661,8 @@ The implementation effort should:
 7. expose `runEntryPoint()` as separately identified module infrastructure over
    the same private runtime, without invoking it from initialization or leaking
    `RuntimeAPI` into the public declaration;
-8. consume lowering-independent wire facts issued by
-   `ILInspector.JsExportSurface`;
+8. consume wire facts issued by `ILInspector.JsExportSurface` without
+   inspecting lowering or reconstructing the missing #5025 field provenance;
 9. consume each exact owner-issued runtime dispatch identity after the
    `ILInspector.JsExportSurface` prerequisite in
    [#4791](https://github.com/richlander/dotnet-inspect/issues/4791) lands;
@@ -722,10 +729,11 @@ The target remains unverified until all of these gates exist:
   TypeScript without any lowering-specific generator branch;
 - an integration gate gives the command paired compiler-async and
   runtime-async assemblies and proves structurally equal owner-issued surface
-  facts generate byte-identical TypeScript; physical lowering and
-  authentication remain gated by
-  `JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLowerings`
-  in the prerequisite owner;
+  facts generate byte-identical TypeScript; direct serializer-to-completion
+  lowering and authentication remain gated by
+  `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
+  in the prerequisite owner, while #5025 must close the cross-suspension field
+  provenance residual;
 - an SDK compile-negative fixture requires method-scoped `SYSLIB1072` to be
   present for `[JSExport]` `ValueTask` and `ValueTask<T>` signatures without
   assuming it is the build's only cascading diagnostic, while a hand-composed
