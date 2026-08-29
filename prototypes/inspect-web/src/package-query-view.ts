@@ -321,7 +321,6 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  announcement?: string;
   workspaceHref?: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -334,7 +333,6 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    announcement = "",
     workspaceHref = "/",
     escapeHtml,
   } = options;
@@ -367,9 +365,6 @@ export function renderPackageQueryView(
         <button id="package-query-back" type="button">Back</button>
       </header>
       <main class="query-main">
-        ${announcement
-          ? `<div class="query-announcement" role="alert">${escapeHtml(announcement)}</div>`
-          : ""}
         <div class="query-heading">
           <p class="query-kicker">nuspec-only · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>

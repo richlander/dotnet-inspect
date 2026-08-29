@@ -11,6 +11,71 @@ export type PackageQueryAnnouncementTracker = {
   reset: () => void;
 };
 
+type PackageQueryAnnouncementTarget = {
+  textContent: string | null;
+};
+
+type PackageQueryAnnouncementSchedule = (action: () => void) => void;
+
+export type PackageQueryLiveAnnouncer = {
+  enqueue: (announcement: string) => void;
+  reset: () => void;
+};
+
+export function createPackageQueryLiveAnnouncer(
+  target: () => PackageQueryAnnouncementTarget | null,
+  schedule: PackageQueryAnnouncementSchedule =
+    action => setTimeout(action, 0),
+): PackageQueryLiveAnnouncer {
+  let generation = 0;
+  let scheduledGeneration: number | null = null;
+  let pending: string[] = [];
+
+  function drain() {
+    if (scheduledGeneration !== null || pending.length === 0) return;
+    const drainGeneration = generation;
+    scheduledGeneration = drainGeneration;
+    schedule(() => {
+      if (scheduledGeneration !== drainGeneration
+        || generation !== drainGeneration) {
+        return;
+      }
+      const liveRegion = target();
+      if (!liveRegion) {
+        scheduledGeneration = null;
+        return;
+      }
+      const announcements = pending;
+      pending = [];
+      liveRegion.textContent = "";
+      schedule(() => {
+        if (scheduledGeneration !== drainGeneration
+          || generation !== drainGeneration) {
+          return;
+        }
+        liveRegion.textContent = announcements.join(" ");
+        scheduledGeneration = null;
+        drain();
+      });
+    });
+  }
+
+  return {
+    enqueue(announcement) {
+      if (!announcement) return;
+      pending.push(announcement);
+      drain();
+    },
+    reset() {
+      generation++;
+      scheduledGeneration = null;
+      pending = [];
+      const liveRegion = target();
+      if (liveRegion) liveRegion.textContent = "";
+    },
+  };
+}
+
 export function createPackageQueryAnnouncementTracker():
   PackageQueryAnnouncementTracker {
   let catalogError = "";

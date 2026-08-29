@@ -138,15 +138,12 @@ test("a facet catalog failure remains visible beside an empty facet rail", () =>
     state: initialQueryState(),
     availableFacets: [],
     navigationError: "Package-query facets are unavailable: catalog failed.",
-    announcement: "Package-query facets are unavailable: catalog failed.",
     escapeHtml,
   });
 
   assert.match(html, /Package-query facets are unavailable: catalog failed/);
   assert.match(html, /class="query-facets"><\/div>/);
-  assert.match(
-    html,
-    /class="query-announcement" role="alert">Package-query facets are unavailable/);
+  assert.doesNotMatch(html, /role="alert"/);
   assert.doesNotMatch(
     html,
     /class="query-navigation-error" role="alert"/);

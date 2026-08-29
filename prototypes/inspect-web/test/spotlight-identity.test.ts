@@ -562,6 +562,7 @@ const packageOpportunitiesSource = readFileSync(
 const applicationSources =
   `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const generatedEngineModuleUrl =
   new URL("../engine/wwwroot/inspect-web-engine.js", import.meta.url);
 const generatedEngineSource = readFileSync(generatedEngineModuleUrl, "utf8");
@@ -2832,7 +2833,13 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);
   assert.match(
     appSource,
-    /announcement: takePackageQueryAnnouncement\(\)/);
+    /const announcement = takePackageQueryAnnouncement\(\);[\s\S]*packageQueryLiveAnnouncer\.enqueue\(announcement\)/);
+  assert.match(
+    appSource,
+    /createPackageQueryLiveAnnouncer\(\s*\(\) => document\.querySelector<HTMLElement>\("#package-query-announcement"\)\)/);
+  assert.match(
+    indexSource,
+    /id="package-query-announcement"[\s\S]*class="query-announcement"[\s\S]*role="alert"[\s\S]*aria-live="assertive"[\s\S]*aria-atomic="true"/);
   assert.match(
     appSource,
     /workspaceHref: packageQueryWorkspaceHref\(\)/);

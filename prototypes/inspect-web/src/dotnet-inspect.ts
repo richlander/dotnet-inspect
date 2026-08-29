@@ -284,6 +284,7 @@ import {
   type QueryFacetTerm,
 } from "./package-query.ts";
 import {
+  createPackageQueryLiveAnnouncer,
   createPackageQueryAnnouncementTracker,
 } from "./package-query-announcements.ts";
 import {
@@ -945,6 +946,8 @@ const packageQueryController = createPackageQueryController(
   },
 );
 const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
+const packageQueryLiveAnnouncer = createPackageQueryLiveAnnouncer(
+  () => document.querySelector<HTMLElement>("#package-query-announcement"));
 
 const metadataInspection = createMetadataInspectionCoordinator({
   state,
@@ -2553,6 +2556,7 @@ function render() {
     renderPackageQueryPage();
     return;
   }
+  packageQueryLiveAnnouncer.reset();
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
   const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
@@ -7056,6 +7060,7 @@ function resetPackageQueryState() {
 
 function resetPackageQueryAnnouncements() {
   packageQueryAnnouncements.reset();
+  packageQueryLiveAnnouncer.reset();
 }
 
 function takePackageQueryAnnouncement(): string {
@@ -7271,6 +7276,7 @@ function packageQueryWorkspaceHref(): string {
 function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
+  const announcement = takePackageQueryAnnouncement();
   document.title = "Package query · dotnet-inspect";
   app.innerHTML = renderPackageQueryView({
     state: state.packageQueryState,
@@ -7280,7 +7286,6 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    announcement: takePackageQueryAnnouncement(),
     workspaceHref: packageQueryWorkspaceHref(),
     escapeHtml,
   });
@@ -7289,6 +7294,7 @@ function renderPackageQueryPage() {
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);
   }
+  packageQueryLiveAnnouncer.enqueue(announcement);
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no

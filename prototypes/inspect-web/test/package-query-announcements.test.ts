@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createPackageQueryLiveAnnouncer,
   createPackageQueryAnnouncementTracker,
 } from "../src/package-query-announcements.ts";
 
@@ -72,4 +73,65 @@ test("a new navigation attempt can repeat the same failure announcement", () => 
   assert.equal(tracker.take(failed), "");
   tracker.beginNavigationAttempt();
   assert.equal(tracker.take(failed), "Workspace acquisition failed.");
+});
+
+test("the live announcer batches same-turn deltas into a stable region", () => {
+  const target = { textContent: "Earlier announcement." };
+  const scheduled: Array<() => void> = [];
+  const announcer = createPackageQueryLiveAnnouncer(
+    () => target,
+    action => scheduled.push(action));
+
+  announcer.enqueue("nuget.org: HTTP 503.");
+  announcer.enqueue("The package source failed.");
+  assert.equal(scheduled.length, 1);
+  assert.equal(target.textContent, "Earlier announcement.");
+
+  scheduled.shift()?.();
+  assert.equal(target.textContent, "");
+  assert.equal(scheduled.length, 1);
+
+  scheduled.shift()?.();
+  assert.equal(
+    target.textContent,
+    "nuget.org: HTTP 503. The package source failed.");
+});
+
+test("reset prevents an older scheduled announcement from publishing", () => {
+  const target = { textContent: "" };
+  const scheduled: Array<() => void> = [];
+  const announcer = createPackageQueryLiveAnnouncer(
+    () => target,
+    action => scheduled.push(action));
+
+  announcer.enqueue("Stale failure.");
+  announcer.reset();
+  announcer.enqueue("Current failure.");
+
+  scheduled.shift()?.();
+  assert.equal(target.textContent, "");
+  scheduled.shift()?.();
+  assert.equal(target.textContent, "");
+  scheduled.shift()?.();
+  assert.equal(target.textContent, "Current failure.");
+});
+
+test("a temporarily missing live region does not consume announcements", () => {
+  let target: { textContent: string | null } | null = null;
+  const scheduled: Array<() => void> = [];
+  const announcer = createPackageQueryLiveAnnouncer(
+    () => target,
+    action => scheduled.push(action));
+
+  announcer.enqueue("First failure.");
+  scheduled.shift()?.();
+  assert.equal(scheduled.length, 0);
+
+  target = { textContent: "" };
+  announcer.enqueue("Second failure.");
+  scheduled.shift()?.();
+  scheduled.shift()?.();
+  assert.equal(
+    target.textContent,
+    "First failure. Second failure.");
 });
