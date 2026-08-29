@@ -30,10 +30,14 @@ docs-only change.
   platform (or an override);
 - a collision-resistant, filesystem-safe path for a caller-chosen key within
   a category;
-- best-effort read/write/clear operations over that path;
-- containment so cache deletion can never escape the cache root; and
-- best-effort background retirement of superseded versioned category
-  directories.
+- best-effort read, write, and background-maintenance operations over that
+  path — failures are swallowed and observed only as a miss or as maintenance
+  making no progress;
+- a `Clear` operation that surfaces most failures rather than swallowing them
+  (see [Clear and concurrent writers](#clear-and-concurrent-writers)); and
+- a path-context guard, `EnsurePathInCacheContext`/`IsPathInCacheContext`,
+  that both `Clear` and other owners may call before their own deletions (see
+  [Path-context containment](#path-context-containment)).
 
 Everything else — what a category or key *means*, whether a hit is still
 valid, and whether a miss may trigger network work — belongs to the caller.
@@ -82,33 +86,47 @@ enforce against.
 
 ## Path-context containment
 
-`EnsurePathInCacheContext`/`IsPathInCacheContext` are the only guards against
+`EnsurePathInCacheContext`/`IsPathInCacheContext` are a public guard against
 deleting outside the cache: a path is in context when it equals or is a
 descendant of the active base path (`GetBasePath()`) or the legacy pre-XDG
 path (`GetLegacyBasePath()`). `IsPathInCacheContext` fails closed — any
 exception while resolving the full path (malformed path, denied access)
-returns `false`, never `true`.
+returns `false`, never `true`. `Clear` calls it internally, and other owners
+call it directly before their own destructive filesystem operations —
+package-content and staging deletion (`NuGetCache`), platform-pack target and
+staging deletion (`PlatformPackService`), and legacy-cache deletion
+(`PackageCacheService`) all invoke it. It is the mechanism's one exported
+containment primitive; any future caller that deletes a path derived from
+`GetBasePath()`/`GetCategoryPath()` should call it too.
 
-**Gap:** the descendant check (`IsSameOrChildPath`) compares paths with
-`StringComparison.OrdinalIgnoreCase` unconditionally, on every platform. On a
-case-sensitive filesystem (ordinary Linux/macOS volumes), a path that differs
-from the cache root only in case is accepted as a descendant even though it
-names a distinct location outside the actual root — so the "cannot escape the
-cache root" guarantee below does not hold there. This document's containment
-claims describe the guard's intended behavior, not a verified guarantee on
-case-sensitive filesystems; treat that as an open, unenforced case, not as
-closed by `EnsurePathInCacheContext` alone.
+**Gap:** the descendant check (`IsSameOrChildPath`) and the root-equality
+check used to carry maintenance counters across re-`Initialize`
+(`IsSamePath`) both compare paths with `StringComparison.OrdinalIgnoreCase`
+unconditionally, on every platform. On a filesystem that is actually
+case-sensitive — ordinary Linux ext4, or a case-sensitive-formatted
+APFS/NTFS volume (the default macOS and Windows format is case-insensitive) —
+a path that differs from the cache root only in case is accepted as a
+descendant, or two re-`Initialize` roots differing only in case are treated
+as the same root, even though each names a distinct location on disk. So
+neither the "cannot escape the cache root" guarantee below, nor the
+counter-carry-forward rule in
+[Initialization lifecycle](#initialization-lifecycle), holds on such a
+filesystem. This document's containment claims describe the guard's intended
+behavior, not a verified guarantee on a case-sensitive filesystem; treat that
+as an open, unenforced case, not as closed by `EnsurePathInCacheContext`/
+`IsSamePath` alone.
 
-**Gap:** this guard runs only inside `Clear`, immediately before
-`Directory.Delete`. It does not run on the write path (`Set`/`SetBytes`
-create directories and move files into `GetFilePath`'s result without calling
-it) or the read path. Because `category` is contract-restricted to literals
-(see above), a conforming caller never needs the guard there today — but the
-guard's absence means a `category`/`extension`/`appName` contract violation
-on the write path is not caught by this mechanism at all, only a violation
-reached through `Clear`'s category argument is. A future defensive check on
-`category`/`extension`/`appName` (the gap above) would close both paths at
-once and make this asymmetry moot.
+**Gap:** `CoreCache`'s own read/write entry points (`TryGet`, `TryGetBytes`,
+`Set`, `SetBytes`, `GetFilePath`) never call the guard themselves — only
+`Clear` and the external callers above do. Because `category` is
+contract-restricted to literals (see above), a conforming caller never needs
+the guard on the read/write path today — but the guard's absence there means
+a `category`/`extension`/`appName` contract violation reaching `TryGet`/`Set`
+directly (rather than through `Clear` or one of the callers that already
+guards itself) is not caught by this mechanism at all. A future defensive
+check on `category`/`extension`/`appName` (the trust-boundary gap above)
+would close this without relying on every future write-path caller
+remembering to call the guard itself.
 
 ## Initialization lifecycle
 
@@ -117,7 +135,9 @@ call: it cancels and best-effort drains any in-flight versioned-category
 maintenance, replaces the maintenance generation, and re-schedules cleanup
 for every category registered so far — against the *new* base path if one was
 given. Reclaimed-byte/directory counters carry forward only when the new base
-path resolves to the same location as the old one; otherwise they reset,
+path resolves to the same location as the old one (`IsSamePath` — subject to
+the case-sensitivity gap in
+[Path-context containment](#path-context-containment)); otherwise they reset,
 because the counters describe one cache root's history and a root change
 starts a new one.
 
@@ -173,39 +193,64 @@ directory absent.
 
 ## `Clear` and concurrent writers
 
-**Gap:** `Clear` takes `s_maintenanceLock`, drains maintenance, validates the
-target path is in cache context, then deletes the directory tree. It does not
-coordinate with concurrent `Set`/`SetBytes` calls, which do not take
-`s_maintenanceLock` at all. A `Set` that created its category subdirectory
-before `Clear`'s `Directory.Delete` observes either a successful write that
-`Clear` then removes (consistent with "clear empties the cache") or a
-`WriteAtomically` `File.Move` into a directory `Clear` just deleted — caught
-by `Set`'s blanket `try`/`catch` and silently dropped. Neither outcome
-corrupts the cache, but the mechanism gives no delivery guarantee for a write
-that races a clear, and a caller relying on "the value I just set survives"
-immediately after a concurrent `Clear` has no contract to rely on. Today no
-caller clears a category while concurrently writing to it; a future one must
-either serialize its own writes around a `Clear` or accept that the write may
-be silently lost.
+`Clear` is not best-effort like the read/write paths: it takes
+`s_maintenanceLock`, drains maintenance, validates the target path is in
+cache context, measures the tree, and deletes it, catching only
+`DirectoryNotFoundException` for the specific case where another process
+already completed the same deletion. Any other failure — an authorization
+error, an `IOException` from a file another process still has open, or a
+directory-enumeration error while measuring size — propagates to `Clear`'s
+caller rather than being swallowed.
+
+**Gap:** `Clear` does not coordinate with concurrent `Set`/`SetBytes` calls,
+which do not take `s_maintenanceLock` at all. A `Set` that created its
+category subdirectory before `Clear`'s `Directory.Delete` can produce three
+outcomes, none of them a contract this mechanism enforces: a successful write
+that `Clear` then removes (consistent with "clear empties the cache"); a
+`WriteAtomically` `File.Move` into a directory `Clear` just deleted, caught by
+`Set`'s blanket `try`/`catch` and silently dropped; or a filesystem error
+surfaced *from `Clear` itself* (for example `Directory.Delete` encountering
+the writer's still-open temporary file) that is not the narrow
+already-deleted case `Clear` catches, and so propagates to `Clear`'s caller.
+A caller relying on "the value I just set survives" immediately after a
+concurrent `Clear`, or relying on `Clear` never throwing because reads and
+writes elsewhere are best-effort, has no contract to rely on. Today no caller
+clears a category while concurrently writing to it; a future one must either
+serialize its own writes around a `Clear` or accept both the silent-loss and
+the `Clear`-throws possibilities.
 
 ## Telemetry is fire-and-forget but not exception-isolated
 
 `InfoTracker.RecordCacheHit`/`RecordCacheMiss` and `CacheTelemetry.Record` are
-recorded on every `TryGet`/`TryGetBytes`/`Set`/`SetBytes` outcome. Recording
-itself does nothing to protect a cache result: `CacheTelemetry.Record` calls
-every subscribed `IObserver<CacheObservation>.OnNext` synchronously, with no
-surrounding `try`/`catch`. A throwing subscriber therefore changes cache
-behavior at the call site — on a `TryGet` hit, the call happens inside the
-method's own blanket `catch`, so a subscriber exception silently turns a hit
-into a miss (`null`); on a `TryGet` miss, the call happens outside any
-`catch`, so a subscriber exception propagates to the cache caller. This
-mechanism does not isolate telemetry from the operation it is recording;
-"fire-and-forget" describes the caller's intent, not an enforced boundary.
-Telemetry may also undercount (a `Set` that never reaches the `try` body's
-`CacheTelemetry.Record` call because an earlier line threw is silently
-uncounted) and must not be read as an audit trail of cache correctness — only
-as an operational signal, and only when every subscriber is known not to
-throw.
+recorded on cache outcomes, but recording itself does nothing to protect a
+cache result: `CacheTelemetry.Record` calls every subscribed
+`IObserver<CacheObservation>.OnNext` synchronously, with no surrounding
+`try`/`catch`. A throwing subscriber changes cache behavior differently
+depending on which method and overload observed it:
+
+- **`TryGet`/`TryGetBytes` without `maxAge`:** the hit-telemetry call is
+  inside the method's own blanket `catch`, so a throwing subscriber silently
+  turns a hit into a miss (`null`) with no miss recorded; a throwing
+  subscriber on the (separate, unguarded) miss path propagates to the caller.
+- **`TryGet`/`TryGetBytes` *with* `maxAge`:** the hit-telemetry call is inside
+  a `catch` that swallows the exception and falls through to the *same*
+  unguarded miss-telemetry call below it. A subscriber that throws on the
+  hit observation therefore still reaches the miss observation; if that
+  subscriber (or another) also throws on the miss observation, the exception
+  propagates out of the method — unlike the non-`maxAge` overloads, a
+  throwing hit subscriber does not reliably degrade to a silent `null` here.
+- **`Set`/`SetBytes`:** the telemetry call is inside the method's own blanket
+  `catch`, so a throwing subscriber is swallowed the same way any other write
+  failure is, and the write telemetry is simply never recorded.
+
+This mechanism does not isolate telemetry from the operation it is
+recording; "fire-and-forget" describes the caller's intent, not an enforced
+boundary, and it is not true that every outcome is guaranteed to be recorded.
+Telemetry may also undercount for reasons unrelated to a subscriber (a `Set`
+that never reaches the `try` body's `CacheTelemetry.Record` call because an
+earlier line threw is silently uncounted) and must not be read as an audit
+trail of cache correctness — only as an operational signal, and only when
+every subscriber is known not to throw.
 
 ## Non-claims
 
