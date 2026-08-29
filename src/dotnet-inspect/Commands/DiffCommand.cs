@@ -1880,7 +1880,7 @@ public class DiffCommand
 
     static string InspectionState<T>(FindingInspection<T> inspection)
         where T : notnull
-        => inspection switch
+        => inspection.Value switch
         {
             FindingInspection<T>.Complete => "complete",
             FindingInspection<T>.Absent
@@ -1894,6 +1894,8 @@ public class DiffCommand
             FindingInspection<T>.Absent absent => throw new InvalidOperationException(
                 $"Unsupported Finding inspection absence kind '{absent.Kind}'."),
             FindingInspection<T>.Failed => "failed",
+            _ => throw new InvalidOperationException(
+                "Finding inspection returned an unknown outcome."),
         };
 
     static IReadOnlyList<PairFinding<T>> CompletePairs<T>(FindingComparison<T> comparison)
