@@ -254,8 +254,8 @@ TermBegin ==
   /\ session' = "disposed"
   /\ pOverlap' =
       (\/ pOverlap
-       \/ mat \in {"opening", "reading"}
-       \/ \E r \in QueryReaders : readers[r] \in {"opening", "open"})
+       \/ mat = "reading"
+       \/ \E r \in QueryReaders : readers[r] = "open")
   /\ UNCHANGED << everPublished, termRequested, mat, matRegistered, readers,
                   readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
                   wReleaseStreams, wPublishGuard, pQueryClosed >>

@@ -139,13 +139,13 @@ TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../../../runbooks/tla-plus-setup.md))
 with two query readers:
 
-- `Safety.cfg`: 427 states generated, 256 distinct, depth 19, no errors; all
+- `Safety.cfg`: 437 states generated, 251 distinct, depth 19, no errors; all
   nine invariants pass, and every target-mode action fires, including owner
   cancellation of registered openers and the materialization read. The
   `Recheck`/`Immediate` actions and `MatReadTorn` are correctly unreachable.
 - `Liveness.cfg`: same graph, all three temporal properties pass.
-- A neighboring three-reader safety run also passes (3,038 states generated,
-  1,356 distinct, depth 23), so the properties are not fitted to the
+- A neighboring three-reader safety run also passes (3,311 states generated,
+  1,403 distinct, depth 23), so the properties are not fitted to the
   two-reader bound.
 - All three `Current*` configurations and all four `Broken*` configurations
   fail on exactly their intended invariant or temporal property; both probes
