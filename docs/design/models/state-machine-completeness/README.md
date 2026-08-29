@@ -106,6 +106,49 @@ invariants.
 machines can only merge directly, so a chain of three is required to distinguish
 "merge the named pair" from "merge the component". Mutation M2 depends on it.
 
+## Demo — the round-19 bug, in three states
+
+This is what the model is for. `BrokenPartialFailure.cfg` encodes the defect that
+took nineteen review rounds to find by hand in #4835: whole-module failure that
+leaves already-recorded results standing, producing a *partial* rejection where
+the contract requires a total one.
+
+```console
+$ java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
+    -config BrokenPartialFailure.cfg StateMachineCompleteness.tla
+
+Error: Invariant C3_FailureRejectsAll is violated.
+Error: The behavior up to this point is:
+
+State 1: <Initial predicate>
+  /\ truth  = <<"Resolvable", "Resolvable", "Resolvable">>
+  /\ result = <<"Unclassified", "Unclassified", "Unclassified">>
+  /\ phase  = "Building"
+
+State 2: <ResolveOne(1)>
+  /\ result = <<"Resolved", "Unclassified", "Unclassified">>
+  /\ phase  = "Building"
+
+State 3: <FailModule("Malformed")>
+  /\ result = <<"Resolved", "Rejected", "Rejected">>
+  /\ phase  = "Failed"
+  /\ kind   = "Malformed"
+
+Finished in 00s
+```
+
+Read state 3. The module failed, but machine 1 still answers `Resolved`. A
+consumer asking "did this module fail?" sees a mixture, which C3 reserves for
+per-claim refusal — the two failures have become indistinguishable.
+
+Three states, 0.32 seconds, no fixture and no compiler. The equivalent hand-built
+gate needs a fixture that converts *every* machine, and the reason nineteen
+rounds missed it is that a fixture converting only one machine looks correct and
+passes.
+
+That is the argument for specifying this property here rather than in a comment
+beside the test. The counterexample is cheap, exact, and re-runnable by anyone.
+
 ## Deliberate counterexamples
 
 Each counterexample is a **committed configuration**, not a described edit. The
