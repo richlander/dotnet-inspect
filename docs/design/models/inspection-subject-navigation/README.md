@@ -425,6 +425,7 @@ records how to reproduce them.
 | NS33 | Advance the Navigation preparation-failure revision and coherently rewrite its result and authority to the post-state | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | NS34 | Rewrite the Navigation preparation-failure source as evaluation | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | NS35 | Omit product and host authority from Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS36 | Rewrite both Navigation preparation failure and its witness to use applied authority | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -451,13 +452,13 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Sixty probes, fifty-nine expected violations and one expected pass. `SA6`
+Sixty-one probes, sixty expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Twenty-two probes exist specifically because a claim used to be satisfiable
+Twenty-three probes exist specifically because a claim used to be satisfiable
 by the wrong thing. `NS16` separates installed revision from a self-consistent
 result,
 `NS17` admits stale work without re-gathering, `NS18` lets a later admission
@@ -475,9 +476,11 @@ product-owned pre-state receipt, `NS28` makes post-install abandonment directly
 observable, and `NS29`/`NS30` protect synchronization admission relative to
 explicit work and queued maintenance. `NS33` rewrites preparation-failure
 authority and result to the wrong post-state, `NS34` erases its distinct
-source, and `NS35` erases its returned authority. `AR2` publishes a payload that differs
-from the retained request, `SA14` applies a later supplied-prior operation after
-an earlier one was rejected, `SA15` adopts only the stale same-session supplied
+source, `NS35` erases its returned authority, and `NS36` changes both the
+action and shared witness so only the dedicated preparation-failure invariant
+rejects the wrong authority class. `AR2` publishes a payload that differs from
+the retained request, `SA14` applies a later supplied-prior operation after an
+earlier one was rejected, `SA15` adopts only the stale same-session supplied
 snapshot whose origin and lens resemble session data, and `SA18` returns
 another admissible session lens under the correct operation ID.
 
