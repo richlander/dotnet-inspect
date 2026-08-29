@@ -342,7 +342,8 @@ bounded executable design model for viewer-local interaction. It checks:
 - exact chip versus persistent-inspector detail openers, including distinct
   same-medium targets for one Finding and embedded-chip activation;
 - exact persistent-inspector action coverage for the consumed Finding census,
-  including an unanchored Finding;
+  including enabled opening for an unanchored Finding;
+- exact rendered-target derivation from active annotations and visible media;
 - primary selection, active annotations, rendered annotations, and derived
   reported state with independently checked precedence;
 - exact **Default**, **All**, **Clear**, medium, and coordinate control
@@ -369,13 +370,14 @@ Conformance requires:
   documented mutation counterexamples;
 - action-matrix tests proving every chip-shaped element is a button with one
   documented verb and equivalent pointer/keyboard activation, plus set equality
-  between persistent inspector actions and the consumed Finding census with an
-  unanchored-Finding witness;
+  between enabled persistent inspector actions and the consumed Finding census
+  with an unanchored-Finding witness;
 - modal-session tests proving fresh initialization, eligible primary transfer,
-  embedded-detail destruction on opening, state destruction on dismissal, and
-  no detail transfer;
+  independently derived transfer eligibility, embedded-detail destruction on
+  opening, state destruction on dismissal, and no detail transfer;
 - active-versus-rendered tests covering C#-only, IL-only, dual-target, and
-  unanchored Findings;
+  unanchored Findings, with rendered targets derived directly from active
+  membership and visible media;
 - **Default**, **All**, **Clear**, and **Custom** precedence tests, including
   empty and universe-equal defaults plus rejection of unsupported-medium
   Findings from the universe and default set;

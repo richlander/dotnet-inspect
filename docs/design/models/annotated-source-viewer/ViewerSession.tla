@@ -837,6 +837,17 @@ InspectorInventoryIsComplete ==
   /\ InspectorFindings = Findings
   /\ Unanchored \in InspectorFindings
 
+InspectorActionsAreAvailable ==
+  surface = "Modal" =>
+    \A finding \in Findings :
+      ENABLED OpenModalFinding(finding, "Inspector", NoValue)
+
+RenderedTargetsAreExact ==
+  \A target \in Targets :
+    (target \in VisibleTargets(active, visibleMedia)) =
+      (/\ FindingOf(target) \in active
+       /\ TargetMedium(target) \in visibleMedia)
+
 ReportedStateIsDerived ==
   CASE active = defaults ->
          reported = "Default"
@@ -981,7 +992,10 @@ ModalOpeningIsFresh ==
   lastAction = "OpenModal" =>
     /\ surface = "Modal"
     /\ modalPrimary =
-         IF Transferable(openingEmbeddedPrimary, defaults)
+         IF /\ openingEmbeddedPrimary.kind = "Finding"
+            /\ openingEmbeddedPrimary.value \in defaults
+            /\ FindingTargets(openingEmbeddedPrimary.value)
+                 \cap CSharpTargets # {}
          THEN openingEmbeddedPrimary
          ELSE NoPrimary
     /\ modalDetail = NoDetail
@@ -995,7 +1009,10 @@ ModalDismissalIsExact ==
   lastAction \in {"DismissEscape", "DismissPointer"} =>
     /\ surface = "Embedded"
     /\ embeddedPrimary =
-         IF Transferable(dismissedPrimary, defaults)
+         IF /\ dismissedPrimary.kind = "Finding"
+            /\ dismissedPrimary.value \in defaults
+            /\ FindingTargets(dismissedPrimary.value)
+                 \cap CSharpTargets # {}
          THEN dismissedPrimary
          ELSE NoPrimary
     /\ embeddedDetail = NoDetail

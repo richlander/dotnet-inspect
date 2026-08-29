@@ -49,7 +49,10 @@ The safety invariants check:
 - exact embedded and modal chip-or-inspector opening, including the exact
   same-medium target, plus historical eligible-primary transfer;
 - exact persistent-inspector inventory equality with the Finding census,
-  including an unanchored-Finding witness;
+  including an unanchored-Finding witness, and enabled inspector opening for
+  every Finding while the modal is open;
+- exact rendered-target derivation from active membership and currently
+  visible media;
 - exact annotation and presentation preservation across modal Finding and node
   selection;
 - exact detail closure, primary and presentation preservation, and
@@ -112,7 +115,7 @@ each for `ToggleAnnotation` and `ToggleMedium`, and 3,096 for
 
 ## Mutation evidence
 
-Thirty-eight deliberate targeted mutations were run against the same
+Forty deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -151,11 +154,13 @@ Each produced a concrete counterexample:
 | Include an unsupported-medium Finding in the annotation universe | `AnnotatableUniverseIsSupported` |
 | Record a sibling C# target for an embedded chip opener | `FindingOpeningIsExact` |
 | Clear eligible primary state while opening the modal | `ModalOpeningIsFresh` |
+| Make transfer eligibility reject every primary | `ModalOpeningIsFresh` |
 | Change surface while directly closing detail | `DetailClosureOutcomeIsExact` |
 | Reset visible media during an annotation toggle | `AnnotationToggleOutcomeIsExact` |
 | Reset coordinates while opening modal Finding detail | `FindingOpeningIsExact` |
 | Reset coordinates while selecting a node | `NodeSelectionOutcomeIsExact` |
-| Restrict inspector actions to annotatable Findings | `InspectorInventoryIsComplete` |
+| Restrict the inspector action guard to annotatable Findings | `InspectorActionsAreAvailable` |
+| Make rendered-target derivation ignore visible media | `RenderedTargetsAreExact` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.
