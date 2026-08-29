@@ -39,6 +39,9 @@ state machine of the construction can express.
 
 | Variable | Meaning |
 | --- | --- |
+| `truth` | per machine: what it **actually** is, independent of the index |
+| `seq` | per machine: its discovery position once rejected |
+| `claimed` | per machine: its per-claim kind, never rewritten by a merge |
 | `phase` | `"Building"`, `"Built"`, or `"Failed"` |
 | `kind` | the typed failure kind once `phase = "Failed"` |
 | `result` | per machine: `Unclassified`, `Resolved`, `Absent`, `Rejected` |
@@ -47,12 +50,29 @@ state machine of the construction can express.
 | `visited` | machines construction has reached |
 | `budget` | construction steps remaining |
 
-`evidence` exists because without it the confluence invariant was **vacuous**.
-Merging only fires on two already-rejected machines, so "members of a component
-agree on their result" was satisfied by construction: every member was
-`"Rejected"` already. Carrying a value that can genuinely differ is what gives
-the invariant something to be false about. Mutation M2 is the regression test
-for that.
+`truth` is the most important variable, and the first draft did not have it.
+Without it, C1 said only that no machine retained an `Unclassified` marker — and
+a real index that loses a row publishes no such marker. It publishes `Absent`,
+which is exactly what it publishes for a machine that genuinely has no claim.
+The invariant was therefore satisfiable by an index that dropped rows, which is
+the failure it exists to catch. `BrokenDroppedRow.cfg` is the regression test
+for that mistake.
+
+`evidence` and `claimed` exist for the same reason one level down. Merging only
+fires on two already-rejected machines, so "members of a component agree on
+their result" was true by construction. Carrying a per-claim kind that can
+differ between members is what gives the invariant something to be false about;
+`claimed` preserves the original so the merged value has a specification rather
+than just a consistency check. `BrokenPartialMerge.cfg` covers it.
+
+`seq` records discovery position because **the implementation is not
+order-independent**, and the first draft of this model assumed it was. Merged
+`Kind` and `Detail` are seeded from the first contributing component in append
+order (`FreezeRejections` in `StateMachineRelationshipIndex.cs`). Combining
+evidence with a commutative minimum, as the first draft did, made confluence
+true of the model and unfalsifiable — while the design document asserted an
+order independence the code does not have. `C5_EvidenceIsFirstDiscovered` states
+what actually holds, and `BrokenOrderDependentMerge.cfg` falsifies it.
 
 `SharedPairs` is derived rather than configured: consecutive machines share a
 contributor, forming one chain. A chain is the interesting topology because
@@ -63,10 +83,11 @@ no single claim names both.
 
 | Name | Design invariant | Statement |
 | --- | --- | --- |
-| `C1_Totality` | C1 | In `Built` or `Failed`, every machine holds exactly one classified result |
+| `C1_Totality` | C1 | Once `Built`, every machine's result matches an independent recount of `truth` |
 | `C2_FailureIsTyped` | C2 | `Failed` implies a typed kind, and never a success-shaped state |
 | `C3_FailureRejectsAll` | C3 | `Failed` implies *every* machine reports `Rejected` |
 | `C5_ComponentsAgree` | C5 | Machines in one component share a result and evidence |
+| `C5_EvidenceIsFirstDiscovered` | C5 | A component's evidence is its earliest-discovered member's claim |
 | `C5_SharedRejectionsMerge` | C5 | Once `Built`, rejections that share a contributor share a component |
 | `FailureIsAbsorbing` | C2, C3 | `Failed` is never left, and results never change after it |
 | `EventuallyTerminal` | — | Construction always reaches `Built` or `Failed` |
@@ -78,8 +99,8 @@ invariants.
 
 | Configuration | Bounds | Purpose | Result |
 | --- | --- | --- | --- |
-| `StateMachineCompleteness.cfg` | `MachineCount = 3`, `MaxBudget = 3` | Both success and malformed-input failure reachable | 1,241 states, 341 distinct, depth 7 |
-| `BudgetExhaustion.cfg` | `MachineCount = 3`, `MaxBudget = 2` | Budget too small to classify every machine, forcing `BudgetExceeded` | 388 states, 105 distinct, depth 5 |
+| `StateMachineCompleteness.cfg` | `MachineCount = 3`, `MaxBudget = 3` | Both success and malformed-input failure reachable | 3,841 states, 2,074 distinct, depth 7 |
+| `BudgetExhaustion.cfg` | `MachineCount = 3`, `MaxBudget = 2` | Budget too small to classify every machine, forcing `BudgetExceeded` | 1,833 states, 1,014 distinct, depth 5 |
 
 `MachineCount = 3` is the smallest bound that makes transitive merging real: two
 machines can only merge directly, so a chain of three is required to distinguish
@@ -106,18 +127,34 @@ loudly if a later change makes an invariant weaker than it looks.
 | `BrokenPartialMerge.cfg` | Merge unifies evidence for only the two named machines, not the component they join | `C5_ComponentsAgree` |
 | `BrokenUnvisitedPublish.cfg` | Construction publishes before classifying every machine | `C1_Totality` |
 | `BrokenUnmergedPublish.cfg` | Construction publishes without merging rejections that share a contributor | `C5_SharedRejectionsMerge` |
+| `BrokenDroppedRow.cfg` | A row never reached is published as `Absent` | `C1_Totality` |
+| `BrokenOrderDependentMerge.cfg` | Merged kind follows merge order rather than discovery order | `C5_EvidenceIsFirstDiscovered` |
 
 `BrokenPartialFailure.cfg` is the one worth dwelling on. It is the bug a reviewer
 found by accident in the nineteenth review round of the accompanying test change,
 after a prose comment describing the very property had been read and cleared by
 two other reviewers. TLC finds it in under a second.
 
-`BrokenUnmergedPublish.cfg` records a hole in an earlier revision of this model.
-That revision had no `SharedPairs` and no `C5_SharedRejectionsMerge`, and the
-mutation **survived**: with no notion of which machines ought to share a
-component, an index that merged nothing satisfied component agreement vacuously.
-The surviving mutation was the signal that the invariant was weaker than the
-prose it was meant to capture.
+Three of these configurations record holes that earlier revisions of this model
+did not detect. They are kept because each one is the regression test for a way
+this model was, at some point, checking less than it appeared to.
+
+- `BrokenUnmergedPublish.cfg` — the first revision had no `SharedPairs` and no
+  `C5_SharedRejectionsMerge`. With no notion of which machines *ought* to share
+  a component, an index that merged nothing satisfied component agreement
+  vacuously.
+- `BrokenDroppedRow.cfg` — the first revision modeled a lost row as a
+  distinguished `Unclassified` marker. Real indexes publish `Absent`. Changing
+  the mutation to match reality made `C1_Totality` pass, which is how the
+  vacuity was found.
+- `BrokenOrderDependentMerge.cfg` — the first revision combined merged evidence
+  with a minimum, which is commutative. That made order independence true of
+  the model and impossible to falsify, while the design document asserted an
+  order independence the implementation does not have.
+
+The last of those is the one worth generalizing from. A model that idealizes the
+system will happily prove properties the system lacks, and the modeler is the
+least likely person to notice.
 
 ## Running it
 

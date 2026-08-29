@@ -217,26 +217,39 @@ must hold across *every* structural state machine in an image at once. The
 distinction matters because the failure modes differ: a single lookup can be
 correct while the index as a whole has silently lost rows.
 
-A **structural state machine** is a `TypeDef` in the image that directly
-declares a required state-machine interface, judged by namespace and name only.
-That is deliberately more inclusive than any trust policy the index applies, so
-it cannot under-count the population the index is answerable for.
+A **structural async state machine** is a `TypeDef` in the image that directly
+declares `System.Runtime.CompilerServices.IAsyncStateMachine`, judged by
+namespace and name only. That is deliberately more inclusive than any trust
+policy the index applies, so it cannot under-count the population the index is
+answerable for. It is also deliberately *narrow* in one respect: synchronous
+iterator state machines are outside it, because the cross-check that recomputes
+this population matches only that one interface.
 
 Each invariant below names the gate that enforces it, or is marked
 `unverified`, per
-[`AGENTS.md`](../../AGENTS.md#asserted-properties-name-their-gate).
+[`AGENTS.md`](../../AGENTS.md#asserted-properties-name-their-gate). Several
+gates are marked pending: they exist in #4835, which has not landed, and
+therefore enforce nothing on `main` today.
 
 ### C1 — Totality
 
-Every structural state machine receives exactly one result: `Resolved`,
-`Rejected`, or `Absent`. None is silently unclassified, and none receives two.
+A published index classifies every structural async state machine the way an
+**independent recount of the population** would: resolved where a claim
+authenticates, rejected where one is refused, absent where none exists.
 
-Totality is what makes the other invariants checkable: a consumer can count the
-structural population from raw metadata, count the results, and require the two
-to agree. An index that dropped a row would otherwise be indistinguishable from
-an image that never had it.
+The independence is the entire content of the invariant, and it is easy to
+state too weakly. An index that loses a row does not answer with some
+distinguished "not reached" value — it answers `Absent`, which is exactly what
+it answers for a machine that genuinely has no claim. Nothing *inside* the
+index separates those two cases. Totality is therefore only checkable against a
+population computed without the index, which is what C6 requires.
 
-Gate: `StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralMachineIsClassified`.
+Gate: `unverified` on `main`. #4835 adds
+`StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralAsyncStateMachineIsAuthenticated`,
+which recomputes the population independently and requires
+`Structural == Resolved` with no rejections or absences over its own build
+outputs. That gates this invariant for corpora in which every machine is
+expected to resolve; it does not exercise the absent or rejected columns.
 
 ### C2 — Failure is never success-shaped
 
@@ -245,21 +258,27 @@ A construction failure is reported as a failure. Exhausting a bound yields
 empty successful index, and neither becomes an index that answers `Absent` for
 rows it never examined.
 
-Gate: `StateMachineRelationshipIndex_PropagatesTypedBudgetFailure`,
-`StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`.
+Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PropagatesTypedBudgetFailure`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`.
+
+Both gates are narrower than the invariant. Each asserts that **one** queried
+kickoff returns `Rejected` with kind `BudgetExceeded`. Neither exercises the
+`Malformed` whole-module path, and neither asserts that *no* machine in a
+failed module answers `Absent`. That second half is `unverified`.
 
 ### C3 — Whole-module failure rejects the whole module
 
-When construction fails for the module, **every** structural state machine in
-that module reports `Rejected` — not `Absent`, and not a mixture. A per-claim
-refusal is the narrow case: it rejects only the machines its claim reaches, and
-leaves the rest to resolve normally.
+When construction fails for the module, **every** structural async state machine
+in that module reports `Rejected` — not `Absent`, and not a mixture.
 
-The two are therefore distinguishable by their *shape* even though C4 says they
-are not distinguishable by their kind. Whole-module failure is total;
-per-claim refusal is partial. A consumer that observes a partial rejection where
-it expected a total one is observing a different failure than the one it
-diagnosed.
+This does **not** make the two failure paths distinguishable by shape, and an
+earlier draft of this section wrongly claimed it did. The implication runs one
+way only. A whole-module failure is always total; a per-claim refusal *may*
+also be total, because a claim can reach every machine in the module, and in a
+single-machine module it necessarily does. So observing a **partial** rejection
+proves the failure was per-claim, while observing a total one proves nothing
+about which path produced it. Combined with C4, a consumer that needs the
+distinction cannot obtain it from the index as it stands.
 
 This is the invariant that makes the trimming case observable. When ILLink
 removes `SetStateMachine`, the attribute claim survives and the role lookup
@@ -268,9 +287,14 @@ disappearing (see #4827). A fixture reproducing that shape must convert *all*
 of its machines, not merely one; a partial conversion is a different phenomenon
 wearing the same name.
 
-Gate: `StateMachineCompletenessTests.Sweep_RejectedStateMachine_FailsTheSweep`,
-which asserts `Resolved == 0` and `Rejected == Structural` against a
-string-heap-damaged fixture rather than against a literal count.
+Gate: `unverified`. #4835's
+`StateMachineCompletenessTests.Sweep_RejectedStateMachine_FailsTheSweep`
+asserts `Resolved == 0` and `Rejected == Structural` against a
+string-heap-damaged fixture, but that fixture produces *per-claim* refusals that
+happen to be total; it never reaches the whole-module failure path. C2's budget
+gates do reach that path, but each inspects a single kickoff rather than the
+whole module. No current test asserts that a global failure rejects every
+machine.
 
 ### C4 — `Failure.Kind` does not identify the cause
 
@@ -279,37 +303,43 @@ failed to index. `Malformed` and `BudgetExceeded` each arise from both paths.
 `Unresolved`, `Ambiguous`, `CrossKind`, and `Duplicate` arise only from the
 per-claim path, so the kinds are informative but not decisive.
 
-A consumer needing the distinction must take it from the shape described in C3,
-or from a future explicit discriminator. It must not infer it from
-`Failure.Kind` and must not infer it from rendered failure text.
+A consumer needing the distinction must not infer it from `Failure.Kind` and
+must not infer it from rendered failure text. Per C3 it cannot reliably infer
+it from shape either: a total rejection is consistent with both paths.
 
 Gate: `unverified`. No test currently forces a consumer to respect this, and
 the index exposes no discriminator that would make one meaningful. #4833 tracks
 consolidating the failure contract so that this invariant becomes enforceable
 rather than advisory.
 
-### C5 — Merged rejections are confluent
+### C5 — Merged rejections agree
 
 Rejections that share a kickoff or a state-machine type merge into one
-component during construction. Every forward and reverse entry in a component
-freezes to the same immutable result, and that result does not depend on the
-order in which the contributing claims were discovered.
+component during construction, transitively: a claim naming machines *a* and
+*b* and a claim naming *b* and *c* leave all three in one component. Every
+forward and reverse entry in that component freezes to the same immutable
+result and the same evidence.
 
-This has two halves, and stating only one of them is a trap the model caught.
-*Merging happens*: two rejections that share a contributor end up in one
-component, transitively, so a claim naming machines 1 and 2 and a claim naming
-2 and 3 leave all three together. *Merging is confluent*: within a component
-every entry carries the same result and the same evidence, whatever order the
-claims arrived in. An index that merged nothing would satisfy the second half
-trivially, so the first is not decoration.
+The component's accumulated evidence — its kickoffs, state machines, and
+claimed types — is a union, and so does not depend on discovery order. Its
+`Kind` and `Detail` do. `FreezeRejections` seeds them from the **first**
+contributing component it meets in append order, which is the earliest-
+discovered member of the merged set. Discovery order follows `TypeDef` and
+`MethodDef` row order, so those two fields are derived from a compiler
+artifact.
 
-Order independence is the substantive part of the second half. Discovery order
-follows `TypeDef` and `MethodDef` row order, which is a compiler artifact, so
-an index whose answers varied with merge order would give different results for
-semantically identical assemblies.
+An earlier draft of this section claimed the merged result was independent of
+discovery order. That is false of the implementation. The property that does
+hold is weaker and worth stating precisely: the merged `Kind` and `Detail` are
+**stable for a given image** — they are a deterministic function of the
+component's members and their row order, not of the order in which merge
+operations happened to be applied. A consumer may rely on that stability. It
+must not rely on *which* contributing claim supplied them.
 
-Gate: `StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
-`StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`.
+Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`.
+Neither gates the first-discovered rule for `Kind` and `Detail`; that half is
+`unverified`.
 
 ### C6 — Completeness is externally checkable
 
@@ -317,13 +347,13 @@ The population in C1 is derivable from raw metadata without loading the
 assembly, without the index, and without trusting either. A cross-check may
 therefore recompute it independently and compare.
 
-This is what keeps C1 from being self-certifying. A consumer that asked the
-index for both the population and the classification would learn nothing about
-rows the index had lost.
+This is what keeps C1 from being self-certifying, and per C1 it is not optional
+garnish: a consumer that asked the index for both the population and the
+classification could not detect a lost row at all.
 
-Gate: `StateMachineCompletenessTests` computes the population via its own
-`ImplementsAsyncStateMachine` walk over `reader.TypeDefinitions`, which shares
-no code with the index.
+Gate: `unverified` on `main`. #4835 adds a cross-check that computes the
+population via its own `ImplementsAsyncStateMachine` walk over
+`reader.TypeDefinitions`, sharing no code with the index.
 
 ### Model
 
@@ -333,10 +363,12 @@ stateful: construction that may fail at any step, rejection components that
 merge as claims are discovered, and the relationship between a whole-module
 failure and the results individual queries then return.
 
-The model checks C1, C2, C3, and C5 as invariants, and failure absorption as a
-temporal property. It does not model C4, which is a statement about what a
-consumer may infer rather than about system state, or C6, which is a statement
-about an external observer.
+The model checks C1, C2, C3, and C5 as invariants, and failure absorption and
+termination as temporal properties. It does not model C4, which is a statement
+about what a consumer may infer rather than about system state, or C6 — though
+C6 is what licenses C1's formulation, since the model checks classification
+against an independently modeled population rather than against the index's own
+report.
 
 The model establishes evidence about the model. It is not evidence about the
 implementation; the gates named above are. Its assumptions, bounds, checked

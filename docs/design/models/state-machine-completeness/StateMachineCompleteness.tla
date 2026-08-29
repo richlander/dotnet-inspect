@@ -43,17 +43,20 @@ CONSTANTS
 (*                                                                          *)
 (*   MergeMode   = "Component"          merge rewrites the whole component  *)
 (*               = "NamedPairOnly"      merge rewrites only the two named   *)
+(*               = "LeftArgument"       merged kind follows merge order     *)
 (*                                                                          *)
 (*   FinishMode  = "Guarded"            publish only when visited and merged*)
 (*               = "AllowUnvisited"     publish with rows unclassified      *)
 (*               = "AllowUnmerged"      publish without merging             *)
+(*               = "DropAsAbsent"       publish a lost row as Absent        *)
 (***************************************************************************)
 ASSUME
     /\ MachineCount \in Nat \ {0}
     /\ MaxBudget \in Nat
     /\ FailureMode \in {"Total", "PreserveClassified", "ReportAbsent"}
-    /\ MergeMode \in {"Component", "NamedPairOnly"}
-    /\ FinishMode \in {"Guarded", "AllowUnvisited", "AllowUnmerged"}
+    /\ MergeMode \in {"Component", "NamedPairOnly", "LeftArgument"}
+    /\ FinishMode \in
+        {"Guarded", "AllowUnvisited", "AllowUnmerged", "DropAsAbsent"}
 
 (***************************************************************************)
 (* Machines are indices rather than opaque names purely so that component  *)
@@ -87,6 +90,23 @@ MustMerge(a, b) ==
 (***************************************************************************)
 Results == {"Resolved", "Rejected", "Absent", "Unclassified"}
 
+(***************************************************************************)
+(* Ground truth: what each machine actually is, independent of anything the *)
+(* index does. This is the model's most important variable, and an earlier  *)
+(* revision did not have it. Without it C1 was vacuous: it forbade only     *)
+(* `Unclassified`, and a real index that loses a row does not publish       *)
+(* `Unclassified` -- it publishes `Absent`, which is indistinguishable from *)
+(* a machine that genuinely has no claim. Totality is only checkable        *)
+(* against an independently known population, which is what C6 says and     *)
+(* what `truth` supplies here.                                              *)
+(***************************************************************************)
+Truths == {"Resolvable", "Refused", "NoClaim"}
+
+Expected(t) ==
+    CASE t = "Resolvable" -> "Resolved"
+      [] t = "Refused"    -> "Rejected"
+      [] OTHER            -> "Absent"
+
 \* The two ways construction can fail for the whole module.
 FailureKinds == {"Malformed", "BudgetExceeded"}
 
@@ -97,12 +117,15 @@ FailureKinds == {"Malformed", "BudgetExceeded"}
 (* Their identity does not matter; that a merged component must agree on    *)
 (* one of them is the whole point.                                          *)
 (***************************************************************************)
-RejectionKinds == 1..3
+RejectionKinds == 1..2
 NoEvidence == 0
 
 Phases == {"Building", "Built", "Failed"}
 
 VARIABLES
+    truth,        \* Machines -> Truths; the population an external check recomputes
+    seq,          \* Machines -> discovery position, 0 before a machine is rejected
+    claimed,      \* Machines -> the per-claim kind, never rewritten by a merge
     phase,        \* Building, Built, or Failed
     kind,         \* failure kind once phase = "Failed", else "None"
     result,       \* Machines -> Results
@@ -111,7 +134,9 @@ VARIABLES
     visited,      \* machines construction has already classified
     budget        \* remaining construction steps
 
-vars == <<phase, kind, result, component, evidence, visited, budget>>
+vars ==
+    <<truth, seq, claimed, phase, kind, result, component, evidence, visited,
+      budget>>
 
 (***************************************************************************)
 (* Component identity. A rejection component is represented by the set of   *)
@@ -123,7 +148,18 @@ ComponentOf(m) == {n \in Machines : component[n] = component[m]}
 
 MinId(S) == CHOOSE i \in S : \A j \in S : i <= j
 
+(***************************************************************************)
+(* Production appends each rejection component to a list and, when freezing, *)
+(* seeds the merged kind and detail from the FIRST entry it meets for a      *)
+(* given root. The winner is therefore the earliest-discovered member of the *)
+(* component -- not a minimum over kinds, and not the merge's left argument. *)
+(***************************************************************************)
+EarliestOf(S) == CHOOSE i \in S : \A j \in S : seq[i] <= seq[j]
+
 TypeOK ==
+    /\ truth \in [Machines -> Truths]
+    /\ seq \in [Machines -> 0..MachineCount]
+    /\ claimed \in [Machines -> RejectionKinds \cup {NoEvidence}]
     /\ phase \in Phases
     /\ kind \in FailureKinds \cup {"None"}
     /\ result \in [Machines -> Results]
@@ -137,6 +173,11 @@ TypeOK ==
 (* thing that brings two together.                                          *)
 (***************************************************************************)
 Init ==
+    \* Every population is explored, so no invariant can depend on a
+    \* convenient one.
+    /\ truth \in [Machines -> Truths]
+    /\ seq = [m \in Machines |-> 0]
+    /\ claimed = [m \in Machines |-> NoEvidence]
     /\ phase = "Building"
     /\ kind = "None"
     /\ result = [m \in Machines |-> "Unclassified"]
@@ -158,20 +199,22 @@ ResolveOne(m) ==
     /\ phase = "Building"
     /\ m \notin visited
     /\ budget > 0
+    /\ truth[m] = "Resolvable"
     /\ result' = [result EXCEPT ![m] = "Resolved"]
     /\ visited' = visited \cup {m}
     /\ budget' = budget - 1
-    /\ UNCHANGED <<phase, kind, component, evidence>>
+    /\ UNCHANGED <<truth, seq, claimed, phase, kind, component, evidence>>
 
 \* No claim names this machine at all: it is absent, not refused.
 AbsentOne(m) ==
     /\ phase = "Building"
     /\ m \notin visited
     /\ budget > 0
+    /\ truth[m] = "NoClaim"
     /\ result' = [result EXCEPT ![m] = "Absent"]
     /\ visited' = visited \cup {m}
     /\ budget' = budget - 1
-    /\ UNCHANGED <<phase, kind, component, evidence>>
+    /\ UNCHANGED <<truth, seq, claimed, phase, kind, component, evidence>>
 
 \* A claim names this machine and fails its role requirements. This is the
 \* per-claim refusal of C3: narrow, and it does not disturb its neighbours.
@@ -180,11 +223,16 @@ RejectOne(m, e) ==
     /\ m \notin visited
     /\ budget > 0
     /\ e \in RejectionKinds
+    /\ truth[m] = "Refused"
     /\ result' = [result EXCEPT ![m] = "Rejected"]
     /\ evidence' = [evidence EXCEPT ![m] = e]
+    /\ claimed' = [claimed EXCEPT ![m] = e]
+    \* Discovery position. Production appends each rejection component to a
+    \* list, so this records where in that list the machine landed.
+    /\ seq' = [seq EXCEPT ![m] = Cardinality(visited) + 1]
     /\ visited' = visited \cup {m}
     /\ budget' = budget - 1
-    /\ UNCHANGED <<phase, kind, component>>
+    /\ UNCHANGED <<truth, phase, kind, component>>
 
 (***************************************************************************)
 (* Two rejections that share a kickoff or a claimed type merge. Every entry *)
@@ -200,13 +248,14 @@ MergeRejections(m, n) ==
     /\ component[m] # component[n]
     /\ LET merged == ComponentOf(m) \cup ComponentOf(n)
            id     == MinId({component[m], component[n]})
-           ev     == MinId({evidence[x] : x \in merged})
-           touched == IF MergeMode = "Component" THEN merged ELSE {m, n}
+           ev     == CASE MergeMode = "LeftArgument" -> evidence[m]
+                       [] OTHER -> claimed[EarliestOf(merged)]
+           touched == IF MergeMode = "NamedPairOnly" THEN {m, n} ELSE merged
        IN  /\ component' = [x \in Machines |->
                               IF x \in merged THEN id ELSE component[x]]
            /\ evidence' = [x \in Machines |->
                               IF x \in touched THEN ev ELSE evidence[x]]
-    /\ UNCHANGED <<phase, kind, result, visited, budget>>
+    /\ UNCHANGED <<truth, seq, claimed, phase, kind, result, visited, budget>>
 
 (***************************************************************************)
 (* Whole-module failure. This is C3's total case: it rejects every machine, *)
@@ -228,7 +277,7 @@ FailModule(k) ==
     \* the module-level kind, not a per-claim one.
     /\ evidence' = [m \in Machines |-> NoEvidence]
     /\ visited' = Machines
-    /\ UNCHANGED <<component, budget>>
+    /\ UNCHANGED <<truth, seq, claimed, component, budget>>
 
 Malform == FailModule("Malformed")
 
@@ -241,7 +290,7 @@ ExhaustBudget ==
 \* Construction completes once every machine has been classified.
 Finish ==
     /\ phase = "Building"
-    /\ (FinishMode = "AllowUnvisited" \/ visited = Machines)
+    /\ (FinishMode \in {"AllowUnvisited", "DropAsAbsent"} \/ visited = Machines)
     \* Nothing is left to merge. Construction does not publish a component
     \* whose entries have not yet been brought into agreement.
     /\ ~(\E a, b \in Machines :
@@ -252,7 +301,15 @@ Finish ==
             /\ result[b] = "Rejected"
             /\ component[a] # component[b])
     /\ phase' = "Built"
-    /\ UNCHANGED <<kind, result, component, evidence, visited, budget>>
+    \* A lost row is not published as a distinguished marker. It is published
+    \* as Absent, which is what a machine with no claim looks like.
+    /\ result' = IF FinishMode = "DropAsAbsent"
+                 THEN [m \in Machines |->
+                         IF result[m] = "Unclassified" THEN "Absent"
+                         ELSE result[m]]
+                 ELSE result
+    /\ UNCHANGED <<truth, seq, claimed, kind, component, evidence,
+                   visited, budget>>
 
 Next ==
     \/ \E m \in Machines : ResolveOne(m)
@@ -276,12 +333,19 @@ Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 Terminal == phase \in {"Built", "Failed"}
 
 (***************************************************************************)
-(* C1 -- Totality. In a terminal state every machine carries exactly one    *)
-(* publishable result. `Unclassified` is not publishable, so its absence    *)
-(* is the whole claim: no row was silently dropped.                         *)
+(* C1 -- Totality. A published index classifies every structural machine    *)
+(* the way an independent recount of the population would.                  *)
+(*                                                                          *)
+(* Stating it against `truth` rather than against the absence of an         *)
+(* `Unclassified` marker is the whole point. A real index that drops a row  *)
+(* does not publish a distinguished "not reached" value; it answers         *)
+(* `Absent`, exactly as it would for a machine that genuinely has no claim. *)
+(* An invariant that only forbade a marker would therefore be vacuous, and  *)
+(* an earlier revision of this model contained precisely that mistake. This *)
+(* is the modeled form of the external cross-check C6 requires.             *)
 (***************************************************************************)
 C1_Totality ==
-    Terminal => \A m \in Machines : result[m] \in {"Resolved", "Rejected", "Absent"}
+    (phase = "Built") => \A m \in Machines : result[m] = Expected(truth[m])
 
 (***************************************************************************)
 (* C2 -- Failure is never success-shaped. A failed construction carries a   *)
@@ -301,9 +365,15 @@ C3_FailureRejectsAll ==
     (phase = "Failed") => \A m \in Machines : result[m] = "Rejected"
 
 (***************************************************************************)
-(* C5 -- Merged rejections are confluent. Every machine sharing a component *)
-(* carries the same result, whatever order the merges happened in. TLC      *)
-(* explores all interleavings, so this holds over every discovery order.    *)
+(* C5 -- Merged rejections agree. Every machine sharing a component carries *)
+(* the same result and the same evidence.                                   *)
+(*                                                                          *)
+(* Note what this does NOT say. It does not say the merged evidence is      *)
+(* independent of discovery order: production seeds it from the first       *)
+(* contributing claim it meets, so it is not. An earlier revision of this   *)
+(* model asserted order independence and combined evidence with a minimum,  *)
+(* which made the claim true of the model and false of the implementation.  *)
+(* `C5_EvidenceIsFirstDiscovered` states what actually holds.               *)
 (***************************************************************************)
 C5_ComponentsAgree ==
     \A m, n \in Machines :
@@ -316,6 +386,19 @@ C5_ComponentsAgree ==
 (* in one component. C5 says a component agrees with itself; without this,  *)
 (* an index that merged nothing would satisfy C5 vacuously.                 *)
 (***************************************************************************)
+(***************************************************************************)
+(* C5c -- The merged evidence is the earliest contributing claim's. This is  *)
+(* the specification of the merged value, given only the component's members *)
+(* and their discovery positions. It is deterministic, but it is derived     *)
+(* from metadata row order, so it is a compiler artifact: consumers may rely *)
+(* on it being stable for a given image, and not on which claim supplied it. *)
+(***************************************************************************)
+C5_EvidenceIsFirstDiscovered ==
+    (phase = "Built") =>
+        \A m \in Machines :
+            (result[m] = "Rejected")
+                => evidence[m] = claimed[EarliestOf(ComponentOf(m))]
+
 C5_SharedRejectionsMerge ==
     (phase = "Built") =>
         \A a, b \in Machines :
