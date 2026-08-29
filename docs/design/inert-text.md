@@ -215,6 +215,32 @@ So containment goes late — but not "as late as possible", which is just the
 per-site approach with better manners. It goes at **the last structural boundary
 every rendered value must cross**.
 
+### Package skills entering agent context
+
+A NuGet package can author `skills/**/SKILL.md`, and dotnet-inspect deliberately
+projects those documents into an autonomous agent's context. The package author
+is therefore the external actor, the package archive or restored package cache
+is the input path, and skill inventory or document output is the affected
+presentation boundary.
+
+The project skill inventory applies `TextPolicy.Field` to every parsed YAML
+`name` and `description`, then uses
+`InertString.ReplaceIfContainmentRequired` to represent a value carrying a
+`TextConcern` as `[Text omitted: required containment]` instead of sharing the
+package-authored field through the inventory. Structurally invalid Agent Skills
+metadata still fails visibly under the existing validation rules.
+
+Selected skill documents apply `TextPolicy.Prose` before any stdout, JSON, JSONL,
+or `--output` destination. A document carrying a `TextConcern` is replaced as a
+whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its
+`InertString` is preserved. The selected value is carried through the shared
+print projection so file output cannot bypass the same decision used for agent
+context. This behavior is gated by
+`Project_SkillsInventory_ReplacesContainedYamlFields`,
+`SkillDocuments_OmitPayloadsThatRequireContainment`, and
+`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads` in the Release
+`dotnet-inspect.Tests` suite.
+
 ### Why a structural boundary and not a rule
 
 A boundary is worth something only if it cannot be walked around, so the claim
@@ -591,6 +617,16 @@ Backslash disambiguation does not set it. A view may OR that signal across its
 artifact-derived values so a CLI can refuse the view or require an explicit
 trust-axis opt-out. It still does not answer whether the value suits another
 policy.
+
+`ReplaceIfContainmentRequired(InertString)` is the typed suppression form for a
+caller that must not share even the inert spelling of text carrying a
+`TextConcern`. It returns the supplied inert containment text when
+`RequiredContainment` is true and otherwise preserves the current value,
+including literal-backslash disambiguation that set `WasEncoded` without
+setting a concern. `ReplaceIfContainmentRequired_ReplacesConcernedTextOnly`
+gates that distinction. `ContainmentRequiredPlaceholder` provides the standard
+typed value `[Text omitted: required containment]`; the method still requires
+an argument so a caller can choose a more specific inert replacement.
 
 Unambiguous literal backslashes remain literal. A lone `\`, `\q`, and the
 incomplete `\u2` cannot be mistaken for a complete canonical spelling, so

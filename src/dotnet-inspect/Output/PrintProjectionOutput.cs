@@ -10,7 +10,11 @@ public sealed record PrintableDocument(
     string Label,
     string? Path,
     string? Url,
-    string Content);
+    string Content)
+{
+    [JsonIgnore]
+    public InertString? ContainedContent { get; init; }
+}
 
 /// <summary>
 /// A printable row before its payload is acquired. Cardinality and <c>--row</c> are decided from
@@ -34,7 +38,12 @@ public sealed record PrintProjectionOptions(
 
 public sealed record PrintableContent(
     string Content,
-    byte[]? ExactBytes = null);
+    byte[]? ExactBytes = null,
+    InertString? ContainedContent = null)
+{
+    public static PrintableContent FromInert(InertString content)
+        => new(content.ToString(), ExactBytes: null, ContainedContent: content);
+}
 
 public static class PrintProjectionOutput
 {
@@ -42,12 +51,14 @@ public static class PrintProjectionOutput
     {
         // Callers whose payloads are already in hand keep passing documents. Identity is by
         // reference so two rows with equal fields still resolve to their own content.
-        var content = new Dictionary<PrintableRow, string>(ReferenceEqualityComparer.Instance);
+        var content = new Dictionary<PrintableRow, PrintableContent>(ReferenceEqualityComparer.Instance);
         var rows = new List<PrintableRow>(documents.Count);
         foreach (var document in documents)
         {
             var row = new PrintableRow(document.Row, document.Section, document.Label, document.Path, document.Url);
-            content[row] = document.Content;
+            content[row] = document.ContainedContent is { } contained
+                ? PrintableContent.FromInert(contained)
+                : new PrintableContent(document.Content);
             rows.Add(row);
         }
 
@@ -117,7 +128,10 @@ public static class PrintProjectionOutput
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            payload.Content);
+            payload.ContainedContent?.ToString() ?? payload.Content)
+        {
+            ContainedContent = payload.ContainedContent
+        };
 
         if (options.Jsonl)
         {
@@ -147,14 +161,18 @@ public static class PrintProjectionOutput
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
         {
-            if (output.ExactBytes is { } bytes)
+            if (output.ContainedContent is { } contained)
+                File.WriteAllText(outputPath, contained.ToString());
+            else if (output.ExactBytes is { } bytes)
                 File.WriteAllBytes(outputPath, bytes);
             else
                 File.WriteAllText(outputPath, output.Content);
         }
         else
         {
-            Console.Write(new InertString(TextPolicy.Prose, output.Content));
+            Console.Write(
+                output.ContainedContent
+                ?? new InertString(TextPolicy.Prose, output.Content));
         }
     }
 

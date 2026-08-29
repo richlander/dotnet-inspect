@@ -8,6 +8,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using Markout;
 
 using ILInspector.CSharp;
@@ -409,11 +410,16 @@ public class ProjectCommand
             file.Version,
             file.Path,
             new FileInfo(file.FullPath).Length,
-            name,
-            description ?? "",
+            ContainSkillMetadata(name),
+            ContainSkillMetadata(description ?? ""),
             file.FullPath);
         return ProjectSkillReadFailure.None;
     }
+
+    private static string ContainSkillMetadata(string value)
+        => new InertString(TextPolicy.Field, value)
+            .ReplaceIfContainmentRequired(InertString.ContainmentRequiredPlaceholder)
+            .ToString();
 
     private static bool TryGetSkillName(
         string packagePath,
@@ -605,13 +611,18 @@ public class ProjectCommand
 
         var content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
             MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope));
+        var contained = new InertString(TextPolicy.Prose, content)
+            .ReplaceIfContainmentRequired(InertString.ContainmentRequiredPlaceholder);
         return new PrintableDocument(
             rowNumber,
             ProjectSkillsSection,
             $"{row.Package} {row.Path}",
             row.Path,
             null,
-            content);
+            contained.ToString())
+        {
+            ContainedContent = contained
+        };
     }
 
     private static bool ValidateProjectProjectionOptions()

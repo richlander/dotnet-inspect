@@ -2270,6 +2270,7 @@ public class PackageCommand
         // so silently returning the whole document -- or an empty one -- would answer a question
         // they did not ask. Report that the scope does not apply to this document instead.
         var isReadmeSection = section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase);
+        var isSkillSection = section.Equals(PackageSections.FilesSkills, StringComparison.OrdinalIgnoreCase);
         int nonMarkdownIndex = options.ContentScope == PackageFileContentScope.Full
             ? -1
             : sourceRows.FindIndex(row => !IsMarkdownDocument(row.Path, isReadmeSection));
@@ -2305,9 +2306,15 @@ public class PackageCommand
                     sourceByRow[row],
                     options.ContentScope,
                     normalizeGithubLinksToRaw: !options.BrowsableUrls,
-                    includeExactContent: HasUnstructuredOutputPath(options)
+                    includeExactContent: !isSkillSection
+                        && HasUnstructuredOutputPath(options)
                         && options.ContentScope == PackageFileContentScope.Full);
-                return new PrintableContent(content.Content, content.ExactContent);
+                return isSkillSection
+                    ? PrintableContent.FromInert(
+                        new InertString(TextPolicy.Prose, content.Content)
+                            .ReplaceIfContainmentRequired(
+                                InertString.ContainmentRequiredPlaceholder))
+                    : new PrintableContent(content.Content, content.ExactContent);
             },
             new PrintProjectionOptions(
                 options.PrintRow,

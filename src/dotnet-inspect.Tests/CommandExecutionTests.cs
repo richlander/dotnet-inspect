@@ -31,6 +31,7 @@ using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using InertText;
 using Markout;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -29258,25 +29259,86 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task SkillDocuments_OmitPayloadsThatRequireContainment()
+    {
+        const string bidi = "\u202E";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.ContainedOutput",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedOutput",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
+
+        try
+        {
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(projectJsonError);
+            string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+            Assert.Equal(placeholder, packageOutput);
+            Assert.Equal(placeholder, projectOutput);
+            Assert.DoesNotContain(bidi, packageJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, projectJson, StringComparison.Ordinal);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            Assert.Equal(
+                placeholder,
+                packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(
+                placeholder,
+                projectDocument.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("-o")]
     [InlineData("--output")]
     public async Task SkillDocuments_OutputAliasesWritePackageAndProjectPayloads(string outputOption)
     {
+        const string bidi = "\u202E";
         var (packagePath, packageTempDir) = CreateLocalReadmePackage(
             "Test.Skills.Output",
             "README.md",
             "readme",
             null,
             null,
-            ("skills/package-skill/SKILL.md", "package skill"));
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
         var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
                 "Test.Project.Skills.Output",
                 "1.0.0",
                 "README.md",
                 "readme",
-                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", "project skill")]));
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
 
         try
         {
@@ -29295,8 +29357,12 @@ public partial class CommandExecutionTests
             Assert.Empty(projectStdout);
             Assert.Empty(packageError);
             Assert.Empty(projectError);
-            Assert.Equal("package skill", File.ReadAllText(packageOutput));
-            Assert.Equal("project skill", File.ReadAllText(projectOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(packageOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(projectOutput));
         }
         finally
         {
@@ -30329,6 +30395,45 @@ public partial class CommandExecutionTests
                 document.RootElement.GetProperty("name").GetString());
             Assert.Equal(
                 "Package guidance.",
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsInventory_ReplacesContainedYamlFields()
+    {
+        const string bidi = "\u202E";
+        var skill = $"""
+            ---
+            name: contained-description
+            description: Before{bidi}INJECTED
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedDescription",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-description/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain(bidi, output, StringComparison.Ordinal);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
                 document.RootElement.GetProperty("description").GetString());
         }
         finally
