@@ -21,11 +21,15 @@ The model assumes:
 - shell open, dismissal, and focus handoff occur as one atomic boundary event.
 
 The model explores every subset of the two annotatable Findings as the default
-set. Its finite configuration contains three Findings, four targets, two
-supported-media sets, two media, and one selectable node. These bounds exercise
-empty, singleton, all-equal, C#-only documents, optional IL, two same-medium
-targets for one Finding, IL-only Findings, dual-media targets, and unanchored
-cases without claiming that production cardinality is bounded.
+set when both media are supported, and every subset of the C#-annotatable
+Finding when only C# is supported. Its finite target identities span both
+document configurations; the immutable supported-media set derives each
+document's annotation universe. The configuration contains three Findings,
+four targets, two supported-media sets, two media, and one selectable node.
+These bounds exercise empty, singleton, all-equal, C#-only documents, optional
+IL, two same-medium targets for one Finding, IL-only Findings, dual-media
+targets, and unanchored cases without claiming that production cardinality is
+bounded.
 
 ## Checked behavior
 
@@ -37,14 +41,17 @@ The safety invariants check:
 - destruction of embedded detail on modal opening;
 - absence of modal detail after dismissal;
 - at least one document-supported visible medium;
+- exact derivation of the annotation universe and defaults from supported
+  media;
 - independent precedence checks for exact derivation of **Default**, **All**,
   **Clear**, and **Custom**;
 - a concrete valid focus target throughout an open modal;
-- exact chip-or-inspector opening, including the exact same-medium target;
+- exact embedded and modal chip-or-inspector opening, including the exact
+  same-medium target, plus historical eligible-primary transfer;
 - exact detail closure, primary and presentation preservation, and
-  chip-or-inspector focus restoration from historical evidence;
+  chip-or-inspector focus restoration without changing surface;
 - stable control focus plus exact annotation membership, primary, and detail
-  outcomes derived from pre-toggle state;
+  outcomes and presentation preservation derived from pre-toggle state;
 - exact **Default**, **All**, **Clear**, medium, and coordinate outcomes
   derived from pre-control state, including orthogonal-state preservation and
   final-medium rejection;
@@ -88,20 +95,20 @@ error:
 
 | Result | Value |
 | --- | ---: |
-| Generated states | 500,868 |
-| Distinct states | 33,208 |
+| Generated states | 422,928 |
+| Distinct states | 27,738 |
 | Search depth | 12 |
 
 The coverage run reported nonzero distinct transitions for every top-level
-action. The smallest count was 16 for `OpenEmbeddedChip`; representative
-transition counts were 24 for `OpenModal`, 80 each for the two dismissal
-actions, 1,632 for `OpenModalFinding`, 1,840 for `CloseCurrentDetail`, 7,488
-for `ToggleAnnotation`, 6,624 for `ToggleMedium`, and 3,744 for
+action. The smallest count was 12 for `OpenEmbeddedChip`; representative
+transition counts were 18 for `OpenModal`, 60 each for the two dismissal
+actions, 1,344 for `OpenModalFinding`, 1,548 for `CloseCurrentDetail`, 5,976
+each for `ToggleAnnotation` and `ToggleMedium`, and 3,096 for
 `ToggleCoordinates`.
 
 ## Mutation evidence
 
-Thirty deliberate targeted mutations were run against the same
+Thirty-five deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -130,13 +137,18 @@ Each produced a concrete counterexample:
 | Let **All** reset coordinate visibility | `ControlOutcomeIsExact` |
 | Focus the modal heading after a coordinate toggle | `ControlOutcomeIsExact` |
 | Substitute unsupported IL for the final supported medium | `TypeOK` |
-| Record inspector detail for a chip opener | `ModalFindingOpeningIsExact` |
-| Record a sibling C# target for a chip opener | `ModalFindingOpeningIsExact` |
+| Record inspector detail for a chip opener | `FindingOpeningIsExact` |
+| Record a sibling C# target for a chip opener | `FindingOpeningIsExact` |
 | Preserve embedded detail through modal opening | `EmbeddedDetailExistsOnlyWhileEmbedded` |
 | Swap **Default** and **All** precedence | `ReportedStateIsDerived` |
 | Treat a hidden chip as an available opener | `FocusIsValid` |
 | Let embedded Escape fall through while detail is open | `EscapeCannotBypassDetail` |
 | Clear primary selection when directly closing detail | `DetailClosureOutcomeIsExact` |
+| Include an unsupported-medium Finding in the annotation universe | `AnnotatableUniverseIsSupported` |
+| Record a sibling C# target for an embedded chip opener | `FindingOpeningIsExact` |
+| Clear eligible primary state while opening the modal | `ModalOpeningIsFresh` |
+| Change surface while directly closing detail | `DetailClosureOutcomeIsExact` |
+| Reset visible media during an annotation toggle | `AnnotationToggleOutcomeIsExact` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.

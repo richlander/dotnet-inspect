@@ -170,7 +170,9 @@ inspector actions but are not annotation instances. The browser must not
 invent coordinates to include them in **Default**, **All**, **Clear**, or
 **Custom**.
 
-The default set is the catalog-selected subset of the universe. Initially:
+Targets on a medium unsupported by the current document do not make a Finding
+annotatable and do not produce a toggle. The default set is the
+catalog-selected subset of that document-relative universe. Initially:
 
 - C# is the only visible medium;
 - default Findings with C# targets render;
@@ -190,10 +192,11 @@ The modal exposes:
 - **Clear**, which empties the active set and clears primary and detail without
   hiding source or resetting presentation.
 
-Each command leaves focus on its activated control. Annotation, media, and
-coordinate toggles likewise retain focus on the activated toggle, including
-when that transition removes a chip or closes Finding detail. The open modal
-therefore always retains a concrete focus target.
+Each command leaves focus on its activated control. Annotation toggles preserve
+media and coordinate visibility. Annotation, media, and coordinate toggles
+retain focus on the activated toggle, including when that transition removes a
+chip or closes Finding detail. The open modal therefore always retains a
+concrete focus target.
 
 The reported state is derived in this precedence order:
 
@@ -250,9 +253,9 @@ unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the
 only way to inspect a Finding.
 
-Closing detail leaves primary selection, active annotations, media, and
-coordinate visibility unchanged. It clears only the transient detail and
-restores focus to the exact opener if it still exists:
+Closing detail leaves the current surface, primary selection, active
+annotations, media, and coordinate visibility unchanged. It clears only the
+transient detail and restores focus to the exact opener if it still exists:
 
 - an inspector-opened detail returns to that Finding's inspector action;
 - a chip-opened detail returns to the exact medium-specific chip while that
@@ -334,13 +337,13 @@ bounded executable design model for viewer-local interaction. It checks:
 - fresh modal initialization and eligible primary transfer;
 - modal dismissal and exercised embedded-primary eligibility derivation;
 - exact chip versus persistent-inspector detail openers, including distinct
-  same-medium targets for one Finding;
+  same-medium targets for one Finding and embedded-chip activation;
 - primary selection, active annotations, rendered annotations, and derived
   reported state with independently checked precedence;
 - exact **Default**, **All**, **Clear**, medium, and coordinate control
   outcomes, including preserved orthogonal state;
 - document-supported C#/IL visibility with at least one available medium and
-  coordinate visibility;
+  a document-relative annotation universe, plus coordinate visibility;
 - layered Escape on both surfaces and pointer dismissal;
 - destruction of embedded detail on modal opening; and
 - exact focus and state preservation after direct or indirect detail closure.
@@ -365,7 +368,8 @@ Conformance requires:
 - active-versus-rendered tests covering C#-only, IL-only, dual-target, and
   unanchored Findings;
 - **Default**, **All**, **Clear**, and **Custom** precedence tests, including
-  empty and universe-equal defaults;
+  empty and universe-equal defaults plus rejection of unsupported-medium
+  Findings from the universe and default set;
 - media tests proving controls come only from the product-supported set,
   unsupported media cannot satisfy the non-empty guard, membership is
   orthogonal, a hidden opener falls back to the exact Finding's inspector
@@ -377,7 +381,8 @@ Conformance requires:
 - primary tests proving Finding and node transitions are explicit and toggles
   do not select;
 - detail-open and close tests proving exact opener identity, including two
-  same-medium targets for one Finding, and preservation of primary selection,
+  same-medium targets and embedded-chip activation, historical eligible-primary
+  transfer on modal opening, and preservation of surface, primary selection,
   annotation membership, media, and coordinates on direct close;
 - layered Escape tests distinguishing detail closure, modal dismissal, and
   embedded fall-through;
