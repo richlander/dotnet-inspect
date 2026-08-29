@@ -137,7 +137,7 @@ static class PrinterSyntaxInventory
                             : "statement.using-declaration");
                 }
             }
-            if (node is ForEachStatementSyntax @foreach
+            if (node is CommonForEachStatementSyntax @foreach
                 && @foreach.AwaitKeyword.IsKind(SyntaxKind.AwaitKeyword))
             {
                 Features.Add("statement.await-foreach");

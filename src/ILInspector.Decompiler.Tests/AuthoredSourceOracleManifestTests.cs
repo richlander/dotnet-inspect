@@ -309,6 +309,30 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
+    public void SyntaxInventory_TracksAwaitOnDeconstructionForeach()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "await foreach (var (key, value) in items) { }",
+            out IReadOnlyList<string> asyncFeatures,
+            out string? error),
+            error);
+        Assert.Equal(
+            [
+                "expression.declaration",
+                "statement.await-foreach",
+                "statement.for-each-variable",
+            ],
+            asyncFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "foreach (var (key, value) in items) { }",
+            out IReadOnlyList<string> synchronousFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("statement.await-foreach", synchronousFeatures);
+    }
+
+    [Fact]
     public void Manifest_SyntaxInventoryRequiresExactObservedFeatureSet()
     {
         var row = Row(
