@@ -2827,25 +2827,41 @@ The cost is proportional to the size of what is copied. Reading how large
 something is, without copying it, is not materializing and costs nothing
 comparable.
 
-Every quantity a decode consumes falls into exactly one class, and the class
-determines what the decode owes it.
+Every quantity a decode consumes falls into exactly one class. The classes
+divide on a single question -- **who fixes the number** -- because that is the
+question the threat model turns on. The obligation follows from the answer.
 
-**Class A -- individually bounded.** A stated constant caps what a *single*
-materialization can cost, and a pre-existing gate enforces that cap before the
-materialization happens. The per-item cost is therefore known in advance and
-cannot be inflated by the artifact author.
+**Class A -- tool-capped.** A constant chosen by this code caps what a *single*
+materialization can cost, and a gate enforces that cap before the
+materialization happens. The artifact cannot raise it, so the worst case is
+known without asking the artifact anything.
 
-**Class B -- author-sized.** The artifact author chooses the size. A single
-read can cost arbitrarily much, so nothing about one occurrence is known in
-advance.
+**Class B -- author-sized.** A number in the artifact fixes the size, and
+nothing caps it. Nothing about one occurrence is known until the artifact is
+asked.
+
+A cap is tool-capped only if its value does not come from the artifact. A bound
+derived from artifact content -- scaling a limit by a declared length, a member
+count, or a table size -- is author-sized wearing a cap, and belongs in Class B
+however it is spelled.
+
+Where the constant is written does not matter: a `const` field, a parameter
+default, and a literal at a call site are the same class. A bound supplied by a
+caller of this library is likewise Class A, because the caller is on the trusted
+side of the threat model and spends only its own budget. Caller configuration
+therefore does not form a third class; it changes who picks the ceiling, not
+whether the ceiling is known before the read.
 
 ### The bounding invariant
 
-> Every metadata materialization inside the decode is **either** individually
-> bounded by a stated constant, **or** charged against the work ledger before it
+> Every metadata materialization inside the decode is **either** capped by a
+> constant this code chose, **or** charged against the work ledger before it
 > occurs.
 
-The disjunction is the whole contract, and both arms are load-bearing.
+The disjunction is the whole contract, and both arms are load-bearing. Each
+arm is what its class makes possible: a tool-capped quantity has a known worst
+case, so the charge may come after; an author-sized one does not, so the charge
+must come first.
 
 For **Class A**, charging may follow materialization. The ledger's role there is
 bounding *repetition*, not magnitude: a name capped at
