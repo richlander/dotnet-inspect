@@ -4,7 +4,7 @@ EXTENDS FiniteSets, Integers, Sequences, TLC
 \* Owned by docs/design/platform-composition-and-overlays.md.
 \* Candidate acquisition, identity decoding, and compatibility computation are
 \* inputs. The model owns only arbitration among already-classified candidates
-\* and attribution when traversal crosses an incoherent overlay/platform pair.
+\* and attribution when a platform cannot satisfy an overlay traversal request.
 
 CONSTANTS
     DesignatedOne,
@@ -13,28 +13,35 @@ CONSTANTS
     Unentitled,
     ExactReference,
     SkewedReference,
+    AvailableMember,
+    UnavailableMember,
     NoCandidate,
     SelectionMode,
-    SuppressCoherenceFailure
+    TraversalMode
 
 Candidates == {DesignatedOne, DesignatedTwo, Platform, Unentitled}
 DesignatedCandidates == {DesignatedOne, DesignatedTwo}
 PlatformCandidates == {Platform}
 EntitledCandidates == DesignatedCandidates \union PlatformCandidates
 References == {ExactReference, SkewedReference}
+Members == {AvailableMember, UnavailableMember}
+TraversalRequests == References \X Members
 
 ASSUME
     /\ Cardinality(Candidates) = 4
     /\ Cardinality(References) = 2
+    /\ Cardinality(Members) = 2
     /\ NoCandidate \notin Candidates
     /\ SelectionMode \in
         {"Policy", "RegistrationOrder", "VersionSensitive"}
-    /\ SuppressCoherenceFailure \in BOOLEAN
+    /\ TraversalMode \in
+        {"Policy", "RejectSkew", "SuppressFailure"}
 
 Phases == {"Registering", "Loaded", "Resolved", "Traversed"}
 ResolutionFailures == {"Pending", "None", "NoMatch", "Ambiguous"}
 TraversalOutcomes ==
-    {"NotStarted", "Found", "ResolutionFailed", "CoherenceFailure", "Missing"}
+    {"NotStarted", "Found", "ResolutionFailed",
+     "CompatibilityFailure", "Missing"}
 
 NoDuplicates(sequence) ==
     \A left, right \in 1..Len(sequence):
@@ -135,6 +142,13 @@ KnownSkewFor(sequence, reference) ==
     /\ EligibleFor(sequence, reference) \cap DesignatedCandidates # {}
     /\ EligibleFor(sequence, reference) \cap PlatformCandidates # {}
 
+AvailableInPlatform(member) ==
+    member = AvailableMember
+
+SelectedOverlayUnderSkew(sequence, selected, reference) ==
+    /\ selected[reference] \in DesignatedCandidates
+    /\ KnownSkewFor(sequence, reference)
+
 VARIABLES
     phase,
     registration,
@@ -156,7 +170,8 @@ Init ==
     /\ shadowed = [reference \in References |-> {}]
     /\ resolutionFailure =
         [reference \in References |-> "Pending"]
-    /\ traversal = [reference \in References |-> "NotStarted"]
+    /\ traversal =
+        [request \in TraversalRequests |-> "NotStarted"]
 
 Register(candidate) ==
     /\ phase = "Registering"
@@ -189,23 +204,32 @@ Resolve ==
             FailureFor(registration, reference)]
     /\ UNCHANGED <<registration, loadWarning, traversal>>
 
-TraversalFor(reference) ==
+TraversalFor(reference, member) ==
     IF resolutionFailure[reference] # "None"
     THEN "ResolutionFailed"
     ELSE
-        IF /\ selection[reference] \in DesignatedCandidates
-           /\ KnownSkewFor(registration, reference)
+        IF AvailableInPlatform(member)
         THEN
-            IF SuppressCoherenceFailure
-            THEN "Missing"
-            ELSE "CoherenceFailure"
-        ELSE "Found"
+            IF /\ TraversalMode = "RejectSkew"
+               /\ SelectedOverlayUnderSkew(
+                    registration, selection, reference)
+            THEN "CompatibilityFailure"
+            ELSE "Found"
+        ELSE
+            IF SelectedOverlayUnderSkew(
+                registration, selection, reference)
+            THEN
+                IF TraversalMode = "SuppressFailure"
+                THEN "Missing"
+                ELSE "CompatibilityFailure"
+            ELSE "Missing"
 
 Traverse ==
     /\ phase = "Resolved"
     /\ phase' = "Traversed"
     /\ traversal' =
-        [reference \in References |-> TraversalFor(reference)]
+        [request \in TraversalRequests |->
+            TraversalFor(request[1], request[2])]
     /\ UNCHANGED
         <<registration, loadWarning, selection, shadowed, resolutionFailure>>
 
@@ -229,7 +253,7 @@ TypeOK ==
     /\ selection \in [References -> Candidates \union {NoCandidate}]
     /\ shadowed \in [References -> SUBSET Candidates]
     /\ resolutionFailure \in [References -> ResolutionFailures]
-    /\ traversal \in [References -> TraversalOutcomes]
+    /\ traversal \in [TraversalRequests -> TraversalOutcomes]
 
 SelectedCandidatesAreEntitled ==
     \A reference \in References:
@@ -302,20 +326,27 @@ KnownSkewIsWarnedAtLoad ==
             KnownSkewFor(registration, reference) =>
                 loadWarning[reference]
 
-IncoherenceIsAttributed ==
+UnavailableSkewIsAttributed ==
     phase = "Traversed" =>
         \A reference \in References:
-            /\ selection[reference] \in DesignatedCandidates
-            /\ KnownSkewFor(registration, reference)
-            => traversal[reference] = "CoherenceFailure"
+            SelectedOverlayUnderSkew(
+                registration, selection, reference) =>
+                traversal[<<reference, UnavailableMember>>] =
+                    "CompatibilityFailure"
 
-CoherentTraversalSucceeds ==
+AvailableTraversalSucceeds ==
+    phase = "Traversed" =>
+        \A reference \in References:
+            selection[reference] # NoCandidate =>
+                traversal[<<reference, AvailableMember>>] = "Found"
+
+UnavailableWithoutSkewIsMissing ==
     phase = "Traversed" =>
         \A reference \in References:
             /\ selection[reference] # NoCandidate
-            /\ ~(/\ selection[reference] \in DesignatedCandidates
-                 /\ KnownSkewFor(registration, reference))
-            => traversal[reference] = "Found"
+            /\ ~SelectedOverlayUnderSkew(
+                registration, selection, reference)
+            => traversal[<<reference, UnavailableMember>>] = "Missing"
 
 ResolutionConverges == <> (phase = "Traversed")
 
