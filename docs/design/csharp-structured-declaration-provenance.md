@@ -183,15 +183,25 @@ from type text cannot mint an identity or enter the result's import set; it
 remains spelling evidence, or the declaration visibly degrades when the
 selected abbreviation requires an exact namespace.
 
+The required namespace set is ordinal, duplicate-free, and exact for the
+selected qualification mode:
+
+- `Qualified` returns an empty set because every reference remains qualified;
+- `ShortWithUsings` returns every non-containing exact namespace, and only those
+  namespaces, whose references were actually shortened; and
+- `ContextualShort` returns the exact subset of caller-supplied, non-containing
+  namespace identities actually relied upon for shortening; it does not invent
+  a new import.
+
 `CSharpDeclarationText` is contained presentation currency, not a string
 identity. Its construction is restricted to the CSharp composer and means that
 no artifact-controlled display control remains active. That containment
 guarantee applies to both rendered modes.
 
 `Structured` additionally means that every artifact-derived value reached the
-output through a complete declared slot plan. `Compatibility` means that an
-opaque fragment crossed one explicitly contained compatibility boundary; it
-does not claim internal slot provenance. Neither mode means the declaration
+output through a complete declared slot plan. `Compatibility` means that one or
+more opaque fragments crossed explicitly contained compatibility boundaries;
+it does not claim internal slot provenance. Neither mode means the declaration
 compiles, corresponds to a body, or identifies a metadata row.
 
 Diagnostics carry a closed `CSharpDeclarationDiagnosticReason` and optional
@@ -258,7 +268,7 @@ enter composition without a catalog entry and handler.
 
 | Slot | Value class | Current source |
 | --- | --- | --- |
-| Type declaration name | Type declaration name | `ApiType.DefinitionName`, `IntroducedTypeParameterCounts`, and `TypeParameters`; legacy flattened `Name` is compatibility input |
+| Type declaration name | Type declaration name | `ApiType.DefinitionName`, `IntroducedTypeParameterCounts`, and `TypeParameters` |
 | Type declaration placement | Closed syntax | caller-issued root or exact parent identity; never inferred by comparing `Name`, `MetadataName`, or rendered text |
 | Type kind | Closed syntax | `ApiType.Kind` |
 | Type accessibility | Closed syntax | `ApiType.Accessibility` |
@@ -275,7 +285,7 @@ enter composition without a catalog entry and handler.
 | Base type | Type expression | `ApiType.BaseType` and typed reference evidence |
 | Implemented interface | Type expression | `ApiType.Interfaces` and available typed reference evidence |
 | Type special constraint | Closed syntax | non-type entries in `TypeParameter.StructuredConstraints` |
-| Type constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints`; unstructured constraints are compatibility input |
+| Type constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints` |
 | Type attribute | Rendered fragment | `ApiType.Attributes` |
 
 ### Formatter option slots
@@ -315,6 +325,7 @@ options" handler does not satisfy the catalog.
 | Unsafe member modifier | Closed syntax | `ApiMember.IsUnsafe` |
 | Async member modifier | Closed syntax | `ApiMember.IsAsync` |
 | Required-member modifier | Closed syntax | `ApiSignature.IsRequired` |
+| Extension-receiver presence | Closed syntax | `ApiMember.IsExtension` |
 | Return, field, property, or event type | Type expression | `ApiSignature.ReturnType` or `ApiMember.ReturnType`, with typed evidence when available |
 | Simple member name | Raw identifier | exact `ApiMember.Name` or a separately issued simple-name slot |
 | Explicit-interface qualifier | Type expression | requires an owner-issued qualifier separate from the simple name |
@@ -328,6 +339,7 @@ options" handler does not satisfy the catalog.
 | Parameter modifier | Closed syntax | `ApiParameter.Modifier` |
 | Parameter type | Type expression | `ApiParameter.Type` and typed evidence when available |
 | Parameter name | Raw identifier | `ApiParameter.Name` |
+| Parameter default presence | Closed syntax | `ApiParameter.HasDefault` |
 | Parameter default | Rendered fragment | `ApiParameter.DefaultValueText` |
 | Accessor | Composite subplan | ordered accessor child slots |
 | Accessor return attribute | Rendered fragment | `ApiAccessor.ReturnAttributes` |
@@ -337,12 +349,24 @@ options" handler does not satisfy the catalog.
 | Synthesized-obsolete presence | Closed syntax | `ApiMember.IsObsolete` |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
 
+### Compatibility slots
+
+Every compatibility path has an explicit opaque slot. A declaration cannot
+become `Compatibility` merely because a structured handler declined it.
+
+| Slot | Value class | Current source |
+| --- | --- | --- |
+| Legacy flattened type declaration name | Opaque compatibility | `ApiType.Name` when exact definition-name segments or arity ownership are unavailable |
+| Opaque member declaration | Opaque compatibility | `ApiMember.Signature` when no complete structured signature can be formed |
+| Combined explicit-interface name | Opaque compatibility | combined `ApiMember.Name` or `ApiSignature.MemberName` pending #5114 |
+| Unstructured type constraint | Opaque compatibility | a `TypeParameter.Constraints` entry without structured constraint evidence |
+| Unstructured method constraint | Opaque compatibility | a method `TypeParameter.Constraints` entry without structured constraint evidence |
+
 ### Declaration-form requirements
 
 | Form | Additional required structure |
 | --- | --- |
 | Class, struct, interface, record, or enum type | Exact type declaration name, typed root or parent/child placement, closed kind/modifiers, generic parameters, bases/interfaces, and constraints as applicable |
-| File-scoped namespace-wrapped type | One class/struct/interface/record/enum or delegate form plus qualified containing-namespace spelling and closed wrapper mode |
 | Constructor | Exact declaring-type leaf name and parameters |
 | Static constructor | Exact declaring-type leaf name and closed punctuation |
 | Finalizer with destructor spelling | Exact declaring-type leaf name and closed destructor marker |
@@ -470,11 +494,13 @@ properties remain unverified:
   complete slot-to-value-class map and handler set from the normative code
   catalog and fails for undefined classes, entries that mix value classes, and
   missing or stale slots and handlers.
-- `CSharpDeclarationSlotCatalogTests.StructuredModeRequiresExactConsumedSlotSet`
+- `CSharpDeclarationSlotCatalogTests.RenderedModeRequiresExactConsumedSlotSet`
   derives the expected slots for every form from that catalog, compares them
   with the slots actually consumed by the public composition path, and fails
-  for missing, duplicate, stale, or bypassed handlers. Catalog/handler
-  self-consistency alone cannot issue `Structured`.
+  for missing, duplicate, stale, or bypassed handlers. `Structured` requires no
+  opaque slot; `Compatibility` requires every used opaque boundary to appear in
+  the receipt and at least one such boundary. Catalog/handler self-consistency
+  alone cannot issue either rendered mode.
 - `CSharpDeclarationProvenanceTests.StructuredCompositionDoesNotRescanFinalText`
   uses colliding identifiers inside a default literal, attribute argument,
   return type, qualifier, and member name to prove substitutions stay in their
@@ -496,8 +522,9 @@ properties remain unverified:
 - `CSharpDeclarationProvenanceTests.ClosedSyntaxSelectorsHaveNeighborCoverage`
   varies each formatter option and metadata discriminator independently,
   including required-member presence, inherited `TypeParameter.TypeKind`,
-  synthesized-obsolete presence and inclusion, abbreviation, accessor omission,
-  attribute inclusion, forced modifiers, and termination;
+  parameter-default presence, extension-receiver presence,
+  synthesized-obsolete presence and inclusion, abbreviation, accessor
+  omission, attribute inclusion, forced modifiers, and termination;
   each pair must change only its declared slot set and output syntax.
 - `CSharpDeclarationProvenanceTests.NestedTypePlacementDoesNotComeFromDisplayText`
   varies only legacy `Name`/`MetadataName` spellings and proves that the typed
@@ -514,6 +541,10 @@ properties remain unverified:
   preserving an owner-issued exact whole namespace while proving that a
   type-text-derived spelling cannot enter the declaration result's
   identity-bearing import set.
+- `CSharpDeclarationProvenanceTests.RequiredNamespaceIdentitiesExactlyMatchShortenedReferences`
+  covers zero, one, duplicate, missing, and stale namespace requirements under
+  `Qualified`, `ShortWithUsings`, and `ContextualShort`, and compares the exact
+  returned set with every reference the public declaration path shortened.
 - `CSharpDeclarationProvenanceTests.MissingStructureIsVisible`
   proves that each target failure selects `Compatibility` or `Unavailable`,
   never `Structured` or success-shaped empty output.
