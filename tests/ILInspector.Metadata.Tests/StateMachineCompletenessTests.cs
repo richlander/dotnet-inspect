@@ -50,6 +50,24 @@ public sealed class StateMachineCompletenessTests
         "the CLI directory is present but carries no metadata";
 
     /// <summary>
+    /// The detail reported when SRM finds no metadata, worded to match what the
+    /// oracle actually established rather than assuming the CLI directory is
+    /// present. Factored out so the gate can assert that a detail came from
+    /// <em>this</em> branch: without that, a specimen that started reaching SRM's
+    /// exception path instead would leave the gate green while measuring
+    /// nothing, since an exception message also fails to claim presence.
+    /// </summary>
+    static string NoMetadataDetail(ManagedClaim claim, ClaimExitSite exit) =>
+        claim switch
+        {
+            ManagedClaim.Yes => CliDirectoryPresentDetail,
+            ManagedClaim.No =>
+                "the CLI directory is absent and SRM reports no metadata",
+            _ => $"the header oracle could not decide whether a CLI directory "
+                + $"is present ({exit}), and SRM reports no metadata",
+        };
+
+    /// <summary>
     /// The gate for the completeness property on assemblies this repository
     /// builds. Both specimens are compiler-async, are produced by the build
     /// under test, and are therefore deterministic — no corpus, no network, and
@@ -1269,9 +1287,10 @@ public sealed class StateMachineCompletenessTests
 
             string? readerDetail = null;
             ManagedClaim claim;
+            ClaimExitSite exit;
             using (var memory = new MemoryStream(image, writable: false))
             {
-                claim = ReadManagedClaim(memory, ref readerDetail, out _);
+                claim = ReadManagedClaim(memory, ref readerDetail, out exit);
             }
 
             string path = Path.Combine(
@@ -1284,6 +1303,15 @@ public sealed class StateMachineCompletenessTests
                 TryMeasure(path, out _, out string? detail);
 
                 Assert.NotNull(detail);
+
+                // Pins that the detail came from the no-metadata branch at all.
+                // The self-audit before round 10 found this test would have
+                // stayed green if a specimen started reaching SRM's exception
+                // path instead, because an exception message does not claim
+                // presence either -- passing for a reason unrelated to what it
+                // asserts.
+                Assert.Equal(NoMetadataDetail(claim, exit), detail);
+
                 Assert.Equal(
                     claim == ManagedClaim.Yes,
                     detail!.Contains(CliDirectoryPresentDetail, StringComparison.Ordinal));
@@ -1622,15 +1650,7 @@ public sealed class StateMachineCompletenessTests
                     // detail is what a maintainer reads first; a confident
                     // false statement there sends them looking for a CLI
                     // directory that was never claimed to exist.
-                    detail ??= claim switch
-                    {
-                        ManagedClaim.Yes => CliDirectoryPresentDetail,
-                        ManagedClaim.No =>
-                            "the CLI directory is absent and SRM reports no metadata",
-                        _ => $"the header oracle could not decide whether a CLI "
-                            + $"directory is present ({claimExit}), and SRM "
-                            + $"reports no metadata",
-                    };
+                    detail ??= NoMetadataDetail(claim, claimExit);
                     return undecodable;
                 }
 
