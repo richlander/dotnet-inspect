@@ -11,7 +11,7 @@ This document owns the contract that makes that safe.
 
 **Status: descriptive, with known gaps.** The invariants below are the contract
 this component is held to, not a description of what it currently guarantees.
-Five verified divergences are open against it, listed under [Known
+Seven verified divergences are open against it, listed under [Known
 gaps](#known-gaps). Treat any statement that an invariant *holds* as unverified
 until the differential oracle of issue #5065 exists.
 
@@ -98,7 +98,7 @@ asking costs*.
 | --- | --- | --- |
 | **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. The resolver-less overload is explicitly out of scope; see [Known gaps](#known-gaps). |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
-| **I3 — Bounding ourselves** | **No.** Violated by #5091 and #5047 | Two independent quadratics on the guard's own path. |
+| **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
 **I2 and I3 are the same question asked of two different parties, and the guard
 is not the expensive one by default.** It is tempting to bound only our own
@@ -245,18 +245,20 @@ Two consequences follow, and both are load-bearing:
 Each row is a **verified** divergence between the contract above and the
 component's current behavior. They are listed rather than omitted, because a
 design document describing only intended behavior would misrepresent a
-component with five open violations.
+component with seven open violations.
 
 | # | Gap | Invariant | Issue |
 | --- | --- | --- | --- |
 | 1 | SRM re-derives each fixed argument's type from the generic context independently, costing `Θ(P × G)`. The guard memoizes the offset and never experiences it, so it approves. | I2 | #5098 |
 | 2 | A failed handle resolution scans every type definition, so `P` distinct unresolvable references cost `Θ(P × T)`. | I3 | #5091 |
 | 3 | `SZARRAY` element types are re-parsed once per element rather than once per array. | I3 | #5047 |
-| 4 | An observer exception is caught by the malformed-metadata handler, turning a caller's budget stop into an approval. | Failure semantics | #5085 |
+| 4 | An observer exception is caught by the malformed-metadata handler, turning a caller's budget stop into an approval — and, through `TypeResolver`, absorbing it silently into a default width. | Failure semantics | #5085 |
 | 5 | The resolver-less `IsSafeToDecode` overload resolves widths through a different order, so its `true` does not carry I1 for a caller decoding with a resolver-backed provider. | I1 scope | #5120 |
+| 6 | Every memo in the guard is a **single slot keyed on the previous input**, so alternating two values defeats all four — including a guard-side `Θ(P × G)` that mirrors gap 1. | I3 | #5130 |
+| 7 | `A` attribute rows sharing one `B`-byte blob are guarded and decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. | I3 | #5132 |
 
-Gaps 1 through 3 share a root cause worth naming: **the guard and SRM memoize
-different things.** Where the guard caches work SRM repeats, the guard is fast
+Gaps 1, 2, 3, and 6 share a root cause worth naming: **the guard and SRM
+memoize different things.** Where the guard caches work SRM repeats, the guard is fast
 and the decode is quadratic (gap 1). Where the guard repeats work it could
 cache, the guard is quadratic and the decode is fine (gaps 2 and 3). Neither
 side's profile reveals the other's cost, which is why all three were found by
@@ -268,7 +270,7 @@ because the surface permits the unsafe composition and nothing prevents it. I1
 is therefore scoped to the resolver-supplied overload throughout this document;
 see [Resolution order](#resolution-order-and-what-int32-actually-means).
 
-Gaps 1, 2, 4, and 5 were all found while writing or reviewing this document,
+Gaps 1, 2, 4, 5, 6, and 7 were all found while writing or reviewing this document,
 against a component that had already been through eight rounds of
 defect-driven review. That is the argument for the oracle below: reading finds
 these one at a time, and only after somebody thinks to look.
@@ -287,19 +289,24 @@ and I3 separately, across both the metadata axes and the observer axis. A gate
 that asserts only offset agreement passes both the unbounded and the expensive
 attack; a gate defined only over generated metadata cannot see gap 4 at all.
 
-**This specification is itself partial.** Four of the five known gaps were
-found by reading rather than by any gate, and three of them were found after
-this document's first draft — which is evidence that the enumeration below is
-incomplete rather than evidence that it is done. Treat it as the starting
-corpus for the oracle, not as a closed description of the input space.
+**This specification is itself partial.** Six of the seven known gaps were
+found by reading rather than by any gate, and five of them were found after
+this document's first draft — including two found by reviewing this very
+section. That is evidence the enumeration below is incomplete rather than
+evidence it is done. Treat it as the starting corpus for the oracle, not as a
+closed description of the input space.
 
 ### Generated grammar
 
 The generator must cover, and must be able to combine:
 
 - **Fixed-argument types:** each primitive; `string`; `object` (boxed);
-  `System.Type` as a serialized name; `SZARRAY` of each of these; `VAR`/`MVAR`
-  where generic substitution applies.
+  `System.Type` as a serialized name; `SZARRAY` of each of these; and `VAR`
+  where generic substitution applies. **`MVAR` is a refusal case, not a
+  substitution case** — `ProcessGenericParameter` returns `Unsafe` for a method
+  generic parameter before locating anything, and SRM handles only type
+  parameters, so `MVAR` must be generated as a negative case and must not
+  appear in the alternating-index cost cases below.
 - **Enum spellings:** the handle forms and the serialized (`0x55`) name form,
   each independently, because they resolve differently. The handle forms must
   be generated with **both** `ELEMENT_TYPE_VALUETYPE` and
@@ -333,23 +340,55 @@ are available together, and the design requires all three:
    can be compared against directly.
 2. **Decoded values.** The fixed and named argument values SRM returns say
    which bytes it interpreted and as what width.
-3. **Boundary discrimination, in both directions.** A single sentinel appended
-   at the offset the guard skipped to is **not sufficient**, because it only
+3. **Boundary discrimination — and its limit.** A single sentinel appended at
+   the offset the guard skipped to is **not sufficient**, because it only
    detects the case where SRM consumes *farther* than the guard. Neither the
    guard nor SRM rejects trailing bytes, so when the guard skips farther than
    SRM, the sentinel lies in data SRM never reads: the decode succeeds with
    exactly the provider calls and values the aligned case would produce.
-   The gate must therefore make each candidate boundary *consequential* —
-   for example by requiring a following argument whose successful decode is
-   possible only at the correct boundary, so an under-consuming and an
-   over-consuming guard are both observable.
 
-I1 must be established in both directions. Guard-consumes-more and
-SRM-consumes-more are distinct failures, and only the second is self-revealing.
+**These three observables cannot establish I1 by themselves, and no arrangement
+of them can.** They are all observations of *SRM*, and SRM's behavior does not
+depend on where the guard landed. Making a boundary "consequential" — requiring
+a following argument that decodes only at the correct offset — constrains the
+decoder, not the guard: if SRM is correct it decodes correctly, and a guard that
+over-consumed simply runs out of bytes, returns `Result.Truncated`, and is
+mapped to `true` by `Check(...) != Result.Unsafe`. Provider calls, decoded
+values, and any sentinel all match the aligned case exactly.
 
-I2 is checked separately and does not depend on these: the gate asserts that a
-blob whose declared quantities exceed the remaining bytes is refused *before*
-`DecodeValue` is invoked at all.
+So guard-over-consumption is invisible to every SRM-side signal. The asymmetry
+is structural: SRM is the oracle, and an oracle cannot report where its
+*counterpart* stopped reading.
+
+**The gate therefore requires the guard's own final offset to be observable to
+the test.** That is a testability requirement on this component, not a property
+of the generated input — an internal or test-visible boundary trace that the
+oracle compares against SRM's reconstructed consumption. Without it, I1 can be
+established in one direction only, and the direction it misses is the one where
+the guard has already said `true`.
+
+I2 is checked separately and does not depend on these, but it needs **two**
+assertions, because I2 covers both what SRM allocates and what it spends:
+
+- **Allocation.** A blob whose declared quantities exceed the remaining bytes
+  is refused *before* `DecodeValue` is invoked at all. This is a direct
+  property of the generated input and the guard's return value.
+- **Time.** A blob that costs SRM asymptotically more work than its own size is
+  refused. This one is **not** observable from the three signals above — gap 1
+  uses entirely valid counts and lawful bytes, and SRM's per-argument
+  re-derivation of the generic context happens inside `SkipType` without any
+  provider callback, so it produces no observable trace at all.
+
+The time half therefore needs a **deterministic policy oracle**, not an
+observation: the gate computes the work SRM would perform for the generated
+shape — as a function of parameter count, generic arity, and the `VAR` index
+sequence — and asserts the guard refuses once that exceeds a stated bound. This
+is the only invariant of the three that must be gated against a *model* of the
+decoder rather than against the decoder itself, because the cost it bounds is
+invisible from outside.
+
+Specifying I2 as "refuses over-large declared counts" alone, as an earlier
+draft did, is exactly the check that gap 1 passes.
 
 I3 is checked separately as well, and cannot be observed from SRM at all. It is
 also the hardest of the three to gate, because a one-dimensional check is
@@ -365,11 +404,14 @@ minimum:
 - **the constructor's generic arity**, which multiplies against parameter count
   on both sides — `Θ(P × G)` for SRM per gap 1, and for the guard too under the
   next item,
-- **the *sequence* of `VAR`/`MVAR` indices, not merely how many appear.** The
-  guard memoizes the located argument offset in a *single* slot, so a run of
-  identical indices is cheap while indices alternating between `0` and `G-1`
-  evict the memo on every argument and restart the skip from argument zero.
-  Only the second shape is quadratic, and only the first is currently tested.
+- **the *sequence* of `VAR` indices, and of handles and names, not merely how
+  many appear.** Every memo in the guard is a single slot keyed on the
+  *previous* input, so a run of identical values is cheap while two values in
+  alternation evict on every step. For argument location that restarts the skip
+  from argument zero, giving `Θ(P × G)` guard-side; the same shape defeats the
+  enum-name, enum-handle, and `System.Type` memos. Only the repeating shape is
+  currently tested, which is why gap 6 (#5130) passes all four existing
+  amplification regressions.
 - the number of *distinct* handles and names referenced,
 - the number of rows in the tables a failed resolution scans,
 - the number of attributes decoded from one image, and
@@ -411,14 +453,30 @@ states:
 - **throwing `BadImageFormatException`**, and
 - **throwing `ArgumentOutOfRangeException`**,
 
-at **both** call sites — the guard's direct `Charge` calls and the calls made
-through the bound type-name provider — because they sit inside different `try`
-regions and are not interchangeable.
+at **all four** regions that can absorb such an exception, because they sit in
+different `try` scopes and are not interchangeable:
+
+| Region | Where | Effect on an observer exception |
+| --- | --- | --- |
+| The guard's public boundary | `CustomAttributeValueGuard.IsSafeToDecode:85-97` | Caught; returns `true`. The walk stops, but the refusal is inverted. |
+| `TypeResolver` reference/definition/exported-type paths | `TypeResolver.cs:177`, `:182`, `:374`, `:379`, `:543` | Absorbed into a `Malformed` result → `null` name → default `Int32` width. **The walk continues.** |
+| `SignatureDecoder.Decode`, reached for `TypeSpec` names | `SignatureDecoder.cs:184`, `:188` | Absorbed into a `Rejected` result, same effect. |
+| The bound type-name provider | `AttributeDecoder.BindEnumWidthResolver:331-341` | Distinct `try` scope from the direct `Charge` calls. |
+
+The middle two are the dangerous ones and were missing from an earlier draft of
+this section. At the public boundary the observer at least stops the walk; in
+`TypeResolver` the exception is absorbed *mid-resolution*, the guard substitutes
+a default width, and the walk proceeds to spend more of the very budget the
+caller was trying to cap. Worse, that substituted width is taken from an
+**aborted** resolution while SRM's provider — which observes nothing and will
+not throw — resolves the same name normally. A budget stop can therefore
+manufacture a genuine I1 divergence, not merely a wrong return value.
 
 The assertion is not merely that the guard returns something reasonable. It is
-that **an observer that throws to stop the walk never produces `true`.** A
-caller's refusal is not a statement about the blob, and turning one into an
-approval is the inversion gap 4 records.
+that **an observer that throws to stop the walk never produces `true`, and is
+never silently absorbed into a default width.** A caller's refusal is not a
+statement about the blob, and turning one into an approval is the inversion gap
+4 records.
 
 Until that gate exists, any statement in this document that any invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -705,9 +763,12 @@ a malformed state is detected decides which one you get.
 | Condition | Result | Why |
 | --- | --- | --- |
 | Value-walk read runs out of bytes (`Result.Truncated`) | `true` | SRM's failure is catchable and precise; ours would be a guess. Let the decoder own the error. |
-| Truncation in the constructor `TypeSpec` **prologue** — phase A, everything from the blob start through the generic argument count | `true` | `ResolveConstructorInstantiation` returns `Safe` with `found == false` at each of its truncation points, and the caller propagates that. |
-| Truncation while **stepping over a preceding generic argument** — phase B, arguments `0` through `parameterIndex - 1` | `false` | `TrySkipSrmAttributeType` reports failure rather than a plausible offset, and `LocateGenericArgument` maps that to `Unsafe`. |
-| A substituted `VAR`/`MVAR` in the **selected** generic argument — phase C | `false` | `ProcessGenericParameter` clears `_substituteGenerics` before re-entering, so a second substitution reaches the element switch as an unrecognized form and returns `Unsafe`. Re-entering on the same `TypeSpec` would otherwise overflow the stack. |
+| Truncation in the constructor `TypeSpec` **prologue** — region A, from the blob start through the generic argument count | `true` | `ResolveConstructorInstantiation` returns `Safe` with `found == false` at each of its truncation points, and the caller propagates that. |
+| **Detected** failure while stepping over a preceding generic argument — region B, arguments `0` through `parameterIndex - 1` | `false` | `TrySkipSrmAttributeType` reports failure rather than a plausible offset, and `LocateGenericArgument` maps that to `Unsafe`. |
+| Truncation of the **selected** generic argument's own type — region C, e.g. a `CLASS` whose coded index is cut off | `true` | `_signature.ReadTypeHandle()` is called unguarded in the element switch, so `BlobReader` throws `BadImageFormatException`, which reaches the public catch. |
+| A **substituted** `VAR` in the selected generic argument — also region C | `false` | `ProcessGenericParameter` clears `_substituteGenerics` before re-entering, so a second substitution reaches the element switch as an unrecognized form and returns `Unsafe`. Re-entering on the same `TypeSpec` would otherwise overflow the stack. |
+| `MVAR` anywhere | `false` | `ProcessGenericParameter` returns `Unsafe` for `methodParameter` before locating anything, and SRM likewise handles only type parameters. Method generic parameters are refused, never substituted. |
+| Truncation in a generic argument **after** the selected index — region D | *not examined* | `LocateGenericArgument` skips only `0` through `parameterIndex - 1` and stops. Bytes after the selected argument are never read by the guard, so their state cannot affect its result. |
 | Unknown fixed-argument element code, unsupported serialized type, invalid named-argument kind | `false` | The guard positively classifies these as forms it cannot track. It refuses rather than walking blind alongside a decoder it can no longer follow. |
 | Declared count exceeds what the remaining bytes can describe | `false` | Invariant I2. The count is the amplification vector and must be refused before SRM allocates from it. |
 | Serialized nesting past `MaxSerializedDepth` | `false` | Refuse rather than truncate. |
@@ -720,15 +781,21 @@ Three consequences worth stating for anyone editing this:
 
 - "Unrecognized" is not one outcome. A form the guard *positively identifies*
   as unsupported refuses; a read that simply *runs out of bytes* defers to SRM.
-- **The three generic-argument truncation phases partition by offset and do not
-  overlap.** Phase A ends at the argument count; phase B covers arguments
-  before the selected index; phase C is the selected argument. A generator can
-  therefore truncate at any offset and derive the expected result
-  unambiguously, which the earlier "header or body" framing did not permit —
-  a preceding argument is part of the body, so both rows claimed it.
+- **The generic-argument regions do not partition cleanly by offset, and an
+  earlier draft's claim that they did was wrong.** Region C alone produces
+  *both* results depending on *what* is malformed rather than *where*:
+  truncation of the selected type throws and yields `true`, while a substituted
+  `VAR` yields `false`. Region D is not examined at all, so a generator can
+  place arbitrary garbage after the selected argument without changing the
+  guard's answer. The partition is therefore by **role in the walk** — prologue,
+  skipped predecessor, selected type, unread suffix — and the outcome within a
+  region still depends on the malformation. State both coordinates when adding
+  a case.
 - **"Helper catches produce `false`" is not a general rule.** It holds for this
   guard's own parsing helpers. It does *not* hold for
-  `SignatureBlobGuard.IsSafeToDecode`, whose catch deliberately returns `true`.
+  `SignatureBlobGuard.IsSafeToDecode`, whose catch deliberately returns `true`,
+  nor for `TypeResolver`, which absorbs both exception types on every
+  name-rendering path and returns a `null` name that becomes a default width.
   Adding a catch changes the contract, so state which behavior you intend and
   which component owns the decision.
 
@@ -751,13 +818,19 @@ malformed blob.
 | #5091 | Quadratic guard work across declared parameter count and type-definition count. Gap 2. Found while reviewing this document. |
 | #5098 | Blobs that cost SRM quadratic work across parameter count and generic arity, which the guard's memoization hides. Gap 1. Found while reviewing this document. |
 | #5120 | The resolver-less `IsSafeToDecode` overload does not carry I1. Gap 5. Found while reviewing this document. |
+| #5130 | Every memo is a single slot, so alternating input defeats all four. Gap 6. Found while reviewing this document. |
+| #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 7. Found while reviewing this document. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 
 Issue #5067 tracks this space as a whole.
 
-The four gap issues are not independent cleanups. Gaps 1 through 3 are one
-question — *which side pays for a lookup* — asked in three places, and a fix
-that only moves cost from the guard to the decoder or back has not resolved
-any of them. Prefer one coherent change evaluated against both walkers over
-three local optimizations.
+The amplification gaps are not independent cleanups. Gaps 1, 2, 3, and 6 are one
+question — *which side pays for a lookup, and is the answer stable under
+adversarial ordering* — asked in four places. A fix that only moves cost from
+the guard to the decoder, or that makes a memo hit more often without making it
+hit on *every distinct input*, has not resolved any of them. Prefer one coherent
+change evaluated against both walkers over four local optimizations.
+
+Gap 7 is deliberately excluded from that grouping: it is cross-row, so no
+per-walk memo can address it.
