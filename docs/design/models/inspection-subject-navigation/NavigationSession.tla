@@ -257,6 +257,8 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
 NavigationPreparationFailure ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
+  /\ installedSnapshot' = installedSnapshot
+  /\ installedRev' = installedRev
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' =
        Authority("retained", installedRev, currentIntent, effectEpoch + 1)
@@ -265,12 +267,20 @@ NavigationPreparationFailure ==
        Result("failed", "navigationPreparation",
               installedSnapshot, installedSnapshot,
               installedRev, installedRev)
+  /\ revisionWitness' =
+       /\ revisionWitness
+       /\ installedSnapshot' = installedSnapshot
+       /\ installedRev' = installedRev
+       /\ lastResult'.priorSnapshot = installedSnapshot
+       /\ lastResult'.resultSnapshot = installedSnapshot'
+       /\ lastResult'.priorRev = installedRev
+       /\ lastResult'.resultRev = installedRev'
   /\ explicit' = NoExplicitWork
-  /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, superseded,
-                  nextMaintenance, maintenanceQueue, lastAdmitted,
+  /\ UNCHANGED << currentIntent, superseded, nextMaintenance,
+                  maintenanceQueue, lastAdmitted,
                   admittedRequests,
-                  admissionWitness, regatherWitness, revisionWitness,
-                  orderWitness, visibleWitness >>
+                  admissionWitness, regatherWitness, orderWitness,
+                  visibleWitness >>
 
 \* A rejected navigation result retains the installed snapshot but receives a
 \* fresh effect epoch so delayed outcome work cannot surface later.
@@ -584,15 +594,16 @@ NonSuccessRevisionMatchesSnapshotChange ==
 \* before/after state, and the live result authority names that retained
 \* revision.
 PreparationFailureRetainsSnapshotAndRevision ==
-  lastResult.source = "navigationPreparation" =>
-    /\ ~lastResult.snapshotChanged
-    /\ lastResult.resultSnapshot = lastResult.priorSnapshot
-    /\ lastResult.resultRev = lastResult.priorRev
-    /\ (effect # NoAuthority =>
-          /\ effect.outcome = "retained"
-          /\ effect.rev = lastResult.resultRev
-          /\ installedSnapshot = lastResult.resultSnapshot
-          /\ installedRev = lastResult.resultRev)
+  /\ revisionWitness
+  /\ (lastResult.source = "navigationPreparation" =>
+        /\ ~lastResult.snapshotChanged
+        /\ lastResult.resultSnapshot = lastResult.priorSnapshot
+        /\ lastResult.resultRev = lastResult.priorRev
+        /\ (effect # NoAuthority =>
+              /\ effect.outcome = "retained"
+              /\ effect.rev = lastResult.resultRev
+              /\ installedSnapshot = lastResult.resultSnapshot
+              /\ installedRev = lastResult.resultRev))
 
 (***************************************************************************)
 (* Liveness.                                                               *)

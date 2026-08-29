@@ -213,9 +213,10 @@ remaining differences are deliberate abstractions rather than disagreements:
 - **Outcome classes.** Effect authority still uses the internal `applied` and
   `retained` execution classes, but `NavigationSession.tla` now separately
   records semantic outcome, complete-snapshot change, prior revision, and
-  result revision. This explicitly checks that changed `Unavailable` advances
-  revision while unchanged `Unavailable` retains it. `Rejected` and `Failed`
-  retain revision; superseded work returns no visible effect.
+  result revision. Changed `Unavailable` and Registry or policy `Failed`
+  results advance revision; unchanged ones retain it. `Rejected` and
+  Navigation preparation `Failed` results always retain revision; superseded
+  work returns no visible effect.
 - **Superseded maintenance results.** A newer explicit intent invalidates
   already gathered maintenance facts. The queued request remains, rebuilds
   from the replacement snapshot, and re-gathers before admission.
@@ -248,6 +249,11 @@ conjoins it into the witness. The paired invariant then asserts the witness was
 never falsified. If a future edit weakens an action guard, the witness still
 evaluates the real pre-state, so TLC reports a counterexample. Witnesses are
 model bookkeeping, not product state.
+
+`revisionWitness` independently compares complete non-success results with
+their pre-state installation and proves that Navigation preparation failure
+retained that pre-state even if its result and authority were coherently
+rewritten to a different post-state.
 
 `snapshotStabilityWitness` compares the whole installed snapshot record rather
 than its revision, so a step that rewrote the snapshot's lens or provenance
@@ -362,7 +368,7 @@ records how to reproduce them.
 | NS18 | Drop an earlier queued request while allowing a later request to be admitted | `EveryQueuedRequestIsAdmitted` | violated |
 | NS19 | Keep the revision unchanged for a changed-snapshot failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
 | NS20 | Advance the revision for an unchanged-snapshot Registry or policy failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
-| NS21 | Advance the installed revision during Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS21 | Advance the Navigation preparation-failure revision and coherently rewrite its result and authority to the post-state | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -395,14 +401,16 @@ and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Seven probes exist specifically because a claim used to be satisfiable by the
+Eight probes exist specifically because a claim used to be satisfiable by the
 wrong thing. `NS16` separates installed revision from a self-consistent result,
 `NS17` admits stale work without re-gathering, `NS18` lets a later admission
-stand in for a lost earlier request, `AR2` publishes a payload that differs
-from the retained request, `SA14` applies a later supplied-prior operation
-after an earlier one was rejected, `SA15` adopts only the stale same-session
-supplied snapshot whose origin and lens resemble session data, and `SA18`
-returns another admissible session lens under the correct operation ID.
+stand in for a lost earlier request, `NS21` rewrites preparation-failure
+authority and result to the wrong post-state, `AR2` publishes a payload that
+differs from the retained request, `SA14` applies a later supplied-prior
+operation after an earlier one was rejected, `SA15` adopts only the stale
+same-session supplied snapshot whose origin and lens resemble session data,
+and `SA18` returns another admissible session lens under the correct operation
+ID.
 
 ## Changing a model
 
