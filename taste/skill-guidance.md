@@ -57,3 +57,30 @@ Why it is bad:
 - Keep SourceLink/PDB wording precise: PDBs carry SourceLink data; they are not SourceLink themselves.
 - Keep Signals row ownership clear; avoid describing rows as belonging to multiple sections.
 - Update examples when output shape changes, especially compact context rows and selected-section output.
+
+## User-facing vs. repo-local skills
+
+Keep user-facing product skills and repository-maintainer skills separate.
+[`AGENTS.md`](../AGENTS.md#task-specific-guidance) states the binding
+separation; this section owns the mechanics.
+
+- `skills/` contains user-facing guidance shipped in the dotnet-inspect binary.
+  Use these skills when consuming the published tool or when a product change
+  needs its user-facing commands, examples, and expectations reviewed. Do not
+  select them merely because an agent is maintaining this repository; they are
+  product artifacts, not contributor runbooks.
+- `.github/skills/` and `.claude/skills/` contain repo-local guidance for
+  contributors and agents (release, CI, corpus maintenance, and other
+  repository operations). Do not register or embed these skills in the
+  product, and keep repository operations out of the user-facing `skills/`
+  tree.
+
+### Registering a new focused product skill
+
+When adding a focused product skill under `skills/`, register it in
+`SkillCommand.Skills` and add an `EmbeddedResource` line for it in
+`src/dotnet-inspect/dotnet-inspect.csproj`; the embeds are enumerated per
+skill. `FocusedSkillFilesRegistryAndEmbeddedResourcesAgree` keeps the skill
+directories, runtime registry, and embedded resources equal. Its YAML
+frontmatter `description:` is the single source of truth for the generated
+skill listing.
