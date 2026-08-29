@@ -105,6 +105,7 @@ interface OperationHandle<TValue, TError> {
 
 type OperationStartError<TPrepareError> =
   | { readonly kind: "session-disposed" }
+  | { readonly kind: "session-changed" }
   | { readonly kind: "identity-exhausted" }
   | {
       readonly kind: "producer-rejected";
@@ -131,6 +132,7 @@ interface OperationProducerSink<TValue, TError, TProgress> {
 interface PreparedOperationProducer {
   requestCancellation(reason: OperationCancelReason): void;
   activate(): void;
+  abandon(): void;
 }
 
 type OperationPreparation<TPrepareError> =
@@ -213,9 +215,12 @@ returns either:
 - a typed producer rejection after releasing any temporary resources, without
   retaining or invoking the sink; or
 - a prepared binding with an already-usable cancellation endpoint and an
-  `activate()` operation.
+  `activate()` operation plus an `abandon()` operation.
 
-Preparation cannot report producer events. `activate()` does not throw; an
+Preparation cannot report producer events and does not throw; its failures are
+represented by the typed preparation result. `abandon()` does not throw and
+releases every prepared resource synchronously without activating the producer,
+retaining the sink, or reporting an event. `activate()` does not throw; an
 activation failure is reported through the installed sink as producer failure
 followed by quiescence. These are immediate typed boundary obligations on an
 adapter, not definitions of its transport or physical implementation.
@@ -225,16 +230,24 @@ Starting an operation follows one owner-controlled synchronous sequence:
 1. return `session-disposed` if the feature session is disposed;
 2. return `identity-exhausted` if no safe identity remains, before producer
    preparation;
-3. allocate the next page-wide identity and unpublished candidate record;
+3. allocate the next page-wide identity and unpublished candidate record, and
+   capture the session revision plus current identity;
 4. ask the adapter to prepare against that identity and candidate sink;
-5. on producer rejection, return `producer-rejected`, leave the prior current
-   operation unchanged, and discard the candidate;
-6. on preparation, atomically install the candidate as current, complete the
+5. on producer rejection, return `producer-rejected` and discard the candidate
+   without an outer authority transition; any reentrant session transition
+   remains authoritative;
+6. on preparation, compare the session revision and current identity with the
+   captured values;
+7. if the session was disposed, abandon the prepared binding and return
+   `session-disposed`;
+8. if another session transition occurred, abandon the prepared binding and
+   return `session-changed`;
+9. otherwise atomically install the candidate as current, complete the
    prior pending outcome as `canceled("superseded")`, and reserve the prior
    operation's one cancellation forwarding;
-7. activate the prepared current binding;
-8. invoke the reserved prior cancellation endpoint; and
-9. return `OperationStartResult.started` with the new handle.
+10. activate the prepared current binding;
+11. invoke the reserved prior cancellation endpoint; and
+12. return `OperationStartResult.started` with the new handle.
 
 The candidate is current before activation, and the cancellation endpoint
 exists before callbacks can reenter. A synchronous activation callback uses
@@ -243,7 +256,12 @@ the same installed record as a deferred callback. It may supersede the
 candidate again; in that case `start()` returns the candidate's already-canceled
 handle without overwriting the reentrant replacement.
 
-The authority commit in step 6 completes before either external callout.
+Preparation may synchronously reenter `start()`, `cancelCurrent()`, or
+`dispose()`. The revision check ensures the outer attempt never overwrites that
+nested transition. A prepared candidate that lost the comparison is abandoned
+before the outer call returns and never becomes current.
+
+The authority commit in step 9 completes before either later external callout.
 Cancellation-forwarded state is reserved before invoking its endpoint.
 `activate()` is non-throwing by the prepared-binding contract. A cancellation
 endpoint exception is caught at that exact boundary, reported to the diagnostic
@@ -436,10 +454,15 @@ exist and must include:
   recreated session;
 - visible allocation exhaustion without adapter preparation and without
   changing any existing current operation or cancellation count;
-- typed `session-disposed`, `identity-exhausted`, and `producer-rejected`
-  results;
+- typed `session-disposed`, `session-changed`, `identity-exhausted`, and
+  `producer-rejected` results;
 - typed resource-free preparation rejection that leaves the prior current
-  operation unchanged and produces no handle;
+  operation unchanged in the absence of reentrancy and produces no handle;
+- successful preparation that reenters start, cancellation, or disposal,
+  followed by revision mismatch, non-throwing abandonment, no activation, and
+  no outer authority commit;
+- producer rejection after preparation reentrancy preserving the nested
+  transition and producing no outer authority commit;
 - prepared cancellation availability before activation, immediate callback
   cancellation through `OperationSession`, and activation failure through
   terminal plus quiescence events;
