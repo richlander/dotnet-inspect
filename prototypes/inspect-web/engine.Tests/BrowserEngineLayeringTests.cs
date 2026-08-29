@@ -392,6 +392,7 @@ public sealed class BrowserEngineLayeringTests
             "ILInspector.Metadata.AssemblyBindingSelection",
             "ILInspector.Metadata.TypeResolutionRequest",
             "ILInspector.Research.ImplementationAssemblyInput",
+            "ILInspector.Research.ImplementationComparisonInputOccurrence",
         ];
         HashSet<string> approved =
             approvedOwners.ToHashSet(StringComparer.Ordinal);
