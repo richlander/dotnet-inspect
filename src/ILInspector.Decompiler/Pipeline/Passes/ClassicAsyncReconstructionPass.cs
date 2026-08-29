@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
@@ -764,6 +766,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 out var consumedExecution)
             || !TryCaptureUserRegions(
                 moveNext,
+                kickoff,
                 executionAddress,
                 out var regions))
         {
@@ -788,8 +791,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 .Select(static region => region.Id)
                 .Where(region => !consumedSet.Contains(region)),
         ];
-        List<ClassicAsyncOutputNode> outputs =
-            CaptureOutputNodes(output);
+        if (!TryCaptureOutputNodes(output, out var outputs))
+        {
+            ledger = null!;
+            return false;
+        }
         var available = new List<ClassicAsyncOutputNode>(outputs);
         var realizations =
             new List<ClassicAsyncUserRegionRealization>(regions.Count);
@@ -969,6 +975,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryCaptureUserRegions(
         IrFunction moveNext,
+        IrFunction kickoff,
         MetadataMethodAddress executionAddress,
         out List<ClassicAsyncUserRegion> regions)
     {
@@ -1015,13 +1022,74 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     physicalPath),
                 new(kind, discriminator, occurrence)));
         }
+
+        var awaitOccurrence = 0;
+        foreach (Call getResult in GetResultCalls(moveNext))
+        {
+            if (!TryGetAwaitedOperandRegion(
+                    moveNext,
+                    kickoff,
+                    getResult,
+                    out IrNode source,
+                    out string discriminator)
+                || !TryAddUserRegion(
+                    moveNext,
+                    executionAddress,
+                    source,
+                    ClassicAsyncUserRegionKind.AwaitedOperand,
+                    discriminator,
+                    awaitOccurrence,
+                    regions))
+            {
+                regions = [];
+                return false;
+            }
+            awaitOccurrence++;
+        }
         return true;
     }
 
-    static List<ClassicAsyncOutputNode> CaptureOutputNodes(
-        BlockContainer output)
+    static bool TryAddUserRegion(
+        IrFunction moveNext,
+        MetadataMethodAddress executionAddress,
+        IrNode source,
+        ClassicAsyncUserRegionKind kind,
+        string discriminator,
+        int occurrence,
+        List<ClassicAsyncUserRegion> regions)
     {
-        var nodes = new List<ClassicAsyncOutputNode>();
+        if (!TryStructuralPath(
+                moveNext,
+                source,
+                out string structuralPath)
+            || !TryGetStatementSlot(
+                source,
+                out IrNode physicalStatement)
+            || !TryStructuralPath(
+                moveNext,
+                physicalStatement,
+                out string physicalPath))
+        {
+            return false;
+        }
+
+        regions.Add(new(
+            new(
+                ClassicAsyncRegionHost.Execution,
+                structuralPath),
+            new(
+                ClassicAsyncRegionHost.Execution,
+                executionAddress,
+                physicalPath),
+            new(kind, discriminator, occurrence)));
+        return true;
+    }
+
+    internal static bool TryCaptureOutputNodes(
+        BlockContainer output,
+        out List<ClassicAsyncOutputNode> nodes)
+    {
+        nodes = [];
         var occurrences = new Dictionary<
             (ClassicAsyncUserRegionKind Kind, string Discriminator),
             int>();
@@ -1041,8 +1109,373 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             occurrences[key] = occurrence + 1;
             nodes.Add(new(new(kind, discriminator, occurrence)));
         }
-        return nodes;
+
+        var awaitOccurrence = 0;
+        AwaitExpression[] rootAwaits =
+        [
+            .. output.DescendantsOutsideNestedFunctions
+                .OfType<AwaitExpression>(),
+        ];
+        if (rootAwaits.Length
+            != output.Descendants.OfType<AwaitExpression>().Count())
+        {
+            nodes = [];
+            return false;
+        }
+        foreach (AwaitExpression awaitExpression in rootAwaits)
+        {
+            if (!TryGetOutputAwaitedOperandDiscriminator(
+                    awaitExpression,
+                    out string discriminator))
+            {
+                nodes = [];
+                return false;
+            }
+
+            nodes.Add(new(new(
+                ClassicAsyncUserRegionKind.AwaitedOperand,
+                discriminator,
+                awaitOccurrence)));
+            awaitOccurrence++;
+        }
+        return true;
     }
+
+    static bool TryGetAwaitedOperandRegion(
+        IrFunction moveNext,
+        IrFunction kickoff,
+        Call getResult,
+        out IrNode source,
+        out string discriminator)
+    {
+        source = null!;
+        discriminator = "";
+        if (!TryGetAwaitSource(
+                moveNext,
+                getResult,
+                out _,
+                out IrExpression awaitedOperand))
+        {
+            return false;
+        }
+
+        if (awaitedOperand is LoadStackSlot load)
+        {
+            List<StoreStackSlot> stores =
+            [
+                .. moveNext.Descendants
+                    .OfType<StoreStackSlot>()
+                    .Where(store => store.Slot == load.Slot),
+            ];
+            if (stores is not
+                [
+                    {
+                        Value: LoadElement
+                        {
+                            Array: LoadField
+                            {
+                                Field.Name: var collectionName,
+                                Instance: LoadArgument { Index: 0 },
+                            },
+                            Index: LoadField
+                            {
+                                Field.Name: "<>7__wrap2",
+                                Instance: LoadArgument { Index: 0 },
+                            },
+                        } element,
+                    } store,
+                ])
+            {
+                return false;
+            }
+
+            if (collectionName.StartsWith(
+                    "<>7__wrap",
+                    StringComparison.Ordinal))
+            {
+                List<StoreField> collectionStores =
+                [
+                    .. moveNext.Descendants
+                        .OfType<StoreField>()
+                        .Where(store =>
+                            store.Field.Name == collectionName
+                            && store.Value is LoadField
+                            {
+                                Field.Name: var sourceName,
+                                Instance: LoadArgument { Index: 0 },
+                            }
+                            && !sourceName.StartsWith(
+                                "<",
+                                StringComparison.Ordinal)),
+                ];
+                if (collectionStores is not
+                    [
+                        {
+                            Value: LoadField
+                            {
+                                Field.Name: var sourceCollectionName,
+                            },
+                        },
+                    ])
+                {
+                    return false;
+                }
+                collectionName = sourceCollectionName;
+            }
+
+            source = element;
+            discriminator = AwaitedOperandKey(
+                "foreach-element",
+                collectionName,
+                load.ResultType,
+                "loop-counter");
+            return true;
+        }
+
+        IrExpression? normalized =
+            CloneAndRemap(awaitedOperand, kickoff);
+        if (normalized is null
+            || !TryGetAwaitedOperandExpressionKey(
+                normalized,
+                out discriminator))
+        {
+            return false;
+        }
+
+        source = awaitedOperand;
+        return true;
+    }
+
+    static bool TryGetOutputAwaitedOperandDiscriminator(
+        AwaitExpression awaitExpression,
+        out string discriminator)
+    {
+        if (awaitExpression.Operand is LoadLocal load)
+        {
+            for (IrNode? ancestor = awaitExpression.Parent;
+                ancestor is not null;
+                ancestor = ancestor.Parent)
+            {
+                if (ancestor is ForeachStatement
+                    {
+                        LocalIndex: var localIndex,
+                        Collection: LoadArgument collection,
+                    }
+                    && localIndex == load.Index)
+                {
+                    discriminator = AwaitedOperandKey(
+                        "foreach-element",
+                        collection.Name,
+                        load.ResultType,
+                        "loop-counter");
+                    return true;
+                }
+            }
+        }
+
+        return TryGetAwaitedOperandExpressionKey(
+            awaitExpression.Operand,
+            out discriminator);
+    }
+
+    internal static bool TryGetAwaitedOperandExpressionKey(
+        IrExpression expression,
+        out string key)
+    {
+        switch (expression)
+        {
+            case LoadArgument argument:
+                key = SemanticParts(
+                    "parameter",
+                    argument.Index.ToString(CultureInfo.InvariantCulture),
+                    argument.Name,
+                    SemanticTypeKey(argument.Type),
+                    argument.IsDynamic.ToString(),
+                    argument.ArrayElementIsDynamic.ToString());
+                return true;
+            case Call call:
+                var arguments = new List<string>(call.Arguments.Count);
+                foreach (IrExpression argument in call.Arguments)
+                {
+                    if (!TryGetAwaitedOperandExpressionKey(
+                            argument,
+                            out string argumentKey))
+                    {
+                        key = "";
+                        return false;
+                    }
+                    arguments.Add(argumentKey);
+                }
+
+                string exactDefinition =
+                    call.Callee.ExactDefinitionAddress is { } address
+                        ? string.Join(
+                            ":",
+                            address.ModuleVersionId.ToString("D"),
+                            address.Token.ToString(
+                                "X8",
+                                CultureInfo.InvariantCulture))
+                        : "";
+                key = SemanticParts(
+                    "call",
+                    exactDefinition,
+                    SemanticTypeKey(call.Callee.DeclaringType),
+                    call.Callee.Name,
+                    call.Callee.HasThis.ToString(),
+                    call.IsVirtual.ToString(),
+                    call.ExtensionSyntaxConflict.ToString(),
+                    SemanticTypeKey(call.Callee.ReturnType),
+                    call.Callee.ReturnIsDynamic.ToString(),
+                    call.Callee.ReturnArrayElementIsDynamic.ToString(),
+                    SemanticList(call.Callee.ParameterTypes.Select(
+                        SemanticTypeKey)),
+                    SemanticList(call.Callee.TypeArguments.Select(
+                        SemanticTypeKey)),
+                    SemanticList(
+                        call.Callee.DefinitionParameterTypes.Select(
+                            SemanticTypeKey)),
+                    call.Callee.DefinitionReturnType is { } definitionReturn
+                        ? SemanticTypeKey(definitionReturn)
+                        : "",
+                    SemanticList(call.Callee.ParameterRefKinds.Select(
+                        static kind => kind.ToString())),
+                    call.ConstrainedTo is { } constrainedTo
+                        ? SemanticTypeKey(constrainedTo)
+                        : "",
+                    SemanticList(arguments));
+                return true;
+            case LoadField field:
+                string instanceKey = "";
+                if (field.Instance is { } instance
+                    && !TryGetAwaitedOperandNodeKey(
+                        instance,
+                        out instanceKey))
+                {
+                    key = "";
+                    return false;
+                }
+                key = SemanticParts(
+                    "field",
+                    SemanticTypeKey(field.Field.DeclaringType),
+                    field.Field.Name,
+                    SemanticTypeKey(field.Field.Type),
+                    field.Field.IsDynamic.ToString(),
+                    field.Field.DynamicFact.ToString(),
+                    field.Field.ArrayElementIsDynamic.ToString(),
+                    field.IsVolatile.ToString(),
+                    instanceKey);
+                return true;
+            case UnsupportedNode:
+                key = "";
+                return false;
+            default:
+                return TryGetAwaitedOperandNodeKey(expression, out key);
+        }
+    }
+
+    static bool TryGetAwaitedOperandNodeKey(
+        IrNode node,
+        out string key)
+    {
+        if (node is UnsupportedNode)
+        {
+            key = "";
+            return false;
+        }
+        if (node is LoadArgument or Call or LoadField)
+        {
+            return TryGetAwaitedOperandExpressionKey(
+                (IrExpression)node,
+                out key);
+        }
+
+        var children = new List<string>(node.Children.Count);
+        foreach (IrNode child in node.Children)
+        {
+            if (!TryGetAwaitedOperandNodeKey(
+                    child,
+                    out string childKey))
+            {
+                key = "";
+                return false;
+            }
+            children.Add(childKey);
+        }
+
+        key = SemanticParts(
+            "node",
+            node.GetType().FullName ?? node.GetType().Name,
+            node.Describe(),
+            node is IrExpression expression
+                && expression.ResultType is { } resultType
+                    ? SemanticTypeKey(resultType)
+                    : "",
+            SemanticList(node.DirectTypes.Select(SemanticTypeKey)),
+            SemanticList(children));
+        return true;
+    }
+
+    static string AwaitedOperandKey(
+        string role,
+        string name,
+        TypeRef? type,
+        string detail = "")
+        => SemanticParts(
+            role,
+            name,
+            type is null ? "" : SemanticTypeKey(type),
+            detail);
+
+    static string SemanticTypeKey(TypeRef type)
+    {
+        AssemblyReferenceIdentity? resolution =
+            type.ResolutionAssembly;
+        string definition = type.DefinitionModuleVersionId is { } mvid
+            && !type.DefinitionHandle.IsNil
+                ? string.Join(
+                    ":",
+                    mvid.ToString("D"),
+                    MetadataTokens.GetToken(type.DefinitionHandle).ToString(
+                        "X8",
+                        CultureInfo.InvariantCulture))
+                : "";
+        return SemanticParts(
+            ((int)type.Kind).ToString(CultureInfo.InvariantCulture),
+            type.Assembly,
+            type.Namespace,
+            type.Name,
+            SemanticList(type.MetadataNameSegments()),
+            type.Rank.ToString(CultureInfo.InvariantCulture),
+            type.GenericParameterIndex.ToString(
+                CultureInfo.InvariantCulture),
+            type.UnsupportedReason,
+            type.CallingConvention,
+            SemanticList(type.FunctionPointerParameterRefKinds.Select(
+                static kind => kind.ToString())),
+            SemanticList(type.CustomModifiers.Select(modifier =>
+                SemanticParts(
+                    modifier.IsRequired.ToString(),
+                    SemanticTypeKey(modifier.Modifier)))),
+            definition,
+            (resolution is not null).ToString(),
+            resolution?.Name ?? "",
+            resolution?.Version?.ToString() ?? "",
+            resolution?.Culture ?? "",
+            resolution?.PublicKeyToken ?? "",
+            type.ElementType is null
+                ? ""
+                : SemanticTypeKey(type.ElementType),
+            SemanticList(type.TypeArguments.Select(SemanticTypeKey)));
+    }
+
+    static string SemanticList(IEnumerable<string> items)
+        => SemanticParts([.. items]);
+
+    static string SemanticParts(params string[] parts)
+        => string.Concat(parts.Select(static part => string.Concat(
+            part.Length.ToString(CultureInfo.InvariantCulture),
+            ":",
+            part)));
 
     static bool TryGetUserRegion(
         IrNode node,
@@ -1348,7 +1781,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .LastOrDefault(static call => call.Callee.Name == "SetResult" && IsAsyncMethodBuilder(call.Callee.DeclaringType));
 
     static List<Call> GetResultCalls(IrFunction moveNext)
-        => [.. moveNext.Descendants.OfType<Call>().Where(static call => call.Callee.Name == "GetResult")];
+        =>
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>()
+                .Where(static call => call.Callee.Name == "GetResult"),
+        ];
 
     static bool TryBuildSingleAwaitReturn(
         IrFunction moveNext,

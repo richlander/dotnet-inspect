@@ -522,10 +522,14 @@ public class ClassicAsyncReconstructionPassTests
                 PublishedDecision(evidence));
         ClassicAsyncRegionLedger ledger =
             reconstruct.Plan.RegionLedger;
-        ClassicAsyncUserRegion region =
-            Assert.Single(ledger.UserRegions);
-        ClassicAsyncUserRegionRealization realization =
-            Assert.Single(ledger.Realizations);
+        ClassicAsyncUserRegion region = Assert.Single(
+            ledger.UserRegions,
+            static region =>
+                region.Semantics.Kind
+                    == ClassicAsyncUserRegionKind.CheckedArithmetic);
+        ClassicAsyncUserRegionRealization realization = Assert.Single(
+            ledger.Realizations,
+            realization => realization.UserRegion == region.Id);
 
         Assert.Equal(
             ClassicAsyncUserRegionKind.CheckedArithmetic,
@@ -540,6 +544,282 @@ public class ClassicAsyncReconstructionPassTests
         Assert.DoesNotContain(
             region.PhysicalRegion,
             ledger.PreservedRegions);
+    }
+
+    [Theory]
+    [InlineData("AwaitValue", 1)]
+    [InlineData("AwaitVoid", 1)]
+    [InlineData("AwaitDelayConstant", 1)]
+    [InlineData("TwoSequentialAwaits", 2)]
+    [InlineData("AwaitOrdinarySetMethod", 1)]
+    [InlineData("AwaitConditional", 1)]
+    [InlineData("AwaitInLoop", 1)]
+    [InlineData("AwaitInTryFinally", 1)]
+    public void AwaitedOperandsHaveOnePrimaryRealization(
+        string methodName,
+        int expectedCount)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(source, methodName);
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(evidence));
+        ClassicAsyncRegionLedger ledger =
+            reconstruct.Plan.RegionLedger;
+        ClassicAsyncUserRegion[] operands =
+        [
+            .. ledger.UserRegions.Where(static region =>
+                region.Semantics.Kind
+                    == ClassicAsyncUserRegionKind.AwaitedOperand),
+        ];
+
+        Assert.Equal(expectedCount, operands.Length);
+        Assert.All(
+            operands,
+            operand => Assert.Single(
+                ledger.Realizations,
+                realization =>
+                    realization.UserRegion == operand.Id
+                    && realization.PrimaryOutputNode.Semantics
+                        == operand.Semantics));
+    }
+
+    [Theory]
+    [InlineData("AwaitValue", "9:parameter1:01:a", "9:parameter1:01:a")]
+    [InlineData(
+        "AwaitOrdinarySetMethod",
+        "11:set_GetTask",
+        "9:parameter1:04:task")]
+    [InlineData(
+        "AwaitInLoop",
+        "15:foreach-element5:tasks",
+        "15:foreach-element5:tasks")]
+    public void AwaitedOperandIdentityRetainsItsAuthoredSource(
+        string methodName,
+        string firstFragment,
+        string secondFragment)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(source, methodName);
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(evidence));
+        ClassicAsyncUserRegion operand = Assert.Single(
+            reconstruct.Plan.RegionLedger.UserRegions,
+            static region =>
+                region.Semantics.Kind
+                    == ClassicAsyncUserRegionKind.AwaitedOperand);
+
+        Assert.Contains(
+            firstFragment,
+            operand.Semantics.Discriminator,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            secondFragment,
+            operand.Semantics.Discriminator,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RegionLedgerRejectsChangedAwaitedOperand()
+    {
+        var id = new ClassicAsyncRegionId(
+            ClassicAsyncRegionHost.Execution,
+            "0.0");
+        var region = new ClassicAsyncUserRegion(
+            id,
+            PhysicalId(
+                ClassicAsyncRegionHost.Execution,
+                "0.0"),
+            new(
+                ClassicAsyncUserRegionKind.AwaitedOperand,
+                "parameter|a|System.Threading.Tasks.Task<int>",
+                Occurrence: 0));
+        var changed = new ClassicAsyncOutputNode(
+            region.Semantics with
+            {
+                Discriminator =
+                    "parameter|b|System.Threading.Tasks.Task<int>",
+            });
+
+        Assert.False(TryCreateRegionLedger(
+            [region],
+            [new(id, changed)],
+            out _));
+
+        var second = new ClassicAsyncUserRegion(
+            new(
+                ClassicAsyncRegionHost.Execution,
+                "0.1"),
+            PhysicalId(
+                ClassicAsyncRegionHost.Execution,
+                "0.1"),
+            new(
+                ClassicAsyncUserRegionKind.AwaitedOperand,
+                "parameter|b|System.Threading.Tasks.Task<int>",
+                Occurrence: 1));
+        Assert.False(TryCreateRegionLedger(
+            [region, second],
+            [
+                new(
+                    region.Id,
+                    new(second.Semantics with { Occurrence = 0 })),
+                new(
+                    second.Id,
+                    new(region.Semantics with { Occurrence = 1 })),
+            ],
+            out _));
+    }
+
+    [Fact]
+    public void OutputAwaitInventoryRejectsUnrecognizedOperand()
+    {
+        TypeRef task = TypeRef.Definition(
+            "Synthetic",
+            "System.Threading.Tasks",
+            "Task");
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(new AwaitExpression(
+            new LoadArgument(0, "task", task),
+            resultType: Void)));
+        block.Add(new ExpressionStatement(new AwaitExpression(
+            new UnsupportedNode(
+                0,
+                "synthetic",
+                "unrecognized awaited operand"),
+            resultType: int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.TryCaptureOutputNodes(
+                body,
+                out _));
+    }
+
+    [Fact]
+    public void AwaitedIdentityIncludesTypedCallAndArgumentFacts()
+    {
+        TypeRef task = TypeRef.Definition(
+            "Synthetic",
+            "System.Threading.Tasks",
+            "Task");
+        TypeRef int32 = TypeRef.CoreLib("System", "Int32");
+        TypeRef firstOwner =
+            TypeRef.Definition("First.Assembly", "Samples", "Factory");
+        TypeRef secondOwner =
+            TypeRef.Definition("Second.Assembly", "Samples", "Factory");
+        var firstMethod = new MethodRef(
+            firstOwner,
+            "Create",
+            task,
+            [task],
+            HasThis: false)
+        {
+            TypeArguments = [int32],
+        };
+        var stringInstantiation = firstMethod with
+        {
+            TypeArguments =
+            [
+                TypeRef.CoreLib("System", "String"),
+            ],
+        };
+        var otherAssembly = firstMethod with
+        {
+            DeclaringType = secondOwner,
+        };
+        TypeRef requiredModifier = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "IsReadOnlyAttribute");
+        var modifiedSignature = firstMethod with
+        {
+            ParameterTypes =
+            [
+                task.WithCustomModifier(
+                    requiredModifier,
+                    isRequired: true),
+            ],
+        };
+        var argument = new LoadArgument(0, "task", task);
+        var first = new Call(firstMethod, isVirtual: false, [argument])
+        {
+            ConstrainedTo = firstOwner,
+        };
+        var otherConstraint =
+            new Call(
+                firstMethod,
+                isVirtual: false,
+                [(IrExpression)argument.Clone()])
+            {
+                ConstrainedTo = secondOwner,
+            };
+
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    first,
+                    out string firstKey));
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    new Call(
+                        stringInstantiation,
+                        isVirtual: false,
+                        [(IrExpression)argument.Clone()]),
+                    out string stringKey));
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    new Call(
+                        otherAssembly,
+                        isVirtual: false,
+                        [(IrExpression)argument.Clone()]),
+                    out string assemblyKey));
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    new Call(
+                        modifiedSignature,
+                        isVirtual: false,
+                        [(IrExpression)argument.Clone()]),
+                    out string modifiedKey));
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    otherConstraint,
+                    out string constraintKey));
+
+        Assert.NotEqual(firstKey, stringKey);
+        Assert.NotEqual(firstKey, assemblyKey);
+        Assert.NotEqual(firstKey, modifiedKey);
+        Assert.NotEqual(firstKey, constraintKey);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    new LoadArgument(0, "value", task),
+                    out string firstArgumentKey));
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    new LoadArgument(1, "value", task),
+                    out string secondArgumentKey));
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .TryGetAwaitedOperandExpressionKey(
+                    new LoadArgument(0, "value", task)
+                    {
+                        IsDynamic = true,
+                    },
+                    out string dynamicArgumentKey));
+        Assert.NotEqual(firstArgumentKey, secondArgumentKey);
+        Assert.NotEqual(firstArgumentKey, dynamicArgumentKey);
     }
 
     [Theory]

@@ -496,6 +496,9 @@ public static class AsyncFixtures
     public static async Task<int> InterfaceReceiver(Task<InterfaceValue> value)
         => ((IInterfaceValue)(await value)).GetValue();
 
+    public static async Task AwaitDelayConstant()
+        => await Task.Delay(1);
+
 #pragma warning disable CS1998 // Pins async metadata when no await survives into the body.
     public static async Task NoAwait()
     {

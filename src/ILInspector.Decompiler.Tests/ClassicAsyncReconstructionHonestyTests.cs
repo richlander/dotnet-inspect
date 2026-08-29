@@ -114,6 +114,7 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData(
         "SequentialWithImplicitConversion",
         "long beta = await b;")]
+    [InlineData("AwaitDelayConstant", "await Task.Delay(1);")]
     public void FaithfulLegacyRecipeRemainsFullyReconstructed(
         string methodName,
         string expectedOutput)

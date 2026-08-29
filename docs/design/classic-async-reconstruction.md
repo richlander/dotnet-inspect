@@ -319,6 +319,24 @@ An await point records:
 Void `GetResult` is a statement. It is never forced into a value merely because
 the current matcher expects a valued `SetResult`.
 
+The first await-point realization gate covers the awaited operand itself.
+Direct state-machine parameter fields are normalized to their declared kickoff
+parameters, ordinary call operands retain the exact callee signature and
+normalized arguments, and the loop recipe correlates the compiler's
+array-element spill with the reconstructed `foreach` iteration variable. Each
+input operand has exactly one same-position `AwaitExpression` operand
+realization. Call identity includes the exact definition when available,
+closed generic arguments, receiver and virtual-call shape, constraints,
+resolution identity, custom modifiers, and normalized argument slot/dynamic
+identity. An unrecognized input or output operand shape declines rather than
+receiving a role-only receipt. Other operand expressions use a recursive typed
+IR key over the node kind, shape-specific description, exact result/direct
+types, and ordered children; this preserves already accepted constants,
+conversions, element access, and other cloned operand forms instead of
+narrowing reconstruction to calls over parameters. Await order is global
+within the root function, and nested-function awaits cannot be silently counted
+as part of that root realization.
+
 ## Planning and stage application
 
 `ClassicAsyncReconstructionPass` remains the single classic recognizer and
