@@ -562,11 +562,17 @@ Acquisition follows this order:
 5. Ignore ordinary directories before filename selection, apply the extension
    allow list and exclusions, and reject the batch if `MaxSelectedFiles` is
    exceeded.
-6. In sorted order, acquire each selected entry as a bounded regular-file
-   snapshot through #5096 while enforcing the remaining aggregate byte limit.
+6. In sorted order, admit each selected entry as a regular file through #5096,
+   then copy it into an adapter-private snapshot while enforcing
+   `MaxFileBytes` and the remaining `MaxTotalBytes`.
 7. Register the complete batch in one contribution scope only after every
    selected snapshot succeeds. Any selected-entry, limit, registration, or
    outcome-construction failure publishes no contribution from the batch.
+
+Copying stops before retaining a byte that would exceed either bound. The bound
+that would be exceeded first determines the rejection; when the same byte would
+exceed both, the per-file limit takes precedence. A read failure after admission
+is a failed directory acquisition, not a path-admission outcome.
 
 An existing directory with no selected files returns `Acquired` with an empty
 artifact list and `ArtifactAcquisitionLeases.None`. That is a successful answer
@@ -574,15 +580,17 @@ to an optional source coordinate, not a shortened successful batch. Required
 workspace acquisition retains its existing empty-batch failure; #5010 owns the
 supplemental path that can compose this result.
 
-Root and selected-entry path outcomes remain those of #5096. Directory-specific
-diagnostics use the canonical root and, when applicable, the observed relative
-name:
+Root and selected-entry admission outcomes remain those of #5096.
+Directory-specific enumeration and snapshot-copy diagnostics use the canonical
+root and, when applicable, the observed relative name:
 
 | Condition | Outcome | Diagnostic code |
 | --- | --- | --- |
 | Observed entry count exceeds the limit | `Rejected` | `local.directory.entry-limit` |
 | Selected file count exceeds the limit | `Rejected` | `local.directory.selected-file-limit` |
+| Selected file exceeds the per-file limit | `Rejected` | `local.directory.file-size-limit` |
 | Selected files exceed the aggregate limit | `Rejected` | `local.directory.total-size-limit` |
+| Selected file cannot be read after admission | `Failed` | `local.directory.read-failed` |
 | Directory enumeration fails | `Failed` | `local.directory.enumeration-failed` |
 
 Cancellation remains `OperationCanceledException` and is never translated into
@@ -609,8 +617,9 @@ snapshot.
 The implementation is complete when focused gates prove:
 
 - bounded top-level selection is deterministic and source-neutral;
-- empty selection registers nothing, while entry and limit failures cannot
-  publish a partial batch; and
+- empty selection registers nothing, while entry admission, per-file and
+  aggregate overflow with their defined precedence, read failure, and
+  registration failure cannot publish a partial batch; and
 - directory provenance, immutable batch snapshots, and cancellation are
   preserved.
 
@@ -1102,7 +1111,6 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_SealedGenerationCannotMutate`
 - `ArtifactIdentity_IsScopedToOwningGeneration`
 - `WorkspaceAdmissionBudget_RejectsAggregateMultiSourcePlanBeforeAdapterCall`
-- `WorkspaceSupplementalReservation_ConstrainsDirectoryOptionsBeforeCallbackEnrollment`
 - `WorkspaceAdmissionBudget_CountsConcurrentAndRetainedGenerations`
 - `ArtifactSetSession_SealingRequiresMaterializedBoundedContent`
 - `ArtifactAdmission_OverrunOrIdentityMismatchRejectsPublication`
