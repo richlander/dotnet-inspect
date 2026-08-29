@@ -12,7 +12,8 @@ CONSTANTS
   EnforceCompleteAcknowledge,
   EnforceDestroyAbandon,
   EnforceInstallFirst,
-  EnforcePersistentFocus
+  EnforcePersistentFocus,
+  EnforceReplacementAbandon
 
 ASSUME MaxIntents >= 2
 ASSUME MaxSurfaceEpoch >= 2
@@ -21,6 +22,7 @@ ASSUME EnforceCompleteAcknowledge \in BOOLEAN
 ASSUME EnforceDestroyAbandon \in BOOLEAN
 ASSUME EnforceInstallFirst \in BOOLEAN
 ASSUME EnforcePersistentFocus \in BOOLEAN
+ASSUME EnforceReplacementAbandon \in BOOLEAN
 
 Tokens == 1..MaxIntents
 Statuses ==
@@ -59,7 +61,8 @@ VARIABLES
   effectWitness,
   acknowledgeWitness,
   destructionWitness,
-  orderingWitness
+  orderingWitness,
+  replacementWitness
 
 vars ==
   << currentIntent,
@@ -76,7 +79,8 @@ vars ==
      effectWitness,
      acknowledgeWitness,
      destructionWitness,
-     orderingWitness >>
+     orderingWitness,
+     replacementWitness >>
 
 Init ==
   /\ currentIntent = 0
@@ -94,6 +98,7 @@ Init ==
   /\ acknowledgeWitness = TRUE
   /\ destructionWitness = TRUE
   /\ orderingWitness = TRUE
+  /\ replacementWitness = TRUE
 
 CurrentAuthority(i) ==
   /\ mounted
@@ -121,7 +126,8 @@ BeginIntent ==
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
-                  orderingWitness >>
+                  orderingWitness,
+                  replacementWitness >>
 
 ReturnResult(i, result) ==
   /\ i \in Tokens
@@ -141,6 +147,7 @@ ReturnResult(i, result) ==
                   acknowledgeWitness,
                   destructionWitness,
                   orderingWitness,
+                  replacementWitness,
                   focusLocation,
                   focusSurface >>
 
@@ -165,7 +172,8 @@ DiscardSuperseded(i) ==
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
-                  orderingWitness >>
+                  orderingWitness,
+                  replacementWitness >>
 
 RunEffect(i, effect, replaceSurface) ==
   /\ i \in Tokens
@@ -180,6 +188,16 @@ RunEffect(i, effect, replaceSurface) ==
        \/ "install" \in completed[i]
      ELSE TRUE
   /\ completed' = [completed EXCEPT ![i] = @ \cup {effect}]
+  /\ status' =
+       IF replaceSurface /\ EnforceReplacementAbandon
+       THEN
+         [j \in Tokens |->
+            IF j # i
+               /\ status[j] = "returned"
+               /\ operationSurface[j] = surfaceEpoch
+            THEN "abandoned"
+            ELSE status[j]]
+       ELSE status
   /\ surfaceEpoch' =
        IF replaceSurface THEN surfaceEpoch + 1 ELSE surfaceEpoch
   /\ operationSurface' =
@@ -208,10 +226,16 @@ RunEffect(i, effect, replaceSurface) ==
         /\ (effect = "install"
             \/ "install" \notin required[i]
             \/ "install" \in completed[i]))
+  /\ replacementWitness' =
+       (replacementWitness
+        /\ (~replaceSurface
+            \/ \A j \in Tokens :
+                 j = i
+                 \/ operationSurface[j] # surfaceEpoch
+                 \/ status'[j] # "returned"))
   /\ UNCHANGED << currentIntent,
                   nextIntent,
                   mounted,
-                  status,
                   outcome,
                   required,
                   acknowledgeWitness,
@@ -239,7 +263,8 @@ Acknowledge(i) ==
                   focusSurface,
                   effectWitness,
                   destructionWitness,
-                  orderingWitness >>
+                  orderingWitness,
+                  replacementWitness >>
 
 AbandonStale(i) ==
   /\ i \in Tokens
@@ -259,7 +284,8 @@ AbandonStale(i) ==
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
-                  orderingWitness >>
+                  orderingWitness,
+                  replacementWitness >>
 
 DestroySurface ==
   /\ mounted
@@ -288,7 +314,8 @@ DestroySurface ==
                   completed,
                   effectWitness,
                   acknowledgeWitness,
-                  orderingWitness >>
+                  orderingWitness,
+                  replacementWitness >>
 
 MountSurface ==
   /\ ~mounted
@@ -307,7 +334,8 @@ MountSurface ==
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
-                  orderingWitness >>
+                  orderingWitness,
+                  replacementWitness >>
 
 Next ==
   \/ BeginIntent
@@ -337,6 +365,7 @@ TypeOK ==
   /\ acknowledgeWitness \in BOOLEAN
   /\ destructionWitness \in BOOLEAN
   /\ orderingWitness \in BOOLEAN
+  /\ replacementWitness \in BOOLEAN
 
 ReturnedShape ==
   \A i \in Tokens :
@@ -363,6 +392,8 @@ FocusRemainsOnMountedElement ==
   /\ focusLocation # "body"
   /\ (focusLocation = "shell"
       \/ (mounted /\ focusLocation = "surface" /\ focusSurface = surfaceEpoch))
+
+ReplacementAbandonsOutgoingAuthority == replacementWitness
 
 EveryReturnedAuthoritySettles ==
   \A i \in Tokens :

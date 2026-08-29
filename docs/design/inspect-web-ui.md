@@ -486,7 +486,9 @@ descriptors, activation actions, availability evidence, and lens outcome.
 The hierarchy menu exposes every returned applicable subject level. An
 unavailable or failed Library, Type, or Member item remains discoverable with
 `aria-disabled="true"` and its owner-issued reason or diagnostic. A current
-item carries no activation action. Activating a non-current available item
+item carries `aria-current="page"` and no activation action. Menu focus remains
+separate: arrow navigation does not move `aria-current`, and returning focus to
+the current item does not submit it. Activating a non-current available item
 submits its opaque action ID with the issuing generation; the UI renders the
 returned snapshot or typed outcome without deriving a target from row identity
 or display text.
@@ -776,6 +778,13 @@ destroyed or remounted. A remounted surface has a new lifetime and cannot
 consume callbacks from the destroyed one. Superseded work requires neither
 acknowledgement nor abandonment because the product session discards it without
 publishing effect authority.
+
+When current-authority installation replaces a destination renderer, the
+consumer atomically abandons every other returned authority associated with the
+outgoing lifetime before transferring the installing operation and its later
+callbacks to the new lifetime. Replacement does not merely make old callbacks
+eventually stale; it settles their authority before the old renderer is
+discarded.
 
 These stateful obligations are modeled by
 [`UiEffectLifecycle.tla`](models/inspect-web-navigation-consumer/UiEffectLifecycle.tla).
@@ -1137,7 +1146,10 @@ these named Inspect Web tests:
   Member lens array, plus available, unavailable, and failed peers and a
   duplicate display label. The rendered strip must preserve every exact ID,
   position, and status without host additions, omissions, deduplication, or
-  fallback. This is the non-vacuity gate for registry consumption.
+  fallback. The gate activates the legacy-absent descriptor and both
+  duplicate-label descriptors and proves that each exact subject-scoped
+  registry ID, rather than a label, ordinal, or legacy token, is submitted.
+  This is the non-vacuity gate for registry consumption.
 - `navigation-consumer.test.ts`:
   `no effective lens renders status without a selected tab or panel` covers
   non-empty and empty descriptor collections for unavailable and failed
@@ -1148,6 +1160,10 @@ these named Inspect Web tests:
 - `navigation-consumer.test.ts`:
   `subject activation submits only action identity and issuing generation`
   rejects commands reconstructed from row identity or display text.
+- `navigation-consumer.test.ts`:
+  `hierarchy menu keeps current subject distinct from focus` moves focus through
+  available and disabled items while the committed item alone retains
+  `aria-current="page"`.
 - `navigation-consumer.test.ts`:
   `typed outcomes commit only returned state and release authority` covers
   applied, unavailable with and without a replacement snapshot, rejected,
@@ -1170,6 +1186,10 @@ these named Inspect Web tests:
   `surface destruction abandons authority and suppresses stale callbacks`
   destroys and remounts a surface before its callbacks execute, then returns a
   late result for the destroyed lifetime.
+- `navigation-consumer.test.ts`:
+  `renderer replacement abandons outgoing authority before transfer` holds old
+  returned authority while a current installation replaces the renderer and
+  proves that no outgoing-lifetime authority survives replacement.
 - `navigation-consumer.test.ts`:
   `selection required renders guidance without committing a Member` proves
   that `Choose a member` is presentation of the typed state rather than a
@@ -1207,12 +1227,14 @@ outcomes:
 4. Supply a root-only result and confirm that the always-present subject control
    uses the owner-issued root label and the hierarchy menu still exposes every
    unavailable lower-level descriptor and reason.
-5. Supply `Selection required` Member context and confirm that the UI shows
+5. Reopen the hierarchy menu, move focus away from the current item, and
+   confirm that only the committed subject retains `aria-current="page"`.
+6. Supply `Selection required` Member context and confirm that the UI shows
    `Choose a member` without selecting one.
-6. Supply a typed transition failure and confirm that it is visible without the
+7. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject and that focus returns to the subject
    menu-button invoker.
-7. Confirm that the trailing `Copy target` button remains visible and copies
+8. Confirm that the trailing `Copy target` button remains visible and copies
    the product-issued canonical target rather than display text.
 
 ### Lens inventory and outcomes
@@ -1224,9 +1246,10 @@ outcomes:
    exact identity, label, status, reason, and diagnostic.
 3. Focus every disabled tab and confirm that unavailable and failed evidence is
    discoverable while activation remains a no-op.
-4. Activate an available tab and confirm that moving focus did not select it,
-   that activation submits only its opaque subject-scoped identity, and that
-   the returned effective lens becomes the one selected tab and panel.
+4. Activate the legacy-absent descriptor and both duplicate-label descriptors.
+   Confirm that moving focus did not select them, each activation submits its
+   exact opaque subject-scoped identity, and the returned effective lens becomes
+   the one selected tab and panel.
 5. Supply a non-empty descriptor collection with no effective lens and an
    unavailable outcome. Confirm that no tab is selected, no panel exists, and
    the `Lens unavailable` status is labelled by the active subject.
@@ -1240,33 +1263,37 @@ outcomes:
 1. Return an applied outcome carrying a replacement snapshot and confirm that
    installation atomically updates rendered state, canonical URL, and the
    initiating action's push-or-replace history classification.
-2. Return an unavailable outcome whose refreshed or reconciled snapshot changes
+2. Hold stale returned authority from an older intent while the current applied
+   installation replaces the destination renderer. Confirm that replacement
+   abandons the outgoing authority before transferring the current operation
+   and its callbacks to the new lifetime.
+3. Return an unavailable outcome whose refreshed or reconciled snapshot changes
    the active subject. Confirm that it installs the exact returned snapshot but
    replaces history rather than pushing the unrequested subject change.
-3. Return an unavailable outcome without a replacement snapshot, then rejected
+4. Return an unavailable outcome without a replacement snapshot, then rejected
    and failed outcomes. Confirm that each retains the prior snapshot, URL, and
    history while presenting its exact evidence.
-4. Confirm that authority is validated before installation and independently
+5. Confirm that authority is validated before installation and independently
    inside each deferred focus and polite-live-region callback.
-5. Supersede an applied result after installation but before its callbacks
+6. Supersede an applied result after installation but before its callbacks
    execute.
-6. Confirm that focus was parked before its invoking control disappeared, that
+7. Confirm that focus was parked before its invoking control disappeared, that
    neither stale callback changes focus, status, active panel, URL, or history,
    and that the stale authority is abandoned.
-7. Fail a prerequisite before navigation can run and confirm that the aborted
+8. Fail a prerequisite before navigation can run and confirm that the aborted
    effect retains snapshot, URL, and history, presents and announces its typed
    failure, then acknowledges its current authority.
-8. Complete older work after a newer intent owns the session and confirm that
+9. Complete older work after a newer intent owns the session and confirm that
    the product discards it without publishing a consumer result, authority,
    announcement, URL change, or history change.
-9. Return another result and confirm that acknowledgement occurs only after its
+10. Return another result and confirm that acknowledgement occurs only after its
    required installation, focus, and announcement effects complete.
-10. Install a maintenance snapshot and confirm that it replaces URL history,
+11. Install a maintenance snapshot and confirm that it replaces URL history,
    does not move surviving focus, announces only a visible change, and
    acknowledges its authority.
-11. Destroy a surface while it holds unconsumed authority, then remount the
+12. Destroy a surface while it holds unconsumed authority, then remount the
     same surface kind and return another result for the destroyed lifetime.
-12. Confirm that destruction and the late return both abandon authority and
+13. Confirm that destruction and the late return both abandon authority and
     that callbacks from the prior lifetime cannot affect the remounted surface.
 
 ### Workspace composition

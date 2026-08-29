@@ -31,7 +31,8 @@ between installation and a later callback.
 Inspection Subject Navigation discards superseded work without publishing a
 consumer result or effect authority. The model represents that terminal path as
 `DiscardSuperseded`, separately from returned authority. It also allows
-installation to replace the destination renderer while transferring later
+installation to replace the destination renderer while atomically abandoning
+other returned authority from the outgoing lifetime and transferring later
 callbacks to the new surface lifetime.
 
 The model collapses the UI into one logical navigation-authority holder and one
@@ -51,13 +52,15 @@ The model states these required properties:
 - focus and announcement never precede a required snapshot installation;
 - acknowledgement occurs only after all required effects complete;
 - surface destruction abandons every returned authority held by that surface;
+- renderer replacement abandons other outgoing-lifetime authority before
+  transfer;
 - focus remains on the persistent shell anchor or the current mounted surface;
 - every returned authority is eventually acknowledged or abandoned; and
 - every submitted intent eventually returns and settles or is discarded by
   product supersession.
 
 The primary configuration exhaustively checks state shape and the two
-settlement properties while the required guards are enabled. The five mutation
+settlement properties while the required guards are enabled. The six mutation
 configurations disable one safety guard at a time and retain an independent
 witness invariant, demonstrating that each safety rule is non-vacuous. These
 are model claims, not implementation-conformance claims. Required
@@ -80,7 +83,7 @@ Run the primary model from this directory:
   -config UiEffectLifecycle.cfg UiEffectLifecycle.tla
 ```
 
-The complete breadth-first check generated 19,361 states, found 12,336 distinct
+The complete breadth-first check generated 18,761 states, found 12,136 distinct
 states, reached depth 16, and reported no errors. Action coverage was nonzero
 for every modeled transition:
 
@@ -89,10 +92,10 @@ for every modeled transition:
 | `BeginIntent` | 107 | 121 |
 | `ReturnResult` | 1,476 | 2,658 |
 | `DiscardSuperseded` | 21 | 339 |
-| `RunEffect` | 2,152 | 5,632 |
-| `Acknowledge` | 648 | 1,012 |
-| `AbandonStale` | 1,976 | 4,374 |
-| `DestroySurface` | 4,589 | 7,662 |
+| `RunEffect` | 2,200 | 5,472 |
+| `Acknowledge` | 660 | 972 |
+| `AbandonStale` | 1,716 | 4,174 |
+| `DestroySurface` | 4,589 | 7,462 |
 | `MountSurface` | 1,366 | 1,570 |
 
 The coverage figures use one worker so action counters are deterministic:
@@ -106,7 +109,7 @@ The coverage figures use one worker so action counters are deterministic:
 
 ## Mutation probes
 
-Five configurations disable one required guard while retaining an independent
+Six configurations disable one required guard while retaining an independent
 witness invariant:
 
 | Configuration | Disabled rule | Detected by |
@@ -116,6 +119,7 @@ witness invariant:
 | `DestroyWithoutAbandonMutation.cfg` | abandonment during destruction | `DestroyAbandonsReturnedAuthority` |
 | `FocusBeforeInstallMutation.cfg` | installation before dependent effects | `SnapshotInstallsBeforeDependentEffects` |
 | `DetachedFocusMutation.cfg` | persistent focus handoff during intent, installation, and destruction | `FocusRemainsOnMountedElement` |
+| `ReplaceWithoutAbandonMutation.cfg` | outgoing-lifetime abandonment during renderer replacement | `ReplacementAbandonsOutgoingAuthority` |
 
 TLC finds a counterexample for every mutation. Exact partial-state counts are
 not recorded because parallel workers may discover the first counterexample in
