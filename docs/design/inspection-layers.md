@@ -974,22 +974,33 @@ those checks or changing cross-package reference resolution. Admission never
 uses a ready subset, never joins an overlapping superset, and never assembles a
 new result from cached and fresh coordinate fragments.
 
-A package coordinate remains the smallest stable input identity: package id,
-version, framework, runtime identifier, and resolved producer identify one
-selectable occurrence. `Producer` distinguishes feeds that could otherwise
-serve the same nominal coordinate with different bytes. Individual assembly
-content still has no equivalent independent coordinate, so this layer does not
-admit by assembly identity and does not replace
+A package coordinate remains the smallest stable semantic input identity:
+package id, version, framework, runtime identifier, and resolved producer
+identify one selectable occurrence. `Producer` distinguishes feeds, but it is
+source identity rather than immutable content-generation identity. A store may
+replace bytes under the same package/version/producer key, so coordinate
+equality alone cannot authorize reuse.
+
+Each selected request member therefore also carries an acquisition-owned,
+opaque content-generation identity. Equal generation identities within the
+workspace guarantee the same immutable package content for the binding's
+lifetime. Replacement content receives a different generation identity or is
+visibly rejected by acquisition-owned interning. Admission compares the token
+but does not construct it, hash content, or define its portability.
+
+Individual assembly content still has no equivalent independent coordinate, so
+this layer does not admit by assembly identity and does not replace
 `AssemblyInspectionSession.Borrow`'s pass-the-open-handle convention.
 
 ### Exact request identity
 
 Admission consumes an immutable, already-resolved request. Its selected entries
-pair each `PackageRootRealization` with the
-`RealizedMemberCoordinate.Package` issued for that same occurrence. The
-coordinate-producing boundary owns normalization and correspondence; admission
-must not reconstruct a coordinate from display fields or accept an unproven
-pair.
+bind each `PackageRootRealization` to the
+`RealizedMemberCoordinate.Package` and immutable content-generation identity
+issued for that same occurrence. The acquisition boundary owns normalization,
+generation identity, and correspondence; admission must not reconstruct a
+coordinate from display fields, treat `ProducerKey` as a generation, or accept
+an unproven binding.
 
 Root-only packages remain host-owned and are omitted from the selected
 sequence. If no selected package remains, the host returns the Root-only result
@@ -997,7 +1008,8 @@ without a cache entry, lease, or package-role cleanup request.
 
 The cache key is:
 
-1. the ordered sequence of selected realized package coordinates; and
+1. the ordered sequence of selected realized package-coordinate and
+   content-generation bindings; and
 2. the exact validated `PackageAssemblyContextRealizationOptions` value.
 
 Order remains part of identity because the compatibility API exposes ordered
@@ -1014,16 +1026,18 @@ field changes key equality by construction; admission does not maintain a
 separate hand-written compatibility table or take ownership of the adjacent
 boundary's budget arithmetic.
 
-A selected coordinate may occur only once. Duplicate normalized coordinates
-are rejected visibly before cache lookup, so they cannot join an entry or
-multiply one package occurrence inside a combined group.
+A selected normalized coordinate may occur only once, even with two different
+generation tokens. Duplicate coordinates are rejected visibly before cache
+lookup, so they cannot join an entry or multiply one package occurrence inside
+a combined group.
 
 `PackageRootRealization` does not currently carry the complete resolved
 coordinate: it lacks a runtime identifier and its descriptive fields are not
-the coordinate authority. The target input therefore requires a separate
-owner-issued typed seam before implementation (#5121). This section consumes
-that typed correspondence; it does not define coordinate construction,
-normalization, or acquisition.
+the coordinate authority. It also exposes no immutable content-generation
+identity. The target input therefore requires a separate owner-issued typed
+seam before implementation (#5121). This section consumes that typed binding;
+it does not define coordinate construction, normalization, generation, or
+acquisition.
 
 ### Admission and publication
 
@@ -1045,11 +1059,13 @@ Each demand retains its own cancellation. Cancellation before lease delivery
 detaches that demand with a typed canceled outcome; it does not cancel or
 shorten the workspace-owned operation for another attached demand. The demand
 that first encountered an absent entry is not the operation's lifetime owner.
-If every attached demand cancels, the operation may still complete and retain
-its ready result for a later exact request. Workspace disposal, not one
-caller's token, is the operation-wide close signal. A cancellation racing
-successful lease delivery linearizes as either cancellation without a lease or
-lease delivery followed by the caller's ordinary idempotent return obligation.
+If every attached demand cancels, the physical operation remains represented
+until it completes and may retain its ready result for a later exact request.
+It cannot disappear from the cache as though it never started. Workspace
+disposal, not one caller's token, is the operation-wide close signal. A
+cancellation racing successful lease delivery linearizes as either
+cancellation without a lease or lease delivery followed by the caller's
+ordinary idempotent return obligation.
 
 The cache owns an adjacent-boundary shareable package-role completion, not the
 current caller-owned `PackageAssemblyContextRealization`. That compatibility
@@ -1123,8 +1139,8 @@ recorded failure, that exact request is terminal for the disposed workspace.
 
 Implementation of #4960 must not begin until:
 
-- an owner-issued typed input pairs every selected root with its resolved
-  package coordinate (#5121);
+- an owner-issued typed input binds every selected root to its resolved package
+  coordinate and immutable content-generation identity (#5121);
 - the package-role boundary supplies a shareable completion and demand-local
   participant projection instead of the caller-owned disposable compatibility
   result (#5122); and
@@ -1139,8 +1155,11 @@ The target contract remains unimplemented until these named gates land:
 - `PackageRealizationOverlappingRequest_DoesNotPartiallyReuse`
 - `PackageRealizationReorderedRequest_DoesNotShare`
 - `PackageRealizationDifferentOptions_DoNotShare`
+- `PackageRealizationDifferentContentGeneration_DoesNotShare`
 - `PackageRealizationPublication_IsAtomicForAttachedDemands`
 - `PackageRealizationDemandCancellation_DetachesWithoutCancelingSharedWork`
+- `PackageRealizationFinalCancellation_CannotAbandonPhysicalOperation`
+- `PackageRealizationCanceledOperation_CanCompleteAndBeReused`
 - `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
 - `PackageRealizationReadyReuse_IssuesIndependentLeases`
 - `PackageRealizationReadyEntry_RemainsCachedWithoutLeases`
@@ -1156,13 +1175,14 @@ The target contract remains unimplemented until these named gates land:
 
 [`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
 checks this target design's own internal soundness: whole-request identity,
-exact-policy isolation, duplicate and Root-only front-door outcomes,
-single-flight admission, atomic publication, consistent shared outcomes, lease
-issuance and idempotent return, disposal-driven draining, no release with an
-active lease, exactly-once cleanup, and terminal closure. Its weak-fairness
-progress checks assume every lease holder eventually returns its lease; they
-do not prove implementation conformance, a reachable retained caller, or
-non-blocking waits. See its companion
+exact-policy and content-generation isolation, duplicate and Root-only
+front-door outcomes, single-flight admission, atomic publication, cancellation
+without operation abandonment, consistent shared outcomes, lease issuance and
+idempotent return, disposal-driven draining, no release with an active lease,
+exactly-once cleanup, and terminal closure. Its weak-fairness progress checks
+assume every lease holder eventually returns its lease; they do not prove
+implementation conformance, a reachable retained caller, or non-blocking
+waits. See its companion
 [`README.md`](../models/package-realization-admission/README.md) for checked
 configurations.
 

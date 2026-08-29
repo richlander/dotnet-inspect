@@ -2,10 +2,10 @@
 (***************************************************************************)
 (* Models the TARGET DESIGN for admission into                             *)
 (* `InspectionWorkspace.RealizePackageAssemblyContextRoles`, keyed by one   *)
-(* exact ordered request of selected package coordinates and one exact      *)
-(* realization-options value. Each package-coordinate atom includes package *)
-(* id, version, target framework, runtime identifier, and resolved producer *)
-(* (see `RealizedMemberCoordinate.Package` in                              *)
+(* exact ordered request of selected package-coordinate/content-generation  *)
+(* bindings and one exact realization-options value. Each package coordinate *)
+(* includes package id, version, target framework, runtime identifier, and   *)
+(* resolved producer (see `RealizedMemberCoordinate.Package` in             *)
 (* src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs).         *)
 (*                                                                         *)
 (* The whole request is the cache unit because the product creates one      *)
@@ -36,12 +36,14 @@
 (* Request sequences contain only package Roots with a selected, non-empty  *)
 (* surface role. Root-only successes are omitted; an empty selected sequence *)
 (* bypasses this admission cache without a lease or cleanup request. A      *)
-(* duplicate normalized coordinate is rejected before cache lookup.         *)
+(* duplicate normalized coordinate is rejected before cache lookup. Each    *)
+(* generation token is acquisition-owned proof that equal coordinates still *)
+(* name the same immutable content generation.                              *)
 (*                                                                         *)
-(* EACH COORDINATE'S CONTENT-STABILITY IS AN ASSUMPTION, NOT A CLAIM THIS   *)
-(* MODEL PROVES. It follows the runtime's existing, separately-owned       *)
-(* identity work (`PackageCoordinateResolver`, source mapping/producer     *)
-(* resolution for the cross-feed case) rather than redefining it here.     *)
+(* THE GENERATION TOKEN'S IMMUTABILITY GUARANTEE IS AN ASSUMPTION, NOT A    *)
+(* CLAIM THIS MODEL PROVES. #5121 owns issuing that token and proving that   *)
+(* replacement content receives a different identity. This model only      *)
+(* compares the owner-issued value as part of exact request identity.       *)
 (*                                                                         *)
 (* Once a request's realization succeeds it is retained while the          *)
 (* workspace remains open, even with zero leases. Disposal then drains     *)
@@ -54,9 +56,11 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
 
 CONSTANTS
     PackageCoordinates,
+    Generations,
     Options,
     Demands,
     RequestSequenceOf,
+    GenerationOf,
     OptionsOf,
     AllowLeaseAfterClose,
     AllowReleaseWithActiveLease,
@@ -64,13 +68,15 @@ CONSTANTS
     AllowDoubleCleanup,
     AllowResurrection,
     AllowInexactReuse,
-    AllowPartialPublish
+    AllowPartialPublish,
+    AllowCancellationAbandon
 
 NoDemand == "NoDemand_"
 
 ASSUME
     /\ NoDemand \notin Demands
     /\ RequestSequenceOf \in [Demands -> Seq(PackageCoordinates)]
+    /\ GenerationOf \in [Demands -> [PackageCoordinates -> Generations]]
     /\ OptionsOf \in [Demands -> Options]
     /\ AllowLeaseAfterClose \in BOOLEAN
     /\ AllowReleaseWithActiveLease \in BOOLEAN
@@ -79,8 +85,13 @@ ASSUME
     /\ AllowResurrection \in BOOLEAN
     /\ AllowInexactReuse \in BOOLEAN
     /\ AllowPartialPublish \in BOOLEAN
+    /\ AllowCancellationAbandon \in BOOLEAN
 
 SequenceSet(s) == {s[i] : i \in 1..Len(s)}
+CoordinateSetOfBoundSequence(s) ==
+    {s[i][1] : i \in 1..Len(s)}
+CoordinateSequenceOfBoundSequence(s) ==
+    [i \in 1..Len(s) |-> s[i][1]]
 
 HasDuplicateCoordinate(d) ==
     Len(RequestSequenceOf[d]) # Cardinality(SequenceSet(RequestSequenceOf[d]))
@@ -89,7 +100,11 @@ Eligible(d) ==
     /\ Len(RequestSequenceOf[d]) > 0
     /\ ~HasDuplicateCoordinate(d)
 
-RequestIdentity(d) == <<RequestSequenceOf[d], OptionsOf[d]>>
+BoundRequestSequence(d) ==
+    [i \in 1..Len(RequestSequenceOf[d]) |->
+        <<RequestSequenceOf[d][i], GenerationOf[d][RequestSequenceOf[d][i]]>>]
+
+RequestIdentity(d) == <<BoundRequestSequence(d), OptionsOf[d]>>
 EligibleDemands == {d \in Demands : Eligible(d)}
 
 \* `Coordinates` is retained as an internal model symbol so the previously
@@ -111,10 +126,13 @@ VARIABLES
     workspaceState,
     cacheState,
     cacheRealization,
+    cacheOperation,
     leader,
     demandState,
     demandResult,
+    canceledOperation,
     nextRealizationId,
+    settledOperations,
     cleanupStarts,
     cleanupOutcome,
     returnAttempts,
@@ -132,8 +150,9 @@ VARIABLES
     doubleReturnWitness
 
 vars == <<
-    workspaceState, cacheState, cacheRealization, leader, demandState,
-    demandResult, nextRealizationId, cleanupStarts, cleanupOutcome,
+    workspaceState, cacheState, cacheRealization, cacheOperation, leader,
+    demandState, demandResult, canceledOperation, nextRealizationId,
+    settledOperations, cleanupStarts, cleanupOutcome,
     returnAttempts, disposedWithLease, drainedSuccess, leaseSafetyWitness,
     publishSafetyWitness, cleanupSafetyWitness, joinWitness,
     retryAfterFailureWitness, consistentOutcomeWitness,
@@ -149,10 +168,13 @@ TypeOK ==
     /\ workspaceState \in WorkspaceStates
     /\ cacheState \in [Coordinates -> CacheStates]
     /\ cacheRealization \in [Coordinates -> Nat]
+    /\ cacheOperation \in [Coordinates -> Nat]
     /\ leader \in [Coordinates -> Demands \union {NoDemand}]
     /\ demandState \in [Demands -> DemandStates]
     /\ demandResult \in [Demands -> Nat]
+    /\ canceledOperation \in [Demands -> Nat]
     /\ nextRealizationId \in Nat \ {0}
+    /\ settledOperations \subseteq Nat
     /\ cleanupStarts \in [Coordinates -> Nat]
     /\ cleanupOutcome \in [Coordinates -> CleanupOutcomes]
     /\ returnAttempts \in [Demands -> 0..2]
@@ -173,10 +195,13 @@ Init ==
     /\ workspaceState = "Open"
     /\ cacheState = [c \in Coordinates |-> "Absent"]
     /\ cacheRealization = [c \in Coordinates |-> 0]
+    /\ cacheOperation = [c \in Coordinates |-> 0]
     /\ leader = [c \in Coordinates |-> NoDemand]
     /\ demandState = [d \in Demands |-> "Pending"]
     /\ demandResult = [d \in Demands |-> 0]
+    /\ canceledOperation = [d \in Demands |-> 0]
     /\ nextRealizationId = 1
+    /\ settledOperations = {}
     /\ cleanupStarts = [c \in Coordinates |-> 0]
     /\ cleanupOutcome = [c \in Coordinates |-> "None"]
     /\ returnAttempts = [d \in Demands |-> 0]
@@ -209,7 +234,8 @@ BypassRootOnly(d) ==
         publishSafetyWitness, cleanupSafetyWitness, joinWitness,
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
-        drainedSuccessWitness, doubleReturnWitness
+        drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
         >>
 
 (***************************************************************************)
@@ -228,7 +254,8 @@ RejectDuplicate(d) ==
         publishSafetyWitness, cleanupSafetyWitness, joinWitness,
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
-        drainedSuccessWitness, doubleReturnWitness
+        drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
         >>
 
 (***************************************************************************)
@@ -246,17 +273,20 @@ Admit(d) ==
         /\ Eligible(d)
         /\ cacheState[c] = "Absent"
         /\ cacheState' = [cacheState EXCEPT ![c] = "InFlight"]
+        /\ cacheOperation' =
+            [cacheOperation EXCEPT ![c] = nextRealizationId]
         /\ leader' = [leader EXCEPT ![c] = d]
         /\ demandState' = [demandState EXCEPT ![d] = "Admitting"]
+        /\ nextRealizationId' = nextRealizationId + 1
         /\ retryAfterFailureWitness' =
             (retryAfterFailureWitness \/ priorFailureExists)
         /\ UNCHANGED <<
-            workspaceState, cacheRealization, demandResult, nextRealizationId,
-            cleanupStarts, cleanupOutcome, returnAttempts, disposedWithLease,
-            drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
-            cleanupSafetyWitness, joinWitness, consistentOutcomeWitness,
-            zeroLeaseRetentionWitness, disposalWaitWitness,
-            drainedSuccessWitness, doubleReturnWitness
+            workspaceState, cacheRealization, demandResult, canceledOperation,
+            settledOperations, cleanupStarts, cleanupOutcome, returnAttempts,
+            disposedWithLease, drainedSuccess, leaseSafetyWitness,
+            publishSafetyWitness, cleanupSafetyWitness, joinWitness,
+            consistentOutcomeWitness, zeroLeaseRetentionWitness,
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
             >>
 
 (***************************************************************************)
@@ -276,7 +306,8 @@ Join(d) ==
         disposedWithLease, drainedSuccess, leaseSafetyWitness,
         publishSafetyWitness, cleanupSafetyWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
-        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
         >>
 
 (***************************************************************************)
@@ -318,7 +349,8 @@ ReuseReadyFrom(d, c) ==
         disposedWithLease, drainedSuccess, publishSafetyWitness,
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, disposalWaitWitness,
-        drainedSuccessWitness, doubleReturnWitness
+        drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
         >>
 
 ReuseReady(d) ==
@@ -329,17 +361,56 @@ ReuseReady(d) ==
 (* workspace-owned operation that another demand joined or may later reuse. *)
 (***************************************************************************)
 CancelDemand(d) ==
-    /\ demandState[d] \in {"Pending", "Admitting", "Joined"}
-    /\ demandState' = [demandState EXCEPT ![d] = "Canceled"]
-    /\ UNCHANGED <<
-        workspaceState, cacheState, cacheRealization, leader, demandResult,
-        nextRealizationId, cleanupStarts, cleanupOutcome, returnAttempts,
-        disposedWithLease, drainedSuccess, leaseSafetyWitness,
-        publishSafetyWitness, cleanupSafetyWitness, joinWitness,
-        retryAfterFailureWitness, consistentOutcomeWitness,
-        zeroLeaseRetentionWitness, disposalWaitWitness,
-        drainedSuccessWitness, doubleReturnWitness
-        >>
+    LET prior == demandState[d]
+        c == CoordinateOf[d]
+    IN  /\ prior \in {"Pending", "Admitting", "Joined"}
+        /\ demandState' = [demandState EXCEPT ![d] = "Canceled"]
+        /\ canceledOperation' =
+            [canceledOperation EXCEPT
+                ![d] =
+                    IF prior \in {"Admitting", "Joined"}
+                    THEN cacheOperation[c]
+                    ELSE 0]
+        /\ UNCHANGED <<
+            workspaceState, cacheState, cacheRealization, cacheOperation,
+            leader, demandResult, nextRealizationId, settledOperations,
+            cleanupStarts, cleanupOutcome, returnAttempts, disposedWithLease,
+            drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
+            cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
+            consistentOutcomeWitness, zeroLeaseRetentionWitness,
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            >>
+
+(***************************************************************************)
+(* Deliberate mutation: the final attached caller abandons the physical     *)
+(* operation without an operation-completion transition.                    *)
+(***************************************************************************)
+AbandonOnFinalCancellation(d) ==
+    LET c == CoordinateOf[d]
+        attached ==
+            {e \in Demands :
+                CoordinateOf[e] = c
+                    /\ demandState[e] \in {"Admitting", "Joined"}}
+        operation == cacheOperation[c]
+    IN  /\ AllowCancellationAbandon
+        /\ demandState[d] \in {"Admitting", "Joined"}
+        /\ attached = {d}
+        /\ operation # 0
+        /\ demandState' = [demandState EXCEPT ![d] = "Canceled"]
+        /\ canceledOperation' =
+            [canceledOperation EXCEPT ![d] = operation]
+        /\ cacheState' = [cacheState EXCEPT ![c] = "Absent"]
+        /\ cacheOperation' = [cacheOperation EXCEPT ![c] = 0]
+        /\ leader' = [leader EXCEPT ![c] = NoDemand]
+        /\ UNCHANGED <<
+            workspaceState, cacheRealization, demandResult,
+            nextRealizationId, settledOperations, cleanupStarts,
+            cleanupOutcome, returnAttempts, disposedWithLease,
+            drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
+            cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
+            consistentOutcomeWitness, zeroLeaseRetentionWitness,
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            >>
 
 (***************************************************************************)
 (* The admitting demand's realization succeeds: every demand that admitted *)
@@ -348,7 +419,7 @@ CancelDemand(d) ==
 (* workspace's life.                                                       *)
 (***************************************************************************)
 CompleteSuccess(c) ==
-    LET rid == nextRealizationId
+    LET rid == cacheOperation[c]
         waiting ==
             {d \in Demands :
                 CoordinateOf[d] = c /\ demandState[d] \in {"Admitting", "Joined"}}
@@ -361,8 +432,9 @@ CompleteSuccess(c) ==
             )
         /\ cacheState' = [cacheState EXCEPT ![c] = "Ready"]
         /\ cacheRealization' = [cacheRealization EXCEPT ![c] = rid]
+        /\ cacheOperation' = [cacheOperation EXCEPT ![c] = 0]
         /\ leader' = [leader EXCEPT ![c] = NoDemand]
-        /\ nextRealizationId' = nextRealizationId + 1
+        /\ settledOperations' = settledOperations \union {rid}
         /\ demandState' =
             [d \in Demands |->
                 IF d \in waiting THEN "Leased" ELSE demandState[d]]
@@ -383,11 +455,11 @@ CompleteSuccess(c) ==
         /\ consistentOutcomeWitness' =
             (consistentOutcomeWitness \/ (Cardinality(waiting) > 1))
         /\ UNCHANGED <<
-            workspaceState, cleanupStarts, cleanupOutcome, returnAttempts,
-            disposedWithLease, drainedSuccess, cleanupSafetyWitness,
-            joinWitness, retryAfterFailureWitness,
-            zeroLeaseRetentionWitness, disposalWaitWitness,
-            drainedSuccessWitness, doubleReturnWitness
+            workspaceState, canceledOperation, nextRealizationId,
+            cleanupStarts, cleanupOutcome, returnAttempts, disposedWithLease,
+            drainedSuccess, cleanupSafetyWitness, joinWitness,
+            retryAfterFailureWitness, zeroLeaseRetentionWitness,
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
             >>
 
 (***************************************************************************)
@@ -396,7 +468,7 @@ CompleteSuccess(c) ==
 (* Normal configurations disable it.                                       *)
 (***************************************************************************)
 PublishPartial(c) ==
-    LET rid == nextRealizationId
+    LET rid == cacheOperation[c]
         waiting ==
             {d \in Demands :
                 CoordinateOf[d] = c /\ demandState[d] \in {"Admitting", "Joined"}}
@@ -407,8 +479,9 @@ PublishPartial(c) ==
         /\ Cardinality(waiting) > 1
         /\ cacheState' = [cacheState EXCEPT ![c] = "Ready"]
         /\ cacheRealization' = [cacheRealization EXCEPT ![c] = rid]
+        /\ cacheOperation' = [cacheOperation EXCEPT ![c] = 0]
         /\ leader' = [leader EXCEPT ![c] = NoDemand]
-        /\ nextRealizationId' = nextRealizationId + 1
+        /\ settledOperations' = settledOperations \union {rid}
         /\ demandState' = [demandState EXCEPT ![published] = "Leased"]
         /\ demandResult' = [demandResult EXCEPT ![published] = rid]
         /\ leaseSafetyWitness' =
@@ -425,11 +498,11 @@ PublishPartial(c) ==
             )
         /\ consistentOutcomeWitness' = TRUE
         /\ UNCHANGED <<
-            workspaceState, cleanupStarts, cleanupOutcome, returnAttempts,
-            disposedWithLease, drainedSuccess, cleanupSafetyWitness,
-            joinWitness, retryAfterFailureWitness,
-            zeroLeaseRetentionWitness, disposalWaitWitness,
-            drainedSuccessWitness, doubleReturnWitness
+            workspaceState, canceledOperation, nextRealizationId,
+            cleanupStarts, cleanupOutcome, returnAttempts, disposedWithLease,
+            drainedSuccess, cleanupSafetyWitness, joinWitness,
+            retryAfterFailureWitness, zeroLeaseRetentionWitness,
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
             >>
 
 (***************************************************************************)
@@ -439,14 +512,17 @@ PublishPartial(c) ==
 (* the same exact request can retry.                                      *)
 (***************************************************************************)
 CompleteFailure(c) ==
-    LET waiting ==
+    LET operation == cacheOperation[c]
+        waiting ==
             {d \in Demands :
                 CoordinateOf[d] = c /\ demandState[d] \in {"Admitting", "Joined"}}
     IN  /\ workspaceState = "Open"
         /\ cacheState[c] = "InFlight"
         /\ cacheState' = [cacheState EXCEPT ![c] = "Absent"]
         /\ cacheRealization' = [cacheRealization EXCEPT ![c] = 0]
+        /\ cacheOperation' = [cacheOperation EXCEPT ![c] = 0]
         /\ leader' = [leader EXCEPT ![c] = NoDemand]
+        /\ settledOperations' = settledOperations \union {operation}
         /\ demandState' =
             [d \in Demands |-> IF d \in waiting THEN "Failed" ELSE demandState[d]]
         /\ UNCHANGED <<
@@ -455,7 +531,8 @@ CompleteFailure(c) ==
             leaseSafetyWitness, publishSafetyWitness, cleanupSafetyWitness,
             joinWitness, retryAfterFailureWitness, consistentOutcomeWitness,
             zeroLeaseRetentionWitness, disposalWaitWitness,
-            drainedSuccessWitness, doubleReturnWitness
+            drainedSuccessWitness, doubleReturnWitness,
+            canceledOperation
             >>
 
 (***************************************************************************)
@@ -481,7 +558,8 @@ Dispose ==
         drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
-        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
         >>
 
 (***************************************************************************)
@@ -498,7 +576,8 @@ RejectAfterClose(d) ==
         publishSafetyWitness, cleanupSafetyWitness, joinWitness,
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
-        drainedSuccessWitness, doubleReturnWitness
+        drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
             >>
 
 (***************************************************************************)
@@ -506,7 +585,7 @@ RejectAfterClose(d) ==
 (* but may not publish or issue leases. It moves directly to closing.       *)
 (***************************************************************************)
 CompleteDrainedSuccess(c) ==
-    LET rid == nextRealizationId
+    LET rid == cacheOperation[c]
         waiting ==
             {d \in Demands :
                 CoordinateOf[d] = c /\ demandState[d] \in {"Admitting", "Joined"}}
@@ -514,20 +593,21 @@ CompleteDrainedSuccess(c) ==
         /\ cacheState[c] = "Draining"
         /\ cacheState' = [cacheState EXCEPT ![c] = "Closing"]
         /\ cacheRealization' = [cacheRealization EXCEPT ![c] = rid]
+        /\ cacheOperation' = [cacheOperation EXCEPT ![c] = 0]
         /\ leader' = [leader EXCEPT ![c] = NoDemand]
-        /\ nextRealizationId' = nextRealizationId + 1
+        /\ settledOperations' = settledOperations \union {rid}
         /\ demandState' =
             [d \in Demands |->
                 IF d \in waiting THEN "Rejected" ELSE demandState[d]]
         /\ drainedSuccess' = [drainedSuccess EXCEPT ![c] = TRUE]
         /\ drainedSuccessWitness' = TRUE
         /\ UNCHANGED <<
-            workspaceState, demandResult, cleanupStarts, cleanupOutcome,
-            returnAttempts, disposedWithLease, leaseSafetyWitness,
-            publishSafetyWitness, cleanupSafetyWitness, joinWitness,
-            retryAfterFailureWitness, consistentOutcomeWitness,
-            zeroLeaseRetentionWitness, disposalWaitWitness,
-            doubleReturnWitness
+            workspaceState, demandResult, canceledOperation,
+            nextRealizationId, cleanupStarts, cleanupOutcome, returnAttempts,
+            disposedWithLease, leaseSafetyWitness, publishSafetyWitness,
+            cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
+            consistentOutcomeWitness, zeroLeaseRetentionWitness,
+            disposalWaitWitness, doubleReturnWitness
             >>
 
 (***************************************************************************)
@@ -535,14 +615,17 @@ CompleteDrainedSuccess(c) ==
 (* reusable realization and settles every attached demand visibly.         *)
 (***************************************************************************)
 CompleteDrainedFailure(c) ==
-    LET waiting ==
+    LET operation == cacheOperation[c]
+        waiting ==
             {d \in Demands :
                 CoordinateOf[d] = c /\ demandState[d] \in {"Admitting", "Joined"}}
     IN  /\ workspaceState = "Disposed"
         /\ cacheState[c] = "Draining"
         /\ cacheState' = [cacheState EXCEPT ![c] = "Absent"]
         /\ cacheRealization' = [cacheRealization EXCEPT ![c] = 0]
+        /\ cacheOperation' = [cacheOperation EXCEPT ![c] = 0]
         /\ leader' = [leader EXCEPT ![c] = NoDemand]
+        /\ settledOperations' = settledOperations \union {operation}
         /\ demandState' =
             [d \in Demands |-> IF d \in waiting THEN "Failed" ELSE demandState[d]]
         /\ UNCHANGED <<
@@ -551,7 +634,8 @@ CompleteDrainedFailure(c) ==
             leaseSafetyWitness, publishSafetyWitness, cleanupSafetyWitness,
             joinWitness, retryAfterFailureWitness, consistentOutcomeWitness,
             zeroLeaseRetentionWitness, disposalWaitWitness,
-            drainedSuccessWitness, doubleReturnWitness
+            drainedSuccessWitness, doubleReturnWitness,
+            canceledOperation
             >>
 
 (***************************************************************************)
@@ -569,7 +653,8 @@ ReturnLease(d) ==
         drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
-        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+        cacheOperation, canceledOperation, settledOperations
         >>
 
 (***************************************************************************)
@@ -588,7 +673,8 @@ ReturnLeaseAgain(d) ==
         publishSafetyWitness, cleanupSafetyWitness, joinWitness,
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
-        drainedSuccessWitness
+        drainedSuccessWitness, cacheOperation, canceledOperation,
+        settledOperations
         >>
 
 (***************************************************************************)
@@ -622,7 +708,8 @@ BeginCleanup(c) ==
         drainedSuccess, leaseSafetyWitness, publishSafetyWitness, joinWitness,
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, drainedSuccessWitness,
-        doubleReturnWitness
+        doubleReturnWitness, cacheOperation, canceledOperation,
+        settledOperations
         >>
 
 (***************************************************************************)
@@ -641,7 +728,8 @@ CompleteCleanup(c, outcome) ==
         drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
-        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+        disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
         >>
 
 (***************************************************************************)
@@ -660,13 +748,15 @@ Resurrect(c) ==
         publishSafetyWitness, cleanupSafetyWitness, joinWitness,
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
-        drainedSuccessWitness, doubleReturnWitness
+        drainedSuccessWitness, doubleReturnWitness,
+            cacheOperation, canceledOperation, settledOperations
         >>
 
 Next ==
     \/ \E d \in Demands :
         BypassRootOnly(d) \/ RejectDuplicate(d) \/ Admit(d) \/ Join(d)
-            \/ ReuseReady(d) \/ CancelDemand(d) \/ RejectAfterClose(d)
+            \/ ReuseReady(d) \/ CancelDemand(d)
+            \/ AbandonOnFinalCancellation(d) \/ RejectAfterClose(d)
             \/ ReturnLease(d) \/ ReturnLeaseAgain(d)
     \/ \E c \in Coordinates :
         CompleteSuccess(c) \/ PublishPartial(c) \/ CompleteFailure(c)
@@ -729,6 +819,12 @@ CacheStateConsistent ==
         cacheState[c] \in {"Ready", "Closing", "Releasing", "Released"}
             => cacheRealization[c] # 0
     /\ \A c \in Coordinates :
+        cacheState[c] \in {"InFlight", "Draining"}
+            <=> cacheOperation[c] # 0
+    /\ \A c \in Coordinates :
+        cacheRealization[c] # 0
+            => cacheRealization[c] \in settledOperations
+    /\ \A c \in Coordinates :
         leader[c] # NoDemand
             => cacheState[c] \in {"InFlight", "Draining"}
     /\ \A c \in Coordinates :
@@ -748,6 +844,18 @@ CacheStateConsistent ==
             <=> demandResult[d] # 0
     /\ \A d \in Demands :
         returnAttempts[d] > 0 => demandState[d] = "Returned"
+    /\ \A d \in Demands :
+        canceledOperation[d] # 0 => demandState[d] = "Canceled"
+
+(* A caller may detach, but every physical operation it had joined remains  *)
+(* represented as active or reaches an explicit completion transition.      *)
+CancellationCannotAbandonOperation ==
+    \A d \in Demands :
+        IF canceledOperation[d] = 0
+        THEN TRUE
+        ELSE
+            \/ canceledOperation[d] = cacheOperation[CoordinateOf[d]]
+            \/ canceledOperation[d] \in settledOperations
 
 (* A reusable result is issued only from the demand's exact ordered request *)
 (* identity, including exact options.                                      *)
@@ -842,7 +950,8 @@ NoDoubleReturnObserved == ~doubleReturnWitness
 NoOverlappingRequestsObserved ==
     ~\E c1, c2 \in Coordinates :
         /\ c1 # c2
-        /\ SequenceSet(c1[1]) \intersect SequenceSet(c2[1]) # {}
+        /\ CoordinateSetOfBoundSequence(c1[1])
+            \intersect CoordinateSetOfBoundSequence(c2[1]) # {}
         /\ cacheState[c1] = "InFlight"
         /\ cacheState[c2] = "InFlight"
 NoOptionIsolationObserved ==
@@ -852,11 +961,21 @@ NoOptionIsolationObserved ==
         /\ c1[2] # c2[2]
         /\ cacheState[c1] = "InFlight"
         /\ cacheState[c2] = "InFlight"
+NoContentGenerationIsolationObserved ==
+    ~\E c1, c2 \in Coordinates :
+        /\ c1 # c2
+        /\ CoordinateSequenceOfBoundSequence(c1[1])
+            = CoordinateSequenceOfBoundSequence(c2[1])
+        /\ c1[1] # c2[1]
+        /\ c1[2] = c2[2]
+        /\ cacheState[c1] = "InFlight"
+        /\ cacheState[c2] = "InFlight"
 NoReorderedRequestIsolationObserved ==
     ~\E c1, c2 \in Coordinates :
         /\ c1 # c2
         /\ c1[1] # c2[1]
-        /\ SequenceSet(c1[1]) = SequenceSet(c2[1])
+        /\ CoordinateSetOfBoundSequence(c1[1])
+            = CoordinateSetOfBoundSequence(c2[1])
         /\ c1[2] = c2[2]
         /\ cacheState[c1] = "InFlight"
         /\ cacheState[c2] = "InFlight"
@@ -871,5 +990,24 @@ NoDetachedCancellationObserved ==
         /\ demandState[d] = "Canceled"
         /\ Eligible(d)
         /\ cacheState[CoordinateOf[d]] \in {"InFlight", "Ready"}
+        /\ \E e \in Demands :
+            /\ e # d
+            /\ CoordinateOf[e] = CoordinateOf[d]
+            /\ demandState[e] \in {"Admitting", "Joined", "Leased"}
+NoCanceledOperationReuseObserved ==
+    ~\E c \in Coordinates :
+        /\ zeroLeaseRetentionWitness
+        /\ cacheState[c] = "Ready"
+        /\ \E d1, d2, d3 \in Demands :
+            /\ d1 # d2
+            /\ d1 # d3
+            /\ d2 # d3
+            /\ demandState[d1] = "Canceled"
+            /\ demandState[d2] = "Canceled"
+            /\ canceledOperation[d1] = cacheRealization[c]
+            /\ canceledOperation[d2] = cacheRealization[c]
+            /\ demandState[d3] = "Leased"
+            /\ CoordinateOf[d3] = c
+            /\ demandResult[d3] = cacheRealization[c]
 
 ================================================================================

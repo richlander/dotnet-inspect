@@ -9,10 +9,11 @@ EXTENDS Naturals, TLC
 
 CONSTANTS
     c1, c2, c3,
+    g1, g2, g3, g4,
     strictOptions, looseOptions,
-    d1, d2, d3, d4,
-    BaseScenario, OptionScenario, DuplicateScenario, RootOnlyScenario,
-    ReorderedScenario,
+    d1, d2, d3,
+    BaseScenario, OptionScenario, ContentScenario, DuplicateScenario,
+    RootOnlyScenario, ReorderedScenario, CancellationScenario,
     Scenario,
     AllowLeaseAfterClose,
     AllowReleaseWithActiveLease,
@@ -20,21 +21,26 @@ CONSTANTS
     AllowDoubleCleanup,
     AllowResurrection,
     AllowInexactReuse,
-    AllowPartialPublish
+    AllowPartialPublish,
+    AllowCancellationAbandon
 
 ASSUME
     Scenario
-        \in {BaseScenario, OptionScenario, DuplicateScenario,
-             RootOnlyScenario, ReorderedScenario}
+        \in {BaseScenario, OptionScenario, ContentScenario,
+             DuplicateScenario, RootOnlyScenario, ReorderedScenario,
+             CancellationScenario}
 
 VARIABLES
     workspaceState,
     cacheState,
     cacheRealization,
+    cacheOperation,
     leader,
     demandState,
     demandResult,
+    canceledOperation,
     nextRealizationId,
+    settledOperations,
     cleanupStarts,
     cleanupOutcome,
     returnAttempts,
@@ -56,7 +62,9 @@ RequestSequenceOfMC ==
         @@ (d2 :> <<c1, c2>>)
         @@ (
             d3 :>
-                CASE Scenario = OptionScenario -> <<c1, c2>>
+                CASE Scenario \in {
+                        OptionScenario, ContentScenario, CancellationScenario
+                    } -> <<c1, c2>>
                   [] Scenario = DuplicateScenario -> <<c1, c1>>
                   [] Scenario = RootOnlyScenario -> <<>>
                   [] Scenario = ReorderedScenario -> <<c2, c1>>
@@ -73,11 +81,29 @@ OptionsOfMC ==
                 ELSE strictOptions
         )
 
+BaseGeneration ==
+    (c1 :> g1) @@ (c2 :> g2) @@ (c3 :> g3)
+
+AlternateGeneration ==
+    (c1 :> g1) @@ (c2 :> g4) @@ (c3 :> g3)
+
+GenerationOfMC ==
+    (d1 :> BaseGeneration)
+        @@ (d2 :> BaseGeneration)
+        @@ (
+            d3 :>
+                IF Scenario = ContentScenario
+                THEN AlternateGeneration
+                ELSE BaseGeneration
+        )
+
 INSTANCE PackageRealizationAdmission WITH
     PackageCoordinates <- {c1, c2, c3},
+    Generations <- {g1, g2, g3, g4},
     Options <- {strictOptions, looseOptions},
     Demands <- {d1, d2, d3},
     RequestSequenceOf <- RequestSequenceOfMC,
+    GenerationOf <- GenerationOfMC,
     OptionsOf <- OptionsOfMC
 
 =============================================================================

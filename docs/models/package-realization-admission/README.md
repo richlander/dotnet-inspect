@@ -16,21 +16,25 @@ how the cache retains and releases its result.
 
 ## Scope
 
-The main bound contains three normalized package-coordinate atoms, two exact
-realization-options values, and three demands:
+The harness contains three normalized package-coordinate atoms, four opaque
+content-generation atoms, two exact realization-options values, and three
+demands. The main bound uses:
 
 - two demands submit the same ordered two-coordinate request and exact options;
 - one submits an overlapping but non-identical request.
 
-Focused scenario bounds reuse the third demand with unequal options, a
-reordered coordinate sequence, a duplicate coordinate, or an empty selected
-sequence.
+Focused scenario bounds reuse the third demand with unequal options, unequal
+content generation, a reordered coordinate sequence, a duplicate coordinate,
+an empty selected sequence, or the same exact request for cancellation reuse.
 
 Each coordinate atom abstracts one complete
-`RealizedMemberCoordinate.Package`, including its producer. A request sequence
-contains only selected package roots with a non-empty surface role. Root-only
-roots are omitted before admission. The exact cache identity is the ordered
-selected-coordinate sequence plus exact options equality.
+`RealizedMemberCoordinate.Package`, including its producer, and is paired with
+an acquisition-owned immutable content-generation identity. Producer identity
+alone is insufficient because one source can replace content under the same
+nominal coordinate. A request sequence contains only selected package roots
+with a non-empty surface role. Root-only roots are omitted before admission.
+The exact cache identity is the ordered sequence of coordinate/generation
+bindings plus exact options equality.
 
 Order is intentionally significant. The compatibility API exposes ordered
 participant collections and the groups expose participant order, so silently
@@ -58,16 +62,19 @@ disposal. A duplicate normalized coordinate is rejected before lookup. An
 empty selected-coordinate sequence bypasses admission without a cache entry,
 lease, or cleanup request.
 
-Overlapping requests, reordered requests, and requests with unequal options
-never join or reuse one another. They may run concurrently even when they
-contain some of the same package coordinates because each operation constructs
-and validates its own combined binding topology. There is no partial
-per-coordinate reuse.
+Overlapping requests, reordered requests, unequal content generations, and
+requests with unequal options never join or reuse one another. They may run
+concurrently even when they contain some of the same package coordinates
+because each operation constructs and validates its own combined binding
+topology. There is no partial per-coordinate reuse.
 
 A success publishes the whole combined realization to every still-attached
-demand in one transition. Caller cancellation removes only that demand; it
-does not cancel the workspace-owned operation for peers or future reuse. A
-failure clears the request entry so a later exact demand may retry.
+demand in one transition. The model assigns an identity to the physical
+operation independently from its callers. Caller cancellation records the
+operation that demand left but does not abandon it; even after every attached
+demand cancels, the same operation can complete and a later exact demand can
+reuse its result. A failure explicitly settles the operation and clears the
+request entry so a later exact demand may retry.
 
 Active lease accounting is derived from demands in `Leased`; it is not a
 separately mutable counter. A ready realization remains cached with zero leases
@@ -94,8 +101,8 @@ return and cleanup through awaited continuations rather than a blocking wait.
 
 The model does not cover:
 
-- package-coordinate construction, normalization, or its correspondence to a
-  `PackageRootRealization`;
+- package-coordinate construction, normalization, content-generation
+  construction, or their correspondence to a `PackageRootRealization`;
 - package selection, role planning, binding, group construction, aggregate
   budget arithmetic, group quiescence, or the internal cleanup algorithm;
 - construction of a shareable package-role completion or demand-local
@@ -115,8 +122,9 @@ The model does not cover:
 | `SingleFlightPerRequest` | At most one demand leads an admission for each exact request identity. |
 | `ConsistentLeaseOutcomeHistory` | Every demand ever issued a lease for one exact request records the same realization identity, including after return. |
 | `CacheStateConsistent` | Cache state, realization identity, leader, cleanup state, and demand lease history remain mutually consistent. |
-| `ExactRequestReuse` | A reusable result comes only from the demand's exact ordered coordinates and exact options. |
+| `ExactRequestReuse` | A reusable result comes only from the demand's exact ordered coordinate/generation bindings and exact options. |
 | `WholeRequestPublication` | A ready entry cannot coexist with an unresolved demand attached to that operation. |
+| `CancellationCannotAbandonOperation` | Every operation left by a canceled caller remains active or reaches an explicit success/failure completion. |
 | `NoLeaseAfterAdmissionCloses` | Lease-issuing transitions observe an open workspace and an admissible cache state. |
 | `NoPublicationAfterDisposal` | Successful publication observes an open workspace and an in-flight cache entry. |
 | `ReleaseStartsOnlyAfterLeasesReturn` | Cleanup observes a closing entry with no active leases and no prior cleanup start. |
@@ -147,16 +155,19 @@ transition, proving idempotence is not hidden as stutter.
 | `ReachabilityMultiDemandConsistency.cfg` | Proves that multiple attached demands can share one successful realization. |
 | `ReachabilityOverlappingRequests.cfg` | Proves that overlapping but non-identical requests can remain independently in flight. |
 | `ReachabilityOptionIsolation.cfg` | Proves that unequal options isolate otherwise equal coordinate sequences. |
+| `ReachabilityContentGenerationIsolation.cfg` | Proves that unequal content generations isolate otherwise equal coordinates and options. |
 | `ReachabilityReorderedRequestIsolation.cfg` | Proves that reordered coordinate sequences use separate entries. |
 | `ReachabilityDuplicateRejection.cfg` | Proves duplicate normalized coordinates reject before admission. |
 | `ReachabilityRootOnlyBypass.cfg` | Proves an empty selected sequence bypasses admission. |
 | `ReachabilityDetachedCancellation.cfg` | Proves caller cancellation can detach while shared work remains live or ready. |
+| `ReachabilityCanceledOperationReuse.cfg` | Proves all attached callers can cancel before the same operation completes and is later reused. |
 | `ReachabilityZeroLeaseRetention.cfg` | Proves that a zero-lease ready entry remains retained and can be reused. |
 | `ReachabilityDisposalWait.cfg` | Proves that disposal can wait for an active lease and later begin cleanup. |
 | `ReachabilityDrainedSuccess.cfg` | Proves that a late success after disposal transfers directly to closing. |
 | `ReachabilityDoubleReturn.cfg` | Proves that a second return is observable but accounting-neutral. |
 | `BrokenInexactReuse.cfg` | Reuses a result from another request identity. |
 | `BrokenPartialPublish.cfg` | Publishes ready while an attached demand remains unresolved. |
+| `BrokenCancellationAbandonsOperation.cfg` | Removes a physical operation on final-caller cancellation without completing it. |
 | `BrokenLeaseAfterClose.cfg` | Issues a lease from a closing entry after disposal. |
 | `BrokenReleaseWithActiveLease.cfg` | Starts cleanup while a demand still holds a lease. |
 | `BrokenLatePublish.cfg` | Publishes a draining operation after disposal. |
@@ -183,13 +194,15 @@ java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
 
 for config in ReachabilityJoin ReachabilityRetryAfterFailure \
   ReachabilityMultiDemandConsistency ReachabilityOverlappingRequests \
-  ReachabilityOptionIsolation ReachabilityReorderedRequestIsolation \
-  ReachabilityDuplicateRejection ReachabilityRootOnlyBypass \
-  ReachabilityDetachedCancellation ReachabilityZeroLeaseRetention \
+  ReachabilityOptionIsolation ReachabilityContentGenerationIsolation \
+  ReachabilityReorderedRequestIsolation ReachabilityDuplicateRejection \
+  ReachabilityRootOnlyBypass ReachabilityDetachedCancellation \
+  ReachabilityCanceledOperationReuse ReachabilityZeroLeaseRetention \
   ReachabilityDisposalWait ReachabilityDrainedSuccess \
   ReachabilityDoubleReturn BrokenInexactReuse BrokenPartialPublish \
-  BrokenLeaseAfterClose BrokenReleaseWithActiveLease BrokenLatePublish \
-  BrokenDoubleCleanup BrokenResurrection; do
+  BrokenCancellationAbandonsOperation BrokenLeaseAfterClose \
+  BrokenReleaseWithActiveLease BrokenLatePublish BrokenDoubleCleanup \
+  BrokenResurrection; do
   java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
     -cleanup -noGenerateSpecTE -config "$config.cfg" \
     PackageRealizationAdmission_MC.tla
@@ -205,27 +218,30 @@ repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
 
 | Configuration | Result | Generated states | Distinct states | Depth/state |
 | --- | --- | ---: | ---: | ---: |
-| `PackageRealizationAdmission.cfg` | No error | 66,575 | 24,859 | 17 |
+| `PackageRealizationAdmission.cfg` | No error | 110,517 | 43,804 | 17 |
 | `ReachabilityJoin.cfg` | `NoJoinObserved` violated | 10 | 10 | 3 |
-| `ReachabilityRetryAfterFailure.cfg` | `NoRetryAfterFailureObserved` violated | 95 | 69 | 4 |
-| `ReachabilityMultiDemandConsistency.cfg` | `NoMultiDemandConsistencyObserved` violated | 65 | 49 | 4 |
+| `ReachabilityRetryAfterFailure.cfg` | `NoRetryAfterFailureObserved` violated | 95 | 72 | 4 |
+| `ReachabilityMultiDemandConsistency.cfg` | `NoMultiDemandConsistencyObserved` violated | 65 | 52 | 4 |
 | `ReachabilityOverlappingRequests.cfg` | `NoOverlappingRequestsObserved` violated | 12 | 12 | 3 |
 | `ReachabilityOptionIsolation.cfg` | `NoOptionIsolationObserved` violated | 12 | 12 | 3 |
+| `ReachabilityContentGenerationIsolation.cfg` | `NoContentGenerationIsolationObserved` violated | 12 | 12 | 3 |
 | `ReachabilityReorderedRequestIsolation.cfg` | `NoReorderedRequestIsolationObserved` violated | 12 | 12 | 3 |
 | `ReachabilityDuplicateRejection.cfg` | `NoDuplicateRejectionObserved` violated | 6 | 6 | 2 |
 | `ReachabilityRootOnlyBypass.cfg` | `NoRootOnlyBypassObserved` violated | 6 | 6 | 2 |
-| `ReachabilityDetachedCancellation.cfg` | `NoDetachedCancellationObserved` violated | 9 | 9 | 3 |
-| `ReachabilityZeroLeaseRetention.cfg` | `NoZeroLeaseRetentionObserved` violated | 254 | 152 | 5 |
-| `ReachabilityDisposalWait.cfg` | `NoDisposalWaitObserved` violated | 1,106 | 575 | 6 |
-| `ReachabilityDrainedSuccess.cfg` | `NoDrainedSuccessObserved` violated | 105 | 73 | 4 |
-| `ReachabilityDoubleReturn.cfg` | `NoDoubleReturnObserved` violated | 375 | 218 | 5 |
-| `BrokenInexactReuse.cfg` | `ExactRequestReuse` violated | 94 | 68 | 4 |
-| `BrokenPartialPublish.cfg` | `WholeRequestPublication` violated | 66 | 50 | 4 |
-| `BrokenLeaseAfterClose.cfg` | `NoLeaseAfterAdmissionCloses` violated | 387 | 225 | 5 |
-| `BrokenReleaseWithActiveLease.cfg` | `ReleaseStartsOnlyAfterLeasesReturn` violated | 391 | 227 | 5 |
-| `BrokenLatePublish.cfg` | `NoPublicationAfterDisposal` violated | 105 | 73 | 4 |
-| `BrokenDoubleCleanup.cfg` | `CleanupStartsAtMostOnce` violated | 1,161 | 589 | 6 |
-| `BrokenResurrection.cfg` | `DisposedCacheCannotReopen` violated | 391 | 227 | 5 |
+| `ReachabilityDetachedCancellation.cfg` | `NoDetachedCancellationObserved` violated | 11 | 11 | 3 |
+| `ReachabilityCanceledOperationReuse.cfg` | `NoCanceledOperationReuseObserved` violated | 1,781 | 949 | 7 |
+| `ReachabilityZeroLeaseRetention.cfg` | `NoZeroLeaseRetentionObserved` violated | 272 | 178 | 5 |
+| `ReachabilityDisposalWait.cfg` | `NoDisposalWaitObserved` violated | 1,292 | 706 | 6 |
+| `ReachabilityDrainedSuccess.cfg` | `NoDrainedSuccessObserved` violated | 105 | 76 | 4 |
+| `ReachabilityDoubleReturn.cfg` | `NoDoubleReturnObserved` violated | 398 | 246 | 5 |
+| `BrokenInexactReuse.cfg` | `ExactRequestReuse` violated | 94 | 71 | 4 |
+| `BrokenPartialPublish.cfg` | `WholeRequestPublication` violated | 66 | 53 | 4 |
+| `BrokenCancellationAbandonsOperation.cfg` | `CancellationCannotAbandonOperation` violated | 10 | 10 | 3 |
+| `BrokenLeaseAfterClose.cfg` | `NoLeaseAfterAdmissionCloses` violated | 410 | 253 | 5 |
+| `BrokenReleaseWithActiveLease.cfg` | `ReleaseStartsOnlyAfterLeasesReturn` violated | 414 | 255 | 5 |
+| `BrokenLatePublish.cfg` | `NoPublicationAfterDisposal` violated | 105 | 76 | 4 |
+| `BrokenDoubleCleanup.cfg` | `CleanupStartsAtMostOnce` violated | 1,354 | 727 | 6 |
+| `BrokenResurrection.cfg` | `DisposedCacheCannotReopen` violated | 414 | 255 | 5 |
 
 The normal configuration explored its complete bounded state graph. Each
 reachability and mutation configuration stopped at its first expected
