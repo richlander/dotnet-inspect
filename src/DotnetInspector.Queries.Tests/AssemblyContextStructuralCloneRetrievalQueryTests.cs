@@ -624,7 +624,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
-    public void Execute_RepeatedLongUnequalLeafTypeLookupFailsAtAggregateBudget()
+    public void Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget()
     {
         const string Namespace = "N";
         string longLeaf = new('T', 4_000);
@@ -632,7 +632,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             ImmutableCollectionsMarshal.AsImmutableArray(
                 BuildRepeatedTypeNameAssembly(
                     Namespace,
-                    longLeaf,
+                    longLeaf + "X",
                     typeCount: 1_100));
         var policy = new TestBindingPolicy();
         using var workspace = new InspectionWorkspace();
@@ -653,7 +653,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                             .MethodDefinitionToken(0x06000001),
                         new StructuralCloneQueryPopulation.Type(
                             TypeName(
-                                $"{Namespace}.{longLeaf[..^1]}")))));
+                                $"{Namespace}.{longLeaf}")))));
 
         Assert.Equal(
             StructuralCloneQueryFailureKind.MetadataInspectionFailed,

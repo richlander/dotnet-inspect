@@ -676,11 +676,20 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                 continue;
             }
 
-            long candidateWork =
-                candidateLeafUtf8Length == leafUtf8Length
-                    ? comparisonWork
-                    : Math.Max(candidateLeafUtf8Length, 1);
-            remainingComparisonWork -= candidateWork;
+            remainingComparisonWork -=
+                Math.Max(candidateLeafUtf8Length, 1);
+            if (remainingComparisonWork < 0)
+            {
+                throw new BadImageFormatException(
+                    "The exact TypeDef lookup exceeded its "
+                        + "structural-name work budget.");
+            }
+            if (candidateLeafUtf8Length != leafUtf8Length)
+            {
+                continue;
+            }
+
+            remainingComparisonWork -= comparisonWork;
             if (remainingComparisonWork < 0)
             {
                 throw new BadImageFormatException(
