@@ -470,6 +470,12 @@ An unavailable lens remains in its owner-issued position with
 lens is also disabled, but exposes its owner-issued diagnostic distinctly from
 valid unavailability. Neither status retains stale panel content.
 
+When descriptors in one tablist have the same Title, each tab references
+its owner-issued Summary as an accessible description and exposes that same
+sentence as non-live help on keyboard focus or pointer hover. If both Title and
+Summary collide, that help appends the exact owner-issued ID as the final
+disambiguator. The UI does not parse the ID or invent distinguishing copy.
+
 With no effective lens, the status region renders `Lens unavailable` for a
 validly unavailable outcome and `Lens failed` for a failed outcome. If an
 effective lens exists beside unavailable or failed peers, its tab and panel
@@ -494,8 +500,15 @@ returned snapshot or typed outcome without deriving a target from row identity
 or display text.
 
 A `Selection required` Member state remains distinct from unavailable or
-failed. The UI labels this product-issued state `Choose a member`, and Member
-navigation exposes the available choices. The UI does not invent a default
+failed. Its hierarchy item is enabled, labelled `Choose a member`, carries no
+product action ID, and uses `aria-controls` to identify the Member choices
+surface. It is neither `aria-current` nor `aria-disabled`; at a narrow viewport
+it also uses `aria-haspopup="dialog"` for the shared modal navigation drawer.
+Activation is a local presentation action: it closes the hierarchy menu and
+moves focus to the first owner-ordered Member row in the visible navigation
+pane, or opens the Member drawer and focuses that row at a narrow viewport.
+The row's product-issued activation state governs any later commit. Opening the
+choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
 The inspection command, Workspace, lens strip, and content region all render
@@ -808,9 +821,11 @@ Coordinate and subject menus use menu-button semantics. Their invoking control
 exposes `aria-expanded` and `aria-controls`; opening moves focus to the current
 item or first item. Arrow navigation includes unavailable and failed
 `aria-disabled` items so their reasons and diagnostics remain discoverable;
-Enter activates only a non-current available item. Escape closes the menu and
-returns focus to the invoker. Outside pointer dismissal or tabbing away
-preserves the new focus destination instead.
+Enter activates a non-current available item through its product action or
+opens the Member choices for a `Selection required` item through the local
+presentation action above. Escape closes the menu and returns focus to the
+invoker. Outside pointer dismissal or tabbing away preserves the new focus
+destination instead.
 
 Activating an available item for a non-modal transition closes the menu. A
 successful inspection transition focuses the returned active-subject
@@ -1152,12 +1167,15 @@ these named Inspect Web tests:
   `owner descriptors retain exact identity order and status` uses an
   owner-ordered descriptor absent from every legacy Package, Library, Type, and
   Member lens array, plus available, unavailable, and failed peers and a
-  duplicate display label. The rendered strip must preserve every exact ID,
-  position, and status without host additions, omissions, deduplication, or
-  fallback. The gate activates the legacy-absent descriptor and both
-  duplicate-label descriptors and proves that each exact subject-scoped
-  registry ID, rather than a label, ordinal, or legacy token, is submitted.
-  This is the non-vacuity gate for registry consumption.
+  three-descriptor Title collision in which two Summaries also collide. The
+  rendered strip must preserve every exact ID, position, and status without host
+  additions, omissions, deduplication, or fallback. The gate activates the
+  legacy-absent descriptor and all three duplicate-title descriptors and proves
+  that each exact subject-scoped registry ID, rather than a label, ordinal, or
+  legacy token, is submitted. It also proves that duplicate titles expose each
+  owner-issued Summary on focus and through an accessible description, using
+  the exact ID only when Title and Summary both collide. This is the
+  non-vacuity gate for registry consumption.
 - `navigation-consumer.test.ts`:
   `no effective lens renders status without a selected tab or panel` covers
   non-empty and empty descriptor collections for unavailable and failed
@@ -1203,8 +1221,10 @@ these named Inspect Web tests:
   proves that no outgoing-lifetime authority survives replacement.
 - `navigation-consumer.test.ts`:
   `selection required renders guidance without committing a Member` proves
-  that `Choose a member` is presentation of the typed state rather than a
-  locally selected default.
+  that `Choose a member` is an enabled local presentation action with no
+  product action ID. It verifies `aria-controls`, narrow-layout dialog
+  disclosure, focus on the first owner-ordered Member row, no snapshot or
+  history mutation, and no locally selected default.
 - `navigation-focus.test.ts`:
   `lens tabs and Library options separate focus from committed selection`
   covers roving tabs, disabled-option discoverability, manual listbox commit,
@@ -1241,7 +1261,9 @@ outcomes:
 5. Reopen the hierarchy menu, move focus away from the current item, and
    confirm that only the committed subject retains `aria-current="page"`.
 6. Supply `Selection required` Member context and confirm that the UI shows
-   `Choose a member` without selecting one.
+   enabled `Choose a member` guidance without an action ID. Activate it in wide
+   and narrow layouts and confirm that it focuses or opens the product-issued
+   Member choices without selecting one or changing snapshot, URL, or history.
 7. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject and that focus returns to the subject
    menu-button invoker.
@@ -1251,13 +1273,16 @@ outcomes:
 ### Lens inventory and outcomes
 
 1. Supply owner-ordered available, unavailable, and failed descriptors,
-   including one absent from every legacy browser lens array and two with the
-   same display label.
+   including one absent from every legacy browser lens array and three with the
+   same display label, two of which also share a Summary.
 2. Confirm that every descriptor appears once in exact owner order with its
-   exact identity, label, status, reason, and diagnostic.
+   exact identity, label, status, reason, and diagnostic. Focus the
+   duplicate-title tabs and confirm that each owner-issued Summary is visible
+   and programmatically descriptive; when both summaries collide, confirm that
+   the exact ID distinguishes them without replacing their labels.
 3. Focus every disabled tab and confirm that unavailable and failed evidence is
    discoverable while activation remains a no-op.
-4. Activate the legacy-absent descriptor and both duplicate-label descriptors.
+4. Activate the legacy-absent descriptor and all duplicate-label descriptors.
    Confirm that moving focus did not select them, each activation submits its
    exact opaque subject-scoped identity, and the returned effective lens becomes
    the one selected tab and panel.
