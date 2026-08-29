@@ -281,6 +281,7 @@ while IFS= read -r -d '' file; do
     src/UnionPolyfill.cs|src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
     src/tsbindgen/*) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
+    tests/ILInspector.MetadataPrimitives.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/*) CODE=true ;;
     tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
     tools/DecompilerHarness/*) CODE=true ;;
@@ -321,6 +322,7 @@ while IFS= read -r -d '' file; do
     # `ci-required` passes on a `skipped`.
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
+    eng/run-method-semantics-platform-probe.sh) CODE=true; WEB=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
     eng/generate-inspect-web-engine-dts.sh) WEB=true ;;
