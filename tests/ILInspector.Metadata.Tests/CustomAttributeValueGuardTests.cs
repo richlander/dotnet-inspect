@@ -2760,9 +2760,10 @@ public sealed class CustomAttributeValueGuardTests
         // The element replay rewinds the signature per element. Rewinding to
         // the element's custom modifiers rather than to its type re-skips
         // every modifier once per element: CPU multiplied by an
-        // attacker-chosen count, on input the guard accepts. Modifiers carry
-        // no value semantics, and SRM resolves the element type once before
-        // it loops over values.
+        // attacker-chosen count, on input the guard accepts. Modifiers are a
+        // prefix of the type, not part of the value grammar, and SRM rejects a
+        // modifier-prefixed argument type outright, so this cost is spent
+        // entirely before the decode the guard screens for can even fail.
         static long Measure(int cmodCount)
         {
             using var image = Open(BuildCmodArrayImage(1_000_000, cmodCount));
@@ -2771,22 +2772,37 @@ public sealed class CustomAttributeValueGuardTests
                 CustomAttributeValueGuard.IsSafeToDecode(
                     image.Reader,
                     attribute));
-            var timer = Stopwatch.StartNew();
-            Assert.True(
-                CustomAttributeValueGuard.IsSafeToDecode(
-                    image.Reader,
-                    attribute));
-            timer.Stop();
-            return timer.ElapsedMilliseconds;
+
+            // Scheduler noise can only ever inflate an elapsed time, never
+            // shorten it, so the minimum of several runs is the measurement
+            // least contaminated by load. Taking it on both sides keeps a
+            // stalled baseline from widening the bound far enough to admit
+            // the very defect the bound exists to catch.
+            long best = long.MaxValue;
+            for (int i = 0; i < 5; i++)
+            {
+                var timer = Stopwatch.StartNew();
+                Assert.True(
+                    CustomAttributeValueGuard.IsSafeToDecode(
+                        image.Reader,
+                        attribute));
+                timer.Stop();
+                best = Math.Min(best, timer.ElapsedMilliseconds);
+            }
+
+            return best;
         }
 
         long baseline = Measure(0);
         long modified = Measure(500);
 
-        // Generous: the defect multiplied the per-element cost by the modifier
-        // count, so the pre-fix gap is an order of magnitude, not a fraction.
+        // Pre-fix the walk re-skipped all 500 modifiers for every one of the
+        // 1,000,000 elements, so the defective cost is the baseline times the
+        // modifier count; post-fix it is the baseline regardless of how many
+        // modifiers precede the element type. The ratio and floor below
+        // absorb ordinary variance while staying far under that product.
         Assert.True(
-            modified < (baseline * 4) + 250,
+            modified < (baseline * 4) + 150,
             $"Guarding 1,000,000 elements took {baseline} ms with no custom "
                 + $"modifiers and {modified} ms with 500; the modifiers are "
                 + "being re-skipped per element.");

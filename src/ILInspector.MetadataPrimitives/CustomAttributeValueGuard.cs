@@ -402,10 +402,13 @@ public static class CustomAttributeValueGuard
             if (_value.RemainingBytes < 4)
                 return Result.Truncated;
             // Rewind to the element TYPE, not to its custom modifiers.
-            // Modifiers carry no value semantics and SRM resolves the element
-            // type once before it loops over values, so replaying them per
-            // element is work multiplied by an attacker-chosen count on input
-            // the guard accepts.
+            // Modifiers are a prefix of the type, not part of the value
+            // grammar, so re-reading them per element buys nothing while
+            // multiplying work by an attacker-chosen count on input the guard
+            // accepts. SRM never spends that cost: its decoder has no case for
+            // CMOD_REQD/CMOD_OPT in an argument type and rejects the blob
+            // outright, so the guard would burn the entire multiplied scan
+            // before the decode it is screening for ever fails.
             SkipCustomModifiers(ref _signature);
             int elementStart = _signature.Offset;
             if (!TrySkipSignatureType(ref _signature, _signatureSkip))
