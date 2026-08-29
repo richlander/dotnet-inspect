@@ -314,55 +314,52 @@ rather than advisory.
 
 ### C5 — Merged rejections agree
 
-Rejections that share a kickoff or a state-machine type merge into one
-component during construction, transitively: a claim naming machines *a* and
-*b* and a claim naming *b* and *c* leave all three in one component. Every
-forward and reverse entry in that component freezes to the same immutable
-result and the same evidence.
+A **publication** is one `RejectionComponent` appended by
+`PublishRejection`. It is the unit of merging; a machine is not. One
+publication can carry several kickoff, state-machine, and implementation
+tokens, several claimed names, one `(Kind, Detail)` pair, and three diagnostic
+evidence arrays.
 
-The unit here is the **published rejection**, not the machine. `RejectClaims`
-builds one `RejectionComponent` from a list of claims, so a single publication
-can name several machines and carries one `Kind` and `Detail` for all of them.
-A machine can also appear in several publications, which is what
-`MergeExisting` unions.
+A **merge key** is a domain-tagged identity: kickoff MethodDef,
+state-machine TypeDef, implementation MethodDef, or a claimed type name
+registered by `RejectKickoffCandidates`. The tag matters because equal numeric
+tokens in different metadata tables are not the same key. A claimed name
+carried only as diagnostic evidence is not thereby a merge key. Two
+publications are adjacent when they share a merge key. The component they
+belong to is the connected component of that undirected publication graph, so
+overlap is transitive. This statement is conditional on a fixed set of
+publications and keys; it does not claim that arbitrarily reordering discovery
+would produce the same publications.
 
-Order sensitivity is easy to state too strongly, and an earlier draft of this
-section did. Three distinct things are involved:
+Freezing projects each connected component as follows:
 
-- **Component membership** is a union, and does not depend on discovery order.
-- **The merged `Kind` and `Detail`** are seeded by `FreezeRejections` from the
-  **first** contributing publication in append order — the earliest-discovered
-  member of the merged set.
-- **The accumulated evidence arrays** — `KickoffCandidates`,
-  `StateMachineCandidates`, `ClaimedTypes` — are built by `OrderedEvidence`,
-  which preserves first-seen order. Their *membership* is order-independent;
-  their *ordering* is not.
+- Every kickoff, state-machine, and implementation index entry pointing into
+  the component returns the same immutable `Failure` instance.
+- Each evidence array contains the distinct union of that evidence contributed
+  by every publication in the component.
+- The selected `(Kind, Detail)` pair comes intact from one contributing
+  publication.
 
-So the property that holds is not order independence. It is that all three are
-a deterministic function of the component's members and their metadata row
-order, and therefore **stable for a given image**. Because row order is a
-compiler artifact, a consumer may rely on that stability but must not rely on
-which contributing claim supplied the kind, or on where a candidate falls
-within an evidence array.
+Those are membership and agreement properties, not ordering properties.
+`OrderedEvidence` currently emits the distinct union in first-seen publication
+order, and `FreezeRejections` currently selects `(Kind, Detail)` from the first
+publication in append order. Neither selection rule is part of C5's contract;
+consumers must not depend on evidence positions or on which contributing
+publication supplied the reason.
 
 Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`.
 
-Both are narrower than the invariant, and the gaps are worth naming precisely:
+Both are narrower than the invariant.
+`RejectsSharedStateMachineClaims` creates one publication and gates its shared
+projection across kickoff and state-machine indexes.
+`MergesEveryOverlappingRejection` creates two publications joined by one
+state-machine key. It gates their shared projection and the union of their
+kickoff evidence; its ordered token assertion is stronger than C5 requires.
 
-- They gate **shared identity** — each entry returns the same `Failure`
-  reference — and `MergesEveryOverlappingRejection` additionally pins
-  `KickoffCandidates` as an exact ordered sequence, which gates the first-seen
-  ordering above for kickoffs.
-- They do **not** gate transitivity beyond two directly overlapping
-  publications. Neither builds a three-publication chain, so a merge that
-  failed to reach a component's far side would pass both.
-- They do **not** gate the union of `ClaimedTypes`, nor
-  `StateMachineCandidates` across more than one state machine —
-  `RejectsSharedStateMachineClaims` asserts `Single` on that array.
-- They do **not** gate the first-published rule for `Kind` and `Detail`.
-
-Those four gaps are `unverified`.
+Transitive closure across three publications, claimed-name and implementation
+merge keys, the union of `ClaimedTypes`, state-machine evidence from multiple
+publications, and intact selection of `(Kind, Detail)` are `unverified`.
 
 ### C6 — Completeness is externally checkable
 
@@ -381,17 +378,16 @@ population via its own `ImplementsAsyncStateMachine` walk over
 ### Model
 
 [`models/state-machine-completeness/`](models/state-machine-completeness/)
-holds a small TLA+ model of the fragment of this section that is genuinely
-stateful: construction that may fail at any step, rejection components that
-merge as claims are discovered, and the relationship between a whole-module
-failure and the results individual queries then return.
+holds two small TLA+ models rather than conflating their state domains.
+`StateMachineCompleteness.tla` checks C1, C2, and C3 over structural machines,
+plus failure absorption and termination.
+`RejectionComponentMerge.tla` checks C5 over published rejections, tagged
+merge keys, and diagnostic payloads.
 
-The model checks C1, C2, C3, and C5 as invariants, and failure absorption and
-termination as temporal properties. It does not model C4, which is a statement
-about what a consumer may infer rather than about system state, or C6 — though
-C6 is what licenses C1's formulation, since the model checks classification
-against an independently modeled population rather than against the index's own
-report.
+Neither models C4, which is a statement about what a consumer may infer rather
+than about system state, or C6 — though C6 licenses C1's formulation, since the
+completeness model checks classification against an independently modeled
+population rather than against the index's own report.
 
 The model establishes evidence about the model. It is not evidence about the
 implementation; the gates named above are. Its assumptions, bounds, checked
