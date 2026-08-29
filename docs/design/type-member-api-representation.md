@@ -132,6 +132,9 @@ before direct rendering. When a structured model cannot reproduce metadata-only
 default syntax, renderers preserve that producer-contained signature rather
 than re-containing it; synthetic structured producers such as CLI accessor
 projection satisfy the same raw-slot boundary before composing their fallback.
+Accessor projection uses the recorded `ApiAccessor.Name` MethodDef identity,
+including explicit-interface spelling such as `I.get_P`; only older surfaces
+without that field use the conventional name synthesized from the owner.
 Identifier substitution over structured declarations skips rendered string and
 character literals. Only model-free fallback is imported as opaque text.
 
@@ -167,6 +170,8 @@ rather than re-importing its visible spelling as clean text.
 `UntrustedMemberSignatureTests.FieldAndEnumDeclarations_ContainNamesBeforeComposition`,
 `UntrustedMemberSignatureTests.StructuredMetadataDefaultFallback_PreservesContainedSignatureAndStatus`,
 `UntrustedMemberSignatureTests.SynthesizedAccessorFallback_ContainsRawSignatureSlotsInDecompiledSource`,
+`UntrustedMemberSignatureTests.SynthesizedExplicitInterfaceAccessor_UsesRecordedMethodDefName`,
+`UntrustedMemberSignatureTests.SynthesizedAccessor_OlderSurfaceUsesConventionalNameFallback`,
 `MetadataDeclarationQueryTests.TypeSurface_ContainsRawTypeSlotsInCompatibilitySignatures`,
 `DefaultValueRenderingTests.HostileEnumDefaults_ContainRawTypeAndMemberSlots`,
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,

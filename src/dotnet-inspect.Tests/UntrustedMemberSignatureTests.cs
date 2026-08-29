@@ -444,6 +444,114 @@ public class UntrustedMemberSignatureTests
         }
     }
 
+    [Fact]
+    public async Task SynthesizedExplicitInterfaceAccessor_UsesRecordedMethodDefName()
+    {
+        string path = EmitExplicitInterfaceProperty();
+        try
+        {
+            using (var stream = File.OpenRead(path))
+            using (var peReader = new PEReader(stream))
+            {
+                ApiSurface surface = ApiSurfaceExtractor.Extract(
+                    peReader,
+                    includeAll: true);
+                ApiType type = Assert.Single(
+                    surface.Types,
+                    candidate => candidate.Name == "Probe");
+                ApiMember property = Assert.Single(
+                    type.Members,
+                    candidate => candidate.Kind == "property");
+                ApiAccessor recordedAccessor = Assert.Single(
+                    property.SignatureModel!.Accessors,
+                    candidate => candidate.Kind == "get");
+                ApiMember accessor = Assert.Single(
+                    ApiOutputFormatter.AccessorMethods(property, type));
+
+                Assert.Equal("I.get_P", recordedAccessor.Name);
+                Assert.Equal(recordedAccessor.Name, accessor.Name);
+                Assert.Equal(
+                    recordedAccessor.Name,
+                    accessor.SignatureModel!.MemberName);
+                Assert.Contains(
+                    "I.get_P()",
+                    accessor.Signature,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "get_I.P",
+                    accessor.Signature,
+                    StringComparison.Ordinal);
+            }
+
+            var result = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(new MemberOptions
+                {
+                    TypeName = "Probe",
+                    AssemblyPath = path,
+                    MemberFilter = ["I.P"],
+                    IncludeAll = true,
+                    IncludeSections = [SectionNames.DecompiledSource],
+                    TipLevel = TipLevel.Quiet,
+                    Verbosity = Verbosity.Normal,
+                }));
+
+            Assert.True(
+                result.ExitCode == 0,
+                $"Command failed: {result.Error}{Environment.NewLine}{result.Output}");
+            Assert.Contains(
+                "## Decompiled Source",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "I.get_P()",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "get_I.P",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SynthesizedAccessor_OlderSurfaceUsesConventionalNameFallback()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Probe",
+            Kind = "class",
+        };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x0600_0001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "string",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" },
+                ],
+            },
+        };
+
+        ApiMember accessor = Assert.Single(
+            ApiOutputFormatter.AccessorMethods(property, type));
+
+        Assert.Equal("get_Value", accessor.Name);
+        Assert.Equal("get_Value", accessor.SignatureModel!.MemberName);
+        Assert.Contains(
+            "get_Value()",
+            accessor.Signature,
+            StringComparison.Ordinal);
+    }
+
     static string EmitStructuredMetadataDefault()
     {
         var assemblyName = new AssemblyName("StructuredMetadataDefault");
@@ -535,6 +643,69 @@ public class UntrustedMemberSignatureTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"HostileIndexer-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitExplicitInterfaceProperty()
+    {
+        var assemblyName = new AssemblyName("ExplicitInterfaceProperty");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assembly.DefineDynamicModule(assemblyName.Name!);
+        TypeBuilder interfaceType = module.DefineType(
+            "I",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        MethodBuilder interfaceGetter = interfaceType.DefineMethod(
+            "get_P",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.SpecialName,
+            typeof(string),
+            Type.EmptyTypes);
+        PropertyBuilder interfaceProperty = interfaceType.DefineProperty(
+            "P",
+            PropertyAttributes.None,
+            typeof(string),
+            Type.EmptyTypes);
+        interfaceProperty.SetGetMethod(interfaceGetter);
+        Type createdInterface = interfaceType.CreateType()!;
+
+        TypeBuilder type = module.DefineType(
+            "Probe",
+            TypeAttributes.Public | TypeAttributes.Class);
+        type.AddInterfaceImplementation(createdInterface);
+        MethodBuilder getter = type.DefineMethod(
+            "I.get_P",
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName,
+            typeof(string),
+            Type.EmptyTypes);
+        ILGenerator il = getter.GetILGenerator();
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Ret);
+        type.DefineMethodOverride(
+            getter,
+            createdInterface.GetMethod("get_P")!);
+        PropertyBuilder property = type.DefineProperty(
+            "I.P",
+            PropertyAttributes.None,
+            typeof(string),
+            Type.EmptyTypes);
+        property.SetGetMethod(getter);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"ExplicitInterfaceProperty-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

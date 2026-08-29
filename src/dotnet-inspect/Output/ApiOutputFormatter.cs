@@ -1604,9 +1604,10 @@ public static class ApiOutputFormatter
     /// Synthesizes method members for a property's or event's accessors, keyed by the
     /// accessor's own MethodDef token so body sections address the accessor directly.
     /// The getter/adder is yielded first so the default selection (accessor ordinal 1)
-    /// targets it; the setter/remover follows as ordinal 2. Names use the metadata
-    /// accessor spelling (<c>get_Name</c>, <c>set_Name</c>, <c>add_Name</c>,
-    /// <c>remove_Name</c>) so graph roots and breadcrumbs read as the real method.
+    /// targets it; the setter/remover follows as ordinal 2. Names use the recorded
+    /// accessor MethodDef spelling when available, with the conventional metadata
+    /// spelling (<c>get_Name</c>, <c>set_Name</c>, <c>add_Name</c>,
+    /// <c>remove_Name</c>) retained for older surfaces.
     /// </summary>
     internal static IEnumerable<ApiMember> AccessorMethods(ApiMember member, ApiType type)
     {
@@ -1643,9 +1644,14 @@ public static class ApiOutputFormatter
     /// owner's when the accessor declares none — events carry no per-accessor entry and so
     /// inherit the event's accessibility.
     /// </summary>
-    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token, string accessorKind, bool valueReturning)
+    static ApiMember Accessor(ApiMember owner, string declaringType, string fallbackName, int token, string accessorKind, bool valueReturning)
     {
         var ownerModel = owner.SignatureModel;
+        var accessorEntry = ownerModel?.Accessors.FirstOrDefault(
+            accessor => accessor.Kind == accessorKind);
+        string name = string.IsNullOrWhiteSpace(accessorEntry?.Name)
+            ? fallbackName
+            : accessorEntry.Name!;
         var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
         var parameters = ownerModel?.Parameters is { Count: > 0 } indexParameters
             ? indexParameters.Select(CloneAccessorParameter).ToList()
@@ -1661,7 +1667,6 @@ public static class ApiOutputFormatter
             parameters.Add(new ApiParameter { Name = "value", Type = valueType });
         }
 
-        var accessorEntry = ownerModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == accessorKind);
         var accessibility = string.IsNullOrEmpty(accessorEntry?.Accessibility)
             ? owner.Accessibility
             : accessorEntry!.Accessibility;
