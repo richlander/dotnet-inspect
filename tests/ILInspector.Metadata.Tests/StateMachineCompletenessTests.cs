@@ -551,6 +551,14 @@ public sealed class StateMachineCompletenessTests
         /// body it points at does not.
         /// </summary>
         Truncated,
+
+        /// <summary>
+        /// The image stops before the headers can be read at all, so whether it
+        /// was ever managed is undecidable. Round 13 found this direction
+        /// untested: routing <c>Unclassifiable</c> to <c>NotManaged</c> made an
+        /// undecidable file a silent skip and the whole suite stayed green.
+        /// </summary>
+        HeaderTruncated,
     }
 
     /// <summary>
@@ -581,6 +589,7 @@ public sealed class StateMachineCompletenessTests
     [Theory]
     [InlineData(DamageKind.MetadataSignature)]
     [InlineData(DamageKind.Truncated)]
+    [InlineData(DamageKind.HeaderTruncated)]
     public void Sweep_DamagedAssembly_IsNeverSilentlyDropped(DamageKind damage)
     {
         string corpus = NewCorpusDirectory();
@@ -637,6 +646,86 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
+    /// The sweep's own named property: a state machine is never claimed and then
+    /// refused. Round 13 found nothing held it. Deleting the rejection report
+    /// entirely — <c>totals.Rejected != 0</c> mutated to <c>&lt; 0</c> — left the
+    /// full suite green, so the sweep no longer gated the thing it is named
+    /// after.
+    ///
+    /// The specimen renames <c>SetStateMachine</c> in the metadata string heap,
+    /// one byte, same length, so every heap offset still lands where it did. The
+    /// claim survives and the role lookup finds nothing, which is the shape
+    /// trimming produces (#4827: ILLink removes SetStateMachine, which both
+    /// ClassicAsync and AsyncIterator require) without needing a trimmer in CI.
+    /// Measured on the fixture assembly: 9 structural, 9 resolved becomes 9
+    /// structural, 9 rejected.
+    ///
+    /// This is the one damage that leaves a decodable assembly, so it is the
+    /// only one that exercises the rejection path rather than an outcome branch.
+    /// </summary>
+    [Fact]
+    public void Sweep_RejectedStateMachine_FailsTheSweep()
+    {
+        string corpus = NewCorpusDirectory();
+        try
+        {
+            byte[] image = File.ReadAllBytes(typeof(Fixtures).Assembly.Location);
+            File.WriteAllBytes(
+                Path.Combine(corpus, "unauthenticatable.dll"),
+                Unauthenticatable(image));
+
+            string? problems = SweepProblems(corpus, out string surveyed);
+
+            Assert.False(
+                problems is null,
+                "A claimed state machine was refused authentication and the "
+                    + $"sweep still reported the corpus clean. {surveyed}");
+            Assert.Contains("refused authentication", problems);
+            Assert.Contains("unauthenticatable.dll", problems);
+        }
+        finally
+        {
+            Directory.Delete(corpus, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A damaged assembly is found whatever it is named.
+    ///
+    /// Round 10 removed an extension filter from the sweep and round 12 removed
+    /// one that had grown back in the neighbour gate; round 13 found that
+    /// nothing stopped a third from appearing, because every synthetic specimen
+    /// was called <c>.dll</c>. Restricting enumeration to <c>.exe</c> left the
+    /// whole suite green. Managed code ships as <c>.exe</c>, and as files with
+    /// no extension at all.
+    /// </summary>
+    [Fact]
+    public void Sweep_DamagedAssembly_IsFoundWhateverItIsNamed()
+    {
+        string corpus = NewCorpusDirectory();
+        try
+        {
+            string specimen = typeof(Fixtures).Assembly.Location;
+            File.Copy(specimen, Path.Combine(corpus, "good.dll"));
+            File.WriteAllBytes(
+                Path.Combine(corpus, "broken.bin"),
+                Damage(File.ReadAllBytes(specimen), DamageKind.Truncated));
+
+            string? problems = SweepProblems(corpus, out string surveyed);
+
+            Assert.False(
+                problems is null,
+                "A damaged assembly named .bin was never enumerated, so the "
+                    + $"sweep reported the corpus clean. {surveyed}");
+            Assert.Contains("broken.bin", problems);
+        }
+        finally
+        {
+            Directory.Delete(corpus, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// Enumeration terminates on a directory that contains itself.
     ///
     /// This one keeps its place while the rest of the enumeration tests go,
@@ -678,6 +767,13 @@ public sealed class StateMachineCompletenessTests
 
     static byte[] Damage(byte[] image, DamageKind kind)
     {
+        if (kind == DamageKind.HeaderTruncated)
+        {
+            // Not enough to answer whether a CLI directory exists, so the file
+            // is undecidable rather than positively unmanaged.
+            return image[..1];
+        }
+
         if (kind == DamageKind.Truncated)
         {
             // Enough to carry the DOS stub, PE signature, COFF header and
@@ -691,6 +787,27 @@ public sealed class StateMachineCompletenessTests
         int signature = copy.AsSpan().IndexOf("BSJB"u8);
         Assert.True(signature >= 0, "The specimen carries no metadata signature.");
         copy[signature] ^= 0xFF;
+        return copy;
+    }
+
+    /// <summary>
+    /// Renames <c>SetStateMachine</c> in the metadata string heap, in place and
+    /// to the same length, so the assembly still decodes and every claim it
+    /// carries still points where it did — but the role lookup finds no method
+    /// of that name and refuses to authenticate.
+    /// </summary>
+    static byte[] Unauthenticatable(byte[] image)
+    {
+        byte[] copy = (byte[])image.Clone();
+        ReadOnlySpan<byte> role = "SetStateMachine"u8;
+        int at = copy.AsSpan().IndexOf(role);
+        Assert.True(
+            at >= 0,
+            "The specimen carries no SetStateMachine to rename, so it cannot "
+                + "produce a refused claim.");
+
+        // The heap deduplicates strings, so one edit reaches every reference.
+        copy[at + role.Length - 1] = (byte)'Z';
         return copy;
     }
 
@@ -726,8 +843,13 @@ public sealed class StateMachineCompletenessTests
     /// reached for, but it does so by omitting that subtree silently. A corpus
     /// whose interesting assemblies sit under a directory the test cannot read
     /// then sweeps green while proving nothing about them. Walking explicitly
-    /// keeps the sweep robust and the hole visible, which is the property that
-    /// actually matters here.
+    /// keeps the sweep robust and the hole visible.
+    ///
+    /// No test in this file enforces that: an unreadable directory needs
+    /// permissions a test cannot portably arrange, and round 13 cut the fixture
+    /// seam that faked one. Treat the recording as a design reason for the walk,
+    /// not a verified property. #4833 tracks the failure contract that would
+    /// give it a home.
     ///
     /// The walk reads each directory once with
     /// <see cref="Directory.GetFileSystemEntries(string)"/> and classifies every
@@ -1199,9 +1321,10 @@ public sealed class StateMachineCompletenessTests
     /// The exit-path-reporting overload. <paramref name="exitSite"/> is an
     /// <c>out</c> parameter rather than a field or a return flag on purpose:
     /// definite assignment means the compiler refuses to build any path out of
-    /// this method that does not name itself. A future early return cannot be
-    /// added silently and then go unenumerated, which is the failure mode that
-    /// produced six rounds of findings.
+    /// this method that does not name itself. The C# compiler is the gate on
+    /// that half, and it is the whole gate: a new early return must pick a
+    /// site, but nothing here checks that the site it picks is the right one,
+    /// or that any given site is ever reached.
     /// </summary>
     static ManagedClaim ReadManagedClaim(
         Stream stream,
