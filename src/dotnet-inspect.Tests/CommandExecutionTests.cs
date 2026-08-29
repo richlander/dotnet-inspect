@@ -31,6 +31,7 @@ using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using InertText;
 using Markout;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1353,7 +1354,9 @@ public partial class CommandExecutionTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
-        File.WriteAllText(Path.Combine(packageRoot, readmeFile), readmeText);
+        var readmePath = Path.Combine(packageRoot, readmeFile.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(readmePath)!);
+        File.WriteAllText(readmePath, readmeText);
         if (agentsText != null)
             File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), agentsText);
         foreach (var (path, content) in extraFiles)
@@ -29258,50 +29261,350 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task SkillDocuments_OmitPayloadsThatRequireContainment()
+    {
+        const string bidi = "\u202E";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.ContainedOutput",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedOutput",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
+
+        try
+        {
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+            var (contentExit, contentOutput, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
+            var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--jsonl");
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
+            Assert.Equal(0, contentJsonExit);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(projectJsonError);
+            Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
+            Assert.Empty(contentJsonError);
+            string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+            Assert.Equal(placeholder, packageOutput);
+            Assert.Equal(placeholder, projectOutput);
+            Assert.Equal(placeholder + "\n", contentOutput);
+            Assert.Contains(placeholder + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, contentBlocksOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, packageJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, projectJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, contentJson, StringComparison.Ordinal);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            using var contentDocument = JsonDocument.Parse(contentJson);
+            Assert.Equal(
+                placeholder,
+                packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(
+                placeholder,
+                projectDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(
+                placeholder,
+                contentDocument.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_PreserveSafeOriginalText()
+    {
+        const string Body = """Use Regex("\\d+") with C:\temp and literal \u202E text.""";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.SafeOriginal",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", Body));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.SafeOriginal",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", Body)]));
+
+        try
+        {
+            var packageOutputPath = Path.Combine(packageTempDir, "package-skill.md");
+            var contentOutputPath = Path.Combine(packageTempDir, "content-skill.md");
+            var projectOutputPath = Path.Combine(projectTempDir, "project-skill.md");
+
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (contentExit, contentOutput, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+            var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                "--output", packageOutputPath);
+            var (contentFileExit, contentFileOutput, contentFileError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare", "--output", contentOutputPath);
+            var (projectFileExit, projectFileOutput, projectFileError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare",
+                "--output", projectOutputPath);
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, contentJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Equal(0, packageFileExit);
+            Assert.Equal(0, contentFileExit);
+            Assert.Equal(0, projectFileExit);
+            Assert.Empty(packageError);
+            Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(contentJsonError);
+            Assert.Empty(projectJsonError);
+            Assert.Empty(packageFileOutput);
+            Assert.Empty(contentFileOutput);
+            Assert.Empty(projectFileOutput);
+            Assert.Empty(packageFileError);
+            Assert.Empty(contentFileError);
+            Assert.Empty(projectFileError);
+            Assert.Equal(Body, packageOutput);
+            Assert.Equal(Body + "\n", contentOutput);
+            Assert.Contains(Body + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.Equal(Body, projectOutput);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var contentDocument = JsonDocument.Parse(contentJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            Assert.Equal(Body, packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, contentDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, projectDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, File.ReadAllText(packageOutputPath));
+            Assert.Equal(Body, File.ReadAllText(contentOutputPath));
+            Assert.Equal(Body, File.ReadAllText(projectOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks()
+    {
+        const string bidi = "\u202E";
+        var body = $"[docs](https://github.com/owner/repo/blob/main/docs/{bidi}INJECTED.md)";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.RawClassification",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", body));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.RawClassification",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", body)]));
+
+        try
+        {
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+            Assert.Equal(placeholder, packageOutput);
+            Assert.Equal(placeholder, projectOutput);
+            Assert.DoesNotContain("%E2%80%AE", packageOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("%E2%80%AE", projectOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment()
+    {
+        const string bidi = "\u202E";
+        const string SkillPath = "skills/readme-skill/SKILL.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.DeclaredReadme",
+            SkillPath,
+            $"readme{bidi}skill");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                output);
+            Assert.DoesNotContain(bidi, output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("-o")]
     [InlineData("--output")]
     public async Task SkillDocuments_OutputAliasesWritePackageAndProjectPayloads(string outputOption)
     {
+        const string bidi = "\u202E";
         var (packagePath, packageTempDir) = CreateLocalReadmePackage(
             "Test.Skills.Output",
             "README.md",
             "readme",
             null,
             null,
-            ("skills/package-skill/SKILL.md", "package skill"));
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
         var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
                 "Test.Project.Skills.Output",
                 "1.0.0",
                 "README.md",
                 "readme",
-                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", "project skill")]));
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
 
         try
         {
             var packageOutput = Path.Combine(packageTempDir, "package-skill.md");
+            var packageContentOutput = Path.Combine(packageTempDir, "package-content-skill.md");
             var projectOutput = Path.Combine(projectTempDir, "project-skill.md");
 
             var (packageExit, packageStdout, packageError) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--bare",
                 outputOption, packageOutput);
+            var (packageContentExit, packageContentStdout, packageContentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare", outputOption, packageContentOutput);
             var (projectExit, projectStdout, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--bare", outputOption, projectOutput);
 
             Assert.Equal(0, packageExit);
+            Assert.Equal(0, packageContentExit);
             Assert.Equal(0, projectExit);
             Assert.Empty(packageStdout);
+            Assert.Empty(packageContentStdout);
             Assert.Empty(projectStdout);
             Assert.Empty(packageError);
+            Assert.Empty(packageContentError);
             Assert.Empty(projectError);
-            Assert.Equal("package skill", File.ReadAllText(packageOutput));
-            Assert.Equal("project skill", File.ReadAllText(projectOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(packageOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(packageContentOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(projectOutput));
         }
         finally
         {
             Directory.Delete(packageTempDir, recursive: true);
             Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_OrdinaryDocumentOutputStillPreservesExactBytes()
+    {
+        const string bidi = "\u202E";
+        var readme = Encoding.UTF8.GetPreamble()
+            .Concat(Encoding.UTF8.GetBytes($"ordinary{bidi}readme\r\n"))
+            .ToArray();
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Ordinary.ExactOutput",
+            "README.md",
+            "placeholder");
+        var packageRoot = Path.Combine(tempDir, "content");
+        File.WriteAllBytes(Path.Combine(packageRoot, "README.md"), readme);
+        File.Delete(packagePath);
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        var outputPath = Path.Combine(tempDir, "exported.md");
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--path", "@readme", "--content", "--bare",
+                "--output", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Equal(readme, File.ReadAllBytes(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
@@ -30329,6 +30632,136 @@ public partial class CommandExecutionTests
                 document.RootElement.GetProperty("name").GetString());
             Assert.Equal(
                 "Package guidance.",
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Before\u202EINJECTED")]
+    [InlineData("Before\fINJECTED")]
+    [InlineData("Before\u0085INJECTED")]
+    [InlineData("Before\u2028INJECTED")]
+    [InlineData("Before\u2029INJECTED")]
+    [InlineData("\fINJECTED")]
+    [InlineData("\u0085INJECTED")]
+    [InlineData("\u2028INJECTED")]
+    [InlineData("\u2029INJECTED")]
+    [InlineData("INJECTED\f")]
+    [InlineData("INJECTED\u0085")]
+    [InlineData("INJECTED\u2028")]
+    [InlineData("INJECTED\u2029")]
+    public async Task Project_SkillsInventory_ReplacesContainedYamlFields(string description)
+    {
+        var skill = $"""
+            ---
+            name: contained-description
+            description: {description}
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedDescription",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-description/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Empty(error);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("\f")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public async Task Project_SkillsInventory_PreservesBlockIndicatorConcerns(string concern)
+    {
+        var skill = $"""
+            ---
+            name: contained-indicator
+            description: |{concern}
+              INJECTED
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedIndicator",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-indicator/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsInventory_FoldsLiteralBlockDescription()
+    {
+        var skill = """
+            ---
+            name: literal-description
+            description: |
+              Renders objects as Markdown.
+              Use when a CLI needs agent-readable output.
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.LiteralDescription",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/literal-description/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "Renders objects as Markdown. Use when a CLI needs agent-readable output.",
                 document.RootElement.GetProperty("description").GetString());
         }
         finally

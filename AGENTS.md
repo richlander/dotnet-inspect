@@ -14,16 +14,44 @@ rules. Detailed design, subsystem mechanics, version requirements, and
 historical context belong with their owning code, workflow, or focused
 documentation.
 
-### Markout changes use the co-development loop
+### How work runs on this repo
 
-When a change needs new or altered Markout behavior, read
-[`docs/markout-co-development.md`](docs/markout-co-development.md) before
-changing either repository. Point dotnet-inspect at the exact Markout source
-branch and validate it as a real consumer before the Markout PR merges; that
-consumer proof is part of getting Markout to quality, not a post-release check.
-Keep the peer-checkout `ProjectReference` edits local and unpushed. After
-Markout lands and releases, restore `PackageReference` and only then raise the
-dotnet-inspect PR.
+- **Design first.** Work must be covered by a design or reasonably extend one;
+  ask the user when it is unclear whether a new design is needed. Finding
+  defects in a design is always cheaper than finding them in code.
+  Docs-only PRs move faster than code PRs: a code PR must wait on CI before
+  review, to avoid spending agent time reviewing a broken build, but a
+  docs-only PR only needs `markdownlint` and does not wait on CI at all.
+- **Complicated features need extraordinary evidence and pre-work** before
+  code is written: corpus evidence, an established oracle, a TLA+ model, or a
+  spec developed with close user input are examples of high-value levers.
+  Much of this work is about bounding or making invariant a component's
+  contract — defining those bounds well *is* the design and the architecture.
+  The code itself is easy once the bounds are right.
+- **We practice demo-driven development.** Every PR demonstrates a demo (a
+  mockup for docs-only PRs). Demos find bugs and let later readers grasp the
+  goal quickly. Demos are the accessibility lever; a missing demo is usually a
+  sign that user scenarios were never defined, though we avoid over-fitting to
+  the demo itself.
+- **Adversarial review is the primary way we find unaddressed defects.** Most
+  changes get two-seat review (see [How many reviewers, and from which
+  models](#how-many-reviewers-and-from-which-models)).
+- **Adversarial review is bounded.** Unbounded rounds are themselves a signal
+  that the design doesn't close. When reviewers keep finding things, we listen
+  and often switch back to a design phase to clarify goals, bounds, and
+  approach (see [Stop after six rounds](#stop-after-six-rounds)).
+- **Security focus is targeted, not general-purpose.** The primary scenario is
+  untrusted internet-origin data (packages, symbols, source); the tool never
+  executes code, which narrows the threat model. We don't defend against
+  local or intra-repo actors. `InertString` and `HardenedJson` are the model:
+  construction-time containment threaded through the object model (see
+  [Security work follows the actual trust
+  boundary](#security-work-follows-the-actual-trust-boundary)).
+
+> A change spanning Markout and this repo is rare and uses a separate
+> co-development loop: read
+> [`docs/markout-co-development.md`](docs/markout-co-development.md) before
+> touching either repository.
 
 ## Session resume
 
