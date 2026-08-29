@@ -291,10 +291,11 @@ listing, so verifying a known unlisted version reports it rather than
 "not found". When listing status is unknown (fail-open, or a non-nuget.org
 feed), versions are reported as listed.
 
-`--include-unlisted` composes with the other `--versions` lenses. The released
-single-version gestures, bare `--version` and count-valued `--versions 1`,
-retain listing status through the listing-aware path. Without
-`--include-unlisted`, both use the optimized single-version listing path;
+`--include-unlisted` composes with the other `--versions` lenses. For an
+unversioned `Name`, the released single-version gestures, bare `--version` and
+count-valued `--versions 1`, retain listing status through the listing-aware
+path. Without `--include-unlisted`, both use the optimized single-version
+listing path;
 `StableSingleVersionListingDoesNotFallBackToPrerelease` gates that
 `--versions 1` does not fall back from an empty stable listing to a prerelease.
 The pending L3 and source designs must decide future semantic-selection syntax
@@ -349,7 +350,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Pinned package `.nupkg` extraction | Uses a global or app payload only when its recorded producer is eligible; downloads otherwise. |
 | Bare package version resolution | Uses the version-resolution cache with a 1-hour TTL, then NuGet. When producer-authorized local payloads exist, an uncached network lookup is bounded to one second and timeout diagnostics offer exact local pins; those diagnostic versions are never selected automatically, and package caches are still used only after a version is resolved. |
 | Bare package `--preview` resolution | Uses a separate prerelease-aware version-resolution cache with a 1-hour TTL, then NuGet. |
-| Explicit single-version listing (`--version`, `--versions 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. Future semantic-selection syntax and acquisition are pending. |
+| Unversioned single-version listing (`Name --version`, `Name --versions 1`) | Combines matching-flavor latest entries with uncached source listings. Without `--preview`, an empty stable listing stays empty rather than falling back to a prerelease. Future semantic-selection syntax and acquisition are pending. |
 | Wildcard version resolution | Uses the same version-list cache as `--versions` with a 1-hour TTL for nuget.org-backed sources. |
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
