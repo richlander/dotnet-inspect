@@ -823,6 +823,27 @@ public class CommandErrorOwnershipTests
         }
     }
 
+    internal static IReadOnlyList<string> EvaluatedCompileFiles(string projectPath)
+    {
+        IReadOnlyList<Dictionary<string, string>> items =
+            Evaluate(projectPath, ["Compile"])["Compile"];
+        List<string> files = new(items.Count);
+
+        foreach (Dictionary<string, string> item in items)
+        {
+            if (item.GetValueOrDefault("FullPath") is not { Length: > 0 } fullPath)
+            {
+                throw new InvalidOperationException(
+                    $"The Release Compile evaluation for {projectPath} "
+                        + "returned an item without FullPath.");
+            }
+
+            files.Add(Path.GetFullPath(fullPath));
+        }
+
+        return files;
+    }
+
     private static readonly ConcurrentDictionary<string, HashSet<string>>
         EvaluatedClosures = new(StringComparer.Ordinal);
 
@@ -963,9 +984,15 @@ public class CommandErrorOwnershipTests
     private static readonly ConcurrentDictionary<string,
         Dictionary<string, IReadOnlyList<Dictionary<string, string>>>> Evaluations = new(StringComparer.Ordinal);
 
-    private static Dictionary<string, IReadOnlyList<Dictionary<string, string>>> Evaluate(string projectPath)
+    private static Dictionary<string, IReadOnlyList<Dictionary<string, string>>> Evaluate(
+        string projectPath) =>
+        Evaluate(projectPath, Items);
+
+    private static Dictionary<string, IReadOnlyList<Dictionary<string, string>>> Evaluate(
+        string projectPath,
+        IReadOnlyCollection<string> items)
     {
-        string item = string.Join(',', Items);
+        string item = string.Join(',', items);
 
         using Process process = new()
         {
@@ -991,12 +1018,12 @@ public class CommandErrorOwnershipTests
         }
 
         using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement items = document.RootElement.GetProperty("Items");
+        JsonElement evaluatedItems = document.RootElement.GetProperty("Items");
         Dictionary<string, IReadOnlyList<Dictionary<string, string>>> result = new(StringComparer.Ordinal);
 
-        foreach (string name in Items)
+        foreach (string name in items)
         {
-            result[name] = items.TryGetProperty(name, out JsonElement values)
+            result[name] = evaluatedItems.TryGetProperty(name, out JsonElement values)
                 ?
                 [
                     .. values.EnumerateArray().Select(v => v.EnumerateObject()
