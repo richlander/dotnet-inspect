@@ -1,32 +1,34 @@
 ---
 name: dotnet-inspect-deep-inspect
 version: 0.1.0
-description: Run and interpret opt-in expensive validation lanes: full slow tests, IL round-trip sweep, corpus sensors, package discovery, validity scans, and analysis census.
+description: Run and interpret opt-in expensive validation lanes: full slow tests, cross-platform certification, IL round-trip sweep, corpus sensors, package discovery, validity scans, and analysis census.
 ---
 
 # dotnet-inspect: Deep Inspect
 
 Use this skill when a change needs expensive evidence outside normal PR CI.
-Deep Inspect is opt-in for risky PRs. Its `test` and decompiler-corpus jobs also
-run daily to certify a commit for release, and can be dispatched on demand
-during the day. Publish consumes that evidence rather than rerunning the slow
-suites.
+Deep Inspect is opt-in for risky PRs. Its `test`, `platform-test`, and
+decompiler-corpus jobs run daily to certify a commit for release, and can be
+dispatched on demand during the day. Publish consumes that evidence rather than
+rerunning the slow suites.
 
 ## Lanes
 
 | Lane | Use for | Runs |
 | ---- | ------- | ---- |
 | `test` | Daily/on-demand release certification or blocking proof before risky merges | Full decompiler tests, full analysis tests, vendored ILAssembler restore, full IL round-trip sweep. |
+| `platform-test` | Daily/on-demand release certification across Windows, macOS, and Ubuntu | Reduced cross-platform suite: CLI, CSharpText, artifact, fast decompiler, NuGetFetch offline, metadata, services, query, and Research tests, plus `ilasm`/`ildasm`/`mdv` setup. |
 | `census` | Observational broad signal and triage | Real-world corpus sensor, validity predicate scan, uncapped validity sweep, assertion scan, analysis corpus sensor, paydirt recall. |
 | `package-sweep` | Weekly/on-demand discovery over current top NuGet packages | Product-backed package acquisition plus bounded per-library fully-raised, validity, defect-class, and promotion-candidate reporting. |
 | `authored-corpus` | Regression ratchet against checksum-verified authored source | Restores the pinned authored-source corpus and fails on quality regression or measurement-integrity loss. |
 | `nightly` | Opt-in next-SDK/compiler validation | Builds with the .NET daily SDK and checks opt-in compiler lowering drift; intentionally excluded from `all`. |
-| `all` | Release-candidate deep read | The `test`, decompiler-corpus, `census`, and `authored-corpus` lanes. |
+| `all` | Release-candidate deep read | The `test`, `platform-test`, decompiler-corpus, `census`, and `authored-corpus` lanes. |
 
 Run manually:
 
 ```bash
 gh workflow run deep-inspect.yml -f lane=test
+gh workflow run deep-inspect.yml -f lane=platform-test
 gh workflow run deep-inspect.yml -f lane=census
 gh workflow run deep-inspect.yml -f lane=package-sweep
 gh workflow run deep-inspect.yml -f lane=authored-corpus
@@ -61,12 +63,17 @@ The corpus command runs as a separate workflow job and can take hours. Omit it
 only when intentionally reproducing the non-corpus `test` job rather than the
 complete dispatched `test` lane.
 
-A successful daily or manually dispatched `test` run certifies its exact
-`main` SHA for 36 hours. Publish requires the certification run ID. Publishing
-a later descendant remains an explicit operator decision. Its exact main-push
-`ci-required` result must succeed, but main-push CI does not run the PR-only
-substantive test jobs, and the certification does not claim to cover
-intervening changes.
+A successful daily or manually dispatched certification requires the `test`,
+`platform-test`, and decompiler-corpus jobs at one exact `main` SHA. Publish
+requires that certification run ID. Publishing a later descendant remains an
+explicit operator decision. Its exact main-push `ci-required` result must
+succeed, but main-push CI does not run the PR-only substantive test jobs, and
+the certification does not claim to cover intervening changes.
+
+The `platform-test` lane is workflow-owned and runs the reduced
+cross-platform suite on Windows, macOS, and Ubuntu. When reproducing a
+platform-only break locally, mirror the exact project list and tool activation
+from `.github/workflows/deep-inspect.yml` for the affected platform.
 
 For the census lane, prefer the workflow so artifacts are retained. If running
 locally, use the same scripts/baselines as `deep-inspect.yml` and preserve the
@@ -82,8 +89,9 @@ accepted for ongoing coverage.
 
 ## Reading results
 
-- Treat `test` failures as blockers: reproduce locally, identify the first
-  failing proof, and fix it before certification can authorize publish.
+- Treat `test`, `platform-test`, and decompiler-corpus failures as blockers:
+  reproduce locally, identify the first failing proof, and fix it before
+  certification can authorize publish.
 - Treat `census` output as triage signal unless a command exits nonzero by
   design. Compare snapshots against committed baselines and route meaningful
   drift to issues or follow-up PRs.
