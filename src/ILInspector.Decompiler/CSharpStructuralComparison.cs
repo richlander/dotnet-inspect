@@ -708,7 +708,9 @@ public static partial class CSharpBodyDiff
     {
         ImmutableArray<AnnotatedSourceSpan> beforeSpans;
         ImmutableArray<AnnotatedSourceSpan> afterSpans;
-        if (beforeNode is not null && afterNode is not null)
+        if (beforeNode is not null
+            && afterNode is not null
+            && change.HasFlag(CSharpStructuralChangeKind.Changed))
         {
             (beforeSpans, afterSpans) = NarrowToChangedHeader(
                 beforeDocument!, beforeNode, afterDocument!, afterNode);
@@ -744,6 +746,29 @@ public static partial class CSharpBodyDiff
     // is byte-for-byte identical on both sides. That second check is what
     // also resolves item 7: once the row's spans no longer cover the
     // unchanged body lines, RenderAnnotatedBody stops annotating them.
+    //
+    // `document.Regions` is a flat, node-identity-free list of positional
+    // spans, so containment alone cannot prove a `Header` region belongs to
+    // this node rather than to a nested construct inside its body (round-1
+    // review, both reviewers independently: a headerless ancestor such as
+    // `TryStatement` -- `TryCatch`/`TryFinally` never record their own
+    // `Header` -- could otherwise adopt a nested `using`'s header as if it
+    // were its own). `KindsWithOwnHeaderRegion` is the exact, closed set of
+    // rendered kinds `CSharpPrinter.cs` emits a `Header` region for; only
+    // matched pairs of those kinds are considered at all, so a headerless
+    // ancestor can never reach the containment search in the first place.
+    static readonly ImmutableHashSet<string> KindsWithOwnHeaderRegion = ImmutableHashSet.Create(
+        StringComparer.Ordinal,
+        "UsingStatement",
+        "ForeachStatement",
+        "LockStatement",
+        "FixedStatement",
+        "IfStatement",
+        "ForStatement",
+        "WhileStatement",
+        "DoStatement",
+        "SwitchStatement");
+
     static (ImmutableArray<AnnotatedSourceSpan> BeforeSpans, ImmutableArray<AnnotatedSourceSpan> AfterSpans)
         NarrowToChangedHeader(
             AnnotatedSourceDocument beforeDocument,
@@ -757,6 +782,11 @@ public static partial class CSharpBodyDiff
 
         if (beforeNode.Spans.Count != 1 || afterNode.Spans.Count != 1)
             return fallback;
+        if (!KindsWithOwnHeaderRegion.Contains(beforeNode.Kind)
+            || !KindsWithOwnHeaderRegion.Contains(afterNode.Kind))
+        {
+            return fallback;
+        }
 
         var beforeHeader = FindSoleContainedHeaderRegion(beforeDocument, beforeNode);
         var afterHeader = FindSoleContainedHeaderRegion(afterDocument, afterNode);
