@@ -360,7 +360,10 @@ public sealed class SignatureSpellabilityAggregateTests
         using var catalog = new TypeResolutionCatalog();
 
         SyntheticAssembly optionalSource =
-            BuildModifierSource("OptionalSource", identity, optionalOnly: true);
+            BuildModifierSource(
+                "OptionalSource",
+                identity,
+                ModifierShape.OptionalOnly);
         SignatureSpellabilityPlan optional = Plan(
             catalog,
             Descriptor(optionalSource.Image),
@@ -379,8 +382,39 @@ public sealed class SignatureSpellabilityAggregateTests
             Assert.True(aggregate.CanSpell());
         }
 
+        SyntheticAssembly requiredSource =
+            BuildModifierSource(
+                "RequiredSource",
+                identity,
+                ModifierShape.RequiredOnly);
+        SignatureSpellabilityPlan required = Plan(
+            catalog,
+            Descriptor(requiredSource.Image),
+            requiredSource.Coordinates);
+        Assert.True(Assert.Single(required.Requests)
+            .AccessibilityParticipates);
+        Assert.Equal(
+            SignatureSpellabilityOccurrenceRole.RequiredModifier,
+            Assert.Single(
+                required.Occurrences,
+                occurrence => occurrence.Request is not null).Role);
+        using (TypeResolutionContext requiredContext =
+            catalog.CreateSignatureSpellabilityContext(
+                new MapPolicy(target),
+                required,
+                [target]))
+        {
+            Assert.False(
+                Assert.IsType<SignatureSpellabilityAggregate.Complete>(
+                    requiredContext.EvaluateSignatureSpellability(required))
+                .CanSpell());
+        }
+
         SyntheticAssembly mixedSource =
-            BuildModifierSource("MixedSource", identity, optionalOnly: false);
+            BuildModifierSource(
+                "MixedSource",
+                identity,
+                ModifierShape.Mixed);
         SignatureSpellabilityPlan mixed = Plan(
             catalog,
             Descriptor(mixedSource.Image),
@@ -1697,6 +1731,13 @@ public sealed class SignatureSpellabilityAggregateTests
         Truncated,
     }
 
+    enum ModifierShape
+    {
+        OptionalOnly,
+        RequiredOnly,
+        Mixed,
+    }
+
     static SyntheticAssembly BuildDuplicateReferenceSource(
         AssemblyReferenceIdentity reference)
     {
@@ -1741,7 +1782,7 @@ public sealed class SignatureSpellabilityAggregateTests
     static SyntheticAssembly BuildModifierSource(
         string assemblyName,
         AssemblyReferenceIdentity reference,
-        bool optionalOnly)
+        ModifierShape shape)
     {
         var metadata = Base(assemblyName, out Guid mvid);
         AssemblyReferenceHandle assembly =
@@ -1771,12 +1812,16 @@ public sealed class SignatureSpellabilityAggregateTests
         }
         MethodDefinitionHandle method = AddMethod(
             metadata,
-            optionalOnly
-                ? MethodSignature(Optional())
-                : MethodSignature(
+            shape switch
+            {
+                ModifierShape.OptionalOnly => MethodSignature(Optional()),
+                ModifierShape.RequiredOnly => MethodSignature(Required()),
+                ModifierShape.Mixed => MethodSignature(
                     Optional(),
                     Required(),
-                    Class(modifier)));
+                    Class(modifier)),
+                _ => throw new ArgumentOutOfRangeException(nameof(shape)),
+            });
         return Synthetic(metadata, mvid, declaring, method);
     }
 

@@ -3177,8 +3177,8 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   released, and under a concurrent publisher every result is either wholly
   current or `StaleSource` — never evidence mixed across generations.
 - `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
-  function pointers, generic arguments, and modified types, and proves that a
-  rejected decode exposes no partial request set.
+  function pointers, and generic arguments, and proves that a rejected decode
+  exposes no partial request set.
 - `SignatureSpellability_MapsClosedReferenceScopes` produces
   `FromReference`, `FromAssembly`, direct primitive, and `FromModule` evidence
   for the four `MetadataTypeReferenceScope` arms.
@@ -3194,8 +3194,7 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   produce `CanSpell: true`.
 - `SignatureSpellability_DerivesInitialScopePerReference` combines a platform
   reference and an ordinary package reference in one signature; the first is
-  `Platform`, the second remains `Any`, and a confusable local platform copy is
-  never selected.
+  `Platform` and the second remains `Any`.
 - `SignatureSpellability_MergesModifierParticipation` covers optional-only,
   required-only, ordinary, and mixed duplicate occurrences. Resolution is
   required for all; external accessibility is ignored only for an
