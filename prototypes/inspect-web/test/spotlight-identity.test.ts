@@ -2764,7 +2764,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
-    /const navigationSeq = navigationSequence\.begin\(\);\s*dismissModalsForRoutedNavigation\(\)/);
+    /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
     /function dismissModalsForRoutedNavigation\(\) \{\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\)/);
@@ -2826,10 +2826,16 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function packageQueryWorkspaceHref\(\): string \{[\s\S]*lastCanonicalWorkspaceHref[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     appSource,
-    /const focusWorkspace = state\.packageQueryOpen;\s*if \(focusWorkspace\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*workspaceLocation\.push/);
+    /const focusWorkspace = state\.packageQueryOpen;\s*if \(focusWorkspace\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspace\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push/);
   assert.match(
     appSource,
-    /await restoreWorkspaceFromLocation\(loc, loc, navigationSeq\);[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
+    /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
+  assert.match(
+    appSource,
+    /bindEvents\(\);\s*restorePackageQueryReturnFocus\(\);\s*restorePackageQueryWorkspaceFocus\(\)/);
+  assert.match(
+    popstate,
+    /leftPackageQueryForWorkspaceSuccessor =\s*!state\.packageQueryReturnFocusPending;[\s\S]*if \(leftPackageQueryForWorkspaceSuccessor\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq/);
   assert.match(
     appSource,
     /url => workspaceLocation\.replace\(url, history\.state\)/);

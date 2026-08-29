@@ -825,6 +825,7 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 let lastCanonicalWorkspaceHref: string | null = null;
+let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -2689,6 +2690,7 @@ function render() {
 
   bindEvents();
   restorePackageQueryReturnFocus();
+  restorePackageQueryWorkspaceFocus();
   recordNav();
   syncUrl();
   maybeAutoLoadVisibleSource();
@@ -7023,6 +7025,18 @@ function restorePackageQueryReturnFocus() {
   });
 }
 
+function restorePackageQueryWorkspaceFocus() {
+  const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;
+  if (navigationSeq === null) return;
+  packageQueryWorkspaceFocusNavigationSeq = null;
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
+  afterCurrentNavigationFrame(() => {
+    if (!focusLevelOneHeading()) {
+      document.querySelector<HTMLElement>("#type-list")?.focus();
+    }
+  });
+}
+
 function resetPackageQueryState() {
   const fresh = initialQueryState();
   state.packageQueryState.request = fresh.request;
@@ -9987,23 +10001,14 @@ function navigateInAppUrl(url: URL) {
     state.packageQueryNavigationError = "";
   }
   const navigationSeq = navigationSequence.begin();
+  if (focusWorkspace) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+  }
   workspaceLocation.push(url.toString());
   const loc = parseLocation();
-  observeAsync((async () => {
-    await restoreWorkspaceFromLocation(loc, loc, navigationSeq);
-    if (!focusWorkspace
-      || !navigationSequence.isCurrent(navigationSeq)
-      || state.loading
-      || state.error
-      || state.packageQueryOpen) {
-      return;
-    }
-    afterCurrentNavigationFrame(() => {
-      if (!focusLevelOneHeading()) {
-        document.querySelector<HTMLElement>("#type-list")?.focus();
-      }
-    });
-  })(), "Navigating");
+  observeAsync(
+    restoreWorkspaceFromLocation(loc, loc, navigationSeq),
+    "Navigating");
 }
 
 bindWorkspaceLinkNavigation(document, {
@@ -10421,6 +10426,7 @@ function dismissModalsForRoutedNavigation() {
 
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
+  let leftPackageQueryForWorkspaceSuccessor = false;
   dismissModalsForRoutedNavigation();
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
@@ -10444,6 +10450,8 @@ window.addEventListener("popstate", () => {
       && isPackageQueryPredecessor(
         history.state,
         state.packageQueryPredecessorEntryId);
+    leftPackageQueryForWorkspaceSuccessor =
+      !state.packageQueryReturnFocusPending;
   }
   const loc = parseLocation();
   if (isCreditsPath(location.pathname)) {
@@ -10492,6 +10500,9 @@ window.addEventListener("popstate", () => {
     spotlight.reset();
     render();
     return;
+  }
+  if (leftPackageQueryForWorkspaceSuccessor) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   state.credits = false;
   resetLocationFilters();
