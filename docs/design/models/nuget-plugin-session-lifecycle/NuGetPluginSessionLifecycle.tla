@@ -24,7 +24,9 @@ ASSUME
     /\ ResponseMode \in {"Correlated", "Misdirect"}
     /\ ProgressMode \in {"Correlated", "Misdirect"}
     /\ ShutdownMode \in {"CloseAdmission", "SnapshotOnly"}
-    /\ WriteTimeoutMode \in {"CoversWrite", "AfterWrite"}
+    /\ WriteTimeoutMode \in
+        {"CoversWrite", "AfterWrite",
+         "ReleasesWriter", "MisclassifiesPeers"}
     /\ InitializationTimeoutMode \in {"Enforced", "Absent"}
 
 Requests == 1..RequestCount
@@ -91,9 +93,9 @@ LiveRequests ==
     {request \in Requests : LiveRequest(request)}
 
 DeadlineEligible(request) ==
-    IF WriteTimeoutMode = "CoversWrite"
-    THEN LiveRequest(request)
-    ELSE requestState[request] = "Waiting"
+    IF WriteTimeoutMode = "AfterWrite"
+    THEN requestState[request] = "Waiting"
+    ELSE LiveRequest(request)
 
 HandshakeSatisfied ==
     IF HandshakeMode = "Symmetric"
@@ -478,12 +480,19 @@ TimeoutRequest(request) ==
     /\ request \in Requests
     /\ DeadlineEligible(request)
     /\ deadlineRemaining[request] = 0
-    /\ LET abortConnection ==
+    /\ LET preemptsWriter ==
             requestState[request] = "Writing"
             /\ writeOwner = request
+           terminateConnection ==
+            preemptsWriter
+            /\ WriteTimeoutMode # "ReleasesWriter"
+           peerOutcome ==
+            IF WriteTimeoutMode = "MisclassifiesPeers"
+            THEN "TimedOut"
+            ELSE "ConnectionClosed"
        IN
         /\ requestState' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
@@ -491,18 +500,18 @@ TimeoutRequest(request) ==
                     ELSE requestState[candidate]]
             ELSE [requestState EXCEPT ![request] = "Done"]
         /\ requestOutcome' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
                     THEN
                         IF candidate = request
                         THEN "TimedOut"
-                        ELSE "ConnectionClosed"
+                        ELSE peerOutcome
                     ELSE requestOutcome[candidate]]
             ELSE [requestOutcome EXCEPT ![request] = "TimedOut"]
         /\ deadlineRemaining' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
@@ -510,7 +519,7 @@ TimeoutRequest(request) ==
                     ELSE deadlineRemaining[candidate]]
             ELSE deadlineRemaining
         /\ completionCount' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
@@ -518,27 +527,27 @@ TimeoutRequest(request) ==
                     ELSE completionCount[candidate]]
             ELSE [completionCount EXCEPT ![request] = @ + 1]
         /\ connection' =
-            IF abortConnection
+            IF terminateConnection
             THEN "Closed"
             ELSE connection
         /\ readLoop' =
-            IF abortConnection
+            IF terminateConnection
             THEN "Stopped"
             ELSE readLoop
         /\ admissionOpen' =
-            IF abortConnection
+            IF terminateConnection
             THEN FALSE
             ELSE admissionOpen
         /\ writeOwner' =
-            IF abortConnection
+            IF preemptsWriter
             THEN NoWriter
             ELSE writeOwner
         /\ shutdownPhase' =
-            IF abortConnection
+            IF terminateConnection
             THEN "Settled"
             ELSE shutdownPhase
         /\ shutdownSnapshot' =
-            IF abortConnection
+            IF terminateConnection
             THEN LiveRequests
             ELSE shutdownSnapshot
     /\ UNCHANGED
@@ -550,12 +559,19 @@ TimeoutRequest(request) ==
 CancelCaller(request) ==
     /\ request \in Requests
     /\ LiveRequest(request)
-    /\ LET abortConnection ==
+    /\ LET preemptsWriter ==
             requestState[request] = "Writing"
             /\ writeOwner = request
+           terminateConnection ==
+            preemptsWriter
+            /\ WriteTimeoutMode # "ReleasesWriter"
+           peerOutcome ==
+            IF WriteTimeoutMode = "MisclassifiesPeers"
+            THEN "TimedOut"
+            ELSE "ConnectionClosed"
        IN
         /\ requestState' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
@@ -563,18 +579,18 @@ CancelCaller(request) ==
                     ELSE requestState[candidate]]
             ELSE [requestState EXCEPT ![request] = "Done"]
         /\ requestOutcome' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
                     THEN
                         IF candidate = request
                         THEN "CallerCanceled"
-                        ELSE "ConnectionClosed"
+                        ELSE peerOutcome
                     ELSE requestOutcome[candidate]]
             ELSE [requestOutcome EXCEPT ![request] = "CallerCanceled"]
         /\ deadlineRemaining' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
@@ -582,7 +598,7 @@ CancelCaller(request) ==
                     ELSE deadlineRemaining[candidate]]
             ELSE [deadlineRemaining EXCEPT ![request] = 0]
         /\ completionCount' =
-            IF abortConnection
+            IF terminateConnection
             THEN
                 [candidate \in Requests |->
                     IF LiveRequest(candidate)
@@ -590,27 +606,27 @@ CancelCaller(request) ==
                     ELSE completionCount[candidate]]
             ELSE [completionCount EXCEPT ![request] = @ + 1]
         /\ connection' =
-            IF abortConnection
+            IF terminateConnection
             THEN "Closed"
             ELSE connection
         /\ readLoop' =
-            IF abortConnection
+            IF terminateConnection
             THEN "Stopped"
             ELSE readLoop
         /\ admissionOpen' =
-            IF abortConnection
+            IF terminateConnection
             THEN FALSE
             ELSE admissionOpen
         /\ writeOwner' =
-            IF abortConnection
+            IF preemptsWriter
             THEN NoWriter
             ELSE writeOwner
         /\ shutdownPhase' =
-            IF abortConnection
+            IF terminateConnection
             THEN "Settled"
             ELSE shutdownPhase
         /\ shutdownSnapshot' =
-            IF abortConnection
+            IF terminateConnection
             THEN LiveRequests
             ELSE shutdownSnapshot
     /\ UNCHANGED
@@ -814,12 +830,53 @@ ClosedConnectionIsQuiescent ==
 ClosedConnectionIsAbsorbing ==
     [][connection = "Closed" => connection' = "Closed"]_vars
 
+WriterPreemptionResult(request, expectedOutcome) ==
+    /\ connection' = "Closed"
+    /\ readLoop' = "Stopped"
+    /\ ~admissionOpen'
+    /\ writeOwner' = NoWriter
+    /\ requestState'[request] = "Done"
+    /\ requestOutcome'[request] = expectedOutcome
+    /\ \A peer \in Requests:
+        IF peer # request /\ LiveRequest(peer)
+        THEN
+            /\ requestState'[peer] = "Done"
+            /\ requestOutcome'[peer] = "ConnectionClosed"
+        ELSE TRUE
+
+TimeoutWriterPreemption(request) ==
+    /\ requestState[request] = "Writing"
+    /\ writeOwner = request
+    /\ requestState'[request] = "Done"
+    /\ requestOutcome'[request] = "TimedOut"
+
+CancellationWriterPreemption(request) ==
+    /\ requestState[request] = "Writing"
+    /\ writeOwner = request
+    /\ requestState'[request] = "Done"
+    /\ requestOutcome'[request] = "CallerCanceled"
+
+WriterPreemptionIsContained ==
+    [][
+        /\ \A request \in Requests:
+            TimeoutWriterPreemption(request) =>
+                WriterPreemptionResult(request, "TimedOut")
+        /\ \A request \in Requests:
+            CancellationWriterPreemption(request) =>
+                WriterPreemptionResult(request, "CallerCanceled")
+    ]_vars
+
 InitializationEventuallySettles ==
     connection = "Handshaking"
         ~> connection \in {"Ready", "Failed", "Closing", "Closed"}
 
 InboundHandshakeEventuallySettles ==
     InboundHandshakeLive
+        ~> (InboundHandshakeSettled
+            \/ connection \in {"Failed", "Closing", "Closed"})
+
+MalformedInboundEventuallySettles ==
+    pluginHandshake = "MalformedWaitingWrite"
         ~> (InboundHandshakeSettled
             \/ connection \in {"Failed", "Closing", "Closed"})
 

@@ -77,14 +77,16 @@ them when `_pending` has no matching entry.
 | `ShutdownSettlementIsComplete` | The shutdown collection settles every request admitted before admission closed. |
 | `ClosedConnectionIsQuiescent` | A closed connection owns no writer or live request and cannot admit work. |
 | `ClosedConnectionIsAbsorbing` | Once closed, the connection cannot move back to an earlier lifecycle state. |
+| `WriterPreemptionIsContained` | Timeout or cancellation of the active writer closes the connection and classifies every other live request as connection-closed. |
 | `InitializationEventuallySettles` | Under weak fairness for protocol handling, initialization reaches ready, failed, or closing state. |
 | `InboundHandshakeEventuallySettles` | A received inbound handshake is answered or the connection terminates. |
+| `MalformedInboundEventuallySettles` | Once a malformed inbound handshake is received, it receives a response or the connection terminates. |
 | `EveryRequestSettlesAfterProgressStops` | Once a live request receives no further Progress renewals, its deadline eventually gives it one outcome. |
 | `ObservedShutdownEventuallyCloses` | Once pipe loss is observed, internal shutdown reaches closed state. |
 
 `Safety.cfg` checks all state invariants. `Liveness.cfg` checks the four
-liveness properties, the closed-state action property, and the core completion
-and quiescence invariants.
+liveness properties, the closed-state and writer-preemption action properties,
+and the core completion and quiescence invariants.
 
 ## Fairness and environment assumptions
 
@@ -104,7 +106,9 @@ the plugin drains stdin, TLC finds that a request can remain in the writer
 forever after Progress has stopped. The positive rule does not abandon that
 writer and reuse the pipe: timeout or caller cancellation while a request owns
 the writer terminates the connection and settles every other admitted request
-as connection-closed.
+as connection-closed. `WriterPreemptionIsContained` checks that action-level
+relationship independently; its two mutation configurations demonstrate unsafe
+writer reuse and incorrect peer classification.
 
 Progress may repeat indefinitely. The model does not claim that a request
 settles while the plugin keeps renewing its deadline. `StopProgress` records
@@ -146,13 +150,15 @@ matches the abstraction.
 | `Liveness.cfg` | Checks initialization, inbound handling, admitted-request, and shutdown progress. |
 | `BrokenHostOnlyHandshake.cfg` | Lets host readiness depend only on the reply to its own handshake. It must violate `ReadyRequiresSymmetricHandshake`. |
 | `BrokenInitializationTimeout.cfg` | Removes the host's independent initialization timeout. It must violate `InitializationEventuallySettles` when the plugin remains silent. |
-| `BrokenInboundSettlement.cfg` | Combines malformed abandoned work with no host timeout. It must violate `InboundHandshakeEventuallySettles`. |
+| `BrokenInboundSettlement.cfg` | Combines malformed abandoned work with no host timeout. It must violate `MalformedInboundEventuallySettles` through the malformed path rather than a stalled well-formed response write. |
 | `CurrentInboundFailure.cfg` | Drops a malformed plugin-originated handshake as unobserved work. It must violate `InboundFailureIsContained`. |
 | `BrokenResponseCorrelation.cfg` | Completes another live request instead of the response's request ID. It must violate `ResponsesCompleteOnlyTheirRequest`. |
 | `BrokenProgressCorrelation.cfg` | Renews another live request instead of the progress message's request ID. It must violate `ProgressRenewsOnlyItsRequest`. |
 | `CurrentShutdownAdmission.cfg` | Admits a request after the read loop stops. It must violate `RequestAdmissionHasLiveReceiver`. |
 | `CurrentShutdownSnapshot.cfg` | Leaves admission open while shutdown snapshots pending requests. It must violate `ShutdownSettlementIsComplete`. |
 | `CurrentStalledWrite.cfg` | Lets timeout become observable only after a serialized write returns. It must violate `EveryRequestSettlesAfterProgressStops` when the write stalls. |
+| `BrokenWriterPreemptionReuse.cfg` | Releases the writer without terminating the connection. It must violate `WriterPreemptionIsContained`. |
+| `BrokenWriterPreemptionClassification.cfg` | Terminates the connection but classifies another live request as timed out. It must violate `WriterPreemptionIsContained`. |
 | `UnboundedProgress.cfg` | Checks the intentionally unsupported stronger claim that every request settles even while Progress renewals continue forever. |
 
 All configurations disable TLC's deadlock check because ready, failed, closed,
@@ -178,7 +184,7 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -config Liveness.cfg NuGetPluginSessionLifecycle.tla
 ```
 
-The ten non-positive configurations are expected to exit unsuccessfully:
+The twelve non-positive configurations are expected to exit unsuccessfully:
 
 ```bash
 for config in \
@@ -191,6 +197,8 @@ for config in \
   CurrentShutdownAdmission \
   CurrentShutdownSnapshot \
   CurrentStalledWrite \
+  BrokenWriterPreemptionReuse \
+  BrokenWriterPreemptionClassification \
   UnboundedProgress
 do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
@@ -206,7 +214,7 @@ The positive configurations completed with no errors:
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
 | Safety | 15,477 | 5,971 | 24 | All 10 invariants passed. |
-| Liveness | 15,477 | 5,971 | 24 | Four liveness properties and the closed-state action property passed. |
+| Liveness | 15,477 | 5,971 | 24 | Four liveness properties and two action properties passed. |
 
 The safety run gave nonzero coverage to all 21 actions enabled by the positive
 mode. This includes 516 `TickDeadline`, 69 `ReceiveResponse`, 22
@@ -229,8 +237,8 @@ checks the rule through `RequestAdmissionHasLiveReceiver` and
 `ReadyRequiresSymmetricHandshake`.
 
 Every non-positive configuration exited unsuccessfully on its intended claim.
-Six invariant configurations returned TLC status 12; the four temporal
-configurations returned status 13.
+Six invariant configurations returned TLC status 12; the six temporal or
+action-property configurations returned status 13.
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
@@ -243,6 +251,8 @@ configurations returned status 13.
 | Current shutdown admission | 656 / 480 | 8 | The read loop stopped, but request 1 was admitted with no live receiver. |
 | Current shutdown snapshot | 953 / 653 | 10 | The read loop captured an empty pending set; request 1 was then admitted before settlement, escaped the snapshot, and depended on its ordinary request timeout. |
 | Current stalled write | 10,873 / 5,199 | 24 | Request 1 acquired the serialized writer, Progress stopped, the transport never completed the write, and the already-running timer could not settle the request because its result was observed only after the write. |
+| Writer-preemption reuse | 684 / 506 | 9 | Caller cancellation released the active writer while leaving the connection ready, the reader running, and admission open. |
+| Writer-preemption classification | 734 / 535 | 10 | Caller cancellation closed the connection but classified another live request as timed out instead of connection-closed. |
 | Unbounded Progress | 15,477 / 5,971 | 24 | Request 1 alternated deadline expiry and Progress renewal forever, disproving unconditional settlement while renewals continue. |
 
 The runs used:

@@ -155,12 +155,15 @@ Two details are easy to get wrong:
 
 The request timeout covers the whole admitted operation: registration, waiting for the serialized
 writer, and waiting for a response. If timeout or caller cancellation preempts the request that
-owns an in-progress pipe write, the connection terminates before another writer can use that pipe.
-Terminal pipe loss closes request admission before the read loop collects and settles pending
-requests. A malformed plugin-originated request receives an error response or the connection
-terminates; it never becomes abandoned work. These are model-checked design rules. The current
-implementation does not yet enforce the stalled-write or shutdown-admission rules, and malformed
-inbound payload handling remains tracked by #3551.
+owns an in-progress pipe write, the connection terminates before another writer can use that pipe;
+`WriterPreemptionIsContained` and `ClosedConnectionIsAbsorbing` check that rule. Terminal pipe loss
+closes request admission before the read loop collects and settles pending requests, checked by
+`RequestAdmissionHasLiveReceiver` and `ShutdownSettlementIsComplete`. A malformed
+plugin-originated request receives an error response or the connection terminates; it never becomes
+abandoned work, checked by `InboundFailureIsContained` and
+`MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
+stalled-write or shutdown-admission rules, and malformed inbound payload handling remains tracked
+by #3551.
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
