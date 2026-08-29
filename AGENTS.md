@@ -19,9 +19,9 @@ documentation.
 - **Design first.** Work must be covered by a design or reasonably extend one;
   ask the user when it is unclear whether a new design is needed. Finding
   defects in a design is always cheaper than finding them in code.
-  Docs-only PRs get more process flexibility than code PRs: code PRs must wait
-  on CI to avoid wasting agent time on a broken build, but docs-only PRs only
-  need linting, so they can move much faster.
+  Docs-only PRs move faster than code PRs: a code PR must wait on CI before
+  review, to avoid spending agent time reviewing a broken build, but a
+  docs-only PR only needs `markdownlint` and does not wait on CI at all.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -40,17 +40,12 @@ documentation.
   that the design doesn't close. When reviewers keep finding things, we listen
   and often switch back to a design phase to clarify goals, bounds, and
   approach (see [Stop after six rounds](#stop-after-six-rounds)).
-- **Security focus is targeted, not general-purpose.** The tool's primary
-  scenario is downloading and processing untrusted internet data; unlike a
-  browser or the .NET runtime, it does not execute code, which narrows the
-  threat model substantially. Real attack scenarios remain against that
-  internet-origin data, which is what `InertString` and `HardenedJson` address.
-  We do not defend against local or intra-repo scenarios (e.g., a hypothetical
-  hostile component within the repo ignoring our contracts). `InertString` is
-  the model to follow: construction-time containment threaded through the
-  object model gives journey-level safety with very little code, in contrast
-  to string conventions or defenses against callers the contract already
-  excludes (see [Security work follows the actual trust
+- **Security focus is targeted, not general-purpose.** The primary scenario is
+  untrusted internet-origin data (packages, symbols, source); the tool never
+  executes code, which narrows the threat model. We don't defend against
+  local or intra-repo actors. `InertString` and `HardenedJson` are the model:
+  construction-time containment threaded through the object model (see
+  [Security work follows the actual trust
   boundary](#security-work-follows-the-actual-trust-boundary)).
 
 > A change spanning Markout and this repo is rare and uses a separate
