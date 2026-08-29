@@ -326,6 +326,14 @@ PE-backed readonly-field getter judgment and its acquisition-scoped cache;
 `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
 the optimization adapter shares one classification. The classifier does not
 own optimization policy or general method-body scheduling.
+`LibraryBodyGenericConstraintClassifier` owns generic-constraint presence for
+reader-relative async-sibling analysis and primary-image generic-parameter
+value-type eligibility for optimization analysis. It does not own sibling
+selection or opportunity policy.
+`OptimizationOpportunities_GenericObjectEqualsBox_IsReported`,
+`OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
+`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
+judgments.
 `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
