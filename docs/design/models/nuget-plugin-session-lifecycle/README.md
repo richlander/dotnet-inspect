@@ -249,19 +249,19 @@ action-property configurations returned status 13.
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
 | Host-only handshake | 122 / 102 | 3 | The host received its own successful handshake response and published `Ready` before receiving or answering the plugin's handshake. |
-| Missing initialization timeout | 15,373 / 5,930 | 24 | With no fair host timeout and no required peer delivery or transport completion, the session remained in `Handshaking`. |
-| Missing inbound settlement | 15,335 / 5,924 | 24 | A malformed plugin-originated handshake became abandoned work and, without host timeout, remained unsettled. |
+| Missing initialization timeout | 15,373 / 6,098 | 24 | With no fair host timeout and no required peer delivery or transport completion, the session remained in `Handshaking`. |
+| Missing inbound settlement | 15,335 / 6,092 | 24 | A malformed plugin-originated handshake became abandoned work and, without host timeout, remained unsettled. |
 | Current inbound failure | 59 / 56 | 3 | A malformed plugin-originated handshake faulted abandoned handling without sending the mandatory response; the host can recover only through its independent initialization timeout. |
-| Response correlation | 1,894 / 1,013 | 13 | Two requests waited concurrently; receipt of the response carrying request 1's ID completed request 2. |
-| Progress correlation | 1,848 / 989 | 13 | Two requests waited concurrently; receipt of Progress carrying request 1's ID recorded a renewal effect for request 2. |
+| Response correlation | 1,894 / 1,015 | 13 | Two requests waited concurrently; receipt of the response carrying request 1's ID completed request 2. |
+| Progress correlation | 1,848 / 991 | 13 | Two requests waited concurrently; receipt of Progress carrying request 1's ID recorded a renewal effect for request 2. |
 | Current shutdown admission | 656 / 480 | 8 | The read loop stopped, but request 1 was admitted with no live receiver. |
 | Current shutdown snapshot | 953 / 653 | 10 | The read loop captured an empty pending set; request 1 was then admitted before settlement, escaped the snapshot, and depended on its ordinary request timeout. |
-| Current stalled write | 10,873 / 5,199 | 24 | Request 1 acquired the serialized writer, Progress stopped, the transport never completed the write, and the already-running timer could not settle the request because its result was observed only after the write. |
+| Current stalled write | 10,873 / 5,283 | 24 | Request 1 acquired the serialized writer, Progress stopped, the transport never completed the write, and the already-running timer could not settle the request because its result was observed only after the write. |
 | Writer-preemption reuse | 684 / 507 | 9 | Caller cancellation released the active writer while leaving the connection ready, the reader running, and admission open. |
 | Writer-preemption classification | 734 / 535 | 10 | Caller cancellation closed the connection but classified another live request as timed out instead of connection-closed. |
 | Timeout-preemption cause | 812 / 577 | 10 | Timeout closed the connection but reported caller cancellation for the initiating request. |
 | Cancellation-preemption cause | 684 / 507 | 9 | Caller cancellation closed the connection but reported timeout for the initiating request. |
-| Unbounded Progress | 15,477 / 5,971 | 24 | Request 1 alternated deadline expiry and Progress renewal forever, disproving unconditional settlement while renewals continue. |
+| Unbounded Progress | 15,477 / 6,139 | 24 | Request 1 alternated deadline expiry and Progress renewal forever, disproving unconditional settlement while renewals continue. |
 
 The runs used:
 
