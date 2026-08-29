@@ -439,6 +439,7 @@ records how to reproduce them.
 | NS35 | Omit product and host authority from Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | NS36 | Rewrite both Navigation preparation failure and its witness to use applied authority | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | NS37 | Rewrite both Navigation preparation failure and its source witness as evaluation | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS38 | Coherently install a changed snapshot and revision during Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -465,13 +466,13 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Sixty-two probes, sixty-one expected violations and one expected pass. `SA6`
+Sixty-three probes, sixty-two expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Twenty-four probes exist specifically because a claim used to be satisfiable
+Twenty-five probes exist specifically because a claim used to be satisfiable
 by the wrong thing. `NS16` separates installed revision from a self-consistent
 result,
 `NS17` admits stale work without re-gathering, `NS18` lets a later admission
@@ -493,12 +494,15 @@ source, `NS35` erases its returned authority, and `NS36` changes both the
 action and shared witness so only the dedicated preparation-failure invariant
 rejects the wrong authority class. `NS37` changes both the action and source
 witness while the independent occurrence field still identifies preparation
-failure, proving the dedicated invariant rejects the source rewrite. `AR2`
-publishes a payload that differs from the retained request, `SA14` applies a
-later supplied-prior operation after an earlier one was rejected, `SA15` adopts
-only the stale same-session supplied snapshot whose origin and lens resemble
-session data, and `SA18` returns another admissible session lens under the
-correct operation ID.
+failure, proving the dedicated invariant rejects the source rewrite. `NS38`
+coherently rewrites the action, result, disposition, authority, and
+shared revision witness so only the dedicated invariant's named retention
+clauses reject the changed snapshot and revision. `AR2` publishes a payload
+that differs from the retained request, `SA14` applies a later supplied-prior
+operation after an earlier one was rejected, `SA15` adopts only the stale
+same-session supplied snapshot whose origin and lens resemble session data,
+and `SA18` returns another admissible session lens under the correct operation
+ID.
 
 ## Changing a model
 
