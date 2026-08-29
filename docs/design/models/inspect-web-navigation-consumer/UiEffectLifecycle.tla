@@ -2,12 +2,14 @@
 EXTENDS Naturals, FiniteSets, TLC
 
 \* This model owns only the Inspect Web consumer lifecycle after the product
-\* navigation session has accepted an intent. Product snapshot construction,
-\* reconciliation, supersession, and facet recommendation remain abstract.
+\* navigation session has accepted an intent or synchronization request.
+\* Product snapshot construction, reconciliation, supersession, and facet
+\* recommendation remain abstract.
 
 CONSTANTS
   MaxIntents,
   MaxSurfaceEpoch,
+  MaxSynchronizationRequests,
   EnforceCurrentEffect,
   EnforceCompleteAcknowledge,
   EnforceDestroyAbandon,
@@ -19,10 +21,11 @@ CONSTANTS
   EnforceAbandonPreservesDebt,
   EnforceRemountSynchronization,
   EnforceDebtClearOnAcknowledge,
-  EnforceRequestRetirement
+  EnforceSynchronizationCorrelation
 
 ASSUME MaxIntents >= 2
 ASSUME MaxSurfaceEpoch >= 2
+ASSUME MaxSynchronizationRequests >= 2
 ASSUME EnforceCurrentEffect \in BOOLEAN
 ASSUME EnforceCompleteAcknowledge \in BOOLEAN
 ASSUME EnforceDestroyAbandon \in BOOLEAN
@@ -34,9 +37,10 @@ ASSUME EnforceDispositionInstall \in BOOLEAN
 ASSUME EnforceAbandonPreservesDebt \in BOOLEAN
 ASSUME EnforceRemountSynchronization \in BOOLEAN
 ASSUME EnforceDebtClearOnAcknowledge \in BOOLEAN
-ASSUME EnforceRequestRetirement \in BOOLEAN
+ASSUME EnforceSynchronizationCorrelation \in BOOLEAN
 
 Tokens == 1..MaxIntents
+SynchronizationRequests == 1..MaxSynchronizationRequests
 Statuses ==
   {"unused", "inFlight", "returned", "acknowledged", "abandoned", "discarded"}
 Outcomes ==
@@ -49,6 +53,8 @@ Outcomes ==
    "aborted",
    "synchronized"}
 Dispositions == {"none", "current", "synchronizationRequired"}
+SynchronizationResponseHandling ==
+  {"none", "returned", "abandoned", "discharged"}
 Effects == {"install", "focus", "announce"}
 FocusLocations == {"shell", "surface", "body"}
 SnapshotOutcomes == {"applied", "unavailableWithSnapshot"}
@@ -88,8 +94,11 @@ VARIABLES
   required,
   completed,
   synchronizationDebt,
-  synchronizationRequested,
+  nextSynchronizationRequest,
+  pendingSynchronizationRequest,
   synchronizationRequestSurface,
+  settledSynchronizationRequests,
+  synchronizationResponseHandling,
   focusLocation,
   focusSurface,
   effectWitness,
@@ -101,7 +110,8 @@ VARIABLES
   dispositionWitness,
   abandonmentWitness,
   remountWitness,
-  debtWitness
+  debtWitness,
+  synchronizationCorrelationWitness
 
 vars ==
   << currentIntent,
@@ -115,8 +125,11 @@ vars ==
      required,
      completed,
      synchronizationDebt,
-     synchronizationRequested,
+     nextSynchronizationRequest,
+     pendingSynchronizationRequest,
      synchronizationRequestSurface,
+     settledSynchronizationRequests,
+     synchronizationResponseHandling,
      focusLocation,
      focusSurface,
      effectWitness,
@@ -128,7 +141,8 @@ vars ==
      dispositionWitness,
      abandonmentWitness,
      remountWitness,
-     debtWitness >>
+     debtWitness,
+     synchronizationCorrelationWitness >>
 
 Init ==
   /\ currentIntent = 0
@@ -142,8 +156,13 @@ Init ==
   /\ required = [i \in Tokens |-> {}]
   /\ completed = [i \in Tokens |-> {}]
   /\ synchronizationDebt = FALSE
-  /\ synchronizationRequested = FALSE
-  /\ synchronizationRequestSurface = 0
+  /\ nextSynchronizationRequest = 0
+  /\ pendingSynchronizationRequest = 0
+  /\ synchronizationRequestSurface =
+       [r \in SynchronizationRequests |-> 0]
+  /\ settledSynchronizationRequests = {}
+  /\ synchronizationResponseHandling =
+       [r \in SynchronizationRequests |-> "none"]
   /\ focusLocation = "surface"
   /\ focusSurface = 1
   /\ effectWitness = TRUE
@@ -156,6 +175,7 @@ Init ==
   /\ abandonmentWitness = TRUE
   /\ remountWitness = TRUE
   /\ debtWitness = TRUE
+  /\ synchronizationCorrelationWitness = TRUE
 
 CurrentAuthority(i) ==
   /\ mounted
@@ -182,8 +202,11 @@ BeginIntent ==
                   required,
                   completed,
                   synchronizationDebt,
-                  synchronizationRequested,
+                  nextSynchronizationRequest,
+                  pendingSynchronizationRequest,
                   synchronizationRequestSurface,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -193,7 +216,8 @@ BeginIntent ==
                   dispositionWitness,
                   abandonmentWitness,
                   remountWitness,
-                  debtWitness >>
+                  debtWitness,
+                  synchronizationCorrelationWitness >>
 
 ReturnResult(i, result, resultDisposition) ==
   /\ i \in Tokens
@@ -221,8 +245,11 @@ ReturnResult(i, result, resultDisposition) ==
                   mounted,
                   surfaceEpoch,
                   operationSurface,
-                  synchronizationRequested,
+                  nextSynchronizationRequest,
+                  pendingSynchronizationRequest,
                   synchronizationRequestSurface,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -232,6 +259,7 @@ ReturnResult(i, result, resultDisposition) ==
                   abandonmentWitness,
                   remountWitness,
                   debtWitness,
+                  synchronizationCorrelationWitness,
                   focusLocation,
                   focusSurface >>
 
@@ -243,10 +271,14 @@ ReturnAnyResult(i) ==
 RequestSynchronization ==
   /\ mounted
   /\ synchronizationDebt
-  /\ ~synchronizationRequested
+  /\ pendingSynchronizationRequest = 0
+  /\ nextSynchronizationRequest < MaxSynchronizationRequests
   /\ \A i \in Tokens : status[i] # "returned"
-  /\ synchronizationRequested' = TRUE
-  /\ synchronizationRequestSurface' = surfaceEpoch
+  /\ LET r == nextSynchronizationRequest + 1 IN
+     /\ nextSynchronizationRequest' = r
+     /\ pendingSynchronizationRequest' = r
+     /\ synchronizationRequestSurface' =
+          [synchronizationRequestSurface EXCEPT ![r] = surfaceEpoch]
   /\ UNCHANGED << currentIntent,
                   nextIntent,
                   mounted,
@@ -258,6 +290,8 @@ RequestSynchronization ==
                   required,
                   completed,
                   synchronizationDebt,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   focusLocation,
                   focusSurface,
                   effectWitness,
@@ -269,31 +303,70 @@ RequestSynchronization ==
                   dispositionWitness,
                   abandonmentWitness,
                   remountWitness,
-                  debtWitness >>
+                  debtWitness,
+                  synchronizationCorrelationWitness >>
 
-ReturnSynchronization ==
-  /\ mounted
-  /\ synchronizationRequested
-  /\ synchronizationRequestSurface = surfaceEpoch
+ReturnSynchronization(r) ==
+  /\ r \in SynchronizationRequests
+  /\ pendingSynchronizationRequest = r
   /\ \A i \in Tokens : status[i] \notin {"inFlight", "returned"}
-  /\ nextIntent < MaxIntents
-  /\ LET i == nextIntent + 1 IN
-     /\ currentIntent' = i
-     /\ nextIntent' = i
-     /\ operationSurface' = [operationSurface EXCEPT ![i] = surfaceEpoch]
-     /\ status' = [status EXCEPT ![i] = "returned"]
-     /\ outcome' = [outcome EXCEPT ![i] = "synchronized"]
+  /\ LET i == nextIntent + 1
+         currentLifetime ==
+           mounted /\ synchronizationRequestSurface[r] = surfaceEpoch
+         consume ==
+           currentLifetime \/ ~EnforceSynchronizationCorrelation
+     IN
+     /\ (consume => nextIntent < MaxIntents)
+     /\ currentIntent' = IF consume THEN i ELSE currentIntent
+     /\ nextIntent' = IF consume THEN i ELSE nextIntent
+     /\ operationSurface' =
+          IF consume
+          THEN [operationSurface EXCEPT ![i] = surfaceEpoch]
+          ELSE operationSurface
+     /\ status' =
+          IF consume
+          THEN [status EXCEPT ![i] = "returned"]
+          ELSE status
+     /\ outcome' =
+          IF consume
+          THEN [outcome EXCEPT ![i] = "synchronized"]
+          ELSE outcome
      /\ disposition' =
-          [disposition EXCEPT ![i] = "synchronizationRequired"]
-     /\ required' = [required EXCEPT ![i] = Effects]
-     /\ completed' = [completed EXCEPT ![i] = {}]
-  /\ synchronizationRequested' = FALSE
-  /\ dispositionWitness' =
-       /\ dispositionWitness
-       /\ required'[currentIntent'] =
-            DispositionRequiredEffects(disposition'[currentIntent'])
+          IF consume
+          THEN [disposition EXCEPT ![i] = "synchronizationRequired"]
+          ELSE disposition
+     /\ required' =
+          IF consume
+          THEN [required EXCEPT ![i] = Effects]
+          ELSE required
+     /\ completed' =
+          IF consume
+          THEN [completed EXCEPT ![i] = {}]
+          ELSE completed
+     /\ synchronizationResponseHandling' =
+          [synchronizationResponseHandling EXCEPT
+             ![r] = IF consume THEN "returned" ELSE "abandoned"]
+     /\ dispositionWitness' =
+          IF consume
+          THEN
+            /\ dispositionWitness
+            /\ required'[i] =
+                 DispositionRequiredEffects(disposition'[i])
+          ELSE dispositionWitness
+     /\ synchronizationCorrelationWitness' =
+          /\ synchronizationCorrelationWitness
+          /\ (currentLifetime
+              => /\ status'[i] = "returned"
+                 /\ currentIntent' = i)
+          /\ (~currentLifetime
+              => /\ status' = status
+                 /\ currentIntent' = currentIntent)
+  /\ pendingSynchronizationRequest' = 0
+  /\ settledSynchronizationRequests' =
+       settledSynchronizationRequests \cup {r}
   /\ UNCHANGED << mounted,
                   surfaceEpoch,
+                  nextSynchronizationRequest,
                   synchronizationRequestSurface,
                   synchronizationDebt,
                   focusLocation,
@@ -323,8 +396,11 @@ DiscardSuperseded(i) ==
                   required,
                   completed,
                   synchronizationDebt,
-                  synchronizationRequested,
+                  nextSynchronizationRequest,
+                  pendingSynchronizationRequest,
                   synchronizationRequestSurface,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   focusLocation,
                   focusSurface,
                   effectWitness,
@@ -336,7 +412,8 @@ DiscardSuperseded(i) ==
                   dispositionWitness,
                   abandonmentWitness,
                   remountWitness,
-                  debtWitness >>
+                  debtWitness,
+                  synchronizationCorrelationWitness >>
 
 RunEffect(i, effect, replaceSurface) ==
   /\ i \in Tokens
@@ -367,10 +444,6 @@ RunEffect(i, effect, replaceSurface) ==
        IF replaceSurface
        THEN [operationSurface EXCEPT ![i] = surfaceEpoch + 1]
        ELSE operationSurface
-  /\ synchronizationRequested' =
-       IF replaceSurface /\ EnforceRequestRetirement
-       THEN FALSE
-       ELSE synchronizationRequested
   /\ focusLocation' =
        CASE effect = "install" ->
               IF EnforceDeferredFocus THEN focusLocation ELSE "surface"
@@ -412,13 +485,18 @@ RunEffect(i, effect, replaceSurface) ==
                   disposition,
                   required,
                   synchronizationDebt,
+                  nextSynchronizationRequest,
+                  pendingSynchronizationRequest,
                   synchronizationRequestSurface,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   acknowledgeWitness,
                   destructionWitness,
                   dispositionWitness,
                   abandonmentWitness,
                   remountWitness,
-                  debtWitness >>
+                  debtWitness,
+                  synchronizationCorrelationWitness >>
 
 Acknowledge(i) ==
   /\ i \in Tokens
@@ -433,10 +511,23 @@ Acknowledge(i) ==
           /\ EnforceDebtClearOnAcknowledge
        THEN FALSE
        ELSE synchronizationDebt
-  /\ synchronizationRequested' =
+  /\ pendingSynchronizationRequest' =
        IF disposition[i] = "synchronizationRequired"
-       THEN FALSE
-       ELSE synchronizationRequested
+       THEN 0
+       ELSE pendingSynchronizationRequest
+  /\ settledSynchronizationRequests' =
+       IF disposition[i] = "synchronizationRequired"
+          /\ pendingSynchronizationRequest # 0
+       THEN
+         settledSynchronizationRequests \cup {pendingSynchronizationRequest}
+       ELSE settledSynchronizationRequests
+  /\ synchronizationResponseHandling' =
+       IF disposition[i] = "synchronizationRequired"
+          /\ pendingSynchronizationRequest # 0
+       THEN
+         [synchronizationResponseHandling EXCEPT
+            ![pendingSynchronizationRequest] = "discharged"]
+       ELSE synchronizationResponseHandling
   /\ acknowledgeWitness' =
        (acknowledgeWitness /\ (completed[i] = required[i]))
   /\ debtWitness' =
@@ -452,6 +543,7 @@ Acknowledge(i) ==
                   disposition,
                   required,
                   completed,
+                  nextSynchronizationRequest,
                   synchronizationRequestSurface,
                   focusLocation,
                   focusSurface,
@@ -462,7 +554,8 @@ Acknowledge(i) ==
                   replacementWitness,
                   dispositionWitness,
                   abandonmentWitness,
-                  remountWitness >>
+                  remountWitness,
+                  synchronizationCorrelationWitness >>
 
 AbandonStale(i) ==
   /\ i \in Tokens
@@ -487,8 +580,11 @@ AbandonStale(i) ==
                   disposition,
                   required,
                   completed,
-                  synchronizationRequested,
+                  nextSynchronizationRequest,
+                  pendingSynchronizationRequest,
                   synchronizationRequestSurface,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   focusLocation,
                   focusSurface,
                   effectWitness,
@@ -499,7 +595,8 @@ AbandonStale(i) ==
                   replacementWitness,
                   dispositionWitness,
                   remountWitness,
-                  debtWitness >>
+                  debtWitness,
+                  synchronizationCorrelationWitness >>
 
 DestroySurface ==
   /\ mounted
@@ -520,8 +617,6 @@ DestroySurface ==
                /\ disposition[i] = "synchronizationRequired"
        THEN FALSE
        ELSE synchronizationDebt
-  /\ synchronizationRequested' =
-       IF EnforceRequestRetirement THEN FALSE ELSE synchronizationRequested
   /\ abandonmentWitness' =
        /\ abandonmentWitness
        /\ (~(\E i \in Tokens :
@@ -542,7 +637,11 @@ DestroySurface ==
                   disposition,
                   required,
                   completed,
+                  nextSynchronizationRequest,
+                  pendingSynchronizationRequest,
                   synchronizationRequestSurface,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   effectWitness,
                   acknowledgeWitness,
                   orderingWitness,
@@ -550,26 +649,45 @@ DestroySurface ==
                   replacementWitness,
                   dispositionWitness,
                   remountWitness,
-                  debtWitness >>
+                  debtWitness,
+                  synchronizationCorrelationWitness >>
 
 MountSurface ==
   /\ ~mounted
   /\ surfaceEpoch < MaxSurfaceEpoch
   /\ mounted' = TRUE
   /\ surfaceEpoch' = surfaceEpoch + 1
-  /\ synchronizationRequested' =
+  /\ nextSynchronizationRequest' =
        IF EnforceRemountSynchronization
-       THEN synchronizationDebt
-       ELSE FALSE
+          /\ synchronizationDebt
+          /\ pendingSynchronizationRequest = 0
+          /\ nextSynchronizationRequest < MaxSynchronizationRequests
+       THEN nextSynchronizationRequest + 1
+       ELSE nextSynchronizationRequest
+  /\ pendingSynchronizationRequest' =
+       IF EnforceRemountSynchronization
+          /\ synchronizationDebt
+          /\ pendingSynchronizationRequest = 0
+          /\ nextSynchronizationRequest < MaxSynchronizationRequests
+       THEN nextSynchronizationRequest + 1
+       ELSE pendingSynchronizationRequest
   /\ synchronizationRequestSurface' =
-       IF EnforceRemountSynchronization /\ synchronizationDebt
-       THEN surfaceEpoch + 1
+       IF EnforceRemountSynchronization
+          /\ synchronizationDebt
+          /\ pendingSynchronizationRequest = 0
+          /\ nextSynchronizationRequest < MaxSynchronizationRequests
+       THEN
+         [synchronizationRequestSurface EXCEPT
+            ![nextSynchronizationRequest + 1] = surfaceEpoch + 1]
        ELSE synchronizationRequestSurface
   /\ remountWitness' =
        /\ remountWitness
-       /\ (~synchronizationDebt
-           \/ /\ synchronizationRequested'
-              /\ synchronizationRequestSurface' = surfaceEpoch')
+       /\ (~(synchronizationDebt
+             /\ pendingSynchronizationRequest = 0
+             /\ nextSynchronizationRequest < MaxSynchronizationRequests)
+           \/ /\ pendingSynchronizationRequest' # 0
+              /\ synchronizationRequestSurface'
+                   [pendingSynchronizationRequest'] = surfaceEpoch')
   /\ UNCHANGED << currentIntent,
                   nextIntent,
                   operationSurface,
@@ -579,6 +697,8 @@ MountSurface ==
                   required,
                   completed,
                   synchronizationDebt,
+                  settledSynchronizationRequests,
+                  synchronizationResponseHandling,
                   focusLocation,
                   focusSurface,
                   effectWitness,
@@ -589,12 +709,13 @@ MountSurface ==
                   replacementWitness,
                   dispositionWitness,
                   abandonmentWitness,
-                  debtWitness >>
+                  debtWitness,
+                  synchronizationCorrelationWitness >>
 
 Next ==
   \/ BeginIntent
   \/ RequestSynchronization
-  \/ ReturnSynchronization
+  \/ \E r \in SynchronizationRequests : ReturnSynchronization(r)
   \/ \E i \in Tokens : ReturnAnyResult(i)
   \/ \E i \in Tokens : DiscardSuperseded(i)
   \/ \E i \in Tokens, effect \in Effects, replace \in BOOLEAN :
@@ -617,8 +738,13 @@ TypeOK ==
   /\ required \in [Tokens -> SUBSET Effects]
   /\ completed \in [Tokens -> SUBSET Effects]
   /\ synchronizationDebt \in BOOLEAN
-  /\ synchronizationRequested \in BOOLEAN
-  /\ synchronizationRequestSurface \in 0..MaxSurfaceEpoch
+  /\ nextSynchronizationRequest \in 0..MaxSynchronizationRequests
+  /\ pendingSynchronizationRequest \in 0..MaxSynchronizationRequests
+  /\ synchronizationRequestSurface \in
+       [SynchronizationRequests -> 0..MaxSurfaceEpoch]
+  /\ settledSynchronizationRequests \subseteq SynchronizationRequests
+  /\ synchronizationResponseHandling \in
+       [SynchronizationRequests -> SynchronizationResponseHandling]
   /\ focusLocation \in FocusLocations
   /\ focusSurface \in 0..MaxSurfaceEpoch
   /\ effectWitness \in BOOLEAN
@@ -631,6 +757,7 @@ TypeOK ==
   /\ abandonmentWitness \in BOOLEAN
   /\ remountWitness \in BOOLEAN
   /\ debtWitness \in BOOLEAN
+  /\ synchronizationCorrelationWitness \in BOOLEAN
 
 ReturnedShape ==
   \A i \in Tokens :
@@ -679,15 +806,33 @@ RemountRequestsSynchronization == remountWitness
 AcknowledgeClearsSynchronizationDebt == debtWitness
 
 SynchronizationRequestShape ==
-  synchronizationRequested =>
-    /\ mounted
-    /\ synchronizationDebt
-    /\ synchronizationRequestSurface = surfaceEpoch
+  /\ settledSynchronizationRequests \subseteq
+       1..nextSynchronizationRequest
+  /\ (pendingSynchronizationRequest = 0
+      \/ /\ pendingSynchronizationRequest <= nextSynchronizationRequest
+         /\ pendingSynchronizationRequest
+              \notin settledSynchronizationRequests
+         /\ synchronizationRequestSurface[pendingSynchronizationRequest] # 0)
+  /\ \A r \in SynchronizationRequests :
+       (r \in settledSynchronizationRequests)
+       = (synchronizationResponseHandling[r]
+            \in {"returned", "abandoned", "discharged"})
+
+SynchronizationResponseMatchesRequestLifetime ==
+  synchronizationCorrelationWitness
+
+StaleResponseRecoveryComplete ==
+  /\ synchronizationResponseHandling[1] = "abandoned"
+  /\ synchronizationResponseHandling[2] = "returned"
+
+NoStaleResponseRecoveryObserved ==
+  ~StaleResponseRecoveryComplete
 
 NeedsSynchronizationRequest ==
   /\ mounted
   /\ synchronizationDebt
-  /\ ~synchronizationRequested
+  /\ pendingSynchronizationRequest = 0
+  /\ nextSynchronizationRequest < MaxSynchronizationRequests
   /\ \A i \in Tokens : status[i] # "returned"
 
 EveryReturnedAuthoritySettles ==
@@ -700,7 +845,7 @@ EverySubmittedIntentSettles ==
 
 EveryOutstandingDebtRequestsSynchronization ==
   NeedsSynchronizationRequest
-  ~> \/ synchronizationRequested
+  ~> \/ pendingSynchronizationRequest # 0
       \/ ~mounted
       \/ ~synchronizationDebt
       \/ \E i \in Tokens : status[i] = "returned"
@@ -713,7 +858,7 @@ Fairness ==
   /\ \A i \in Tokens : WF_vars(Acknowledge(i))
   /\ \A i \in Tokens : WF_vars(AbandonStale(i))
   /\ WF_vars(RequestSynchronization)
-  /\ WF_vars(ReturnSynchronization)
+  /\ \A r \in SynchronizationRequests : WF_vars(ReturnSynchronization(r))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 

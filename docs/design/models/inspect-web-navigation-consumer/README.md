@@ -23,10 +23,11 @@ membership remain abstract. The model owns only the consumer sequence:
 6. abandon returned authority without clearing synchronization debt when it
    becomes stale, returns after destruction, or belongs to a destroyed surface
    lifetime; and
-7. request fresh synchronization authority after remount or another terminal
-   abandonment leaves the debt outstanding.
+7. retain one pending synchronization request's identity and originating
+   lifetime through product settlement, abandon an old-lifetime response, and
+   request fresh authority only after the prior request settles.
 
-`UiEffectLifecycle.tla` models two bounded consumer operations and two
+`UiEffectLifecycle.tla` models two bounded consumer operations and three
 mounted-surface lifetimes. An operation may be an explicit semantic result or a
 dedicated synchronization result; assigning a model token to the latter does
 not claim that the product creates a semantic navigation intent. Every explicit
@@ -38,10 +39,14 @@ a later callback.
 
 The model records only whether an unacknowledged synchronization obligation
 exists. It never represents, compares, or orders product snapshot revisions.
-`RequestSynchronization` and `ReturnSynchronization` abstract the dedicated
-product protocol under fresh authority. A current explicit result may instead
-discharge the same debt. The finite operation bound limits only model
-exploration; it is not a UI or product retry ceiling.
+It does retain bounded opaque synchronization-request identities and their
+originating surface lifetimes so a late response cannot be mistaken for a
+fresh request after remount. `RequestSynchronization` and
+`ReturnSynchronization` abstract the dedicated product protocol under fresh
+authority. Only one request is pending; a current explicit result may settle it
+while discharging the same debt. The finite bounds of two operations, three
+surface lifetimes, and two request identities limit only model exploration;
+they are not a UI or product retry ceiling.
 
 Inspection Subject Navigation discards superseded work without publishing a
 consumer result or effect authority. The model represents that terminal path as
@@ -83,8 +88,9 @@ The model states these required properties:
 - abandonment preserves synchronization debt;
 - remount requests synchronization when debt remains;
 - acknowledgement of a synchronization-required result clears the debt;
-- an outstanding synchronization request belongs to the current mounted
-  surface;
+- one synchronization request remains pending until product settlement;
+- a synchronization response is consumed only by its originating mounted
+  lifetime and is otherwise abandoned;
 - focus remains on the persistent shell anchor or the current mounted surface;
 - every returned authority is eventually acknowledged or abandoned;
 - every submitted intent eventually returns and settles or is discarded by
@@ -117,22 +123,22 @@ Run the primary model from this directory:
   -config UiEffectLifecycle.cfg UiEffectLifecycle.tla
 ```
 
-The complete breadth-first check generated 72,799 states, found 49,106 distinct
-states, reached depth 17, and reported no errors. Action coverage was nonzero
-for every modeled transition:
+The complete breadth-first check generated 245,856 states, found 179,524
+distinct states, reached depth 20, and reported no errors. Action coverage was
+nonzero for every modeled transition:
 
 | Action | Distinct | Invocations |
 | ------ | -------: | ----------: |
-| `BeginIntent` | 221 | 265 |
-| `ReturnResult` | 5,610 | 9,432 |
-| `RequestSynchronization` | 60 | 588 |
-| `ReturnSynchronization` | 30 | 30 |
-| `DiscardSuperseded` | 39 | 713 |
-| `RunEffect` | 10,572 | 22,116 |
-| `Acknowledge` | 2,826 | 3,762 |
-| `AbandonStale` | 5,712 | 14,502 |
-| `DestroySurface` | 19,483 | 29,814 |
-| `MountSurface` | 4,552 | 6,478 |
+| `BeginIntent` | 525 | 648 |
+| `ReturnResult` | 14,130 | 23,088 |
+| `RequestSynchronization` | 90 | 14,814 |
+| `ReturnSynchronization` | 27,060 | 35,220 |
+| `DiscardSuperseded` | 78 | 1,838 |
+| `RunEffect` | 22,914 | 45,906 |
+| `Acknowledge` | 6,102 | 7,542 |
+| `AbandonStale` | 9,390 | 33,900 |
+| `DestroySurface` | 67,505 | 97,394 |
+| `MountSurface` | 31,729 | 34,837 |
 
 The coverage figures use one worker so action counters are deterministic:
 
@@ -161,11 +167,21 @@ witness invariant:
 | `AbandonClearsDebtMutation.cfg` | preservation of synchronization debt during abandonment | `AbandonmentPreservesSynchronizationDebt` |
 | `RemountWithoutSynchronizationMutation.cfg` | fresh synchronization request after remount with debt | `RemountRequestsSynchronization` |
 | `AcknowledgeLeavesDebtMutation.cfg` | clearing synchronization debt only after complete acknowledgement | `AcknowledgeClearsSynchronizationDebt` |
-| `RequestSurvivesLifetimeMutation.cfg` | retirement of a synchronization request when its surface lifetime ends | `SynchronizationRequestShape` |
+| `StaleSynchronizationResponseMutation.cfg` | exact request/lifetime correlation before consuming a synchronization response | `SynchronizationResponseMatchesRequestLifetime` |
 
 TLC finds a counterexample for every mutation. Exact partial-state counts are
 not recorded because parallel workers may discover the first counterexample in
 a different order.
+
+## Reachability probe
+
+`StaleResponseRecovery.cfg` is expected to violate
+`NoStaleResponseRecoveryObserved`. Its counterexample proves the complete
+recovery sequence is reachable within the primary bounds: a request from an
+old surface lifetime returns after destruction and is abandoned, then a second
+request from the current lifetime returns and is consumed. Three surface
+lifetimes are required to exercise the initial debt, the pending old-lifetime
+request, and the fresh current-lifetime response in one trace.
 
 ## Deliberate omissions
 
