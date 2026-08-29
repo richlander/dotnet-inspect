@@ -1734,18 +1734,29 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
-    public void SharedCatalog_ReusesBindingManifestAcrossGenerations()
+    public void SharedCatalog_ReusesBindingManifestAndShadowsAcrossGenerations()
     {
         byte[] ownerImage = BuildAssembly("Owner", definesType: false);
         byte[] targetImage = BuildAssembly("Target", definesType: true);
         ResolvedAssemblyReference owner = Descriptor(ownerImage);
-        ResolvedAssemblyReference target = Descriptor(targetImage);
+        ResolvedAssemblyReference target = Descriptor(
+            targetImage,
+            provenance: AssemblyResolutionProvenance.Designated(
+                "selected test assembly"));
+        int shadowOpens = 0;
+        ResolvedAssemblyReference shadow = Descriptor(
+            targetImage,
+            () => shadowOpens++,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "shadow test assembly"));
         var binding = new AssemblyBindingRequest(
             AssemblyBindingTarget.Reference(Identity("Target")),
             AssemblyBindingOrigin.FromAssembly(owner),
             AssemblyResolutionScope.Any);
         var policy = new RecordingPolicy(
-            _ => AssemblyBindingSelection.Found(target));
+            _ => AssemblyBindingSelection.Found(target, [shadow]));
         using var catalog = new TypeResolutionCatalog();
 
         using TypeResolutionContext first = catalog.CreateContext(
@@ -1759,12 +1770,21 @@ public class TypeResolutionContextTests
             bindingRequests: [binding],
             requests: []);
 
-        Assert.IsType<AssemblyBindingOutcome.Resolved>(
+        var firstResolved = Assert.IsType<AssemblyBindingOutcome.Resolved>(
             first.Bind(binding));
+        Assert.Same(
+            shadow,
+            Assert.Single(firstResolved.ShadowedAssemblies));
         Assert.Same(
             target,
             Assert.IsType<AssemblyBindingOutcome.Resolved>(
                 second.Bind(binding)).Candidate.Assembly);
+        Assert.Same(
+            shadow,
+            Assert.Single(
+                Assert.IsType<AssemblyBindingOutcome.Resolved>(
+                    second.Bind(binding)).ShadowedAssemblies));
+        Assert.Equal(0, shadowOpens);
         Assert.Single(policy.Requests);
     }
 
@@ -2479,7 +2499,8 @@ public class TypeResolutionContextTests
 
     static ResolvedAssemblyReference Descriptor(
         byte[] image,
-        Action? opened = null) =>
+        Action? opened = null,
+        AssemblyResolutionProvenance? provenance = null) =>
         ResolvedAssemblyReference.Create(
             ReadIdentity(image),
             path: null,
@@ -2488,7 +2509,8 @@ public class TypeResolutionContextTests
                 opened?.Invoke();
                 return new MemoryStream(image, writable: false);
             },
-            provenance: AssemblyResolutionProvenance.Local("test"));
+            provenance: provenance
+                ?? AssemblyResolutionProvenance.Local("test"));
 
     static AssemblyReferenceIdentity ReadIdentity(byte[] image)
     {

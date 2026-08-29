@@ -648,6 +648,448 @@ public class AssemblyDependencyResolverTests
         Assert.Same(selected, result.Assembly);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AssemblyGroup_DesignatedPrecedenceIsRegistrationOrderIndependent(
+        bool designatedFirst)
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference platform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "group precedence test"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "group precedence test"));
+        (ResolvedAssemblyReference, IAssemblyBindingPolicy)[] participants =
+            designatedFirst
+                ? [
+                    (designated, MissingPolicy.Instance),
+                    (platform, MissingPolicy.Instance),
+                ]
+                : [
+                    (platform, MissingPolicy.Instance),
+                    (designated, MissingPolicy.Instance),
+                ];
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            participants);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(platform),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(designated, selected.Assembly);
+        Assert.Same(platform, Assert.Single(selected.ShadowedAssemblies));
+    }
+
+    [Fact]
+    public void AssemblyGroup_MultipleDesignatedCandidatesAreAmbiguous()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference platform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "group ambiguity test"));
+        ResolvedAssemblyReference first = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "first group ambiguity candidate"));
+        ResolvedAssemblyReference second = Descriptor(
+            requested with { Version = new Version(3, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "second group ambiguity candidate"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (platform, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                (first, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                (second, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(platform),
+            AssemblyResolutionScope.Any);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(request));
+
+        Assert.Equal(2, ambiguous.Assemblies.Length);
+        Assert.Contains(first, ambiguous.Assemblies);
+        Assert.Contains(second, ambiguous.Assemblies);
+        Assert.DoesNotContain(platform, ambiguous.Assemblies);
+    }
+
+    [Fact]
+    public void AssemblyGroup_LoneDesignatedCandidateIgnoresVersion()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "lone designated candidate"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(designated, (IAssemblyBindingPolicy)MissingPolicy.Instance)]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(designated),
+            AssemblyResolutionScope.Platform);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(designated, selected.Assembly);
+        Assert.Empty(selected.ShadowedAssemblies);
+    }
+
+    [Fact]
+    public void AssemblyGroup_PlatformShadowRetainsVersionEligibility()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference platform = Descriptor(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "group shadow eligibility test"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with { Version = new Version(3, 0, 0, 0) },
+            AssemblyResolutionProvenance.Designated(
+                "group shadow eligibility test"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (platform, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                (designated, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(platform),
+            AssemblyResolutionScope.Platform);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(designated, selected.Assembly);
+        Assert.Empty(selected.ShadowedAssemblies);
+    }
+
+    [Theory]
+    [InlineData("fr-FR", "001122aabbccddee")]
+    [InlineData("en-US", "ffeeddccbbaa1100")]
+    public void AssemblyGroup_DesignatedPrecedenceRetainsIdentityConstraints(
+        string? designatedCulture,
+        string designatedToken)
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            "en-US",
+            "001122aabbccddee");
+        ResolvedAssemblyReference platform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "test platform",
+                frameworkVersion: null,
+                "group identity test"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested with
+            {
+                Version = new Version(2, 0, 0, 0),
+                Culture = designatedCulture,
+                PublicKeyToken = designatedToken,
+            },
+            AssemblyResolutionProvenance.Designated(
+                "group identity test"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (platform, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+                (designated, (IAssemblyBindingPolicy)MissingPolicy.Instance),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(platform),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(platform, selected.Assembly);
+        Assert.Empty(selected.ShadowedAssemblies);
+    }
+
+    [Theory]
+    [InlineData(false, AssemblyResolutionScope.Any)]
+    [InlineData(true, AssemblyResolutionScope.Any)]
+    [InlineData(true, AssemblyResolutionScope.Platform)]
+    public void Select_DesignatedOverlayWinsWithEqualOrUnequalVersion(
+        bool versionSkewed,
+        AssemblyResolutionScope scope)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-designated-overlay-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            string platformPath = (AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                .Split(
+                    Path.PathSeparator,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Single(path => Path.GetFileName(path).Equals(
+                    "System.Runtime.dll",
+                    StringComparison.OrdinalIgnoreCase));
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            byte[] publicKey =
+                AssemblyName.GetAssemblyName(platformPath).GetPublicKey()
+                ?? throw new InvalidOperationException(
+                    "The platform fixture must carry a full public key.");
+            Version designatedVersion = versionSkewed
+                ? new Version(
+                    (platformIdentity.Version?.Major ?? 1) + 1,
+                    0,
+                    0,
+                    0)
+                : platformIdentity.Version
+                    ?? new Version(1, 0, 0, 0);
+            string designatedPath = Path.Combine(
+                root,
+                $"{platformIdentity.Name}.dll");
+            File.WriteAllBytes(
+                designatedPath,
+                BuildAssembly(
+                    platformIdentity.Name,
+                    publicKey,
+                    designatedVersion));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                scope);
+
+            var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+
+            Assert.Equal(designatedPath, selected.Assembly.Path);
+            Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
+                selected.Assembly.Provenance);
+            ResolvedAssemblyReference shadow =
+                Assert.Single(selected.ShadowedAssemblies);
+            Assert.Equal(platformPath, shadow.Path);
+            Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                shadow.Provenance);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_DuplicateSamePathRetainsDesignatedAndPlatformRoles()
+    {
+        string platformPath = typeof(System.Runtime.GCSettings)
+            .Assembly.Location;
+        using var stream = File.OpenRead(platformPath);
+        using var peReader = new PEReader(stream);
+        AssemblyReferenceIdentity platformIdentity =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(
+                peReader.GetMetadataReader());
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location)
+            {
+                PackageRoots = [],
+                CorpusAssemblyPaths = [platformPath, platformPath],
+                IncludeSiblingAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeDepsJsonAssets = false,
+            });
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(platformIdentity),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            resolver.Select(request));
+
+        Assert.Equal(platformPath, selected.Assembly.Path);
+        Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
+            selected.Assembly.Provenance);
+        ResolvedAssemblyReference shadow =
+            Assert.Single(selected.ShadowedAssemblies);
+        Assert.Equal(platformPath, shadow.Path);
+        Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+            shadow.Provenance);
+        Assert.NotSame(selected.Assembly, shadow);
+    }
+
+    [Fact]
+    public void Select_MultipleDesignatedOverlaysAreAmbiguous()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-designated-ambiguity-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            string platformPath = (AppContext.GetData(
+                    "TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
+                .Split(
+                    Path.PathSeparator,
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Single(path => Path.GetFileName(path).Equals(
+                    "System.Runtime.dll",
+                    StringComparison.OrdinalIgnoreCase));
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            byte[] publicKey =
+                AssemblyName.GetAssemblyName(platformPath).GetPublicKey()
+                ?? throw new InvalidOperationException(
+                    "The platform fixture must carry a full public key.");
+            var designatedPaths = new List<string>();
+            for (int index = 0; index < 2; index++)
+            {
+                string directory = Path.Combine(root, $"overlay-{index}");
+                Directory.CreateDirectory(directory);
+                string path = Path.Combine(
+                    directory,
+                    $"{platformIdentity.Name}.dll");
+                File.WriteAllBytes(
+                    path,
+                    BuildAssembly(
+                        platformIdentity.Name,
+                        publicKey,
+                        new Version(index + 20, 0, 0, 0)));
+                designatedPaths.Add(path);
+            }
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = designatedPaths,
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Any);
+
+            var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+                resolver.Select(request));
+
+            Assert.Equal(2, ambiguous.Assemblies.Length);
+            Assert.All(
+                ambiguous.Assemblies,
+                candidate => Assert.IsType<
+                    AssemblyResolutionProvenance.DesignatedAsset>(
+                        candidate.Provenance));
+            Assert.Equal(
+                designatedPaths.Order(),
+                ambiguous.Assemblies
+                    .Select(candidate => candidate.Path)
+                    .Order());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Select_AnyScopeDesignatedOverlayDoesNotBypassSiblingTier()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-designated-tier-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string siblingPath = Path.Combine(
+                root,
+                Path.GetFileName(platformPath));
+            File.Copy(platformPath, siblingPath);
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [platformPath],
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Any);
+
+            var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(request));
+
+            Assert.Equal(siblingPath, selected.Assembly.Path);
+            Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
+                selected.Assembly.Provenance);
+            Assert.Empty(selected.ShadowedAssemblies);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Resolve_PlatformReference_RollsForwardToInstalledAssembly()
     {
@@ -1054,7 +1496,9 @@ public class AssemblyDependencyResolverTests
 
     static byte[] BuildAssembly(
         string assemblyName,
-        byte[] publicKey)
+        byte[] publicKey,
+        Version? version = null,
+        string? culture = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1065,8 +1509,10 @@ public class AssemblyDependencyResolverTests
             encBaseId: default);
         metadata.AddAssembly(
             metadata.GetOrAddString(assemblyName),
-            new Version(1, 0, 0, 0),
-            culture: default,
+            version ?? new Version(1, 0, 0, 0),
+            culture is null
+                ? default
+                : metadata.GetOrAddString(culture),
             publicKey: metadata.GetOrAddBlob(publicKey),
             flags: AssemblyFlags.PublicKey,
             hashAlgorithm: default);
@@ -1086,6 +1532,19 @@ public class AssemblyDependencyResolverTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static ResolvedAssemblyReference Descriptor(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionProvenance provenance)
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        return ResolvedAssemblyReference.Create(
+            identity,
+            path,
+            () => File.OpenRead(path),
+            provenance);
     }
 
     [Fact]

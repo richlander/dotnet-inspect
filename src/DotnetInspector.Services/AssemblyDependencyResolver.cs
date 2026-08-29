@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
@@ -96,9 +97,9 @@ public sealed partial class AssemblyDependencyResolver :
 
     readonly AssemblyDependencyResolutionOptions _options;
     readonly ConcurrentDictionary<
-        string,
+        AssemblyDescriptorKey,
         Lazy<AssemblyDescriptorResolution>> _descriptors =
-            new(StringComparer.Ordinal);
+            [];
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
     readonly ConcurrentDictionary<
@@ -248,6 +249,15 @@ public sealed partial class AssemblyDependencyResolver :
     {
         var candidates =
             _allCandidates ??= CollectDependencies(deduplicate: false);
+        if (ResolveDesignatedOverlay(
+                candidates,
+                identity,
+                scope)
+            is { } overlayAttempt)
+        {
+            return overlayAttempt;
+        }
+
         CandidateOpenFailureKind? candidateFailure = null;
         CandidateTier? activeTier = null;
 
@@ -355,6 +365,95 @@ public sealed partial class AssemblyDependencyResolver :
             candidateFailure);
     }
 
+    AssemblyResolutionAttempt? ResolveDesignatedOverlay(
+        IReadOnlyList<ResolvedAssemblyDependency> candidates,
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+    {
+        ResolvedAssemblyDependency? nameOwner = candidates.FirstOrDefault(
+            dependency =>
+                Path.GetFileNameWithoutExtension(dependency.Path).Equals(
+                    identity.Name,
+                    StringComparison.OrdinalIgnoreCase)
+                && (scope != AssemblyResolutionScope.Platform
+                    || IsEntitled(dependency.Provenance)));
+        if (nameOwner is null
+            || !IsEntitled(nameOwner.Provenance)
+            || !candidates.Any(dependency =>
+                dependency.Provenance
+                    is AssemblyDependencyProvenance.CorpusAssembly
+                && Path.GetFileNameWithoutExtension(dependency.Path).Equals(
+                    identity.Name,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        var entitled = new List<ResolvedAssemblyReference>();
+        CandidateOpenFailureKind? candidateFailure = null;
+        foreach (ResolvedAssemblyDependency dependency in candidates)
+        {
+            if (!IsEntitled(dependency.Provenance)
+                || !Path.GetFileNameWithoutExtension(dependency.Path).Equals(
+                    identity.Name,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            AssemblyDescriptorResolution descriptor = DescriptorResult(
+                dependency.Path,
+                ResolutionProvenance(dependency));
+            if (descriptor.Assembly is { } assembly)
+            {
+                entitled.Add(assembly);
+            }
+            else
+            {
+                candidateFailure ??=
+                    descriptor.FailureKind
+                    ?? CandidateOpenFailureKind.Unreadable;
+            }
+        }
+
+        if (candidateFailure is not null)
+        {
+            return new AssemblyResolutionAttempt(
+                Assembly: null,
+                candidateFailure);
+        }
+
+        return DesignatedAssemblyBindingPrecedence.TrySelect(
+                identity,
+                entitled,
+                allowPlatformVersionRollForward:
+                    scope == AssemblyResolutionScope.Platform
+                    && _options.AllowPlatformAssemblyVersionRollForward,
+                ignorePlatformVersion:
+                    _options.IgnoreAssemblyVersion)
+            switch
+            {
+                AssemblyBindingSelection.Selected selected =>
+                    new AssemblyResolutionAttempt(
+                        selected.Assembly,
+                        CandidateFailure: null,
+                        selected.ShadowedAssemblies),
+                AssemblyBindingSelection.Ambiguous ambiguous =>
+                    new AssemblyResolutionAttempt(
+                        Assembly: null,
+                        CandidateFailure: null,
+                        AmbiguousAssemblies: ambiguous.Assemblies),
+                _ => null,
+            };
+    }
+
+    static bool IsEntitled(
+        AssemblyDependencyProvenance provenance) =>
+        provenance is
+            AssemblyDependencyProvenance.TrustedPlatformAssembly
+            or AssemblyDependencyProvenance.SharedFramework
+            or AssemblyDependencyProvenance.CorpusAssembly;
+
     static CandidateTier TierFor(
         AssemblyDependencyProvenance provenance) =>
         provenance switch
@@ -419,8 +518,15 @@ public sealed partial class AssemblyDependencyResolver :
         AssemblyResolutionScope scope)
     {
         AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
+        if (!attempt.AmbiguousAssemblies.IsDefaultOrEmpty)
+            return AssemblyBindingSelection.Multiple(
+                attempt.AmbiguousAssemblies);
         if (attempt.Assembly is { } assembly)
-            return AssemblyBindingSelection.Found(assembly);
+        {
+            return AssemblyBindingSelection.Found(
+                assembly,
+                attempt.ShadowedAssemblies);
+        }
         return attempt.CandidateFailure is { } candidateFailure
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
@@ -505,12 +611,14 @@ public sealed partial class AssemblyDependencyResolver :
         string path,
         AssemblyResolutionProvenance provenance) =>
         _descriptors.GetOrAdd(
-            path,
-            (path, provenance) =>
+            new AssemblyDescriptorKey(path, provenance),
+            static (key, resolver) =>
                 new Lazy<AssemblyDescriptorResolution>(
-                    () => CreateDescriptor(path, provenance),
+                    () => resolver.CreateDescriptor(
+                        key.Path,
+                        key.Provenance),
                     LazyThreadSafetyMode.ExecutionAndPublication),
-            provenance).Value;
+            this).Value;
 
     AssemblyDescriptorResolution CreateDescriptor(
         string path,
@@ -654,7 +762,13 @@ public sealed partial class AssemblyDependencyResolver :
 
     readonly record struct AssemblyResolutionAttempt(
         ResolvedAssemblyReference? Assembly,
-        CandidateOpenFailureKind? CandidateFailure);
+        CandidateOpenFailureKind? CandidateFailure,
+        ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
+        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default);
+
+    readonly record struct AssemblyDescriptorKey(
+        string Path,
+        AssemblyResolutionProvenance Provenance);
 
     sealed record AssemblyDescriptorResolution(
         ResolvedAssemblyReference? Assembly,

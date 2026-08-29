@@ -88,6 +88,26 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             request.Target as AssemblyBindingTarget.AssemblyReference;
         if (reference is not null)
         {
+            bool nonEntitledNameOwner =
+                request.Scope == AssemblyResolutionScope.Any
+                && _roots.Any(root =>
+                    root.Provenance
+                        is not (
+                            AssemblyResolutionProvenance.DesignatedAsset
+                            or AssemblyResolutionProvenance.PlatformAsset)
+                    && string.Equals(
+                        root.Identity.Name,
+                        reference.Identity.Name,
+                        StringComparison.OrdinalIgnoreCase));
+            if (!nonEntitledNameOwner
+                && DesignatedAssemblyBindingPrecedence.TrySelect(
+                        reference.Identity,
+                        _roots)
+                    is { } precedenceSelection)
+            {
+                return precedenceSelection;
+            }
+
             ImmutableArray<ResolvedAssemblyReference> matches =
             [
                 .. _roots.Where(
