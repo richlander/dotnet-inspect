@@ -3728,7 +3728,7 @@ public class OutputFormatterTests
         Assert.DoesNotContain('\n', row.TargetLibrary);
         Assert.DoesNotContain('\u202E', markdown);
         Assert.DoesNotContain('\u202E', structured);
-        Assert.Contains(@"Target\u202E\nINJECTED", row.TargetLibrary);
+        Assert.Equal(@"Target\u202E\^JINJECTED", row.TargetLibrary);
     }
 
     private static string RenderFullApi(ApiSurface api, ApiOptions options)

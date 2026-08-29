@@ -1831,6 +1831,59 @@ internal static class CSharpDeclarationWriter
             FormatConstraintEntries(typeParameter, parameterNames));
 
     internal static string ContainCompatibilitySignature(string signature)
+    {
+        var builder = new StringBuilder(signature.Length);
+        (int parameterStart, int parameterEnd) =
+            FindCompatibilityParameterList(signature);
+        int chunkStart = 0;
+        for (int index = 0; index < signature.Length;)
+        {
+            int literalEnd;
+            if (IsDefaultValueLiteralStart(
+                    signature,
+                    index,
+                    parameterStart,
+                    parameterEnd)
+                && IsStringLiteralStart(signature, index))
+                literalEnd = SkipStringLiteral(signature, index);
+            else if (signature[index] == '\''
+                && IsDefaultValueLiteralStart(
+                    signature,
+                    index,
+                    parameterStart,
+                    parameterEnd))
+                literalEnd = SkipCharLiteral(signature, index);
+            else
+            {
+                index++;
+                continue;
+            }
+
+            if (literalEnd == signature.Length
+                && signature[^1] != (signature[index] == '\'' ? '\'' : '"'))
+            {
+                index++;
+                continue;
+            }
+
+            builder.Append(
+                CSharpIdentifierCore.ContainRawComposedName(
+                    signature[chunkStart..index]));
+            builder.Append(
+                CSharpIdentifierCore.ContainComposedName(
+                    signature[index..literalEnd]));
+            index = literalEnd;
+            chunkStart = literalEnd;
+        }
+
+        builder.Append(
+            CSharpIdentifierCore.ContainRawComposedName(
+                signature[chunkStart..]));
+        return builder.ToString();
+    }
+
+    internal static string ContainOpaqueCompatibilitySignature(
+        string signature)
         => CSharpIdentifierCore.ContainRawComposedName(signature);
 
     static string PreserveStructuredOrContainModelFreeSignature(
@@ -1839,6 +1892,42 @@ internal static class CSharpDeclarationWriter
         => member.SignatureModel is not null
             ? signature
             : ContainCompatibilitySignature(signature);
+
+    static (int Start, int End) FindCompatibilityParameterList(
+        string signature)
+    {
+        for (int open = signature.IndexOf('(');
+            open >= 0;)
+        {
+            int close = Matching(signature, open, '(', ')');
+            if (close >= 0
+                && (signature.AsSpan(close + 1).TrimStart().IsEmpty
+                    || StartsWithConstraintClause(
+                        signature.AsSpan(close + 1).TrimStart())))
+            {
+                return (open, close);
+            }
+
+            open = signature.IndexOf('(', open + 1);
+        }
+
+        return (-1, -1);
+    }
+
+    static bool IsDefaultValueLiteralStart(
+        string signature,
+        int index,
+        int parameterStart,
+        int parameterEnd)
+    {
+        if (index <= parameterStart || index >= parameterEnd)
+            return false;
+
+        int previous = index - 1;
+        while (previous >= 0 && char.IsWhiteSpace(signature[previous]))
+            previous--;
+        return previous >= 0 && signature[previous] == '=';
+    }
 
     internal static string RenderCompatibilityMemberSignature(
         ApiType type,

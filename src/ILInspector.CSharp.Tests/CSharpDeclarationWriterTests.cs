@@ -1622,14 +1622,14 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
-    public void ModelFreeCompatibilitySignature_DoesNotInferLiteralProvenance()
+    public void OpaqueCompatibilitySignature_DoesNotInferLiteralProvenance()
     {
         const string Signature =
             "void M<T>(string value = \"line\\n\") where T : new()";
 
         Assert.Equal(
             "void M<T>(string value = \"line\\\\n\") where T : new()",
-            CSharpFormatter.ContainCompatibilitySignature(Signature));
+            CSharpFormatter.ContainOpaqueCompatibilitySignature(Signature));
     }
 
     [Fact]
@@ -1767,8 +1767,8 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.Contains(@"Name\\Path", contained);
         Assert.Contains("Bad\"Balanced\"Name", contained);
-        Assert.Contains("= \"line\\\\n\"", contained);
-        Assert.DoesNotContain("= \"line\\n\"", contained);
+        Assert.Contains("= \"line\\n\"", contained);
+        Assert.DoesNotContain(@"line\\n", contained);
     }
 
     [Fact]
@@ -1791,13 +1791,19 @@ public sealed class CSharpDeclarationWriterTests
             CSharpFormatter.ContainCompatibilitySignature(
                 scalarParameterName);
         string containedLiteralParameter =
-            CSharpFormatter.ContainCompatibilitySignature(
+            CSharpFormatter.ContainOpaqueCompatibilitySignature(
                 literalParameterName);
+        string containedOpaqueParameter =
+            CSharpFormatter.ContainOpaqueCompatibilitySignature(
+                scalarParameterName);
 
         Assert.DoesNotContain('\u202E', containedScalar);
         Assert.DoesNotContain('\u202E', containedParameter);
+        Assert.DoesNotContain('\u202E', containedOpaqueParameter);
         Assert.NotEqual(containedLiteral, containedScalar);
-        Assert.NotEqual(containedLiteralParameter, containedParameter);
+        Assert.NotEqual(
+            containedLiteralParameter,
+            containedOpaqueParameter);
     }
 
     [Theory]

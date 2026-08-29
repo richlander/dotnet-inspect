@@ -136,15 +136,17 @@ Accessor projection uses the recorded `ApiAccessor.Name` MethodDef identity,
 including explicit-interface spelling such as `I.get_P`; only older surfaces
 without that field use the conventional name synthesized from the owner.
 Identifier substitution over structured declarations skips rendered string and
-character literals. Only model-free fallback is imported as opaque text.
+character literals. Live legacy declarations retain their compatibility
+boundary for mixed-provenance producer text: raw spans are contained while
+rendered default literals are preserved.
 
-Legacy or degraded model-free text uses conservative compatibility containment
-over the entire opaque value. It does not infer rendered C# literals from quote
-or escape syntax because arbitrary metadata can mimic both. Literal backslashes
-therefore double at this degraded boundary, keeping a literal escape spelling
-distinct from the hostile scalar it resembles. Artifact JSON always marks a
-model-free signature `Degraded`; structured signatures preserve their typed raw
-slots and rendered default literals without this fallback.
+Artifact JSON treats degraded model-free text as one opaque raw value. It does
+not infer rendered C# literals from quote or escape syntax because arbitrary
+metadata can mimic both. Literal backslashes therefore double at this artifact
+boundary, keeping a literal escape spelling distinct from the hostile scalar it
+resembles. Artifact JSON always marks a model-free signature `Degraded`;
+structured signatures preserve their typed raw slots and rendered default
+literals without this fallback.
 When a literal backslash in a structured raw slot requires disambiguation,
 document JSON prepares that declaration without mutating `ApiMember`; benign
 signatures stay byte-neutral. Generic-constraint JSON uses the metadata
@@ -177,7 +179,7 @@ rather than re-importing its visible spelling as clean text.
 `UntrustedLibraryViewContainmentTests.TypeJson_WithLiteralEscapeMetadataName_PreservesIdentity`,
 `CSharpDeclarationWriterTests.CompatibilitySignature_ContainsCodeButPreservesLiteralEscapes`,
 `CSharpDeclarationWriterTests.CompatibilitySignature_KeywordTypeParameterDoesNotRewriteDefaultLiteral`,
-`CSharpDeclarationWriterTests.ModelFreeCompatibilitySignature_DoesNotInferLiteralProvenance`,
+`CSharpDeclarationWriterTests.OpaqueCompatibilitySignature_DoesNotInferLiteralProvenance`,
 `CSharpDeclarationWriterTests.StructuredSignature_ContainsGenericReferencesBeforeHostileNameComposition`,
 `CSharpDeclarationWriterTests.MemberConstraint_UsesOwningGenericContext`,
 `CSharpDeclarationWriterTests.StructuredOperator_DoesNotRecontainCompatibilityNames`,

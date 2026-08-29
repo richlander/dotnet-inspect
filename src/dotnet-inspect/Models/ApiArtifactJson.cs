@@ -64,7 +64,7 @@ internal static class ApiArtifactJson
                 PreparedMembers.Add(
                     member,
                     new PreparedMember(
-                        CSharpFormatter.ContainCompatibilitySignature(
+                        CSharpFormatter.ContainOpaqueCompatibilitySignature(
                             member.Signature),
                         SignatureDecodeStatus.Degraded));
                 continue;

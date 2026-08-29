@@ -375,19 +375,37 @@ public sealed class CSharpFormatter
     }
 
     /// <summary>
-    /// Contains model-free compatibility signature text as one opaque raw value.
+    /// Contains raw metadata spans in mixed-provenance compatibility signature
+    /// text while preserving producer-rendered C# string and character literals.
     /// </summary>
     /// <remarks>
-    /// Model-free text can mimic rendered syntax, so no quote or escape sequence
-    /// inside it is trusted as C# literal provenance. Literal backslashes are
-    /// therefore doubled just like every other raw metadata backslash.
-    /// <c>CSharpDeclarationWriterTests.ModelFreeCompatibilitySignature_DoesNotInferLiteralProvenance</c>
-    /// gates that boundary; structured signatures retain rendered literal syntax.
+    /// This compatibility boundary is for live declarations whose producers mix
+    /// raw metadata slots with rendered default literals. Artifact JSON must use
+    /// <see cref="ContainOpaqueCompatibilitySignature"/> when no structured model
+    /// exists, because arbitrary opaque text cannot prove literal provenance.
     /// </remarks>
     public static string ContainCompatibilitySignature(string signature)
     {
         ArgumentNullException.ThrowIfNull(signature);
         return CSharpDeclarationWriter.ContainCompatibilitySignature(
+            signature);
+    }
+
+    /// <summary>
+    /// Contains model-free compatibility signature text as one opaque raw value.
+    /// </summary>
+    /// <remarks>
+    /// No quote or escape sequence is trusted as C# literal provenance. Literal
+    /// backslashes are therefore doubled just like every other raw metadata
+    /// backslash.
+    /// <c>CSharpDeclarationWriterTests.OpaqueCompatibilitySignature_DoesNotInferLiteralProvenance</c>
+    /// gates this degraded artifact boundary.
+    /// </remarks>
+    public static string ContainOpaqueCompatibilitySignature(
+        string signature)
+    {
+        ArgumentNullException.ThrowIfNull(signature);
+        return CSharpDeclarationWriter.ContainOpaqueCompatibilitySignature(
             signature);
     }
 
