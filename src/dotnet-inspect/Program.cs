@@ -169,9 +169,13 @@ try
         return 0;
     }
 
+    // Build the command model before preprocessing so -NN classification comes from
+    // the selected command's actual option arity rather than a parallel option inventory.
+    var rootCommand = CommandLineBuilder.CreateRootCommand();
+
     // Pre-process args for implicit package command (also expands -NN → -n NN)
     var argsBeforePreprocess = args;
-    args = CommandLineBuilder.PreprocessArgs(args);
+    args = CommandLineBuilder.PreprocessArgs(args, rootCommand);
     if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault() != args[0])
         RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
 
@@ -181,8 +185,7 @@ try
         return 1;
     }
 
-    // Create and invoke command
-    var rootCommand = CommandLineBuilder.CreateRootCommand();
+    // Parse and invoke the selected command.
     var result = rootCommand.Parse(args);
     int exitCode = await CommandLineBuilder.InvokeAsync(result);
 

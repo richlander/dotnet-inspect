@@ -70,7 +70,16 @@ public static class CommandLineBuilder
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
     /// Delegates to <see cref="ArgumentPreprocessor.PreprocessArgs"/> for backward compatibility.
     /// </summary>
-    public static string[] PreprocessArgs(string[] args) => ArgumentPreprocessor.PreprocessArgs(args);
+    public static string[] PreprocessArgs(string[] args)
+    {
+        var rootCommand = CreateRootCommand();
+        return ArgumentPreprocessor.PreprocessArgs(args, rootCommand);
+    }
+
+    internal static string[] PreprocessArgs(
+        string[] args,
+        RootCommand rootCommand) =>
+        ArgumentPreprocessor.PreprocessArgs(args, rootCommand);
 
     /// <summary>
     /// Invokes a parsed command under the payload-projection audit. This is the single

@@ -1,3 +1,7 @@
+using System.CommandLine;
+using DotnetInspector.CommandLine;
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Tests;
 
 public class CommandLineLimitSlice4677Tests
@@ -32,6 +36,10 @@ public class CommandLineLimitSlice4677Tests
         Assert.Equal(
             ["package", "System.Text.Json", "--preview", "-n", "5"],
             CommandLineBuilder.PreprocessArgs(["package", "System.Text.Json", "--preview", "-5"]));
+        Assert.Equal(
+            ["package", "search", "Json", "-n", "5"],
+            CommandLineBuilder.PreprocessArgs(
+                ["package", "search", "Json", "-5"]));
 
         var numericSelector = CommandLineBuilder.PreprocessArgs(
             ["find", "--package-prefix", "Azure", "--type", "-5"]);
@@ -69,17 +77,26 @@ public class CommandLineLimitSlice4677Tests
         string[] versionRequiredValueOnLibrary = ["library", "System.Text.Json", "--version", "-5"];
         Assert.Same(versionRequiredValueOnLibrary, CommandLineBuilder.PreprocessArgs(versionRequiredValueOnLibrary));
 
-        // The implicit-router form (no explicit `package` keyword) resolves to `package` at
-        // runtime too -- RouterCommandDefinition.RewriteAsync routes a bare, non-file-path
-        // target with --library or a version query to `package` by default. A bare -N must
-        // expand there as well. PreprocessArgs also always prepends "router" and moves the
-        // bare target immediately after it for these implicit invocations.
+        // Implicit invocations retain -N until the router selects the real command. This is
+        // the architectural boundary: preprocessing no longer predicts the router outcome.
         Assert.Equal(
-            ["router", "System.Text.Json", "--library", "-n", "2", "--tips", "q"],
+            ["router", "System.Text.Json", "--library", "-2", "--tips", "q"],
             CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--library", "-2", "--tips", "q"]));
         Assert.Equal(
-            ["router", "System.Text.Json", "--version", "-n", "2", "--tips", "q"],
+            ["router", "System.Text.Json", "--version", "-2", "--tips", "q"],
             CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--version", "-2", "--tips", "q"]));
+
+        var root = CommandLineBuilder.CreateRootCommand();
+        Assert.Equal(
+            ["package", "System.Text.Json", "--library", "-n", "2"],
+            ArgumentPreprocessor.PreprocessRoutedArgs(
+                ["package", "System.Text.Json", "--library", "-2"],
+                root));
+        string[] routedType =
+            ["type", "System.Collections.Generic.List<T>", "--library", "-2"];
+        Assert.Same(
+            routedType,
+            ArgumentPreprocessor.PreprocessRoutedArgs(routedType, root));
 
         // But an implicit .dll-path target routes straight to `library` (not through
         // "router"), where --version is required-value; a bare -N following it must still be
@@ -88,13 +105,10 @@ public class CommandLineLimitSlice4677Tests
             ["library", "Foo.dll", "--version", "-5"],
             CommandLineBuilder.PreprocessArgs(["Foo.dll", "--version", "-5"]));
 
-        // Round 14 (Gemini Pro): two more deterministic implicit-router shapes reach `package`
-        // without matching the R13 heuristic above. A redundant, self-referential
-        // "--package <same target>" (RewriteAsync's IsExplicitSourceIdentity check) routes to
-        // `package` even though --package is present, so the R13 "no more-specific selector"
-        // guard must not block it.
+        // The same deferral applies to every router shape; the router's one implementation
+        // owns whether these become package, type, or member commands.
         Assert.Equal(
-            ["router", "System.Text.Json", "--package", "System.Text.Json", "--version", "-n", "2"],
+            ["router", "System.Text.Json", "--package", "System.Text.Json", "--version", "-2"],
             CommandLineBuilder.PreprocessArgs(
                 ["System.Text.Json", "--package", "System.Text.Json", "--version", "-2"]));
 
@@ -105,52 +119,155 @@ public class CommandLineLimitSlice4677Tests
             ["package", "Foo.nupkg", "--library", "-n", "2"],
             CommandLineBuilder.PreprocessArgs(["Foo.nupkg", "--library", "-2"]));
 
-        // Round 14 (Sol): the implicit target need not be the very first token -- a leading
-        // global option (e.g. --tips) can precede it, and the router still resolves the same
-        // way once the option's own value is skipped. The R13 heuristic wrongly required the
-        // resolved command token to sit at index 0; it must key off the resolved token itself
-        // (as platformIsValueless/isPackageCommand's explicit-command check already do), not
-        // its position.
+        // Root option arity comes from the command model while locating the implicit target.
         Assert.Equal(
-            ["router", "System.Text.Json", "--tips", "q", "--version", "-n", "2"],
+            ["router", "System.Text.Json", "--tips", "q", "--version", "-2"],
             CommandLineBuilder.PreprocessArgs(["--tips", "q", "System.Text.Json", "--version", "-2"]));
 
-        // ...and an implicit form combined with a more specific source selector (--package,
-        // --platform, --project, or a type/member selector) is conservatively left alone (the
-        // -5 stays unexpanded) too, since the full router decision for those shapes is not
-        // safely predictable here -- it still gets the "router" prefix, though.
+        // More-specific source selectors are likewise untouched before routing.
         Assert.Equal(
             ["router", "System.Text.Json", "--platform", "--version", "-5"],
             CommandLineBuilder.PreprocessArgs(["System.Text.Json", "--platform", "--version", "-5"]));
 
-        // Round 15 (Sol): a target with explicit generic notation (e.g. "List<T>") never
-        // routes to `package` from this fallback shape -- RewriteAsync's hasExplicitApiSource
-        // branch takes any --library <value> reaching it unexpanded to type/member before the
-        // final "ContainsOption(tokens, --library) => package" catch-all is reached. A bare -N
-        // there must stay attached to --library as its required value, not expand.
         Assert.Equal(
             ["router", "System.Collections.Generic.List<T>", "--library", "-2"],
             CommandLineBuilder.PreprocessArgs(["System.Collections.Generic.List<T>", "--library", "-2"]));
 
-        // Round 15 (Sol): the self-referential "--package <same target>" exception from Round
-        // 14 must not override a --type/--member selector also present -- RewriteAsync's
-        // TryRouteExplicitSourceTarget checks --type/--member before the self-referential-
-        // identity fallback and routes to `type`/`member` instead, where --library is
-        // required-value, not the package primary-library selector.
         Assert.Equal(
             ["router", "System.Text.Json", "--package", "System.Text.Json", "--type", "JsonSerializer", "--library", "-2"],
             CommandLineBuilder.PreprocessArgs(
                 ["System.Text.Json", "--package", "System.Text.Json", "--type", "JsonSerializer", "--library", "-2"]));
 
-        // Round 15 (Opus): the self-referential exception must also decline when a second,
-        // unattached positional token is present (not just an explicit --type/--member
-        // selector) -- RewriteAsync's TryFindPositionalIndex treats that second positional as
-        // the deferred type/member target once the redundant "--package <target>" pair is set
-        // aside, routing to `type`/`member`, not `package`.
         Assert.Equal(
             ["router", "System.Text.Json", "--package", "System.Text.Json", "JsonSerializer", "--library", "-2"],
             CommandLineBuilder.PreprocessArgs(
                 ["System.Text.Json", "--package", "System.Text.Json", "JsonSerializer", "--library", "-2"]));
+    }
+
+    [Fact]
+    public void UniversalLimitShorthandDerivesRequiredValuesFromCommandModel()
+    {
+        var root = new RootCommand();
+        var command = new Command("future");
+        var value = new Option<string?>("--future-value")
+        {
+            Arity = ArgumentArity.ExactlyOne
+        };
+        command.Options.Add(value);
+        command.Options.Add(new Option<int?>("-n"));
+        root.Subcommands.Add(command);
+
+        string[] required =
+            ["future", "--future-value", "-7"];
+        Assert.Same(
+            required,
+            ArgumentPreprocessor.PreprocessRoutedArgs(
+                required,
+                root));
+
+        value.Arity = ArgumentArity.ZeroOrOne;
+        Assert.Equal(
+            ["future", "--future-value", "-n", "7"],
+            ArgumentPreprocessor.PreprocessRoutedArgs(
+                ["future", "--future-value", "-7"],
+                root));
+
+        string[] focus =
+            ["member", "JsonSerializer", "--focus", "-5"];
+        Assert.Same(
+            focus,
+            CommandLineBuilder.PreprocessArgs(focus));
+        string[] output =
+            ["package", "System.Text.Json", "--out", "-5"];
+        Assert.Same(
+            output,
+            CommandLineBuilder.PreprocessArgs(output));
+        Assert.Equal(
+            [
+                "member",
+                "JsonSerializer",
+                "--focus=-5",
+                "-n",
+                "2"
+            ],
+            CommandLineBuilder.PreprocessArgs(
+                [
+                    "member",
+                    "JsonSerializer",
+                    "--focus=-5",
+                    "-2"
+                ]));
+
+        Assert.Equal(
+            ["router", "JsonSerializer", "--json"],
+            CommandLineBuilder.PreprocessArgs(
+                ["--json", "JsonSerializer"]));
+    }
+
+    [Fact]
+    public async Task ImplicitRouterExpandsShorthandAfterSelectingCommand()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var package = await RouterCommandDefinition.RouteTokensAsync(
+            ["System.Text.Json", "--library", "-2"],
+            NuGetSourceOptions.Default,
+            root);
+        Assert.True(package.Routed);
+        Assert.Equal(
+            [
+                "package",
+                "System.Text.Json",
+                "--library",
+                "-n",
+                "2"
+            ],
+            package.Arguments);
+
+        var version = await RouterCommandDefinition.RouteTokensAsync(
+            ["System.Text.Json", "--version", "-2"],
+            NuGetSourceOptions.Default,
+            root);
+        Assert.True(version.Routed);
+        Assert.Equal(
+            [
+                "package",
+                "System.Text.Json",
+                "--version",
+                "-n",
+                "2"
+            ],
+            version.Arguments);
+
+        var genericType = await RouterCommandDefinition.RouteTokensAsync(
+            [
+                "System.Collections.Generic.List<T>",
+                "--library",
+                "-2"
+            ],
+            NuGetSourceOptions.Default,
+            root);
+        Assert.True(genericType.Routed);
+        Assert.NotEqual("package", genericType.Arguments[0]);
+        Assert.Contains("-2", genericType.Arguments);
+        Assert.DoesNotContain("-n", genericType.Arguments);
+
+        var selectedType = await RouterCommandDefinition.RouteTokensAsync(
+            [
+                "System.Text.Json",
+                "--package",
+                "System.Text.Json",
+                "--type",
+                "JsonSerializer",
+                "--library",
+                "-2"
+            ],
+            NuGetSourceOptions.Default,
+            root);
+        Assert.True(selectedType.Routed);
+        Assert.Equal("type", selectedType.Arguments[0]);
+        Assert.Contains("-2", selectedType.Arguments);
+        Assert.DoesNotContain("-n", selectedType.Arguments);
     }
 
     [Fact]

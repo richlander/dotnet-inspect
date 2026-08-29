@@ -1,3 +1,4 @@
+using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
@@ -53,7 +54,9 @@ public static class ArgumentPreprocessor
 
             var flag = args[i];
             var count = args[i + 1];
-            var lineMode = args.Take(end).Any(static a => a is "--lines" or "--tail-lines");
+            bool lineMode = args.Take(end).Any(static token =>
+                IsLineModeFlagSet(token, "--lines")
+                || IsLineModeFlagSet(token, "--tail-lines"));
             var replacement = lineMode
                 ? $"-n {count} --lines {flag}"
                 : $"-n {count} {flag}";
@@ -125,7 +128,9 @@ public static class ArgumentPreprocessor
     /// <summary>
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
     /// </summary>
-    public static string[] PreprocessArgs(string[] args)
+    public static string[] PreprocessArgs(
+        string[] args,
+        RootCommand rootCommand)
     {
         // Reset HeadLines for each preprocessing call
         HeadLines = null;
@@ -143,108 +148,92 @@ public static class ArgumentPreprocessor
         args = MergeRepeatedListOption(args, FieldsAliases, "--fields");
         args = EscapeAtCategoryOptionValues(args, AtCategoryOptionAliases);
         args = EscapeAtCategoryPathValues(args);
-        args = RewriteValuedPlatformForSearchCommands(args);
+        args = RewriteValuedPlatformForSearchCommands(args, rootCommand);
 
-        var endOfOptions = Array.IndexOf(args, "--");
+        int firstPositional = FindFirstPositionalIndex(args, rootCommand);
+        if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
+        {
+            if (CommandLineHelpers.TryClassifyAsFilePath(
+                    args[firstPositional],
+                    out var dllPath,
+                    out var nupkgPath))
+            {
+                if (dllPath != null)
+                    args = ["library", .. args];
+                else if (nupkgPath != null)
+                    args = ["package", .. args];
+            }
+            else
+            {
+                // The router must select the real command before -NN can be classified.
+                // Its action calls PreprocessRoutedArgs on the rewritten command line.
+                RequestTelemetry.Breadcrumb(
+                    "implicit-router",
+                    args[firstPositional]);
+                return
+                [
+                    "router",
+                    args[firstPositional],
+                    .. args[..firstPositional],
+                    .. args[(firstPositional + 1)..]
+                ];
+            }
+        }
+        else if (firstPositional < 0
+            && args.Any(a => a is "-S" or "--select"))
+        {
+            RequestTelemetry.Breadcrumb(
+                "implicit-router",
+                "bare section discovery");
+            return ["router", .. args];
+        }
+
+        return PreprocessRoutedArgs(args, rootCommand);
+    }
+
+    internal static string[] PreprocessRoutedArgs(
+        string[] args,
+        RootCommand rootCommand)
+    {
+        Command command =
+            rootCommand.Parse(args).CommandResult.Command;
+        int endOfOptions = Array.IndexOf(args, "--");
         if (endOfOptions < 0)
             endOfOptions = args.Length;
 
-        // `--platform` is a required-value option (a library name) for type/member/match/
-        // assembly commands, but a value-less bool flag for search-scope commands (find,
-        // implements, extensions, depends) -- see CommandLineHelpers.CreatePlatformOption.
-        // RewriteValuedPlatformForSearchCommands (above) already rewrites any search-scope
-        // `--platform <library>` into `--platform-library <library>`, so by this point any
-        // remaining literal `--platform` in a search-scope command is guaranteed to be the
-        // bool-flag form and must not be treated as consuming the following token.
-        //
-        // `--library` and `--version` have the same command-dependent duality on `package`:
-        // both are ArgumentArity.ZeroOrOne there ("use alone" selects the primary library /
-        // shows the resolved version), but are required-value everywhere else they appear
-        // (e.g., `--library` on search-scope commands, `--version` on `library`'s platform
-        // runtime-version option). A bare -N following either on `package` must expand to
-        // `-n N`, not be swallowed as the option's value.
-        int commandTokenIndex = FindFirstCommandTokenIndex(args);
-        string? commandToken = commandTokenIndex >= 0 ? args[commandTokenIndex] : null;
-        bool platformIsValueless = commandToken != null && SearchScopeCommands.Contains(commandToken);
-        bool isPackageCommand = commandToken != null
-            && string.Equals(commandToken, PackageCommand.Name, StringComparison.OrdinalIgnoreCase);
-
-        // The implicit-router form (`dotnet-inspect System.Text.Json --version -2`, no
-        // explicit `package` keyword) also resolves to the `package` command at runtime --
-        // RouterCommandDefinition.RewriteAsync routes any bare, non-file-path target with
-        // `--library` or a version query (`--version`/`--versions`/`--versions-with-feed`/
-        // `--latest-version`) to `package`, unless a more specific source (`--package`,
-        // `--platform`, `--project`) or type/member selector is also present. Mirror only
-        // that narrow, deterministic default-fallback shape here; anything with a more
-        // specific selector keeps the conservative (required-value) classification, since
-        // the full router decision (generic notation, library-file resolution, etc.) is not
-        // safely predictable from this synchronous preprocessing step.
-        //
-        // Two exceptions to "conservative" that are still fully deterministic from the raw
-        // tokens: an `.nupkg` target routes straight to `package` (only `.dll` routes to
-        // `library`), and a redundant, self-referential `--package <same target>` also routes
-        // to `package` (RewriteAsync's `IsExplicitSourceIdentity` check) -- but only when no
-        // `--type`/`--member` selector AND no second positional token is also present, since
-        // `TryRouteExplicitSourceTarget` checks those before falling back to the self-
-        // referential-identity branch and routes to `type`/`member` instead (a second
-        // positional is itself the deferred type/member target once the redundant `--package
-        // <target>` pair is set aside -- see `TryFindPositionalIndex`). The target token need
-        // not sit at index 0 -- a leading global option (e.g. `--tips`) can precede it -- so
-        // this keys off the resolved `commandToken` itself, matching how
-        // `platformIsValueless`/the explicit-`package`-command check above already work.
-        //
-        // A target with explicit generic notation (e.g. `List<T>`) never routes to `package`
-        // from this fallback shape -- RewriteAsync's `hasExplicitApiSource` branch (driven by
-        // any `--library <value>` reaching it unexpanded) takes it to `type`/`member` before the
-        // final `ContainsOption(tokens, "--library") => package` catch-all is reached. Expanding
-        // its `--library`'s value here would misroute it the same way the self-referential-
-        // package/type-selector case above does.
-        bool isDllTarget = commandToken != null
-            && CommandLineHelpers.TryClassifyAsFilePath(commandToken, out var routedDllPath, out _)
-            && routedDllPath != null;
-        bool hasTypeOrMemberSelector = commandToken != null
-            && ContainsAnyOption(args, "-t", "--type", "-m", "--member");
-        bool hasExplicitGenericTarget = commandToken != null
-            && TypeMatcher.HasExplicitGenericNotation(commandToken);
-        bool hasSelfReferentialPackageOption = commandToken != null
-            && !hasTypeOrMemberSelector
-            && !HasSecondPositionalToken(args, commandTokenIndex)
-            && HasOptionValueEqualTo(args, "--package", commandToken);
-        if (!isPackageCommand && commandToken != null
-            && !KnownCommands.Contains(commandToken)
-            && !isDllTarget
-            && !hasExplicitGenericTarget
-            && (hasSelfReferentialPackageOption
-                || !ContainsAnyOption(args, "--package", "--platform", "--project", "-t", "--type", "-m", "--member"))
-            && ContainsAnyOption(args, "--library", "--version", "--versions", "--versions-with-feed", "--latest-version"))
-        {
-            isPackageCommand = true;
-        }
-
-        var valuelessOverrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (platformIsValueless)
-            valuelessOverrides.Add("--platform");
-        if (isPackageCommand)
-        {
-            valuelessOverrides.Add("--library");
-            valuelessOverrides.Add("--version");
-        }
-
-        // Expand every bare -NN shorthand (e.g., -30) into -n 30 before parsing.
         for (int i = 0; i < endOfOptions; i++)
         {
-            if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
-                && !IsFollowingRequiredOptionValue(args, i, valuelessOverrides)
-                && int.TryParse(args[i].AsSpan(1), out var headN))
+            if (CommandLineModel.IsLimitShorthand(args[i])
+                && !IsFollowingRequiredOptionValue(
+                    args,
+                    i,
+                    rootCommand,
+                    command))
             {
-                args = [.. args[..i], "-n", args[i][1..], .. args[(i + 1)..]];
+                args =
+                [
+                    .. args[..i],
+                    "-n",
+                    args[i][1..],
+                    .. args[(i + 1)..]
+                ];
                 endOfOptions++;
                 i++;
             }
         }
 
+        CaptureLineWindow(args, endOfOptions);
+        return args;
+    }
+
+    private static void CaptureLineWindow(
+        string[] args,
+        int endOfOptions)
+    {
         bool lineModeRequested = args.Take(endOfOptions)
-            .Any(static a => IsLineModeFlagSet(a, "--lines") || IsLineModeFlagSet(a, "--tail-lines"));
+            .Any(static a =>
+                IsLineModeFlagSet(a, "--lines")
+                || IsLineModeFlagSet(a, "--tail-lines"));
         if (lineModeRequested)
         {
             int? count = null;
@@ -283,104 +272,28 @@ public static class ArgumentPreprocessor
                 TailLines = null;
             }
         }
-
-        // Find the first positional argument, skipping any leading options
-        int firstPositional = -1;
-        for (int i = 0; i < args.Length; i++)
-        {
-            var token = args[i];
-            if (!token.StartsWith('-'))
-            {
-                firstPositional = i;
-                break;
-            }
-
-            var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
-            {
-                i++;
-            }
-        }
-
-        if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
-        {
-            if (CommandLineHelpers.TryClassifyAsFilePath(args[firstPositional], out var dllPath, out var nupkgPath))
-            {
-                if (dllPath != null) return ["library", .. args];
-                if (nupkgPath != null) return ["package", .. args];
-            }
-
-            // Route bare names through the router command (platform-preferred, NuGet fallback)
-            RequestTelemetry.Breadcrumb("implicit-router", args[firstPositional]);
-            return ["router", args[firstPositional], .. args[..firstPositional], .. args[(firstPositional + 1)..]];
-        }
-
-        // Bare discovery flags (-S, --select) with no positional args → route to router
-        if (firstPositional < 0 && args.Any(a => a is "-S" or "--select"))
-        {
-            RequestTelemetry.Breadcrumb("implicit-router", "bare section discovery");
-            return ["router", .. args];
-        }
-
-        return args;
     }
 
-    private static bool IsFollowingRequiredOptionValue(string[] args, int index, HashSet<string> valuelessOverrides)
+    private static bool IsFollowingRequiredOptionValue(
+        string[] args,
+        int index,
+        RootCommand rootCommand,
+        Command command)
     {
         if (index == 0)
             return false;
 
         string precedingToken = args[index - 1];
-        string optionName = precedingToken.Split('=', 2)[0];
-        if (valuelessOverrides.Contains(optionName))
+        var (optionName, attachedValue) =
+            SplitAttachedOptionValue(precedingToken);
+        if (attachedValue is not null)
             return false;
-        return !precedingToken.Contains('=', StringComparison.Ordinal)
-            && RequiredValueOptions.Contains(optionName);
-    }
 
-    private static bool ContainsAnyOption(string[] args, params string[] optionNames)
-    {
-        foreach (var arg in args)
-        {
-            var optionName = arg.Split('=', 2)[0];
-            foreach (var candidate in optionNames)
-            {
-                if (string.Equals(optionName, candidate, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Mirrors <c>RouterCommandDefinition.IsExplicitSourceIdentity</c>: true when <paramref
-    /// name="optionName"/> appears with a value equal to <paramref name="value"/> (the
-    /// redundant, self-referential "--package X" spelling of a bare target "X").
-    /// </summary>
-    private static bool HasOptionValueEqualTo(string[] args, string optionName, string value)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (string.Equals(args[i], optionName, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(args[i + 1], value, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            var inline = args[i].Split('=', 2);
-            if (inline.Length == 2
-                && string.Equals(inline[0], optionName, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(inline[1], value, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        Option? option = CommandLineModel.FindOption(
+            rootCommand,
+            command,
+            optionName);
+        return option?.Arity.MinimumNumberOfValues > 0;
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
@@ -392,35 +305,23 @@ public static class ArgumentPreprocessor
     {
         "find", "implements", "extensions", "depends"
     };
-    private static readonly HashSet<string> OptionsWithFollowingValue = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "--package", "--library", "--assembly", "--project", "--bin", "--directory",
-        "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
-        "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
-        "--caller-package", "--caller-project", "--match", "--path",
-        "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--version", "--versions", "--versions-with-feed",
-        "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
-        "--min-confidence", "--triage-shape", "--top", "--session",
-        "--package-prefix", "--depth", "-n", "--rows", "--source",
-        "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
-        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
-    };
-    private static readonly HashSet<string> RequiredValueOptions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "--package", "--library", "--assembly", "--project", "--bin", "--directory",
-        "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
-        "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
-        "--caller-package", "--caller-project", "--match", "--path",
-        "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--take", "--row",
-        "--where", "--order-by", "--min-confidence", "--triage-shape", "--top", "--session",
-        "--package-prefix", "--depth", "-n", "--rows", "--source",
-        "--add-source", "--nugetconfig", "--columns", "--fields", "--version"
-    };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 
-    private static string[] RewriteValuedPlatformForSearchCommands(string[] args)
+    private static string[] RewriteValuedPlatformForSearchCommands(
+        string[] args,
+        RootCommand rootCommand)
     {
-        var commandIndex = FindSearchScopeCommandIndex(args);
+        Command command =
+            rootCommand.Parse(args).CommandResult.Command;
+        if (!SearchScopeCommands.Contains(command.Name))
+            return args;
+
+        int commandIndex = Array.FindIndex(
+            args,
+            token => string.Equals(
+                token,
+                command.Name,
+                StringComparison.OrdinalIgnoreCase));
         if (commandIndex < 0 || args.Length - commandIndex < 3)
             return args;
 
@@ -429,7 +330,12 @@ public static class ArgumentPreprocessor
         {
             if (!string.Equals(args[i], "--platform", StringComparison.Ordinal)
                 || args[i + 1].StartsWith("-", StringComparison.Ordinal)
-                || !ShouldTreatPlatformFollowerAsLibrary(args, commandIndex, i))
+                || !ShouldTreatPlatformFollowerAsLibrary(
+                    args,
+                    commandIndex,
+                    i,
+                    rootCommand,
+                    command))
             {
                 continue;
             }
@@ -441,34 +347,9 @@ public static class ArgumentPreprocessor
         return result ?? args;
     }
 
-    private static int FindSearchScopeCommandIndex(string[] args)
-    {
-        for (var i = 0; i < args.Length; i++)
-        {
-            var token = args[i];
-            if (!token.StartsWith("-", StringComparison.Ordinal))
-                return SearchScopeCommands.Contains(token) ? i : -1;
-
-            var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
-            {
-                i++;
-            }
-        }
-
-        return -1;
-    }
-
-    /// <summary>
-    /// Finds the index of the first positional (non-option) token in <paramref name="args"/>,
-    /// which is the command name for every supported invocation shape. Unlike
-    /// <see cref="FindSearchScopeCommandIndex"/>, this does not filter by command membership --
-    /// callers compare the returned token against whichever command set is relevant to them.
-    /// </summary>
-    private static int FindFirstCommandTokenIndex(string[] args)
+    private static int FindFirstPositionalIndex(
+        string[] args,
+        RootCommand rootCommand)
     {
         for (var i = 0; i < args.Length; i++)
         {
@@ -476,9 +357,11 @@ public static class ArgumentPreprocessor
             if (!token.StartsWith("-", StringComparison.Ordinal))
                 return i;
 
-            var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
+            var (optionName, attachedValue) =
+                SplitAttachedOptionValue(token);
+            if (attachedValue is null
+                && CommandLineModel.FindOptions(rootCommand, optionName)
+                    .Any(CommandLineModel.CanConsumeFollowingValue)
                 && i + 1 < args.Length
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
@@ -490,37 +373,9 @@ public static class ArgumentPreprocessor
     }
 
     /// <summary>
-    /// True when a second positional (non-option) token exists after <paramref
-    /// name="firstIndex"/>, mirroring how <c>TryFindPositionalIndex</c> detects a deferred
-    /// type/member target once a redundant "--package &lt;target&gt;" pair is set aside.
-    /// </summary>
-    private static bool HasSecondPositionalToken(string[] args, int firstIndex)
-    {
-        for (var i = firstIndex + 1; i < args.Length; i++)
-        {
-            var token = args[i];
-            if (!token.StartsWith("-", StringComparison.Ordinal))
-                return true;
-
-            var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
-            {
-                i++;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
     /// Splits a token like <c>--lines=true</c> or <c>-n:5</c> into its option name and
     /// attached value, recognizing both the <c>=</c> and <c>:</c> separators System.CommandLine
-    /// accepts (this file's other helpers only recognize <c>=</c>, which is what caused
-    /// <c>--lines=true</c>/<c>--tail-lines=true</c>/<c>-n:5</c> to silently miss line-mode
-    /// detection -- see Round 15).
+    /// accepts. This keeps line-mode detection aligned with command-model lookup.
     /// </summary>
     private static (string Name, string? Value) SplitAttachedOptionValue(string token)
     {
@@ -546,19 +401,38 @@ public static class ArgumentPreprocessor
             || parsed;
     }
 
-    private static bool ShouldTreatPlatformFollowerAsLibrary(string[] args, int commandIndex, int platformIndex)
+    private static bool ShouldTreatPlatformFollowerAsLibrary(
+        string[] args,
+        int commandIndex,
+        int platformIndex,
+        RootCommand rootCommand,
+        Command command)
     {
         // `find Type --platform System.Text.Json` or `find --tfm net10.0 Type --platform System.Text.Json`.
-        if (HasSearchTargetBefore(args, commandIndex, platformIndex))
+        if (HasSearchTargetBefore(
+                args,
+                commandIndex,
+                platformIndex,
+                rootCommand,
+                command))
             return true;
 
         // `find --platform System.Text.Json JsonSerializer`: first value scopes platform,
         // second non-option remains the command target. A lone `--platform JsonSerializer`
         // preserves the old bare-flag-before-target ordering.
-        return HasSearchTargetAfter(args, platformIndex + 2);
+        return HasSearchTargetAfter(
+            args,
+            platformIndex + 2,
+            rootCommand,
+            command);
     }
 
-    private static bool HasSearchTargetBefore(string[] args, int commandIndex, int platformIndex)
+    private static bool HasSearchTargetBefore(
+        string[] args,
+        int commandIndex,
+        int platformIndex,
+        RootCommand rootCommand,
+        Command command)
     {
         for (var i = commandIndex + 1; i < platformIndex; i++)
         {
@@ -566,9 +440,14 @@ public static class ArgumentPreprocessor
             if (!token.StartsWith("-", StringComparison.Ordinal))
                 return true;
 
-            var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
+            var (optionName, attachedValue) =
+                SplitAttachedOptionValue(token);
+            if (attachedValue is null
+                && CommandLineModel.FindOption(
+                    rootCommand,
+                    command,
+                    optionName) is { } option
+                && CommandLineModel.CanConsumeFollowingValue(option)
                 && i + 1 < platformIndex
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
@@ -579,7 +458,11 @@ public static class ArgumentPreprocessor
         return false;
     }
 
-    private static bool HasSearchTargetAfter(string[] args, int startIndex)
+    private static bool HasSearchTargetAfter(
+        string[] args,
+        int startIndex,
+        RootCommand rootCommand,
+        Command command)
     {
         for (var i = startIndex; i < args.Length; i++)
         {
@@ -587,9 +470,14 @@ public static class ArgumentPreprocessor
             if (!token.StartsWith("-", StringComparison.Ordinal))
                 return true;
 
-            var optionName = token.Split('=', 2)[0];
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
+            var (optionName, attachedValue) =
+                SplitAttachedOptionValue(token);
+            if (attachedValue is null
+                && CommandLineModel.FindOption(
+                    rootCommand,
+                    command,
+                    optionName) is { } option
+                && CommandLineModel.CanConsumeFollowingValue(option)
                 && i + 1 < args.Length
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
             {
