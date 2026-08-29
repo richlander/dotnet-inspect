@@ -50,7 +50,9 @@ The safety invariants check:
   same-medium target, plus historical eligible-primary transfer;
 - exact enabled-action-set equality for embedded and modal annotation chips,
   persistent inspector actions, annotatable-Finding toggles, and
-  supported-medium toggles, including an unanchored inspector witness;
+  supported-medium toggles, plus exact availability of selectable nodes and
+  every modeled fixed action, including an unanchored inspector witness and
+  pointer **Close** while detail is open;
 - exact rendered-target derivation from active membership and currently
   visible media;
 - exact annotation and presentation preservation across modal Finding and node
@@ -119,7 +121,7 @@ each for `ToggleAnnotation` and `ToggleMedium`, and 3,096 for
 
 ## Mutation evidence
 
-Forty-five deliberate targeted mutations were run against the same
+Fifty-five deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -170,6 +172,16 @@ Each produced a concrete counterexample:
 | Allow a hidden modal chip action | `ModalChipActionsAreExact` |
 | Remove one annotatable-Finding toggle action | `AnnotationToggleActionsAreExact` |
 | Remove one supported-medium toggle action | `MediumToggleActionsAreExact` |
+| Disable **Explore** while embedded detail is open | `FixedActionAvailabilityIsExact` |
+| Disable pointer **Close** while modal detail is open | `FixedActionAvailabilityIsExact` |
+| Disable modal Escape dismissal for one detail-free state | `FixedActionAvailabilityIsExact` |
+| Disable direct detail closure on the embedded surface | `FixedActionAvailabilityIsExact` |
+| Disable embedded Escape fall-through for one detail-free state | `FixedActionAvailabilityIsExact` |
+| Disable **Default** when the active set is already default | `FixedActionAvailabilityIsExact` |
+| Disable **All** when every annotation is already active | `FixedActionAvailabilityIsExact` |
+| Disable **Clear** when the active set is already empty | `FixedActionAvailabilityIsExact` |
+| Disable hiding coordinates after they are visible | `FixedActionAvailabilityIsExact` |
+| Remove one selectable-node action | `NodeActionsAreExact` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.

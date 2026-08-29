@@ -343,7 +343,9 @@ bounded executable design model for viewer-local interaction. It checks:
   same-medium targets for one Finding and embedded-chip activation;
 - exact enabled action sets for embedded and modal annotation chips,
   persistent inspector actions, annotatable-Finding toggles, and
-  supported-medium toggles, including an unanchored inspector witness;
+  supported-medium toggles, plus exact availability of selectable nodes and
+  every modeled fixed action, including an unanchored inspector witness and
+  pointer **Close** while detail is open;
 - exact rendered-target derivation from active annotations and visible media;
 - primary selection, active annotations, rendered annotations, and derived
   reported state with independently checked precedence;
@@ -373,7 +375,9 @@ Conformance requires:
   documented verb and equivalent pointer/keyboard activation, plus exact set
   equality for enabled embedded and modal annotation chips, persistent
   inspector actions, annotatable-Finding toggles, and supported-medium toggles,
-  with an unanchored inspector witness;
+  plus exact availability of selectable nodes and fixed controls, with an
+  unanchored inspector witness and pointer **Close** exercised while detail is
+  open;
 - modal-session tests proving fresh initialization, eligible primary transfer,
   independently derived transfer eligibility, embedded-detail destruction on
   opening, state destruction on dismissal, and no detail transfer;

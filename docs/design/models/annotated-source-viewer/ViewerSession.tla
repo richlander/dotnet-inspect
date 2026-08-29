@@ -859,6 +859,25 @@ MediumToggleActionsAreExact ==
      /\ medium \in supportedMedia) =
       ENABLED ToggleMedium(medium)
 
+FixedActionAvailabilityIsExact ==
+  /\ (surface = "Embedded") = ENABLED OpenModal
+  /\ (/\ surface = "Modal"
+      /\ modalDetail = NoDetail) =
+       ENABLED DismissModalByEscape
+  /\ (surface = "Modal") = ENABLED DismissModalByPointer
+  /\ (CurrentDetail # NoDetail) = ENABLED CloseCurrentDetail
+  /\ (/\ surface = "Embedded"
+      /\ embeddedDetail = NoDetail) =
+       ENABLED EmbeddedEscapeFallsThrough
+  /\ (surface = "Modal") = ENABLED SetDefault
+  /\ (surface = "Modal") = ENABLED SetAll
+  /\ (surface = "Modal") = ENABLED ClearAll
+  /\ (surface = "Modal") = ENABLED ToggleCoordinates
+
+NodeActionsAreExact ==
+  \A node \in Nodes :
+    (surface = "Modal") = ENABLED SelectModalNode(node)
+
 RenderedTargetsAreExact ==
   \A target \in Targets :
     (target \in VisibleTargets(active, visibleMedia)) =
