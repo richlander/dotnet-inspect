@@ -242,9 +242,10 @@ Starting an operation follows one owner-controlled synchronous sequence:
 8. if the unchanged session received producer rejection, return
    `producer-rejected` and discard the candidate without an authority
    transition;
-9. otherwise atomically install the prepared candidate as current, complete the
-   prior pending outcome as `canceled("superseded")`, and reserve the prior
-   operation's one cancellation forwarding;
+9. otherwise atomically install the prepared candidate as current, capture its
+   exact handle for the outer return, complete the prior pending outcome as
+   `canceled("superseded")`, and reserve the prior operation's one cancellation
+   forwarding;
 10. activate the prepared current binding;
 11. invoke the reserved prior cancellation endpoint; and
 12. return `OperationStartResult.started` with the new handle.
@@ -253,8 +254,10 @@ The candidate is current before activation, and the cancellation endpoint
 exists before callbacks can reenter. A synchronous activation callback uses
 the session's `cancelCurrent()` or `dispose()` operation and therefore observes
 the same installed record as a deferred callback. It may supersede the
-candidate again; in that case `start()` returns the candidate's already-canceled
-handle without overwriting the reentrant replacement.
+candidate again; in that case `start()` returns the exact captured candidate
+handle, already canceled, without reading the session's new current record or
+overwriting the reentrant replacement. Disposal during activation similarly
+returns the captured canceled handle while leaving the session disposed.
 
 Preparation may synchronously reenter `start()`, `cancelCurrent()`, or
 `dispose()`. The revision check ensures the outer attempt never overwrites that
@@ -320,10 +323,14 @@ publication authority.
 
 A later call changes no reason or state and sends no producer request. A call
 after success, failure, or cancellation is a strict local no-op.
-`cancelCurrent()` applies that same transition through the session. The
-authority state and forwarding flag commit before its external cancellation
-callout; endpoint exceptions are diagnosed and do not escape or undo the
-transition. Reentrant producer events therefore observe the canceled outcome.
+`cancelCurrent()` applies that same transition through the session.
+
+Handle cancellation and session cancellation use one callout rule: the logical
+outcome, authority revocation, reason, and forwarding flag commit before the
+external cancellation endpoint is invoked. Endpoint exceptions are caught at
+that boundary, emitted to the diagnostic observer, and do not escape, undo the
+transition, or permit another forwarding attempt. Reentrant producer events
+therefore observe the canceled outcome.
 Each handle remains bound to its originating operation record. Calling an old
 handle never delegates to the session's current operation and cannot change a
 replacement's outcome, authority, cancellation count, or producer endpoint.
@@ -349,11 +356,18 @@ result, progress, or focus state.
 
 Disposing a feature session:
 
-- cancels its pending current operation as `"disposed"`;
-- removes all feature publication callbacks;
-- prevents new starts; and
+- atomically marks the session disposed, removes all feature publication
+  callbacks, cancels its pending current operation as `"disposed"`, clears
+  current authority, and reserves that operation's cancellation forwarding;
+- prevents new starts from the instant of that commit;
+- invokes the reserved cancellation endpoint only after the complete commit,
+  using the same diagnostic exception containment as direct cancellation; and
 - optionally awaits the session's outstanding `quiesced` promises when its
   caller requires physical resource release.
+
+No authority state is written after the disposal callout. A synchronous
+producer callback or attempted reentrant start therefore observes a disposed
+session and cannot install another operation.
 
 Producer events remain consumable by the authority component until their
 records quiesce, but none can publish after disposal.
@@ -477,8 +491,15 @@ exist and must include:
 - prepared cancellation availability before activation, immediate callback
   cancellation through `OperationSession`, and activation failure through
   terminal plus quiescence events;
+- activation callbacks that start a replacement or dispose the session,
+  requiring the outer start to return its exact captured candidate handle while
+  the nested transition remains authoritative;
 - prior cancellation endpoints that throw, report synchronously, or reenter
   start/disposal after the replacement authority commit;
+- throwing cancellation endpoints reached through `OperationHandle.cancel()`,
+  `OperationSession.cancelCurrent()`, disposal, and supersession, each proving
+  commit-before-callout, one diagnostic, no escaping exception, no retry, and
+  an unchanged first outcome;
 - synchronous and deferred producer completion;
 - one logical outcome and one quiescence resolution;
 - omitted cancellation normalization, reason immutability, and exactly one
@@ -493,8 +514,9 @@ exist and must include:
   leaving the replacement outcome, authority, cancellation count, and producer
   endpoint unchanged;
 - duplicate producer reports remaining visible contract failures;
-- disposal preventing starts and publication while retaining event
-  consumption through quiescence;
+- disposal atomically preventing starts and publication before its endpoint
+  callout, including a callout that synchronously attempts another start, while
+  retaining event consumption through quiescence;
 - one source-view adoption preserving its current feature behavior; and
 - a neighboring browser-`fetch` adapter proving placement independence.
 
