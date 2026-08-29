@@ -77,7 +77,7 @@ them when `_pending` has no matching entry.
 | `ShutdownSettlementIsComplete` | The shutdown collection settles every request admitted before admission closed. |
 | `ClosedConnectionIsQuiescent` | A closed connection owns no writer or live request and cannot admit work. |
 | `ClosedConnectionIsAbsorbing` | Once closed, the connection cannot move back to an earlier lifecycle state. |
-| `WriterPreemptionIsContained` | Timeout or cancellation of the active writer closes the connection and classifies every other live request as connection-closed. |
+| `WriterPreemptionIsContained` | An independently recorded timeout or cancellation of the active writer preserves its cause, closes the connection, and classifies every other live request as connection-closed. |
 | `InitializationEventuallySettles` | Under weak fairness for protocol handling, initialization reaches ready, failed, or closing state. |
 | `InboundHandshakeEventuallySettles` | A received inbound handshake is answered or the connection terminates. |
 | `MalformedInboundEventuallySettles` | Once a malformed inbound handshake is received, it receives a response or the connection terminates. |
@@ -108,7 +108,9 @@ writer and reuse the pipe: timeout or caller cancellation while a request owns
 the writer terminates the connection and settles every other admitted request
 as connection-closed. `WriterPreemptionIsContained` checks that action-level
 relationship independently; its two mutation configurations demonstrate unsafe
-writer reuse and incorrect peer classification.
+writer reuse and incorrect peer classification. Two additional mutations swap
+the initiating timeout and cancellation outcomes; the lifecycle phase records
+the cause independently so both swaps fail.
 
 Progress may repeat indefinitely. The model does not claim that a request
 settles while the plugin keeps renewing its deadline. `StopProgress` records
@@ -159,6 +161,8 @@ matches the abstraction.
 | `CurrentStalledWrite.cfg` | Lets timeout become observable only after a serialized write returns. It must violate `EveryRequestSettlesAfterProgressStops` when the write stalls. |
 | `BrokenWriterPreemptionReuse.cfg` | Releases the writer without terminating the connection. It must violate `WriterPreemptionIsContained`. |
 | `BrokenWriterPreemptionClassification.cfg` | Terminates the connection but classifies another live request as timed out. It must violate `WriterPreemptionIsContained`. |
+| `BrokenTimeoutPreemptionCause.cfg` | Records timeout preemption but reports caller cancellation for the initiating request. It must violate `WriterPreemptionIsContained`. |
+| `BrokenCancellationPreemptionCause.cfg` | Records caller-cancellation preemption but reports timeout for the initiating request. It must violate `WriterPreemptionIsContained`. |
 | `UnboundedProgress.cfg` | Checks the intentionally unsupported stronger claim that every request settles even while Progress renewals continue forever. |
 
 All configurations disable TLC's deadlock check because ready, failed, closed,
@@ -184,7 +188,7 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -config Liveness.cfg NuGetPluginSessionLifecycle.tla
 ```
 
-The twelve non-positive configurations are expected to exit unsuccessfully:
+The fourteen non-positive configurations are expected to exit unsuccessfully:
 
 ```bash
 for config in \
@@ -199,6 +203,8 @@ for config in \
   CurrentStalledWrite \
   BrokenWriterPreemptionReuse \
   BrokenWriterPreemptionClassification \
+  BrokenTimeoutPreemptionCause \
+  BrokenCancellationPreemptionCause \
   UnboundedProgress
 do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
@@ -213,12 +219,12 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 15,477 | 5,971 | 24 | All 10 invariants passed. |
-| Liveness | 15,477 | 5,971 | 24 | Four liveness properties and two action properties passed. |
+| Safety | 15,477 | 6,139 | 24 | All 10 invariants passed. |
+| Liveness | 15,477 | 6,139 | 24 | Four liveness properties and two action properties passed. |
 
 The safety run gave nonzero coverage to all 21 actions enabled by the positive
-mode. This includes 516 `TickDeadline`, 69 `ReceiveResponse`, 22
-`ReceiveProgress`, 114 `StopProgress`, 993 `ObservePipeClosed`, 1,072
+mode. This includes 501 `TickDeadline`, 77 `ReceiveResponse`, 17
+`ReceiveProgress`, 105 `StopProgress`, 1,021 `ObservePipeClosed`, 1,081
 `CaptureShutdownSnapshot`, and 896 `SettleShutdownSnapshot` transitions.
 `DropMalformedInbound` is disabled by the positive containment mode and is
 exercised by the malformed-input counterexample configurations.
@@ -237,7 +243,7 @@ checks the rule through `RequestAdmissionHasLiveReceiver` and
 `ReadyRequiresSymmetricHandshake`.
 
 Every non-positive configuration exited unsuccessfully on its intended claim.
-Six invariant configurations returned TLC status 12; the six temporal or
+Six invariant configurations returned TLC status 12; the eight temporal or
 action-property configurations returned status 13.
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
@@ -251,8 +257,10 @@ action-property configurations returned status 13.
 | Current shutdown admission | 656 / 480 | 8 | The read loop stopped, but request 1 was admitted with no live receiver. |
 | Current shutdown snapshot | 953 / 653 | 10 | The read loop captured an empty pending set; request 1 was then admitted before settlement, escaped the snapshot, and depended on its ordinary request timeout. |
 | Current stalled write | 10,873 / 5,199 | 24 | Request 1 acquired the serialized writer, Progress stopped, the transport never completed the write, and the already-running timer could not settle the request because its result was observed only after the write. |
-| Writer-preemption reuse | 684 / 506 | 9 | Caller cancellation released the active writer while leaving the connection ready, the reader running, and admission open. |
+| Writer-preemption reuse | 684 / 507 | 9 | Caller cancellation released the active writer while leaving the connection ready, the reader running, and admission open. |
 | Writer-preemption classification | 734 / 535 | 10 | Caller cancellation closed the connection but classified another live request as timed out instead of connection-closed. |
+| Timeout-preemption cause | 812 / 577 | 10 | Timeout closed the connection but reported caller cancellation for the initiating request. |
+| Cancellation-preemption cause | 684 / 507 | 9 | Caller cancellation closed the connection but reported timeout for the initiating request. |
 | Unbounded Progress | 15,477 / 5,971 | 24 | Request 1 alternated deadline expiry and Progress renewal forever, disproving unconditional settlement while renewals continue. |
 
 The runs used:
@@ -267,4 +275,4 @@ The runs used:
 The recorded configurations use two concurrent host requests and one inbound
 handshake. Progress may repeat indefinitely. A separate safety run with
 `RequestCount = 3` also completed with no error after generating 683,390 states
-and finding 185,299 distinct states at depth 31.
+and finding 190,591 distinct states at depth 31.

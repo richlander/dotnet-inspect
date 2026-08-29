@@ -26,7 +26,8 @@ ASSUME
     /\ ShutdownMode \in {"CloseAdmission", "SnapshotOnly"}
     /\ WriteTimeoutMode \in
         {"CoversWrite", "AfterWrite",
-         "ReleasesWriter", "MisclassifiesPeers"}
+         "ReleasesWriter", "MisclassifiesPeers",
+         "SwapsTimeoutCause", "SwapsCancellationCause"}
     /\ InitializationTimeoutMode \in {"Enforced", "Absent"}
 
 Requests == 1..RequestCount
@@ -50,7 +51,9 @@ RequestStates == {"Unused", "Registered", "Writing", "Waiting", "Done"}
 RequestOutcomes ==
     {"Pending", "Success", "PluginFault", "TimedOut",
      "CallerCanceled", "ConnectionClosed"}
-ShutdownPhases == {"None", "Observed", "Captured", "Settled"}
+ShutdownPhases ==
+    {"None", "Observed", "Captured", "Settled",
+     "TimeoutPreempted", "CancellationPreempted"}
 NoWriter == 0
 PluginHandshakeWriter == RequestCount + 1
 WriterOwners == 0..PluginHandshakeWriter
@@ -490,6 +493,11 @@ TimeoutRequest(request) ==
             IF WriteTimeoutMode = "MisclassifiesPeers"
             THEN "TimedOut"
             ELSE "ConnectionClosed"
+           initiatingOutcome ==
+            IF preemptsWriter
+                /\ WriteTimeoutMode = "SwapsTimeoutCause"
+            THEN "CallerCanceled"
+            ELSE "TimedOut"
        IN
         /\ requestState' =
             IF terminateConnection
@@ -506,10 +514,11 @@ TimeoutRequest(request) ==
                     IF LiveRequest(candidate)
                     THEN
                         IF candidate = request
-                        THEN "TimedOut"
+                        THEN initiatingOutcome
                         ELSE peerOutcome
                     ELSE requestOutcome[candidate]]
-            ELSE [requestOutcome EXCEPT ![request] = "TimedOut"]
+            ELSE
+                [requestOutcome EXCEPT ![request] = initiatingOutcome]
         /\ deadlineRemaining' =
             IF terminateConnection
             THEN
@@ -543,11 +552,11 @@ TimeoutRequest(request) ==
             THEN NoWriter
             ELSE writeOwner
         /\ shutdownPhase' =
-            IF terminateConnection
-            THEN "Settled"
+            IF preemptsWriter
+            THEN "TimeoutPreempted"
             ELSE shutdownPhase
         /\ shutdownSnapshot' =
-            IF terminateConnection
+            IF preemptsWriter
             THEN LiveRequests
             ELSE shutdownSnapshot
     /\ UNCHANGED
@@ -569,6 +578,11 @@ CancelCaller(request) ==
             IF WriteTimeoutMode = "MisclassifiesPeers"
             THEN "TimedOut"
             ELSE "ConnectionClosed"
+           initiatingOutcome ==
+            IF preemptsWriter
+                /\ WriteTimeoutMode = "SwapsCancellationCause"
+            THEN "TimedOut"
+            ELSE "CallerCanceled"
        IN
         /\ requestState' =
             IF terminateConnection
@@ -585,10 +599,11 @@ CancelCaller(request) ==
                     IF LiveRequest(candidate)
                     THEN
                         IF candidate = request
-                        THEN "CallerCanceled"
+                        THEN initiatingOutcome
                         ELSE peerOutcome
                     ELSE requestOutcome[candidate]]
-            ELSE [requestOutcome EXCEPT ![request] = "CallerCanceled"]
+            ELSE
+                [requestOutcome EXCEPT ![request] = initiatingOutcome]
         /\ deadlineRemaining' =
             IF terminateConnection
             THEN
@@ -622,11 +637,11 @@ CancelCaller(request) ==
             THEN NoWriter
             ELSE writeOwner
         /\ shutdownPhase' =
-            IF terminateConnection
-            THEN "Settled"
+            IF preemptsWriter
+            THEN "CancellationPreempted"
             ELSE shutdownPhase
         /\ shutdownSnapshot' =
-            IF terminateConnection
+            IF preemptsWriter
             THEN LiveRequests
             ELSE shutdownSnapshot
     /\ UNCHANGED
@@ -818,7 +833,9 @@ InboundFailureIsContained ==
     pluginHandshake # "Dropped"
 
 ShutdownSettlementIsComplete ==
-    shutdownPhase = "Settled" => LiveRequests = {}
+    shutdownPhase \in
+        {"Settled", "TimeoutPreempted", "CancellationPreempted"}
+        => LiveRequests = {}
 
 ClosedConnectionIsQuiescent ==
     connection = "Closed" =>
@@ -847,14 +864,12 @@ WriterPreemptionResult(request, expectedOutcome) ==
 TimeoutWriterPreemption(request) ==
     /\ requestState[request] = "Writing"
     /\ writeOwner = request
-    /\ requestState'[request] = "Done"
-    /\ requestOutcome'[request] = "TimedOut"
+    /\ shutdownPhase' = "TimeoutPreempted"
 
 CancellationWriterPreemption(request) ==
     /\ requestState[request] = "Writing"
     /\ writeOwner = request
-    /\ requestState'[request] = "Done"
-    /\ requestOutcome'[request] = "CallerCanceled"
+    /\ shutdownPhase' = "CancellationPreempted"
 
 WriterPreemptionIsContained ==
     [][
