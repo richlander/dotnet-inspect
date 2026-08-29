@@ -199,6 +199,9 @@ noncanonical NuGet.org URL shortcut.
 
 ## Versioned cache retirement
 
+See also the [CoreCache mechanism](corecache-mechanism.md#versioned-category-retirement)
+for the mechanism-level contract this section's cross-process rationale relies on.
+
 Each versioned cache family registers its prefix and current numeric contract.
 Registration starts best-effort background cleanup, and cache initialization
 rechecks every known family. Cleanup deletes only lower numeric contracts.

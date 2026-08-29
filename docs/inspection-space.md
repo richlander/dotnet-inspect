@@ -1044,6 +1044,9 @@ restarts affected work before presentation.
 
 `CoreCache` is shared infrastructure for category roots, path-safe hashed keys,
 maintenance, and cache telemetry. It is a mechanism, not a semantic authority.
+The mechanism's own contract — the category/key/extension trust boundary,
+path-context containment, initialization lifecycle, and versioned category
+retirement — is owned by the [CoreCache mechanism](design/corecache-mechanism.md).
 
 The cache owner for each result must still define:
 

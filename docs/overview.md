@@ -80,8 +80,9 @@ substrates, and inspection producers that will extend that space.
   Queries owns manifest identity, dependency validation, and resource policy.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
-  `AsyncCache`), the single `HttpClientFactory` seam with offline and
-  network-policy enforcement, network telemetry, and hardened XML/JSON readers.
+  `AsyncCache`, see the [CoreCache mechanism](design/corecache-mechanism.md)),
+  the single `HttpClientFactory` seam with offline and network-policy
+  enforcement, network telemetry, and hardened XML/JSON readers.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
 - `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
