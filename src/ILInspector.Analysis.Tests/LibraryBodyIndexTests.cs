@@ -1467,6 +1467,138 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void ResultSinks_PublishRuntimeAsyncBodyAttribution()
+    {
+        string path =
+            typeof(OptimizationOpportunityAsyncSiblingFixtures)
+                .Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(
+                        OptimizationOpportunityAsyncSiblingFixtures)
+                && method.Name == nameof(
+                    OptimizationOpportunityAsyncSiblingFixtures
+                        .CallsSyncSiblingFromAsync));
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == source
+                && candidate.EvidenceMethod == source
+                && candidate.Kind
+                    == MethodResultSinkKind.MethodReturn);
+        AsyncBodyAttribution attribution =
+            Assert.IsType<AsyncBodyAttribution>(sink.AsyncBody);
+
+        Assert.True(sink.IsComplete);
+        Assert.Equal(source, attribution.SourceMethod);
+        Assert.Equal(
+            AsyncLoweringKind.Runtime,
+            attribution.Lowering);
+
+        MethodIdentity iteratorSource = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(
+                        OptimizationOpportunityAsyncSiblingFixtures)
+                && method.Name == nameof(
+                    OptimizationOpportunityAsyncSiblingFixtures
+                        .ReadValuesAsync));
+        MethodResultSink[] iteratorSinks =
+        [
+            .. index.ResultSinks.Where(
+                candidate => candidate.AsyncBody?.SourceMethod
+                    == iteratorSource),
+        ];
+
+        Assert.NotEmpty(iteratorSinks);
+        Assert.All(
+            iteratorSinks,
+            candidate =>
+            {
+                Assert.NotEqual(
+                    iteratorSource,
+                    candidate.EvidenceMethod);
+                Assert.Equal(
+                    AsyncLoweringKind.StateMachine,
+                    candidate.AsyncBody!.Lowering);
+            });
+    }
+
+    [Fact]
+    public void ResultSinks_PublishStateMachineAsyncBodyAttribution()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync));
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == source
+                && candidate.EvidenceMethod != source
+                && candidate.Kind
+                    == MethodResultSinkKind.SingleArgumentCall
+                && candidate.IsComplete);
+        AsyncBodyAttribution attribution =
+            Assert.IsType<AsyncBodyAttribution>(sink.AsyncBody);
+
+        Assert.Equal("MoveNext", sink.EvidenceMethod.Name);
+        Assert.Equal(source, attribution.SourceMethod);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            attribution.Lowering);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync()
+    {
+        string path =
+            typeof(OptimizationOpportunityAsyncSiblingFixtures)
+                .Assembly.Location;
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(
+                        OptimizationOpportunityAsyncSiblingFixtures)
+                && method.Name == nameof(
+                    OptimizationOpportunityAsyncSiblingFixtures
+                        .ReadValues));
+        MethodIdentity moveNext = Assert.Single(
+            index.Methods,
+            method => method.Name == "MoveNext"
+                && method.DeclaringType.Name.Contains(
+                    $"<{source.Name}>",
+                    StringComparison.Ordinal));
+        MethodResultSink[] sinks =
+        [
+            .. index.ResultSinks.Where(
+                candidate => candidate.Caller == moveNext),
+        ];
+
+        Assert.NotEmpty(sinks);
+        Assert.All(
+            sinks,
+            candidate => Assert.Null(candidate.AsyncBody));
+    }
+
+    [Fact]
     public void ResolveDeclaredMethod_MapsLiftedLocalFunctionToOwner()
     {
         string path = typeof(ClassicAsyncSiblingFixture).Assembly.Location;

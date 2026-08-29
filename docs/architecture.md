@@ -823,6 +823,12 @@ Research overlay bridge, and the application layer:
   primary-image method identity, unsafe/generated attribute judgments,
   token/member/type/field/calli/value-type/delegate facts, async-state-machine
   caching, and the allocation/optimization/call resolver adapters.
+  `LibraryBodyStableReceiverGetterClassifier` owns the acquisition-scoped,
+  PE-backed readonly-field getter judgment and its exactly-once cache. The
+  primary resolver's optimization adapter consumes that judgment without
+  acquiring method bodies itself;
+  `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates the
+  shared cache.
   `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
@@ -952,6 +958,14 @@ Research overlay bridge, and the application layer:
   execution-body boundary and cross-scope owner parity.
   `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource` gates ignored
   claimant collisions.
+  Result-sink value flow carries `AsyncBodyAttribution`, pairing the exact
+  authenticated source method with an explicit `Runtime` or `StateMachine`
+  lowering instead of encoding lowering through source/evidence identity
+  equality.
+  `ResultSinks_PublishRuntimeAsyncBodyAttribution`,
+  `ResultSinks_PublishStateMachineAsyncBodyAttribution`, and
+  `ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync` gate that
+  projection, including mixed lowerings in one assembly.
   `DirectCalls_MalformedIteratorClaimPreservesPhysicalEvidence` and
   `DirectCalls_ScopedMalformedLiftedOwnerFailsClosed` gate recoverable
   publication, feature-stable physical calls, and scope-stable group
