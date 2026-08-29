@@ -883,7 +883,7 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void AssemblyGroup_SkewedAmbiguityPreservesOriginFailure()
+    public void AssemblyGroup_DesignatedAmbiguityPreservesOriginFailure()
     {
         var requested = new AssemblyReferenceIdentity(
             "Platform.Library",
@@ -898,7 +898,7 @@ public class AssemblyDependencyResolverTests
                 null),
             AssemblyResolutionProvenance.Local("owner"));
         ResolvedAssemblyReference first = Descriptor(
-            requested with { Version = new Version(2, 0, 0, 0) },
+            requested,
             AssemblyResolutionProvenance.Designated(
                 "first group overlay"));
         ResolvedAssemblyReference second = Descriptor(
@@ -976,6 +976,104 @@ public class AssemblyDependencyResolverTests
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(root, ambiguous.Assemblies);
         Assert.Contains(policyCandidate, ambiguous.Assemblies);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyGroup_ExactPolicyDesignatedCandidateJoinsAmbiguity()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference root = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Designated(
+                "root group overlay"));
+        ResolvedAssemblyReference policyCandidate = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Designated(
+                "policy group overlay"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.Found(policyCandidate));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (root, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(request));
+
+        Assert.Equal(2, ambiguous.Assemblies.Length);
+        Assert.Contains(root, ambiguous.Assemblies);
+        Assert.Contains(policyCandidate, ambiguous.Assemblies);
+        Assert.Equal(1, policy.SelectionCount);
+    }
+
+    [Fact]
+    public void AssemblyGroup_ExactDesignatedRetainsAllPlatformShadows()
+    {
+        var requested = new AssemblyReferenceIdentity(
+            "Platform.Library",
+            new Version(1, 0, 0, 0),
+            null,
+            "001122aabbccddee");
+        ResolvedAssemblyReference owner = Descriptor(
+            new AssemblyReferenceIdentity(
+                "Owner",
+                new Version(1, 0, 0, 0),
+                null,
+                null),
+            AssemblyResolutionProvenance.Local("owner"));
+        ResolvedAssemblyReference designated = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Designated(
+                "root group overlay"));
+        ResolvedAssemblyReference rootPlatform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                frameworkVersion: null,
+                "root platform"));
+        ResolvedAssemblyReference policyPlatform = Descriptor(
+            requested,
+            AssemblyResolutionProvenance.Platform(
+                "runtime",
+                frameworkVersion: null,
+                "policy platform"));
+        var policy = new FixedSelectionPolicy(
+            AssemblyBindingSelection.Found(policyPlatform));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (owner, (IAssemblyBindingPolicy)policy),
+                (designated, (IAssemblyBindingPolicy)policy),
+                (rootPlatform, (IAssemblyBindingPolicy)policy),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
+            group.Select(request));
+
+        Assert.Same(designated, selected.Assembly);
+        Assert.Equal(2, selected.ShadowedAssemblies.Length);
+        Assert.Contains(rootPlatform, selected.ShadowedAssemblies);
+        Assert.Contains(policyPlatform, selected.ShadowedAssemblies);
         Assert.Equal(1, policy.SelectionCount);
     }
 

@@ -106,36 +106,23 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                         _roots)
                     is { } precedenceSelection)
             {
-                ImmutableArray<ResolvedAssemblyReference> designated =
-                    DesignatedCandidates(precedenceSelection);
-                bool hasExactDesignated = designated.Any(candidate =>
-                    SameIdentity(
-                        candidate.Identity,
-                        reference.Identity));
-                bool hasEligiblePlatform = _roots.Any(candidate =>
-                    IsCompatiblePlatform(
-                        reference.Identity,
-                        candidate,
-                        ignoreVersion: false));
-                if (hasExactDesignated || hasEligiblePlatform)
-                {
-                    return precedenceSelection;
-                }
-
                 pendingDesignated = precedenceSelection;
             }
 
-            ImmutableArray<ResolvedAssemblyReference> matches =
-            [
-                .. _roots.Where(
-                    root => SameIdentity(
-                        root.Identity,
-                        reference.Identity)),
-            ];
-            if (matches.Length == 1)
-                return AssemblyBindingSelection.Found(matches[0]);
-            if (matches.Length > 1)
-                return AssemblyBindingSelection.Multiple(matches);
+            if (pendingDesignated is null)
+            {
+                ImmutableArray<ResolvedAssemblyReference> matches =
+                [
+                    .. _roots.Where(
+                        root => SameIdentity(
+                            root.Identity,
+                            reference.Identity)),
+                ];
+                if (matches.Length == 1)
+                    return AssemblyBindingSelection.Found(matches[0]);
+                if (matches.Length > 1)
+                    return AssemblyBindingSelection.Multiple(matches);
+            }
         }
 
         AssemblyBindingSelection selection = policy.Select(request);
@@ -228,9 +215,15 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                 is AssemblyBindingSelection.Selected selectedWithShadows
                     ? selectedWithShadows.ShadowedAssemblies
                     : [];
+        IEnumerable<ResolvedAssemblyReference> designatedShadows =
+            designated
+                is AssemblyBindingSelection.Selected selectedDesignated
+                    ? selectedDesignated.ShadowedAssemblies
+                    : [];
         ImmutableArray<ResolvedAssemblyReference> platforms =
             DistinctRegistrations(
-                policyCandidates
+                designatedShadows
+                    .Concat(policyCandidates)
                     .Concat(policyShadows)
                     .Where(candidate => IsCompatiblePlatform(
                         requested,
