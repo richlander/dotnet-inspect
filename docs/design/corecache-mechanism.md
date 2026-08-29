@@ -95,7 +95,14 @@ differently, but the difference is enforced for only one of them:
   end user or their shell environment) that controls `basePath` controls the
   cache root itself, which is a strictly larger trust concession than
   `category` or `extension` — and it is exercised in production, not merely
-  hypothetical.
+  hypothetical. `basePath` is not the only environment-controlled root
+  input, either: when no override is supplied at all,
+  `GetDefaultBasePath`'s Linux branch reads `XDG_CACHE_HOME` directly and
+  uses it verbatim as the parent of `appName`, with the same absence of
+  validation. It is a narrower concession than an explicit `basePath`
+  override (since `appName` is still appended beneath it), but it is a
+  second, always-live environment-controlled root selector on Linux, not a
+  hypothetical one.
 
 The contract is: **`category`, `extension`, and `appName` are caller-owned
 values that every current producer restricts to a fixed literal or a
@@ -220,7 +227,34 @@ path resolves to the same location as the old one (`IsSamePath` — subject to
 the case-sensitivity gap in
 [Path-context containment](#path-context-containment)); otherwise they reset,
 because the counters describe one cache root's history and a root change
-starts a new one.
+starts a new one. Both sides of that comparison are *recomputed live* at the
+moment of the second `Initialize` call, not the location actually recorded
+against by the earlier maintenance: the "old" root is `GetBasePath()`
+evaluated with the previous `appName`/`basePath` but the *current* process
+environment, and the "new" root is `GetBasePath()` evaluated with the new
+values and that same current environment. If no explicit `basePath` override
+was ever given and `XDG_CACHE_HOME` (or another ambient input
+`GetDefaultBasePath` reads) changes between the first and second
+`Initialize` call, both sides of the comparison observe the *same* changed
+environment and so still compare equal — counters can carry forward across
+an actual root change that neither `Initialize` call's caller intended, and
+conversely cannot be relied on to always reset just because the ambient
+environment changed since the first call.
+
+**Gap:** re-initialization is not exception-safe against a malformed new
+root. `Initialize` mutates `_appName`, `_basePathOverride`, the maintenance
+cancellation source, the progress object, and the task dictionary to their
+new values *before* calling `IsSamePath` to decide whether to carry progress
+forward — and `IsSamePath` calls `Path.GetFullPath` on both sides, which
+throws for a sufficiently malformed path (invalid characters, exceeding
+platform path-length limits). Because `basePath` receives no validation (see
+the trust-boundary section above), a caller-supplied `basePath` that
+`Path.GetFullPath` rejects makes `Initialize` throw *after* the new fields
+are already committed and *before* the `foreach` loop re-schedules cleanup
+for previously registered categories. The result is partial, not
+all-or-nothing: the new root and app name take effect, but no versioned
+category's cleanup is rescheduled against it until some other call
+re-triggers scheduling.
 
 `RegisterVersionedCategory` may be called before or after `Initialize`, and
 repeated registration of the same prefix is idempotent only when `current`
@@ -296,15 +330,48 @@ before any background work is scheduled. Retirement:
   previous generation's tasks, waits for them best-effort, and starts a new
   generation rather than waiting for the old one to finish on its own.
 
+**Gap:** the retirement rule above is scoped to one registered family (one
+`prefix`) at a time; nothing prevents two *different* registered prefixes
+from overlapping, and a directory that is the current member of one family
+can parse as an obsolete member of another. For example, registering
+`("foo-v", "foo-v20")` and `("foo-v2", "foo-v21")` both succeed —
+`s_versionedCategories` keys by the literal prefix string, so `"foo-v"` and
+`"foo-v2"` are distinct entries — but the second family's cleanup sees
+directory `foo-v20`, matches its `"foo-v2"` prefix, parses suffix `0`, and
+deletes it as obsolete (`0 < 21`), even though `foo-v20` is the *current*,
+still-referenced directory for the first family. `prefix`/`current` are
+therefore not just validated strings but caller-controlled deletion
+selectors whose safety depends on every registered family's prefix language
+being disjoint from every other — an invariant this mechanism does not
+enforce and today's callers satisfy only by using prefixes that do not
+overlap in practice.
+
 `CancelAndWaitForMaintenance`/`Clear` are the only **public** ways a caller
 observes completed maintenance (the internal `RequestVersionedCategoryCleanupAsync`
 is a third, assembly-internal path that test code uses directly to await the
-real aggregate task). Both public APIs can also return *partial* progress
-rather than confirmation that maintenance fully drained: `WaitForMaintenance`
-waits for the timeout given, then — if the task has not completed — cancels
-it and waits only another 25ms before returning whatever progress has been
-recorded so far, regardless of whether the canceled task has actually
-finished exiting. **Every** `Clear` call — not only `Clear(category:
+real aggregate task). `CancelAndWaitForMaintenance(timeout)` can return
+*partial* progress rather than confirmation that maintenance fully drained:
+`WaitForMaintenance` waits for the timeout given, then — if the task has not
+completed — cancels it and waits only another 25ms before returning whatever
+progress has been recorded so far, regardless of whether the canceled task
+has actually finished exiting. That timeout bound applies only to a call
+that finds the current maintenance generation *not already canceled*: if a
+prior timed-out call already canceled the generation and its tasks are still
+exiting cooperatively, the next call that touches maintenance —
+`WaitForMaintenance` (and so `CancelAndWaitForMaintenance` or `Clear`),
+`RegisterVersionedCategory`, or internal cleanup scheduling — restarts the
+generation via `StartNewMaintenanceGenerationIfCanceled`, which performs an
+*unbounded* `Task.WaitAll` on the previous generation's tasks before doing
+anything else. A finite-timeout `CancelAndWaitForMaintenance` call made
+after such a restart is pending can therefore block for as long as the
+still-exiting canceled tasks take, regardless of the timeout it was given.
+`Clear` always passes `Timeout.InfiniteTimeSpan` to `WaitForMaintenance`
+(see below), so `Clear` cannot observe the 25ms partial-progress path at
+all — `task.Wait(Timeout.InfiniteTimeSpan)` cannot return `false`, so `Clear`
+always waits for the full maintenance generation (including any pending
+generation-restart drain) to either complete or fault before proceeding; it
+does not return early with partial progress the way a finite-timeout
+`CancelAndWaitForMaintenance` call can. **Every** `Clear` call — not only `Clear(category:
 null)` — unconditionally waits (`Timeout.InfiniteTimeSpan`) for the current
 maintenance generation before deleting anything; only `Clear(null)` also
 *consumes* the recorded byte counter into its return value (`Clear(category)`
@@ -325,9 +392,18 @@ cache context, measures the tree, and deletes it, catching only
 already completed the same deletion. Any other failure — an authorization
 error, an `IOException` from a file another process still has open, or a
 directory-enumeration error while measuring size — propagates to `Clear`'s
-caller rather than being swallowed. `Clear`'s `long` return value is not a
-confirmed bytes-freed count: it is the tree size *measured before deletion*,
-plus (for `Clear(null)` only) the consumed maintenance byte counter. That
+caller rather than being swallowed, *once `Clear` has begun measuring or
+deleting*. Before that point, `Clear` calls `Directory.Exists(targetPath)`
+and returns early (reporting only the maintenance byte counter, no tree
+size) when it reports `false` — and `Directory.Exists` is documented to
+return `false` both when the directory genuinely does not exist and when an
+error occurs while determining whether it exists. An authorization or other
+filesystem error at that existence check is therefore indistinguishable from
+"nothing to clear" and returns successfully with an undercounted result,
+rather than propagating like the failures above. `Clear`'s `long` return
+value is not a confirmed bytes-freed count: it is the tree size *measured
+before deletion*, plus (for `Clear(null)` only) the consumed maintenance byte
+counter. That
 measurement can diverge from what this `Clear` call actually removed in
 either direction, for different reasons: a concurrent deletion of some or
 all of the tree between the measurement and `Directory.Delete` (including
@@ -422,12 +498,19 @@ case-insensitively equals `"symbol-misses"`, but *rewrites* it as
 `$"{category}/{extension}"` — preserving the caller's original spelling and
 casing rather than canonicalizing it. `TryGet("symbol-misses", key,
 extension: "forbidden")` reports `symbol-misses/forbidden`, distinct from
-`symbol-misses/miss` — this extension-remapping behavior is covered by
-`HttpClientFactoryTests.CacheTelemetry_SymbolMissesIncludeExtensionInCategory`.
-A caller passing `"SYMBOL-MISSES"` would observe `SYMBOL-MISSES/forbidden`,
-not the lowercase form, per the `$"{category}/{extension}"` interpolation
-above — this casing-preservation consequence follows from reading the source
-and is not itself exercised by any existing test. Every other `category`
+`symbol-misses/miss` —
+`HttpClientFactoryTests.CacheTelemetry_SymbolMissesIncludeExtensionInCategory`
+exercises exactly this call sequence (`Set`, then `TryGet` for the
+`"forbidden"` extension, then `TryGet` for the `"miss"` extension) and
+asserts on the resulting `Set`-store and `TryGet`-miss telemetry categories,
+but it does not assert a `TryGet`-hit observation at all — the test proves
+the store and miss categories are remapped as described, not that a
+*successful hit* under `"forbidden"` is reported as `symbol-misses/forbidden`
+rather than plain `symbol-misses`. A caller passing `"SYMBOL-MISSES"` would
+observe `SYMBOL-MISSES/forbidden`, not the lowercase form, per the
+`$"{category}/{extension}"` interpolation above — this casing-preservation
+consequence, and the hit-path remapping itself, follow from reading the
+source and are not exercised by any existing test. Every other `category`
 passes through unchanged. This is an intentional part of the observable
 telemetry contract, not an undocumented side effect.
 
@@ -445,7 +528,16 @@ comparison is one-sided, a `LastWriteTimeUtc` in the future (a clock change, a
 restored backup, a manipulated file) makes an entry read as fresh for
 `maxAge`s of zero or even negative duration. Any failure while resolving
 `FileInfo` or reading the file is caught by the same guarded region and
-degrades to a miss, exactly like the non-`maxAge` overloads' hit path.
+*returns* a miss (`null`), exactly like the non-`maxAge` overloads' hit
+path — but the miss is not otherwise *recorded* the same way: the
+non-`maxAge` overloads' hit-path `catch` returns directly, so a read failure
+there is invisible to telemetry (no hit or miss observation, no
+`InfoTracker.RecordCacheMiss()`); the `maxAge` overloads' `catch` instead
+falls through to the same unguarded miss-telemetry call the missing-entry
+case uses, so a read failure there *is* recorded as a miss. A read failure
+under `maxAge` is therefore observable in telemetry in a way the equivalent
+failure under the plain overloads is not, even though both return `null` to
+the caller identically.
 
 ## Non-claims
 
