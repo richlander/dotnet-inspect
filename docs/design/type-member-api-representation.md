@@ -212,15 +212,18 @@ owner-issued `AssemblyImageSnapshot` values, one source `MethodIdentity`, and
 the target MethodDefs. The plan considers only exact same-name candidates and
 reuses `CatalogMemberCorrespondencePlan` for complete open-member identity,
 including canonical signature headers, generic arity, required vararg
-parameters, modifiers, and recursive function-pointer payloads. The result is
-one closed choice: `Exact`, `Missing`, `Ambiguous`, or `Unavailable`.
+parameters, multidimensional-array sizes and lower bounds, modifiers, and
+recursive function-pointer payloads. The result is one closed choice: `Exact`,
+`Missing`, `Ambiguous`, or `Unavailable`.
 
 The selected pair establishes one narrow correspondence between the source and
 target root type definitions. Recursive named types still correspond only
 through the frozen Metadata catalog. A `TypeDef` versus `TypeRef` encoding is
 therefore irrelevant after both resolve to the established roots, but equal
-display text without resolved definition evidence is insufficient. Every
-same-name candidate must project completely before uniqueness can be claimed.
+display text without resolved definition evidence is insufficient. The root
+bridge applies only to the plans' exact declaring-type request pair, never to
+independently defined same-name parameter or return types. Every same-name
+candidate must project completely before uniqueness can be claimed.
 Ownership mismatch, stale MVID, invalid MethodDef token, unresolved or
 indeterminate projection, duplicate exact candidates, and bounded-work
 exhaustion all fail visibly instead of authorizing token reuse, overload
@@ -232,7 +235,9 @@ method in the runtime image, while the exact arm selects runtime `Transform`.
 `SameNameSignatureNearMiss_DoesNotCorrespond`,
 `FunctionPointerCallingConvention_IsIdentityBearing`, and
 `TypeDefAndTypeRefAddressing_ResolveThroughSelectedRoots` gate complete member
-identity. `DuplicateExactTargets_AreAmbiguous`,
+identity; `RecursiveSameNameDefinitions_AreNotSelectedRootCorrespondence` and
+`MultidimensionalArrayBounds_AreIdentityBearing` gate the recursive and array
+boundaries. `DuplicateExactTargets_AreAmbiguous`,
 `TargetGenerationMismatch_IsUnavailable`,
 `SnapshotFromAnotherRegistration_IsUnavailable`,
 `InvalidSourceMethodDefToken_IsUnavailable`,
@@ -241,6 +246,11 @@ identity. `DuplicateExactTargets_AreAmbiguous`,
 `SameNameCandidateLimit_FailsClosed` gate the visible non-success boundaries.
 This currency does not choose acquisitions, resolve platform forwarders,
 acquire PDBs, select CLI overloads, or authorize Decompiler consumption.
+It trusts the supplied `MethodIdentity` values as owner-issued Analysis
+evidence produced from the named snapshots: it validates their registration,
+MVID, MethodDef table kind, row bounds, and frozen-context generation, but does
+not defend against an intra-stack caller fabricating different signature
+fields for a valid row.
 
 `ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
 and `MethodResultSink.SourceCallOffsets`, not a reinterpretation of them. The

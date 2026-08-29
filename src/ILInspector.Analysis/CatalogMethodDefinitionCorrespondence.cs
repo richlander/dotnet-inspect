@@ -398,6 +398,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
         }
 
         var matches = ImmutableArray.CreateBuilder<MetadataMethodAddress>();
+        TypeResolutionRequest? sourceDeclaringTypeRequest =
+            _sourcePlan.DeclaringTypeResolutionRequest;
         foreach (TargetCandidate target in _targets)
         {
             CatalogMemberJoinProjection? targetProjection =
@@ -429,7 +431,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
                         IsSelectedRootTypeCorrespondence(
                             context,
                             sourceRequest,
-                            targetRequest)))
+                            targetRequest,
+                            sourceDeclaringTypeRequest,
+                            target.Plan
+                                .DeclaringTypeResolutionRequest)))
             {
                 matches.Add(Address(target.Member));
             }
@@ -455,9 +460,19 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
     bool IsSelectedRootTypeCorrespondence(
         TypeResolutionContext context,
         TypeResolutionRequest sourceRequest,
-        TypeResolutionRequest targetRequest)
+        TypeResolutionRequest targetRequest,
+        TypeResolutionRequest? sourceDeclaringTypeRequest,
+        TypeResolutionRequest? targetDeclaringTypeRequest)
     {
-        if (sourceRequest.Type != targetRequest.Type
+        if (sourceDeclaringTypeRequest is null
+            || targetDeclaringTypeRequest is null
+            || !TypeResolutionRequestComparer.Instance.Equals(
+                sourceRequest,
+                sourceDeclaringTypeRequest)
+            || !TypeResolutionRequestComparer.Instance.Equals(
+                targetRequest,
+                targetDeclaringTypeRequest)
+            || sourceRequest.Type != targetRequest.Type
             || context.Resolve(sourceRequest)
                 is not TypeResolutionOutcome.Resolved source
             || context.Resolve(targetRequest)

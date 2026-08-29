@@ -14,4 +14,11 @@ public static unsafe class Widget
         delegate* unmanaged[Cdecl]<int, int> callback,
         int value) =>
         callback(value);
+
+    public static int UseHelper(Helper helper) => helper.Value;
+}
+
+public sealed class Helper
+{
+    public int Value { get; init; }
 }

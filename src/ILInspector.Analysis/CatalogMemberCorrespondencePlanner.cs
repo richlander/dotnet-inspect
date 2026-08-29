@@ -99,7 +99,9 @@ internal sealed class CatalogMemberCorrespondencePlanner
                 return PlannedType.Unary(
                     type.Kind,
                     Plan(type.ElementType, depth + 1),
-                    type.Rank);
+                    type.Rank,
+                    type.ArraySizes,
+                    type.ArrayLowerBounds);
 
             case TypeRefKind.GenericParameter:
             case TypeRefKind.MethodGenericParameter:
@@ -223,6 +225,8 @@ internal sealed class PlannedType
         PlannedType? elementType = null,
         ImmutableArray<PlannedType> components = default,
         int rank = 0,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default,
         int genericParameterIndex = -1,
         bool isRequiredModifier = false,
         byte signatureHeader = 0,
@@ -235,6 +239,9 @@ internal sealed class PlannedType
         ElementType = elementType;
         Components = components.IsDefault ? [] : components;
         Rank = rank;
+        ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
+        ArrayLowerBounds =
+            arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
         GenericParameterIndex = genericParameterIndex;
         IsRequiredModifier = isRequiredModifier;
         SignatureHeader = signatureHeader;
@@ -251,6 +258,8 @@ internal sealed class PlannedType
     internal PlannedType? ElementType { get; }
     internal ImmutableArray<PlannedType> Components { get; }
     internal int Rank { get; }
+    internal ImmutableArray<int> ArraySizes { get; }
+    internal ImmutableArray<int> ArrayLowerBounds { get; }
     internal int GenericParameterIndex { get; }
     internal bool IsRequiredModifier { get; }
     internal byte SignatureHeader { get; }
@@ -276,7 +285,9 @@ internal sealed class PlannedType
     internal static PlannedType Unary(
         TypeRefKind kind,
         PlannedType element,
-        int rank = 0) =>
+        int rank = 0,
+        ImmutableArray<int> arraySizes = default,
+        ImmutableArray<int> arrayLowerBounds = default) =>
         new(
             kind switch
             {
@@ -289,7 +300,9 @@ internal sealed class PlannedType
                     "Type is not unary."),
             },
             elementType: element,
-            rank: rank);
+            rank: rank,
+            arraySizes: arraySizes,
+            arrayLowerBounds: arrayLowerBounds);
 
     internal static PlannedType Modified(
         PlannedType modifier,

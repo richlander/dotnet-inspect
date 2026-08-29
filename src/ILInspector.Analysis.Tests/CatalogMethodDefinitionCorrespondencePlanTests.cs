@@ -175,6 +175,25 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     }
 
     [Fact]
+    public void RecursiveSameNameDefinitions_AreNotSelectedRootCorrespondence()
+    {
+        FixturePair pair = OpenFixtures();
+        MethodIdentity source = Method(pair.SourceIndex, "UseHelper");
+        MethodIdentity target = Method(pair.TargetIndex, "UseHelper");
+        CatalogMethodDefinitionCorrespondencePlan plan =
+            CatalogMethodDefinitionCorrespondencePlan.Create(
+                pair.SourceAssembly,
+                pair.SourceSnapshot,
+                source,
+                pair.TargetAssembly,
+                pair.TargetSnapshot,
+                [target]);
+
+        Assert.IsType<CatalogMethodDefinitionCorrespondenceOutcome.Missing>(
+            Project(pair, plan));
+    }
+
+    [Fact]
     public void DuplicateExactTargetCandidates_ReportAmbiguous()
     {
         FixturePair pair = OpenFixtures();

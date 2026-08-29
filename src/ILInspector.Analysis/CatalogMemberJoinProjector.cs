@@ -63,7 +63,9 @@ internal sealed class CatalogMemberJoinProjector
                     : CatalogTypeShape.Unary(
                         ToCatalogKind(planned.Kind),
                         element,
-                        planned.Rank);
+                        planned.Rank,
+                        planned.ArraySizes,
+                        planned.ArrayLowerBounds);
             }
             case PlannedTypeKind.Modified:
             {
