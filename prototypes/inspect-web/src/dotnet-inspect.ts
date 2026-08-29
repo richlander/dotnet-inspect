@@ -5859,8 +5859,9 @@ function activateRuntimePack() {
   spotlight.refresh();
   observeAsync(
     pending.then(() => {
-      if (!state.spotlightOpen && !state.home) return;
+      if (!state.spotlightOpen && !state.home) return undefined;
       spotlight.refresh();
+      return undefined;
     }),
     "Loading the runtime pack");
 }
@@ -10827,5 +10828,6 @@ window.__platformIndex = loadPlatformIndex();
 observeAsync(
   window.__platformIndex.then(index => {
     if (index) state.platformIndex = index;
+    return undefined;
   }),
   "Loading the platform index");
