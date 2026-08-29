@@ -11,8 +11,8 @@ See [overview.md](../overview.md) for subsystem ownership,
 [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
 owns the source-neutral boundary below workspace-backed assembly queries.
 [The package query CLI](package-query-cli.md) applies this split to a
-concrete, not-yet-implemented feature: nuspec/promoted facet predicates over
-`find --package-prefix`.
+concrete feature: its host-neutral nuspec facet engine is implemented at L1,
+while CLI exposure and promoted-tier predicates remain future work.
 
 ## Purpose
 
@@ -34,14 +34,19 @@ consumer picks a depth instead of re-deriving a rule.
 ## The layers
 
 ```text
-dotnet-inspect                      L3  argument parsing, console, formats
+dotnet-inspect L3 ---------+
+  |                        |
+  v                        |
+DotnetInspector.Sections --+----> DotnetInspector.RowSelection
+  L2                       |       shared dependency-free leaf
+  |                        |
+  v                        |
+DotnetInspector.Queries ---+
+  L1
   |
-  +-- DotnetInspector.Sections      L2  sections, categories, shape ladder
-        |
-        +-- DotnetInspector.Queries L1  typed inspection requests -> results
-              |
-              +-- DotnetInspector.*     packages, services, core
-                  ILInspector.*         metadata, analysis, decompiler, research
+  v
+DotnetInspector.* / ILInspector.*
+packages, services, metadata, analysis, decompiler, research
 ```
 
 Each layer is a separate component. A consumer decides how far up it comes:
@@ -53,6 +58,11 @@ Each layer is a separate component. A consumer decides how far up it comes:
 
 A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
+
+`DotnetInspector.RowSelection` is an orthogonal leaf utility rather than a new
+layer. L3 constructs plans, L2 binds generic values to declared row sets, and
+L1 or source owners may analyze the same plan for equivalent pushdown. None
+takes a dependency on another consumer merely to reach the leaf.
 
 ## Implementation status
 
@@ -66,12 +76,18 @@ comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
 slices, seeded structural-clone retrieval, group-scoped
 PDB-mapped-or-decompiled type/member source, immutable package-manifest facts,
-and bounded package-prefix profiles. Package dependency selection and
-package-prefix profiles consume the same validated manifest-facts query. The
-profile's L2 `Packages` section owns package/dependency row grain,
-schema, projection, and visible failure or truncation evidence; `find` retains
-only request binding, acquisition authorization, diagnostics, and format
-selection. The
+bounded package-prefix profiles, and product-owned nuspec package-query facets.
+Package dependency selection, package-prefix profiles, and package-query facets
+consume the same validated manifest-facts query. The package-query contract
+owns ordered opaque facet descriptors, typed selection validation, ANDed
+evaluation, inert evidence, distinct candidate and match bounds, and typed
+completion without choosing a renderer. This contract is gated by
+`PackageQueryTests` and the
+`PackageQueryPlanner_IsReachableFromBrowserConsumer` consumer canary. The
+profile's L2 `Packages` section owns package/dependency row grain, schema,
+projection, and visible failure or truncation evidence; `find` retains only
+request binding, acquisition authorization, diagnostics, and format selection.
+The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. The body-signal seam consumes already-acquired
@@ -164,6 +180,11 @@ plans once and may reuse them across assembly contexts.
 layers: generation-scoped identity and registration, adapter-owned typed
 provenance and diagnostics, acquisition outcomes, and owner-issued guarded
 admission/query access. It references no project.
+Despite its historical `DotnetInspector.*` project-name prefix, this contract
+floor is not tool-tier composition: `ILInspector.Metadata` may reference this
+project, and no other `DotnetInspector.*` project. The
+`EngineProjectsReferenceOnlyTheSourceNeutralArtifactFloor` architecture gate
+enforces that exception and rejects every wider engine-to-tool edge.
 `DotnetInspector.Artifacts.Workspaces` composes bounded immutable contributions
 into a sealed `ArtifactSetSession`, and `DotnetInspector.Artifacts.Local`
 snapshots explicit files before registration. The package-free host fixture
@@ -215,6 +236,38 @@ the oracle dependency enters a product, NativeAOT, or Browser path. The pinned
 coordinates, hashes, baseline, and maintenance procedure are recorded in
 [`eng/package-manifest-corpus.md`](../../eng/package-manifest-corpus.md).
 
+The manifest-facts path has two consumer and resource canaries.
+`BrowserEngineBoundaryTests.PackageManifestFacts_FromInMemoryBytesRemainBrowserCompatible`
+executes the query from exact in-memory bytes in the inspect-web consumer test
+surface. The CI inspect-web lane publishes the Browser/Wasm engine, where the
+exported `QueryPackageDependencies` operation roots the same query through
+`PackageDependencyGroupsQuery`; the
+`PackageManifestFactsQuery.cs` change-detection canary ensures changes to that
+path cannot skip the lane.
+`PackageManifestFactsQueryTests.Execute_AcceptsManifestAtExactByteLimit`,
+`Execute_AcceptsManifestAtExactDecodedCharacterLimit`,
+`Execute_EnforcesManifestByteLimit`, and
+`Execute_RejectsManifestBeyondDecodedCharacterLimit` gate the byte and
+decoded-character boundaries. The existing
+`Execute_AcceptsScalarAndCollectionLimits`,
+`Execute_RejectsOversizedScalarFact`,
+`Execute_RejectsExcessivePackageTypeCardinality`,
+`Execute_RejectsExcessiveDependencyGroupCardinality`, and
+`Execute_RejectsExcessiveDependencyCardinality` tests gate the remaining exact
+boundaries.
+
+`FindCommandTests.PackageProfileDefaultScale_AcquiresEachManifestOnceAndBoundsProjectedRows`
+is the deterministic operation-count canary. Its pinned input is the default
+100-coordinate profile, with 64 dependencies per manifest and a 25-row output
+window. The recorded baseline is one search, exactly one manifest request per
+coordinate, no package archive requests, one registry materialization reused by
+subsequent reads, and exactly 25 projected rows. Run it with:
+
+```bash
+dotnet run --project src/dotnet-inspect.Tests -c Release -- \
+  -method '*PackageProfileDefaultScale*'
+```
+
 L1 does not reference Markout.
 
 ### L2 — `DotnetInspector.Sections`
@@ -223,6 +276,14 @@ Owns the named, selectable unit (the **section**), the topical **categories**
 that surface it, the disclosure ladder that decides when it appears, and the
 **shape ladder** that narrows a result to what was asked for. L2 is where results
 are integrated with Markout serialization.
+
+L2 binds declared typed row sets to the consumer-neutral
+`DotnetInspector.RowSelection` leaf component.
+[Semantic row selection](semantic-row-selection.md) defines that component's
+ordered stage plan, strictness, stage-local positions, and pure output. L3
+lowers CLI gestures into the plan; source owners may optimize its execution but
+cannot redefine it; L2 reconnects selected values to their row-set identity
+before Markout receives them.
 
 Categories are consumer-neutral. `@Surface`, `@Performance`, `@Audit`,
 `@Integrations`, and `@SourceLink` are topical groupings, not terminal
@@ -303,6 +364,9 @@ the L1 noun:
 - **schema query** — `-D` catalog discovery, see [schema-query.md](schema-query.md). L2.
 - **row query** — field predicates within a section, see
   [row-query-order.md](row-query-order.md). L2.
+- **row selection** — ordered semantic stages over one or more complete logical
+  sequences, see [semantic-row-selection.md](semantic-row-selection.md).
+  Shared leaf component, bound to declared row sets by L2.
 - **a user's search string** — CLI option names such as `OriginalTypeQuery` and
   `PlatformPrefixQuery` in `ApiOptions`, and the `ILOffsetQuery` helper. These
   are inputs typed by a user, not typed requests. L3.
@@ -861,6 +925,102 @@ This boundary does not define:
 - outer-result publication, CLI/output behavior, or row integrity; or
 - Source, PDB, network, cache, retry, or authored-source behavior.
 
+## Package-realization coordinate admission
+
+**Status:** target design, scoped independently of #4745; unimplemented. This
+is a separate future responsibility of the same L1 owner, not an extension of
+the [Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
+plan/realize/cleanup contract or its gate list. It is *intended* to compose
+with that boundary rather than redefine it -- this admission layer decides
+whether a `RealizePackageAssemblyContextRoles` (or its #4745 typed successor)
+operation starts at all for a given package coordinate, and the existing
+boundary still owns everything that happens once that operation runs -- but
+that composition is not yet fully defined; see the granularity and
+shared-realization-lifetime open questions under
+[Target shape](#target-shape) below.
+
+### Current admission gap
+
+`RealizePackageAssemblyContextRoles` has no cache or admission logic today.
+Two calls with an identical realized package coordinate (package id, version,
+target framework, runtime identifier, and resolved producer -- see
+`RealizedMemberCoordinate.Package` in
+`src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
+independently reopen content and mint an unrelated `AssemblyContextGroup`
+and participant set. `PackageAssemblyContextRealizationConcurrentDemandTests`
+(pending in #4958, not yet merged) is intended to demonstrate this; the
+admission gap itself is tracked by issue #4960.
+
+### Why the coordinate, not the assembly content
+
+A package coordinate is stable and decidable: id, version, framework, runtime
+identifier, and producer determine one selectable package occurrence, and
+`Producer` specifically resolves the case where two feeds could otherwise
+serve the same id and version with different bytes. Individual assembly/PE content has no
+equivalent independent identity -- `Foo.dll` can duplicate within one package
+or across packages with no canonical resolution -- so this admission layer is
+scoped to package coordinates only. It does not admit by assembly identity,
+and it does not replace `AssemblyInspectionSession.Borrow`'s existing
+pass-the-open-handle convention at that layer, which remains correct and
+conservative because no stable content coordinate exists to key a cache by.
+
+### Target shape
+
+A workspace-scoped cache, keyed by realized package coordinate, holds one of
+three states per coordinate: absent, in flight, or ready with a retained
+realization. A demand for an absent coordinate starts the one admitting
+operation; a demand for an in-flight coordinate joins it instead of starting a
+second one; a demand for a ready coordinate reuses the retained realization
+directly. Every demand that admitted or joined one operation observes the same
+outcome. A failed operation is not cached as failed -- the coordinate returns
+to absent so a later demand can retry -- because a transient acquisition
+failure should not permanently poison a coordinate that never had a chance to
+succeed.
+
+This says nothing about assembly-content identity, `AssemblyContextGroup`'s own
+callback/quiescence/disposal lifecycle (already modeled by
+[`AssemblyContextGroupLifecycle.tla`](../models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)),
+or the internal plan/open/cleanup shape of one admitting operation (owned by
+the boundary above). It also does not claim current product behavior.
+
+Two compositions with the existing API surface remain open and are not solved
+by this design:
+
+- **Request granularity.** `RealizePackageAssemblyContextRoles` admits an
+  entire caller-supplied package set plus its options (budget, per-role
+  limits) in one call, not one coordinate. This admission layer models the
+  per-coordinate primitive; decomposing a multi-package request into
+  independent per-coordinate admissions (and correctly composing partial
+  cache hits with fresh admissions inside one caller request) is future work
+  for whichever adapter or migration slice adopts this cache, not something
+  this model or section resolves. `PackageAssemblyContextSelection` itself
+  does not carry a realized coordinate today -- it has no runtime identifier
+  and its id/version/framework are not yet canonicalized -- so deriving the
+  cache key still depends on `PackageCoordinateResolver`, the same normalizer
+  `RealizedMemberCoordinate.Package` already defers to; this design assumes
+  that resolution happens, it does not add it.
+- **Shared-realization lifetime.** "Reuses the retained realization directly"
+  implies more than one demand can hold the same realized groups
+  concurrently. The existing [Package-role planning and cleanup
+  boundary](#package-role-planning-and-cleanup-boundary) gives each
+  `PackageRoleGroupReleaseCompletion` cell exactly one release: the first
+  caller to request it initiates release and every other caller only
+  observes or awaits that same completion, so today's mechanism already
+  treats a second releaser as an unsafe race, not as a supported share.
+  Multiple independent callers sharing one cached realization therefore need
+  reference-counted or lease-scoped release semantics that neither this
+  section nor that boundary defines yet; attaching a cache to that boundary
+  without resolving that composition would let one caller's close release
+  groups another caller is still using.
+
+[`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
+checks this target design's own internal soundness: single-flight admission
+per coordinate, consistent shared outcomes among joined demands, and
+cache-state consistency, plus reachability of the join, retry-after-failure,
+and multi-demand shared-outcome transitions. See its companion
+[`README.md`](../models/package-realization-admission/README.md) for the
+checked configurations.
+
 ## Current migration state
 
 Metadata-image, direct-reference, assembly-context reference,
@@ -877,6 +1037,12 @@ canaries:
 - `MetadataImageQuery` consumes an already-open `AssemblyInspectionSession` and
   returns an explicit `Available` / `NoMetadata` / `Failed` result instead of
   mutating `LibraryInspection`.
+- `AssemblyContextMetadataImageQuery`,
+  `AssemblyContextMetadataTableQuery`, and
+  `AssemblyContextMetadataHeapQuery` own group-session access for metadata
+  over filesystem-free participants. Table windows validate their row bound
+  before opening content; heap listings retain complete, referenced-only, or
+  non-enumerable coverage and both truncation signals.
 - `AssemblyReferencesQuery` consumes the same content-shaped session and returns
   flat immutable metadata identities. The CLI separately projects the legacy
   display rows and carries the typed identities through `LibraryInspection` to
@@ -997,9 +1163,9 @@ intentional and visible:
 - The CLI retains the typed metadata result on `LibraryInspection` because the
   existing renderer still consumes that aggregate. Its `Failed` case feeds the
   existing inspection-failure surface rather than collapsing into empty output.
-- Metadata row and heap projection still retain
-  `LibraryInspection.MetadataAssemblyPath` for on-demand rendering. Removing
-  that path-shaped residual requires a content-shaped projection query.
+- The CLI's metadata row and heap renderer still reads
+  `LibraryInspection.MetadataAssemblyPath`; the content-shaped assembly-context
+  queries are available, but that existing CLI adapter has not adopted them.
 - `InspectionCost` and the legacy `SectionCost` are parallel during migration;
   L2 maps between them exhaustively.
 

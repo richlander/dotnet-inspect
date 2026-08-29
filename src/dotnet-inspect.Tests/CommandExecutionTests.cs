@@ -1,8 +1,11 @@
 using System.Buffers;
 using System.Buffers.Binary;
+using System.CommandLine;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -28,6 +31,7 @@ using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using InertText;
 using Markout;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1350,7 +1354,9 @@ public partial class CommandExecutionTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
-        File.WriteAllText(Path.Combine(packageRoot, readmeFile), readmeText);
+        var readmePath = Path.Combine(packageRoot, readmeFile.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(readmePath)!);
+        File.WriteAllText(readmePath, readmeText);
         if (agentsText != null)
             File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), agentsText);
         foreach (var (path, content) in extraFiles)
@@ -11101,11 +11107,910 @@ public partial class CommandExecutionTests
         // a discovery request there would have been rejected with a misleading column message.
         // Discovery must be dispatched before the projection guard, matching the main listing path.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.*", "--library", TestAssemblyPath, "-D", "Classes", "--fields", "Type", "--json");
+            "type", "System.*", "--library", TestAssemblyPath,
+            "-D", "Classes", "--fields", "Name", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
-        Assert.Contains("\"kind\":\"column\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.NotEmpty(document.RootElement.EnumerateArray());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.Equal(
+                ["name"],
+                row.EnumerateObject().Select(property => property.Name)));
+    }
+
+    [Fact]
+    public void ProjectedJsonRoutingAudit_InventoryIncludesEveryProjectionCapableCommand()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var routes = ProjectionCapableRoutes(root)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            new[]
+            {
+                "extensions",
+                "find",
+                "implements",
+                "library",
+                "member",
+                "package",
+                "package search",
+                "project",
+                "timeline",
+                "type",
+                "vocabulary",
+            },
+            routes);
+
+        static IEnumerable<string> ProjectionCapableRoutes(Command root)
+        {
+            return Visit(root, "", []);
+
+            static IEnumerable<string> Visit(
+                Command parent,
+                string parentPath,
+                HashSet<string> inheritedOptions)
+            {
+                foreach (var command in parent.Subcommands)
+                {
+                    var path = parentPath.Length == 0
+                        ? command.Name
+                        : $"{parentPath} {command.Name}";
+                    var effectiveOptions = new HashSet<string>(
+                        inheritedOptions,
+                        StringComparer.Ordinal);
+                    effectiveOptions.UnionWith(
+                        command.Options.Select(option => option.Name));
+
+                    if (effectiveOptions.Contains("--json")
+                        && (effectiveOptions.Contains("--fields")
+                            || effectiveOptions.Contains("--columns")))
+                    {
+                        yield return path;
+                    }
+
+                    foreach (var descendant in Visit(
+                        command,
+                        path,
+                        effectiveOptions))
+                    {
+                        yield return descendant;
+                    }
+                }
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("library")]
+    [InlineData("implements")]
+    [InlineData("extensions")]
+    public async Task ProjectedJsonRoutingAudit_UnadoptedTypedDocumentFailsClosed(string command)
+    {
+        string[] args = command switch
+        {
+            "library" =>
+                [command, TestAssemblyPath, "-S", "Library Info", "--fields", "Assembly Version", "--json", "--tips", "q"],
+            "implements" =>
+                [command, "IDisposable", "--library", TestAssemblyPath, "--columns", "Type", "--json", "--tips", "q"],
+            "extensions" =>
+                [command, "String", "--library", TestAssemblyPath, "--columns", "Method", "--json", "--tips", "q"],
+            _ => throw new ArgumentOutOfRangeException(nameof(command)),
+        };
+
+        var (exit, output, error) = await RunAppAsync(args);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires lowered JSON", error);
+        Assert.Contains("does not support yet", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedProjectionFailsClosed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--columns", "Package",
+            "search", "ThisQueryMustNotReachTheNetwork", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--fields/--columns are not available with package search",
+            error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountProjectionFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--count", "--columns", "NoSuchColumn",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("No columns matched projection", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchCountProjectionCountsAfterPreflight()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "--count", "--columns", "Package",
+            "search", "Fixture");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("4", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("--columns=", "--columns requires at least one name")]
+    [InlineData("--columns=Package,package", "Duplicate --columns entry")]
+    [InlineData("--fields=Package;package", "Duplicate --fields entry")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchProjectionListFailsBeforeNetwork(
+        string projection,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--count", projection,
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--print")]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedPayloadFailsBeforeNetwork(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", projection,
+            "search", "ThisQueryMustNotReachTheNetwork", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"{projection} is not available with package search",
+            error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedWindowAndDestinationAreApplied()
+    {
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-search-count-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            var (exit, output, error) = await RunPackageSearchFixtureAsync(
+                "package", "--rows", "1", "--out", outputPath,
+                "search", "Fixture", "--count", "--take", "2");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Equal("1\n", await File.ReadAllTextAsync(
+                outputPath,
+                TestContext.Current.CancellationToken));
+            Assert.Empty(error);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("--jsonl", "--columns=Package")]
+    [InlineData("--plaintext", "--columns=Package")]
+    [InlineData("--layout", null)]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedModesFailBeforeNetwork(
+        string option,
+        string? secondOption)
+    {
+        var args = new List<string> { "package", option };
+        if (secondOption is not null)
+            args.Add(secondOption);
+        args.AddRange(
+        [
+            "search",
+            "ThisQueryMustNotReachTheNetwork",
+            "--source",
+            "http://127.0.0.1:9/index.json",
+        ]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{option} is not available with package search", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchParentTargetFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "ParentTarget",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("package target is not available with package search", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedDiscoveryFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-D", "--rows", "1",
+            "search", "ThisQueryMustNotReachTheNetwork", "--count",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("-D is not available with package search", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchEmptyWindowIsNotAnEmptySearch()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "--rows", "5..6",
+            "search", "Fixture", "--take", "2");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains("requested row window", error);
+        Assert.DoesNotContain("No packages found", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchOutputPathFailsBeforeNetwork()
+    {
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"package-search-{Guid.NewGuid():N}.txt");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", "--out", outputPath,
+                "search", "ThisQueryMustNotReachTheNetwork",
+                "--source", "http://127.0.0.1:9/index.json");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--out is not available with package search", error);
+            Assert.DoesNotContain("NuGet source", error);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("-n", "2")]
+    [InlineData("-n=2", null)]
+    [InlineData("-n2", null)]
+    [InlineData("-2", null)]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitSpellingsAreEquivalent(
+        string option,
+        string? value)
+    {
+        var args = new List<string> { "package", option };
+        if (value is not null)
+            args.Add(value);
+        args.AddRange(["search", "Fixture", "--json"]);
+
+        var (exit, output, error) =
+            await RunPackageSearchFixtureAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal(2, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public void ProjectedJsonRoutingAudit_PackageSearchItemLimitBypassesHostLineWindow()
+    {
+        var searchArgs = CommandLineBuilder.PreprocessArgs(
+            ["package", "-n", "2", "search", "Fixture", "--json"]);
+        var searchResult =
+            CommandLineBuilder.CreateRootCommand().Parse(searchArgs);
+        var packageArgs = CommandLineBuilder.PreprocessArgs(
+            ["package", "Fixture", "-n", "2", "--json"]);
+        var packageResult =
+            CommandLineBuilder.CreateRootCommand().Parse(packageArgs);
+
+        Assert.True(CommandLineBuilder.UsesTypedItemLimit(searchResult));
+        Assert.False(CommandLineBuilder.UsesTypedItemLimit(packageResult));
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitWorksAfterSubcommand()
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", "search", "Fixture", "-n=2", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(2, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("-n=abc", "Cannot parse value 'abc'")]
+    [InlineData("-n=0", "positive package search result limit")]
+    [InlineData("-n=-1", "positive package search result limit")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInvalidItemLimitFailsBeforeNetwork(
+        string limit,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "search", "ThisQueryMustNotReachTheNetwork", limit,
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+        Assert.DoesNotContain("InvalidOperationException", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritedInvalidItemLimitFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-n=0",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("positive package search result limit", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchMalformedLimitWithRowsIsContained()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--rows", "2",
+            "search", "ThisQueryMustNotReachTheNetwork", "-n=abc",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Cannot parse value 'abc'", error);
+        Assert.DoesNotContain("NuGet source", error);
+        Assert.DoesNotContain("InvalidOperationException", error);
+    }
+
+    [Theory]
+    [InlineData("--preview")]
+    [InlineData("--prerelease")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInheritsPrerelease(
+        string option)
+    {
+        var (exit, output, error) = await RunPackageSearchFixtureAsync(
+            "package", option, "search", "Fixture", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(4, output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchTailItemLimitFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-n=2", "--tail",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("bounded remote pages do not establish a suffix", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--count", "--count cannot be combined with -n")]
+    [InlineData("--take=3", "--take and -n both limit package search results")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchItemLimitConflictsFailBeforeNetwork(
+        string conflict,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-n2",
+            "search", "ThisQueryMustNotReachTheNetwork", conflict,
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchDirectionRequiresCarrier(
+        string direction)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", direction,
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--head/--tail requires a carrier", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--rows", "2", "--head", "--tail",
+        "--head and --tail select opposite ends")]
+    [InlineData("--rows", "2", "-n", "3",
+        "already carries the count")]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchWindowConflictsFailBeforeNetwork(
+        string firstOption,
+        string firstValue,
+        string secondOption,
+        string? thirdOption,
+        string expected)
+    {
+        var args = new List<string>
+        {
+            "package",
+            firstOption,
+            firstValue,
+            secondOption,
+        };
+        if (thirdOption is not null)
+            args.Add(thirdOption);
+        args.AddRange(
+        [
+            "search",
+            "ThisQueryMustNotReachTheNetwork",
+            "--source",
+            "http://127.0.0.1:9/index.json",
+        ]);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(expected, error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageSearchInvalidWindowFailsBeforeNetwork()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "--rows", "not-a-window",
+            "search", "ThisQueryMustNotReachTheNetwork",
+            "--source", "http://127.0.0.1:9/index.json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--rows 'not-a-window' is not a row selection", error);
+        Assert.DoesNotContain("NuGet source", error);
+    }
+
+    [Theory]
+    [InlineData("--versions", "--print")]
+    [InlineData("--versions-with-feed", "--value")]
+    [InlineData("--latest-version", "--urls")]
+    [InlineData("--tfms", "--paths")]
+    [InlineData("--layout", "--print")]
+    [InlineData("--content", "--value")]
+    public async Task ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition(
+        string lens,
+        string projection)
+    {
+        var target = lens is "--versions" or "--versions-with-feed" or "--latest-version"
+            ? "ThisQueryMustNotReachTheNetwork"
+            : Path.Combine(
+                Path.GetTempPath(),
+                "ThisPackageMustNotBeAcquired.nupkg");
+        var args = new List<string> { "package", target, lens, projection };
+        if (lens == "--content")
+            args.Insert(2, "--path=README.md");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{projection} is not available with {lens}", error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    [InlineData("--latest-version")]
+    [InlineData("--tfms")]
+    [InlineData("--layout")]
+    [InlineData("--content")]
+    public async Task ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition(
+        string lens)
+    {
+        var target = lens is "--versions" or "--versions-with-feed" or "--latest-version"
+            ? "ThisQueryMustNotReachTheNetwork"
+            : Path.Combine(
+                Path.GetTempPath(),
+                "ThisPackageMustNotBeAcquired.nupkg");
+        var args = new List<string>
+        {
+            "package",
+            target,
+            lens,
+            "--tsv",
+            "--columns=ZZZBogus",
+        };
+        if (lens == "--content")
+            args.Insert(2, "--path=README.md");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"--fields/--columns are not available with {lens}",
+            error);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<(int Exit, string Output, string Error)>
+        RunPackageSearchFixtureAsync(params string[] args)
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var sourceUrl = $"http://127.0.0.1:{port}/index.json";
+        var searchUrl = $"http://127.0.0.1:{port}/query";
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var server = ServePackageSearchFixtureAsync(
+            listener,
+            searchUrl,
+            timeout.Token);
+
+        try
+        {
+            var result = await RunAppAsync([.. args, "--source", sourceUrl]);
+            await server;
+            return result;
+        }
+        finally
+        {
+            timeout.Cancel();
+        }
+    }
+
+    private static async Task ServePackageSearchFixtureAsync(
+        TcpListener listener,
+        string searchUrl,
+        CancellationToken cancellationToken)
+    {
+        await ServePackageSearchResponseAsync(
+            listener,
+            $$"""
+            {"version":"3.0.0","resources":[{"@id":"{{searchUrl}}","@type":"SearchQueryService/3.5.0"}]}
+            """,
+            cancellationToken);
+        await ServePackageSearchResponseAsync(
+            listener,
+            """
+            {"totalHits":4,"data":[
+              {"id":"Fixture.One","version":"1.0.0","description":"one","totalDownloads":1,"verified":false},
+              {"id":"Fixture.Two","version":"2.0.0","description":"two","totalDownloads":2,"verified":false},
+              {"id":"Fixture.Three","version":"3.0.0","description":"three","totalDownloads":3,"verified":false},
+              {"id":"Fixture.Four","version":"4.0.0","description":"four","totalDownloads":4,"verified":false}
+            ]}
+            """,
+            cancellationToken);
+    }
+
+    private static async Task ServePackageSearchResponseAsync(
+        TcpListener listener,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        using var connection =
+            await listener.AcceptTcpClientAsync(cancellationToken);
+        await using var stream = connection.GetStream();
+        var request = new byte[4096];
+        _ = await stream.ReadAsync(request, cancellationToken);
+        var content = Encoding.UTF8.GetBytes(body);
+        var headers = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 200 OK\r\n"
+            + "Content-Type: application/json\r\n"
+            + $"Content-Length: {content.Length}\r\n"
+            + "Connection: close\r\n\r\n");
+        await stream.WriteAsync(headers, cancellationToken);
+        await stream.WriteAsync(content, cancellationToken);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageLensRoutesFailClosed()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var versions = await RunAppAsync(
+                "package", "ThisQueryMustNotReachTheNetwork",
+                "--versions", "1", "--json", "--columns", "Version", "--tips", "q");
+            var tfms = await RunAppAsync(
+                "package", packagePath,
+                "--tfms", "--json", "--columns", "TFM", "--tips", "q");
+            var layout = await RunAppAsync(
+                "package", packagePath,
+                "--layout", "--json", "--columns", "Path", "--tips", "q");
+
+            foreach (var (lens, result) in new[]
+            {
+                ("--versions", versions),
+                ("--tfms", tfms),
+                ("--layout", layout),
+            })
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Contains(
+                    $"--fields/--columns are not available with {lens}",
+                    result.Error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(
+            path,
+            "sample 0x06000001+0x0",
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", "--platform", "System.Text.Json",
+                "--il-offsets", path,
+                "--json", "--columns", "Member", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires lowered JSON", error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_LibraryDiscoveryOwnsProjectedJson()
+    {
+        var projected = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "Name", "--tips", "q");
+        var wildcard = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "Nam*", "--rows", "1", "--tips", "q");
+        var allColumns = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "*", "--rows", "1", "--tips", "q");
+        var overlapping = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json",
+            "--fields", "Nam*", "--columns", "N*", "--rows", "1", "--tips", "q");
+        var invalid = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--json", "--columns", "NoSuchColumn", "--tips", "q");
+
+        AssertProjectedProperties(projected, ["name"]);
+        AssertProjectedProperties(wildcard, ["name"]);
+        AssertProjectedProperties(allColumns, ["name", "kind"]);
+        AssertProjectedProperties(overlapping, ["name"]);
+
+        Assert.Equal(1, invalid.Exit);
+        Assert.Empty(invalid.Output);
+        Assert.Contains("NoSuchColumn", invalid.Error);
+
+        static void AssertProjectedProperties(
+            (int Exit, string Output, string Error) result,
+            string[] expected)
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            using var document = JsonDocument.Parse(result.Output);
+            Assert.NotEmpty(document.RootElement.EnumerateArray());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                row => Assert.Equal(
+                    expected,
+                    row.EnumerateObject().Select(property => property.Name)));
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection()
+    {
+        var invalid = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "-D", "Custom Attributes", "--json", "--columns", "NoSuchColumn", "--tips", "q");
+        var valid = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "-D", "Custom Attributes", "--json", "--columns", "Name", "--tips", "q");
+
+        Assert.Equal(1, invalid.Exit);
+        Assert.Empty(invalid.Output);
+        Assert.Contains("NoSuchColumn", invalid.Error);
+        Assert.DoesNotContain("has no data", invalid.Error);
+
+        Assert.Equal(0, valid.Exit);
+        Assert.Equal("[]", valid.Output.Trim());
+        Assert.Contains(
+            "section 'Custom Attributes' has no data for this query",
+            valid.Error);
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_EffectiveDiscoveryProjectionPreservesRows()
+    {
+        var count = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--json", "--count", "--tips", "q");
+        var typed = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--json", "--tips", "q");
+        var projected = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--json", "--columns", "Name", "--tips", "q");
+        var structural = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "--schema", "--json", "--tips", "q");
+
+        foreach (var result in new[] { count, typed, projected, structural })
+        {
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+        }
+
+        using var typedDocument = JsonDocument.Parse(typed.Output);
+        using var projectedDocument = JsonDocument.Parse(projected.Output);
+        using var structuralDocument = JsonDocument.Parse(structural.Output);
+        var typedNames = typedDocument.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+        var projectedNames = projectedDocument.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+        var structuralNames = structuralDocument.RootElement.EnumerateArray()
+            .Select(row => row.GetProperty("name").GetString())
+            .ToArray();
+
+        Assert.Equal(typedNames.Length, int.Parse(count.Output, CultureInfo.InvariantCulture));
+        Assert.Equal(typedNames, projectedNames);
+        Assert.Contains(
+            structuralNames,
+            name => name is not null
+                && name.StartsWith('@')
+                && !typedNames.Contains(name));
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_NarrowedDiscoveryOwnsProjectionValidation()
+    {
+        var library = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-D", "Library Info", "--effective",
+            "--json", "--columns", "Kind", "--tips", "q");
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.NarrowedDiscovery",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var package = await RunAppAsync(
+                "package", packagePath,
+                "-D", "-S", "Package Info",
+                "--json", "--columns", "Kind", "--tips", "q");
+
+            foreach (var result in new[] { library, package })
+            {
+                Assert.Equal(0, result.Exit);
+                Assert.Empty(result.Error);
+                using var document = JsonDocument.Parse(result.Output);
+                Assert.NotEmpty(document.RootElement.EnumerateArray());
+                Assert.All(
+                    document.RootElement.EnumerateArray(),
+                    row => Assert.Equal(
+                        ["kind"],
+                        row.EnumerateObject().Select(property => property.Name)));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--fields")]
+    [InlineData("--columns")]
+    public async Task ProjectedJsonRoutingAudit_TypeShapeFailsClosed(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "--shape", "--json", projection, "ZZZNoSuchColumn", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--fields/--columns are not available with --shape",
+            error);
+        Assert.Contains(
+            "Replace --json --shape with --table, --tsv, or --jsonl",
+            error);
+        Assert.Contains(
+            "omit --fields/--columns to keep tree output",
+            error);
+        Assert.DoesNotContain("selection was ignored", error);
+    }
+
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task ProjectedJsonRoutingAudit_TypeShapePayloadProjectionsFailClosed(
+        string projection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "SampleClassForTesting", "--library", TestAssemblyPath,
+            "--shape", "-S", "Type Info",
+            "--json", "--fields", "Name", projection, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{projection} is not available with --shape", error);
+        Assert.DoesNotContain("produced unprojected output", error);
+        Assert.DoesNotContain("selection was ignored", error);
     }
 
     [Fact]
@@ -12993,11 +13898,18 @@ public partial class CommandExecutionTests
         // The -D discovery branch honors projection itself and returns before the guard, so a
         // discovery request carrying --fields/--json must not be rejected.
         var (exit, output, error) = await RunAppAsync(
-            "find", "Cache", "--library", TestAssemblyPath, "-D", "Results", "--fields", "Type", "--json");
+            "find", "Cache", "--library", TestAssemblyPath,
+            "-D", "Results", "--fields", "Name", "--json");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("cannot be combined with --json", error);
-        Assert.Contains("\"kind\":\"column\"", output);
+        using var document = JsonDocument.Parse(output);
+        Assert.NotEmpty(document.RootElement.EnumerateArray());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.Equal(
+                ["name"],
+                row.EnumerateObject().Select(property => property.Name)));
     }
 
     [Fact]
@@ -21954,7 +22866,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_JsonIgnoresColumnProjection()
+    public async Task ProjectedJsonRoutingAudit_PackageTypedDocumentFailsClosed()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.JsonProjection",
@@ -21968,13 +22880,64 @@ public partial class CommandExecutionTests
                 "package", packagePath, packagePath,
                 "--json", "--columns", "Package", "--tips", "q");
 
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("requires lowered JSON", error);
+            Assert.Equal(1, multiExit);
+            Assert.Empty(multiOutput);
+            Assert.Contains("requires lowered JSON", multiError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageAllLibrariesLensRejectsProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries",
+                "-S", "Library Info", "--json", "--fields", "Assembly Version",
+                "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "--all-libraries cannot be combined with --fields",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_PackageDiscoveryOwnsProjectedJson()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.DiscoveryProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath,
+                "-D", "--json", "--columns", "Name", "--tips", "q");
+
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            using var _ = JsonDocument.Parse(output);
-            Assert.Equal(0, multiExit);
-            Assert.Empty(multiError);
-            using var multi = JsonDocument.Parse(multiOutput);
-            Assert.Equal(2, multi.RootElement.GetArrayLength());
+            using var document = JsonDocument.Parse(output);
+            Assert.NotEmpty(document.RootElement.EnumerateArray());
+            Assert.All(
+                document.RootElement.EnumerateArray(),
+                row => Assert.Equal(
+                    ["name"],
+                    row.EnumerateObject().Select(property => property.Name)));
         }
         finally
         {
@@ -22020,6 +22983,36 @@ public partial class CommandExecutionTests
             Assert.Empty(output);
             Assert.Contains("Multiple package output requires --json or a row format", error);
             Assert.DoesNotContain("No columns matched projection", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    public async Task ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed(
+        string projection)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiPayloadProjection",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, packagePath,
+                "-S", "Package Info",
+                "--json", "--fields", "Version", projection, "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Multiple package inspection cannot be combined with {projection}",
+                error);
         }
         finally
         {
@@ -28268,50 +29261,350 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task SkillDocuments_OmitPayloadsThatRequireContainment()
+    {
+        const string bidi = "\u202E";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.ContainedOutput",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedOutput",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
+
+        try
+        {
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+            var (contentExit, contentOutput, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
+            var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--jsonl");
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
+            Assert.Equal(0, contentJsonExit);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(projectJsonError);
+            Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
+            Assert.Empty(contentJsonError);
+            string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+            Assert.Equal(placeholder, packageOutput);
+            Assert.Equal(placeholder, projectOutput);
+            Assert.Equal(placeholder + "\n", contentOutput);
+            Assert.Contains(placeholder + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, contentBlocksOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, packageJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, projectJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, contentJson, StringComparison.Ordinal);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            using var contentDocument = JsonDocument.Parse(contentJson);
+            Assert.Equal(
+                placeholder,
+                packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(
+                placeholder,
+                projectDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(
+                placeholder,
+                contentDocument.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_PreserveSafeOriginalText()
+    {
+        const string Body = """Use Regex("\\d+") with C:\temp and literal \u202E text.""";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.SafeOriginal",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", Body));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.SafeOriginal",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", Body)]));
+
+        try
+        {
+            var packageOutputPath = Path.Combine(packageTempDir, "package-skill.md");
+            var contentOutputPath = Path.Combine(packageTempDir, "content-skill.md");
+            var projectOutputPath = Path.Combine(projectTempDir, "project-skill.md");
+
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (contentExit, contentOutput, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+            var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                "--output", packageOutputPath);
+            var (contentFileExit, contentFileOutput, contentFileError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare", "--output", contentOutputPath);
+            var (projectFileExit, projectFileOutput, projectFileError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare",
+                "--output", projectOutputPath);
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, contentJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Equal(0, packageFileExit);
+            Assert.Equal(0, contentFileExit);
+            Assert.Equal(0, projectFileExit);
+            Assert.Empty(packageError);
+            Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(contentJsonError);
+            Assert.Empty(projectJsonError);
+            Assert.Empty(packageFileOutput);
+            Assert.Empty(contentFileOutput);
+            Assert.Empty(projectFileOutput);
+            Assert.Empty(packageFileError);
+            Assert.Empty(contentFileError);
+            Assert.Empty(projectFileError);
+            Assert.Equal(Body, packageOutput);
+            Assert.Equal(Body + "\n", contentOutput);
+            Assert.Contains(Body + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.Equal(Body, projectOutput);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var contentDocument = JsonDocument.Parse(contentJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            Assert.Equal(Body, packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, contentDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, projectDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, File.ReadAllText(packageOutputPath));
+            Assert.Equal(Body, File.ReadAllText(contentOutputPath));
+            Assert.Equal(Body, File.ReadAllText(projectOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks()
+    {
+        const string bidi = "\u202E";
+        var body = $"[docs](https://github.com/owner/repo/blob/main/docs/{bidi}INJECTED.md)";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.RawClassification",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", body));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.RawClassification",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", body)]));
+
+        try
+        {
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+            Assert.Equal(placeholder, packageOutput);
+            Assert.Equal(placeholder, projectOutput);
+            Assert.DoesNotContain("%E2%80%AE", packageOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("%E2%80%AE", projectOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment()
+    {
+        const string bidi = "\u202E";
+        const string SkillPath = "skills/readme-skill/SKILL.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.DeclaredReadme",
+            SkillPath,
+            $"readme{bidi}skill");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                output);
+            Assert.DoesNotContain(bidi, output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("-o")]
     [InlineData("--output")]
     public async Task SkillDocuments_OutputAliasesWritePackageAndProjectPayloads(string outputOption)
     {
+        const string bidi = "\u202E";
         var (packagePath, packageTempDir) = CreateLocalReadmePackage(
             "Test.Skills.Output",
             "README.md",
             "readme",
             null,
             null,
-            ("skills/package-skill/SKILL.md", "package skill"));
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
         var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
                 "Test.Project.Skills.Output",
                 "1.0.0",
                 "README.md",
                 "readme",
-                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", "project skill")]));
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
 
         try
         {
             var packageOutput = Path.Combine(packageTempDir, "package-skill.md");
+            var packageContentOutput = Path.Combine(packageTempDir, "package-content-skill.md");
             var projectOutput = Path.Combine(projectTempDir, "project-skill.md");
 
             var (packageExit, packageStdout, packageError) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--bare",
                 outputOption, packageOutput);
+            var (packageContentExit, packageContentStdout, packageContentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare", outputOption, packageContentOutput);
             var (projectExit, projectStdout, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--bare", outputOption, projectOutput);
 
             Assert.Equal(0, packageExit);
+            Assert.Equal(0, packageContentExit);
             Assert.Equal(0, projectExit);
             Assert.Empty(packageStdout);
+            Assert.Empty(packageContentStdout);
             Assert.Empty(projectStdout);
             Assert.Empty(packageError);
+            Assert.Empty(packageContentError);
             Assert.Empty(projectError);
-            Assert.Equal("package skill", File.ReadAllText(packageOutput));
-            Assert.Equal("project skill", File.ReadAllText(projectOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(packageOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(packageContentOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(projectOutput));
         }
         finally
         {
             Directory.Delete(packageTempDir, recursive: true);
             Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_OrdinaryDocumentOutputStillPreservesExactBytes()
+    {
+        const string bidi = "\u202E";
+        var readme = Encoding.UTF8.GetPreamble()
+            .Concat(Encoding.UTF8.GetBytes($"ordinary{bidi}readme\r\n"))
+            .ToArray();
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Ordinary.ExactOutput",
+            "README.md",
+            "placeholder");
+        var packageRoot = Path.Combine(tempDir, "content");
+        File.WriteAllBytes(Path.Combine(packageRoot, "README.md"), readme);
+        File.Delete(packagePath);
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        var outputPath = Path.Combine(tempDir, "exported.md");
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--path", "@readme", "--content", "--bare",
+                "--output", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Equal(readme, File.ReadAllBytes(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
@@ -29347,6 +30640,136 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Before\u202EINJECTED")]
+    [InlineData("Before\fINJECTED")]
+    [InlineData("Before\u0085INJECTED")]
+    [InlineData("Before\u2028INJECTED")]
+    [InlineData("Before\u2029INJECTED")]
+    [InlineData("\fINJECTED")]
+    [InlineData("\u0085INJECTED")]
+    [InlineData("\u2028INJECTED")]
+    [InlineData("\u2029INJECTED")]
+    [InlineData("INJECTED\f")]
+    [InlineData("INJECTED\u0085")]
+    [InlineData("INJECTED\u2028")]
+    [InlineData("INJECTED\u2029")]
+    public async Task Project_SkillsInventory_ReplacesContainedYamlFields(string description)
+    {
+        var skill = $"""
+            ---
+            name: contained-description
+            description: {description}
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedDescription",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-description/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Empty(error);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("\f")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public async Task Project_SkillsInventory_PreservesBlockIndicatorConcerns(string concern)
+    {
+        var skill = $"""
+            ---
+            name: contained-indicator
+            description: |{concern}
+              INJECTED
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedIndicator",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-indicator/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsInventory_FoldsLiteralBlockDescription()
+    {
+        var skill = """
+            ---
+            name: literal-description
+            description: |
+              Renders objects as Markdown.
+              Use when a CLI needs agent-readable output.
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.LiteralDescription",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/literal-description/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "Renders objects as Markdown. Use when a CLI needs agent-readable output.",
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Project_SkillsSection_AcceptsDirectoryNameAndExtensionFrontmatter()
     {
@@ -29932,7 +31355,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_Columns_ReturnsClearUnsupportedError()
+    public async Task ProjectedJsonRoutingAudit_ProjectRejectsProjection()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "readme", Skills:
@@ -29941,7 +31364,7 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--columns", "Package");
+                projectPath, "-S", "Skills", "--columns", "Package", "--json");
 
             Assert.Equal(1, exit);
             Assert.Empty(output);

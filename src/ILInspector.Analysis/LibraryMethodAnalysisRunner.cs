@@ -71,10 +71,14 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         bool typeSourceGenerated);
 
-    MethodIdentity? ResolveAsyncStateMachineSource(
+    AsyncBodyAttribution? ResolveAsyncBody(
         MethodIdentity method,
         MethodDefinition methodDefinition,
         bool typeSourceGenerated);
+
+    bool IsAuthenticatedAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition);
 
     ImmutableArray<OptimizationOpportunity>
         CollectAsyncSiblingOpportunities(
@@ -88,8 +92,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
         MethodIdentity liftedIdentity,
-        out MethodIdentity? sourceOwner,
-        out bool sourceGenerated,
+        out AuthenticatedSourceOwner sourceOwner,
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
         bool directlySelectedBody);
@@ -109,7 +112,8 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition methodDefinition,
         MethodIdentity method,
         bool typeSourceGenerated,
-        out MethodIdentity? ultimateOwner);
+        out AuthenticatedSourceOwner? immediateOwner,
+        out AuthenticatedSourceOwner? ultimateOwner);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -121,6 +125,7 @@ internal enum DeclaredOwnerResolution
     None,
     Resolved,
     Unresolved,
+    Rejected,
 }
 
 // Method-local output is merged by LibraryBodyAnalysisAccumulator in metadata
@@ -642,6 +647,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                 bodyTypeScope?.Invoke(
                     caller.DeclaringType)
                     == true;
+            bool directlySelectedMethod =
+                requestedMethodScope?.Contains(
+                    caller.MetadataToken)
+                    == true;
             if (bodyTypeScope is not null)
             {
                 ImmutableArray<TypeRef> sourceTypes = [];
@@ -658,14 +667,24 @@ internal sealed class LibraryMethodAnalysisRunner(
                     return result;
             }
             MethodIdentity? opportunityDeclaredMethod = null;
-            MethodIdentity? asyncStateMachineSource = null;
+            MethodIdentity? unresolvedOpportunityOwner = null;
+            AuthenticatedSourceOwner? immediateOwnerEvidence = null;
+            AuthenticatedSourceOwner? ultimateOwnerEvidence = null;
+            bool requiresDeclaredOwner =
+                CompilerGeneratedNames.RequiresDeclaredOwner(
+                    caller,
+                    _infrastructure
+                        .IsAuthenticatedAsyncStateMachineExecutionMethod(
+                            methodHandle,
+                            methodDefinition));
+            AsyncBodyAttribution? asyncBody = null;
             bool opportunityOwnershipResolved = true;
+            DeclaredOwnerResolution ownerResolution =
+                DeclaredOwnerResolution.None;
             try
             {
                 bool directlySelectedBody =
-                    requestedMethodScope?.Contains(
-                        caller.MetadataToken)
-                        == true
+                    directlySelectedMethod
                     || directlySelectedType;
                 MethodIdentity? declaredMethod =
                     _infrastructure.ResolveDeclaredMethod(
@@ -678,24 +697,24 @@ internal sealed class LibraryMethodAnalysisRunner(
                         requestedMethodScope,
                         directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
-                asyncStateMachineSource =
-                    _infrastructure.ResolveAsyncStateMachineSource(
+                asyncBody =
+                    _infrastructure.ResolveAsyncBody(
                         caller,
                         methodDefinition,
                         typeSourceGenerated);
                 MethodIdentity? ultimateOwner =
                     declaredMethod;
-                DeclaredOwnerResolution ownerResolution =
+                ownerResolution =
                     declaredMethod is null
                         ? DeclaredOwnerResolution.None
                         : DeclaredOwnerResolution.Resolved;
                 bool needsUltimateResolution =
-                    declaredMethod is not null
+                    includeOpportunities
+                    || declaredMethod is not null
                         && CompilerGeneratedNames
                             .IsLocalFunctionOrLambda(
                                 declaredMethod.Name)
-                    || (includeOpportunities
-                        || includeAsyncSiblingOpportunities)
+                    || includeAsyncSiblingOpportunities
                         && bodyTypeScope is not null;
                 if (needsUltimateResolution)
                 {
@@ -706,14 +725,32 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 methodDefinition,
                                 caller,
                                 typeSourceGenerated,
-                                out ultimateOwner);
+                                out immediateOwnerEvidence,
+                                out ultimateOwnerEvidence);
+                    ultimateOwner =
+                        ultimateOwnerEvidence?.Method;
                 }
                 if (ownerResolution
                     == DeclaredOwnerResolution.Resolved)
+                {
+                    result.DeclaredMethod = ultimateOwner;
                     result.DeclaredSource = ultimateOwner;
+                }
+                else if (ownerResolution
+                    is DeclaredOwnerResolution.Unresolved
+                        or DeclaredOwnerResolution.Rejected)
+                {
+                    unresolvedOpportunityOwner =
+                        ownerResolution
+                            == DeclaredOwnerResolution.Unresolved
+                            ? immediateOwnerEvidence?.Method
+                            : null;
+                    result.DeclaredMethod = null;
+                }
                 opportunityOwnershipResolved =
                     ownerResolution
-                        != DeclaredOwnerResolution.Unresolved;
+                        is DeclaredOwnerResolution.None
+                            or DeclaredOwnerResolution.Resolved;
                 if (bodyTypeScope is not null)
                 {
                     // Evidence admission follows the selected type, but a
@@ -725,6 +762,7 @@ internal sealed class LibraryMethodAnalysisRunner(
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
+                result.DeclaredMethod = null;
                 opportunityOwnershipResolved = false;
                 result.Diagnostic = new AnalysisDiagnostic(
                     MetadataTokens.GetToken(methodHandle),
@@ -835,21 +873,39 @@ internal sealed class LibraryMethodAnalysisRunner(
             }
             bool opportunityScopeSelected =
                 bodyTypeScope is null
-                || opportunityOwnershipResolved
-                    && (opportunityDeclaredMethod is null
-                        || bodyTypeScope(
-                            opportunityDeclaredMethod
-                                .DeclaringType));
-            bool collectScopedOpportunities =
+                || opportunityDeclaredMethod is null
+                || bodyTypeScope(
+                    opportunityDeclaredMethod
+                        .DeclaringType);
+            bool collectOwnershipDerivedOpportunities =
                 includeOpportunities
+                && opportunityOwnershipResolved
                 && opportunityScopeSelected;
             bool collectScopedAsyncSiblingOpportunities =
                 includeAsyncSiblingOpportunities
+                && opportunityOwnershipResolved
                 && opportunityScopeSelected;
+            bool collectBodyIntrinsicOpportunities =
+                includeOpportunities
+                && (!plan.IsScoped
+                    || ((directlySelectedMethod
+                            || directlySelectedType)
+                        && (!requiresDeclaredOwner
+                            || ownerResolution
+                                    == DeclaredOwnerResolution
+                                        .Unresolved))
+                    || collectOwnershipDerivedOpportunities
+                    || unresolvedOpportunityOwner
+                            is { } unresolvedOwner
+                        && (requestedMethodScope?.Contains(
+                                unresolvedOwner.MetadataToken)
+                                == true
+                            || bodyTypeScope?.Invoke(
+                                unresolvedOwner.DeclaringType)
+                                == true));
             result.ScopeExcluded =
                 includeOpportunities
-                && bodyTypeScope is not null
-                && !collectScopedOpportunities;
+                && !collectOwnershipDerivedOpportunities;
             try
             {
                 MethodCallAnalysis.Collect(
@@ -886,15 +942,14 @@ internal sealed class LibraryMethodAnalysisRunner(
                     SourceDeclaringType:
                         result.DeclaredSource?.DeclaringType);
             }
-            if (asyncStateMachineSource is not null
+            if (asyncBody is not null
                 && resultSinks is not null)
             {
                 for (int index = 0; index < resultSinks.Count; index++)
                 {
                     resultSinks[index] = resultSinks[index] with
                     {
-                        AsyncStateMachineSource =
-                            asyncStateMachineSource,
+                        AsyncBody = asyncBody,
                     };
                 }
             }
@@ -905,15 +960,13 @@ internal sealed class LibraryMethodAnalysisRunner(
                 bool sourceFunction =
                     CompilerGeneratedNames.IsLocalFunctionOrLambda(
                         caller.Name);
-                MethodIdentity? sourceOwner = null;
-                bool sourceOwnerGenerated = false;
+                AuthenticatedSourceOwner sourceOwner = default;
                 bool hasSourceOwner = sourceFunction
                     && _infrastructure.TryResolveLiftedSourceOwner(
                         methodHandle,
                         methodDefinition,
                         caller,
                         out sourceOwner,
-                        out sourceOwnerGenerated,
                         bodyScope,
                         bodyTypeScope,
                         requestedMethodScope?.Contains(
@@ -922,7 +975,12 @@ internal sealed class LibraryMethodAnalysisRunner(
                 bool sourceGenerated =
                     _infrastructure.HasGeneratedCodeAttribute(
                         methodAttributes)
-                    || hasSourceOwner && sourceOwnerGenerated;
+                    || hasSourceOwner
+                        && sourceOwner
+                            .SuppressesOpportunities;
+                bool ultimateSourceSuppressesOpportunities =
+                    ultimateOwnerEvidence
+                        ?.SuppressesOpportunities == true;
                 bool compilerGenerated =
                     _infrastructure.HasCompilerGeneratedAttribute(
                         methodAttributes)
@@ -934,23 +992,38 @@ internal sealed class LibraryMethodAnalysisRunner(
                     || IsBlazorRenderMethod(caller);
                 result.Suppressed =
                     suppressOpportunities
-                    || !collectScopedOpportunities;
-                if (collectScopedOpportunities
+                    || !collectBodyIntrinsicOpportunities;
+                if (collectBodyIntrinsicOpportunities
                     && !suppressOpportunities)
                 {
                     result.Opportunities =
                         OptimizationOpportunityAnalysis.Collect(
                             allocationFacts,
                             methodAnalysisResolver);
+                    if (!collectOwnershipDerivedOpportunities
+                        && requiresDeclaredOwner)
+                    {
+                        result.Opportunities =
+                        [
+                            .. result.Opportunities.Where(
+                                static opportunity =>
+                                    opportunity.Shape
+                                        != "generic-parameter-object-box"),
+                        ];
+                    }
                 }
-                else if (collectScopedOpportunities
+                else if (collectOwnershipDerivedOpportunities
+                    && opportunityOwnershipResolved
+                    && result.DeclaredSource is { } opportunitySourceOwner
                     && !sourceGenerated
                     && !typeSourceGenerated
                     && compilerGenerated
                     && hasSourceOwner
-                    && sourceOwner is not null
+                    && !ultimateSourceSuppressesOpportunities
                     && !IsBlazorRenderMethod(caller)
-                    && !IsBlazorRenderMethod(sourceOwner))
+                    && !IsBlazorRenderMethod(
+                        sourceOwner.Method)
+                    && !IsBlazorRenderMethod(opportunitySourceOwner))
                 {
                     result.Opportunities =
                     [
@@ -962,7 +1035,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                                 == "generic-parameter-object-box")
                         .Select(opportunity => opportunity with
                         {
-                            SourceOwner = sourceOwner,
+                            SourceOwner = opportunitySourceOwner,
                         }),
                     ];
                 }

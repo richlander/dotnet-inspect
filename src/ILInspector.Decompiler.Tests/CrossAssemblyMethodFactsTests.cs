@@ -397,6 +397,121 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void VersionUnifiedSignatureType_RecoversAccessorKind()
+    {
+        using var fixture = VersionUnifiedSignatureFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var call = SingleCall(source, "UseProperty", "get_Value");
+        string output = PrintRaised(source, "UseProperty");
+
+        Assert.Equal(AccessorKind.PropertyGet, call.Callee.AccessorKind);
+        Assert.Contains("library.Value", output);
+        Assert.DoesNotContain("get_Value", output);
+    }
+
+    [Fact]
+    public void DistinctSignatureTypeDefinitions_DoNotCorrespond()
+    {
+        using var fixture = VersionUnifiedSignatureFixture.Create();
+        ResolvedAssemblyReference version2 = fixture.SignatureV2;
+        ResolvedAssemblyReference version3 = fixture.SignatureV3;
+        var version2Request = TypeResolutionRequest.FromAssembly(
+            version2,
+            AssemblyResolutionScope.Any,
+            fixture.PayloadName);
+        var version3Request = TypeResolutionRequest.FromAssembly(
+            version3,
+            AssemblyResolutionScope.Any,
+            fixture.PayloadName);
+        using var context = new MetadataContext(
+            TestAssemblyReferenceResolvers.None);
+
+        Assert.False(
+            context.ResolveToSameDefinition(
+                version2,
+                version2Request,
+                version3,
+                version3Request));
+    }
+
+    [Fact]
+    public async Task ConcurrentResolution_DoesNotInvalidateDefinitionCorrespondence()
+    {
+        using var fixture = VersionUnifiedSignatureFixture.Create();
+        ResolvedAssemblyReference root = fixture.SignatureV2;
+        var request = TypeResolutionRequest.FromAssembly(
+            root,
+            AssemblyResolutionScope.Any,
+            fixture.PayloadName);
+        using var context = new MetadataContext(
+            TestAssemblyReferenceResolvers.None);
+        using var cancellation = new CancellationTokenSource();
+        Task churn = Task.WhenAll(
+            Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
+            {
+                while (!cancellation.IsCancellationRequested)
+                    context.Resolve(root, request);
+            })));
+
+        int falseResults = 0;
+        try
+        {
+            for (int i = 0; i < 50_000; i++)
+            {
+                if (!context.ResolveToSameDefinition(
+                        root,
+                        request,
+                        root,
+                        request))
+                {
+                    falseResults++;
+                }
+            }
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await churn;
+        }
+
+        Assert.Equal(0, falseResults);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void MethodFactCache_DistinguishesSignatureResolutionIdentity(
+        bool correspondingFirst)
+    {
+        using var fixture = VersionUnifiedSignatureFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            externalPdbPath: null,
+            fixture.CreateResolver());
+        MethodRef corresponding = fixture.Getter(
+            fixture.SignatureV2.Identity);
+        MethodRef distinct = fixture.Getter(
+            fixture.SignatureV3.Identity);
+
+        MethodRef first = source.CrossAssembly.Upgrade(
+            correspondingFirst ? corresponding : distinct,
+            resolveRequiresUnsafe: false);
+        MethodRef second = source.CrossAssembly.Upgrade(
+            correspondingFirst ? distinct : corresponding,
+            resolveRequiresUnsafe: false);
+
+        MethodRef correspondingResult =
+            correspondingFirst ? first : second;
+        MethodRef distinctResult =
+            correspondingFirst ? second : first;
+        Assert.Equal(
+            AccessorKind.PropertyGet,
+            correspondingResult.AccessorKind);
+        Assert.Equal(AccessorKind.Unknown, distinctResult.AccessorKind);
+    }
+
+    [Fact]
     public void CrossAssemblyDynamicReturns_PreserveReferenceIdentity()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -595,6 +710,40 @@ public class CrossAssemblyMethodFactsTests
         Assert.NotNull(function);
         function.CheckInvariant();
         return function!;
+    }
+
+    static string Emit(
+        string directory,
+        string assemblyName,
+        string source,
+        IEnumerable<MetadataReference>? additionalReferences = null)
+    {
+        var references = ImmutableArray.CreateBuilder<MetadataReference>();
+        references.AddRange(RoslynTestReferences.TrustedPlatform);
+        if (additionalReferences is not null)
+            references.AddRange(additionalReferences);
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release));
+
+        string path = Path.Combine(directory, assemblyName + ".dll");
+        var result = compilation.Emit(path);
+        Assert.True(
+            result.Success,
+            "fixture compilation failed:\n"
+                + string.Join(
+                    "\n",
+                    result.Diagnostics.Select(
+                        diagnostic =>
+                            $"{diagnostic.Id}: {diagnostic.GetMessage()}")));
+        return path;
     }
 
     sealed class MethodCollisionFixture : IAssemblyReferenceResolver, IDisposable
@@ -953,6 +1102,227 @@ public class CrossAssemblyMethodFactsTests
         }
     }
 
+    sealed class VersionUnifiedSignatureFixture : IDisposable
+    {
+        readonly string _directory;
+        readonly ResolvedAssemblyReference _library;
+        readonly ResolvedAssemblyReference _signatureV1;
+
+        VersionUnifiedSignatureFixture(
+            string directory,
+            string consumerPath,
+            string libraryPath,
+            string signatureV1Path,
+            string signatureV2Path,
+            string signatureV3Path)
+        {
+            _directory = directory;
+            ConsumerPath = consumerPath;
+            _library = FromPath(libraryPath);
+            _signatureV1 = FromPath(signatureV1Path);
+            SignatureV2 = FromPath(signatureV2Path);
+            SignatureV3 = FromPath(signatureV3Path);
+            PayloadName = Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "ExternalFacts",
+                        ["Payload"]))
+                .Name;
+        }
+
+        public string ConsumerPath { get; }
+        public ResolvedAssemblyReference SignatureV2 { get; }
+        public ResolvedAssemblyReference SignatureV3 { get; }
+        public MetadataTypeDefinitionName PayloadName { get; }
+
+        public static VersionUnifiedSignatureFixture Create()
+        {
+            string directory = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-version-unified-signature-").FullName;
+            try
+            {
+                string implementationDirectory = Directory.CreateDirectory(
+                    Path.Combine(directory, "implementation")).FullName;
+                string signatureV1Path = Emit(
+                    implementationDirectory,
+                    "VersionUnified.Signatures",
+                    """
+                    using System.Reflection;
+
+                    [assembly: AssemblyVersion("1.0.0.0")]
+
+                    namespace ExternalFacts;
+
+                    public sealed class Payload;
+                    """);
+                const string librarySource =
+                    """
+                    namespace ExternalFacts;
+
+                    public sealed class Library
+                    {
+                        public Payload Value { get; } = new();
+                    }
+                    """;
+                string implementationLibraryPath = Emit(
+                    implementationDirectory,
+                    "VersionUnified.Library",
+                    librarySource,
+                    [MetadataReference.CreateFromFile(signatureV1Path)]);
+
+                string signatureV2Path = Emit(
+                    directory,
+                    "VersionUnified.Signatures",
+                    """
+                    using System.Reflection;
+
+                    [assembly: AssemblyVersion("2.0.0.0")]
+
+                    namespace ExternalFacts;
+
+                    public sealed class Payload;
+                    """);
+                string distinctDirectory = Directory.CreateDirectory(
+                    Path.Combine(directory, "distinct")).FullName;
+                string signatureV3Path = Emit(
+                    distinctDirectory,
+                    "VersionUnified.Signatures",
+                    """
+                    using System.Reflection;
+
+                    [assembly: AssemblyVersion("3.0.0.0")]
+
+                    namespace ExternalFacts;
+
+                    public sealed class Payload;
+                    """);
+                string libraryPath = Emit(
+                    directory,
+                    "VersionUnified.Library",
+                    librarySource,
+                    [MetadataReference.CreateFromFile(signatureV2Path)]);
+                string consumerPath = Emit(
+                    directory,
+                    "VersionUnified.Consumer",
+                    """
+                    namespace ExternalFacts;
+
+                    public static class Consumer
+                    {
+                        public static Payload UseProperty(Library library)
+                            => library.Value;
+                    }
+                    """,
+                    [
+                        MetadataReference.CreateFromFile(libraryPath),
+                        MetadataReference.CreateFromFile(signatureV2Path),
+                    ]);
+                // Model deployment version unification: the consumer was
+                // compiled against v2, but the selected library implementation
+                // still carries its v1 transitive signature reference.
+                File.Copy(
+                    implementationLibraryPath,
+                    libraryPath,
+                    overwrite: true);
+
+                return new VersionUnifiedSignatureFixture(
+                    directory,
+                    consumerPath,
+                    libraryPath,
+                    signatureV1Path,
+                    signatureV2Path,
+                    signatureV3Path);
+            }
+            catch
+            {
+                Directory.Delete(directory, recursive: true);
+                throw;
+            }
+        }
+
+        public void Dispose() =>
+            Directory.Delete(_directory, recursive: true);
+
+        public IAssemblyReferenceResolver CreateResolver() =>
+            new VersionUnifiedResolver(
+                _library,
+                _signatureV1,
+                SignatureV2,
+                SignatureV3);
+
+        public MethodRef Getter(
+            AssemblyReferenceIdentity signatureIdentity)
+        {
+            MetadataTypeDefinitionName libraryName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "ExternalFacts",
+                        ["Library"]))
+                .Name;
+            TypeRef library = TypeRef.DefinitionWithResolution(
+                _library.Identity.Name,
+                "ExternalFacts",
+                "Library",
+                ValueTypeHint.Unknown,
+                MetadataFactState.Unknown,
+                enclosingType: null,
+                libraryName,
+                _library.Identity);
+            TypeRef payload = TypeRef.DefinitionWithResolution(
+                signatureIdentity.Name,
+                "ExternalFacts",
+                "Payload",
+                ValueTypeHint.Unknown,
+                MetadataFactState.Unknown,
+                enclosingType: null,
+                PayloadName,
+                signatureIdentity);
+            return new MethodRef(
+                library,
+                "get_Value",
+                payload,
+                [],
+                HasThis: true)
+            {
+                IsSpecialName = true,
+                IsSpecialNameInferred = true,
+            };
+        }
+
+        static ResolvedAssemblyReference FromPath(string path) =>
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "version-unified fixture"));
+
+        sealed class VersionUnifiedResolver(
+            ResolvedAssemblyReference library,
+            ResolvedAssemblyReference signatureV1,
+            ResolvedAssemblyReference signatureV2,
+            ResolvedAssemblyReference signatureV3)
+            : IAssemblyReferenceResolver
+        {
+            readonly IAssemblyReferenceResolver _runtime =
+                TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+            public ResolvedAssemblyReference? Resolve(
+                AssemblyReferenceIdentity identity,
+                AssemblyResolutionScope scope)
+            {
+                if (identity.Name == library.Identity.Name)
+                    return library;
+                if (identity.Name == signatureV1.Identity.Name)
+                {
+                    return identity.Version == signatureV3.Identity.Version
+                        ? signatureV3
+                        : signatureV2;
+                }
+
+                return _runtime.Resolve(identity, scope);
+            }
+        }
+    }
+
     sealed class CrossAssemblyFixture : IDisposable
     {
         readonly string _directory;
@@ -1220,31 +1590,6 @@ public class CrossAssemblyMethodFactsTests
                 throw;
             }
         }
-
-        static string Emit(string directory, string assemblyName, string source, IEnumerable<MetadataReference>? additionalReferences = null)
-        {
-            var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
-            var references = ImmutableArray.CreateBuilder<MetadataReference>();
-            references.AddRange(RuntimeReferences());
-            if (additionalReferences is not null)
-                references.AddRange(additionalReferences);
-
-            var compilation = CSharpCompilation.Create(
-                assemblyName,
-                [CSharpSyntaxTree.ParseText(source, parseOptions)],
-                references,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release));
-
-            string path = Path.Combine(directory, assemblyName + ".dll");
-            var result = compilation.Emit(path);
-            Assert.True(
-                result.Success,
-                "fixture compilation failed:\n" + string.Join("\n", result.Diagnostics.Select(d => $"{d.Id}: {d.GetMessage()}")));
-            return path;
-        }
-
-        static ImmutableArray<MetadataReference> RuntimeReferences()
-            => RoslynTestReferences.TrustedPlatform;
 
         public void Dispose() => Directory.Delete(_directory, recursive: true);
     }

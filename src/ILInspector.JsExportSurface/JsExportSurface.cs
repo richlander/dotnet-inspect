@@ -65,6 +65,23 @@ public sealed class JsExportFunction
 
     public required string Name { get; init; }
 
+    /// <summary>
+    /// Exact own-property key published for this method beneath
+    /// <see cref="DeclaringType"/> by <c>getAssemblyExports</c>.
+    /// </summary>
+    /// <remarks>
+    /// The body-backed builder derives this key only from the authenticated
+    /// <c>BindManagedFunction</c> registration and wrapper signature hash,
+    /// retaining the registration's signed <c>int32</c> literal spelling.
+    /// Declaration-only and hand-composed surfaces may leave it unset.
+    /// <c>JsExportSurfaceBuilderTests.Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads</c>
+    /// and
+    /// <c>JsExportSurfaceBuilderTests.Build_PreservesNegativeRuntimeDispatchKeyLiteral</c>
+    /// gate the projection.
+    /// </remarks>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuntimeDispatchKey { get; init; }
+
     public required string ReturnType { get; init; }
 
     [JsonIgnore]
@@ -80,6 +97,11 @@ public sealed class JsExportFunction
     /// cref="ReturnType"/> is already a marshalable type, or the export has no return payload), or
     /// when more than one distinct DTO was found for the return position (an ambiguity this is
     /// left unresolved rather than guessed — see <see cref="JsonWireContractResolver"/> remarks).
+    /// Compiler-state-machine and runtime-async implementations issue the same fact when Analysis
+    /// proves the same direct serializer-to-completion contract; gated by
+    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>.
+    /// Serializer values hoisted through a compiler state-machine field remain unresolved pending
+    /// issue #5025.
     /// </summary>
     public string? ReturnWireType { get; init; }
 

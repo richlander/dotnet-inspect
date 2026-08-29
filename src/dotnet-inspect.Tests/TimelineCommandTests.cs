@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
@@ -113,6 +117,36 @@ public sealed class TimelineCommandTests
                 Assert.Equal("Transitions", row.GetProperty("section").GetString());
                 Assert.Equal(1, row.GetProperty("count").GetInt32());
             });
+    }
+
+    [Fact]
+    public async Task ProjectedJsonRoutingAudit_UnadoptedTypedDocumentFailsClosed()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null)
+            ]
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    JsonOutput = true,
+                    Columns = ["Version"],
+                },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "Evaluations"
+                })));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("requires lowered JSON", result.Error);
     }
 
     [Fact]
@@ -394,6 +428,32 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public void AnalysisTimeline_UnreadableAssemblyFailsWithoutClaimingAbsence()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"timeline-unreadable-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllText(path, "not a managed assembly");
+
+            var inspection = TimelineCommand.InspectUnsafetyAssemblies(
+                [path],
+                "Sample.Widget",
+                "Run");
+
+            var failed = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Failed>(
+                inspection.Value);
+            Assert.Contains(path, failed.Error.Reason);
+            Assert.Contains("could not be inspected", failed.Error.Reason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void AnalysisTimeline_DisposesEndpointAfterCellInspection()
     {
         var vector = Vector("1.0.0");
@@ -416,6 +476,279 @@ public sealed class TimelineCommandTests
 
         Assert.Equal("SubjectAbsent", Assert.Single(view.Evaluations!).State);
         Assert.False(Directory.Exists(tempDir));
+    }
+
+    [Fact]
+    public void AnalysisTimeline_MissingEndpointFailsWithoutClaimingApplicability()
+    {
+        var vector = Vector("1.0.0");
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.Widget",
+            "analysis.unsafety",
+            [
+                new TimelineCommand.TimelineEvaluation(
+                    vector.Addresses[0],
+                    Surface: null,
+                    Error: null,
+                    Endpoint: null),
+            ],
+            Sections(),
+            memberName: "Run");
+
+        var evaluation = Assert.Single(view.Evaluations!);
+        Assert.Equal("Failed", evaluation.State);
+        Assert.Contains("no acquired assembly set", evaluation.Detail);
+    }
+
+    [Fact]
+    public void AnalysisTimeline_NoApplicableInputHasDistinctPresentation()
+    {
+        string path = typeof(ISampleInterface).Assembly.Location;
+        string typeFullName = typeof(ISampleInterface).FullName!;
+        var inspection = TimelineCommand.InspectUnsafetyAssemblies(
+            [path],
+            typeFullName,
+            nameof(ISampleInterface.Execute));
+        var absent = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Absent>(
+            inspection.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            absent.Kind);
+
+        var vector = Vector("1.0.0");
+        var endpoint = new ApiSurfaceEndpoint(
+            new AssemblySet(
+                assemblies:
+                [
+                    new AssemblySetEntry(
+                        path,
+                        path,
+                        Version: null,
+                        AssemblySetSourceKind.Assembly),
+                ],
+                diagnostics: [],
+                tempDirs: []),
+            AssemblyReader.ExtractApiSurface(path)!);
+        var view = TimelineCommand.BuildView(
+            vector,
+            typeFullName,
+            "analysis.unsafety",
+            [
+                new TimelineCommand.TimelineEvaluation(
+                    vector.Addresses[0],
+                    endpoint.Surface,
+                    Error: null,
+                    endpoint),
+            ],
+            Sections(),
+            memberName: nameof(ISampleInterface.Execute));
+
+        var evaluation = Assert.Single(view.Evaluations!);
+        Assert.Equal("NoApplicableInput", evaluation.State);
+        Assert.Contains("no method-body target", evaluation.Detail);
+    }
+
+    [Fact]
+    public void InspectAnalysisAssemblies_ResolvedNonMethodIsNoApplicableInput()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Signature = "int Value",
+        };
+
+        var inspection = TimelineCommand.InspectAnalysisAssemblies<UnsafetyOccurrence>(
+            [("unused.dll", Surface(Type("Widget", members: [property])))],
+            "Sample.Widget",
+            "Value",
+            AnalysisFindings.UnsafetyDescriptor,
+            AnalysisSubject(),
+            static (_, _, _) =>
+                throw new InvalidOperationException(
+                    "Non-method subjects have no body inspection."));
+
+        var absent = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Absent>(
+            inspection.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            absent.Kind);
+    }
+
+    [Fact]
+    public void InspectAnalysisAssemblies_CaseDistinctTypeIsSubjectAbsent()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Signature = "int Value",
+        };
+
+        var inspection =
+            TimelineCommand.InspectAnalysisAssemblies<UnsafetyOccurrence>(
+                [("unused.dll", Surface(Type(
+                    "widget",
+                    members: [property])))],
+                "Sample.Widget",
+                "Value",
+                AnalysisFindings.UnsafetyDescriptor,
+                AnalysisSubject(),
+                static (_, _, _) =>
+                    throw new InvalidOperationException(
+                        "A case-distinct type is not the selected subject."));
+
+        var absent = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Absent>(
+            inspection.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            absent.Kind);
+    }
+
+    [Fact]
+    public void BuildTransitionRows_PreservesNineCompletedTopologyCells()
+    {
+        FindingInspection<string>[] inspections =
+        [
+            new FindingInspection<string>.Complete([]),
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent),
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput),
+        ];
+
+        foreach (FindingInspection<string> oldInspection in inspections)
+        {
+            foreach (FindingInspection<string> newInspection in inspections)
+            {
+                var correlation = FindingCensusCorrelation<string>.Create(
+                [
+                    new(
+                        new FindingVersion("v1", "1.0.0", 0),
+                        oldInspection),
+                    new(
+                        new FindingVersion("v2", "2.0.0", 1),
+                        newInspection),
+                ]);
+
+                var row = Assert.Single(TimelineCommand.BuildTransitionRows(
+                    correlation,
+                    "test",
+                    "Sample.Widget",
+                    memberName: null,
+                    identityKey: null,
+                    static (_, _, oldSide, newSide) =>
+                        FindingComparison.Compare(oldSide, newSide)));
+                string oldState = InspectionState(oldInspection);
+                string newState = InspectionState(newInspection);
+
+                Assert.Equal(
+                    oldState == newState
+                        ? "None"
+                        : $"{oldState}To{newState}",
+                    row.Transition);
+                if (oldState != newState)
+                {
+                    Assert.Contains(oldState, row.Detail);
+                    Assert.Contains(newState, row.Detail);
+                }
+            }
+        }
+
+        static string InspectionState(FindingInspection<string> inspection)
+            => inspection switch
+            {
+                FindingInspection<string>.Complete => "Complete",
+                FindingInspection<string>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.SubjectAbsent,
+                } => "SubjectAbsent",
+                FindingInspection<string>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.NoApplicableInput,
+                } => "NoApplicableInput",
+                _ => throw new ArgumentOutOfRangeException(nameof(inspection)),
+            };
+    }
+
+    [Fact]
+    public void AnalysisTimeline_PartialSurfaceFailsWithoutClaimingAbsence()
+    {
+        var surface = Surface(Type("Other"));
+        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "type row",
+            0x02000002,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The type row could not be decoded."));
+
+        var inspection =
+            TimelineCommand.InspectAnalysisAssemblies<UnsafetyOccurrence>(
+                [("partial.dll", surface)],
+                "Sample.Widget",
+                "Run",
+                AnalysisFindings.UnsafetyDescriptor,
+                AnalysisSubject(),
+                static (_, _, _) =>
+                    throw new InvalidOperationException(
+                        "A hidden target must not reach body inspection."));
+
+        var failed = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Failed>(
+            inspection.Value);
+        Assert.Contains("partial.dll", failed.Error.Reason);
+        Assert.Contains("surface is incomplete", failed.Error.Reason);
+    }
+
+    [Fact]
+    public void AnalysisTimeline_PartialSelectedBodyFailsWithoutPublishingPartialCensus()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"timeline-malformed-body-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(path, BuildMalformedBodyImage());
+
+            const int MethodToken = 0x06000001;
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope: ImmutableHashSet.Create(MethodToken));
+            Assert.Single(index.Diagnostics);
+            Assert.Single(index.DirectCalls);
+            var subject = new FindingSubject(
+                "Sample.Broken::Run",
+                "Sample.Broken.Run");
+            var inspection =
+                TimelineCommand.InspectAnalysisAssemblies<DirectCall>(
+                [(path, AssemblyReader.ExtractApiSurface(path, includeAll: false))],
+                "Sample.Broken",
+                "Run",
+                AnalysisFindings.CallSiteDescriptor,
+                subject,
+                static (bodyIndex, token, findingSubject) =>
+                {
+                    bodyIndex.GetDirectCallsByEvidenceMethod()
+                        .TryGetValue(token, out var calls);
+                    return new FindingInspection<DirectCall>.Complete(
+                        AnalysisFindings.InspectCallSites(
+                            calls.IsDefault ? [] : calls,
+                            findingSubject));
+                });
+
+            var failed =
+                Assert.IsType<FindingInspection<DirectCall>.Failed>(
+                    inspection.Value);
+            Assert.Contains(
+                "Method-body analysis failed",
+                failed.Error.Reason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -502,12 +835,12 @@ public sealed class TimelineCommandTests
             view.Transitions!,
             row =>
             {
-                Assert.Equal("SubjectAvailable", row.Transition);
+                Assert.Equal("SubjectAbsentToComplete", row.Transition);
                 Assert.Equal("Adjacent", row.Span);
             },
             row =>
             {
-                Assert.Equal("SubjectUnavailable", row.Transition);
+                Assert.Equal("CompleteToSubjectAbsent", row.Transition);
                 Assert.Equal("Adjacent", row.Span);
             });
     }
@@ -608,6 +941,105 @@ public sealed class TimelineCommandTests
         Assert.Equal("Sample.Widget", typeFullName);
     }
 
+    [Fact]
+    public void ExactCaseTypeName_TakesPrecedenceOverCaseInsensitiveMatch()
+    {
+        var vector = Vector("1.0.0");
+        TimelineCommand.TimelineEvaluation[] evaluations =
+        [
+            Evaluation(
+                vector,
+                0,
+                Surface(
+                    Type("Widget"),
+                    Type("widget"))),
+        ];
+
+        bool resolved = TimelineCommand.TryResolveTypeName(
+            "Sample.Widget",
+            evaluations,
+            out string? typeFullName,
+            out string? error);
+
+        Assert.True(resolved, error);
+        Assert.Equal("Sample.Widget", typeFullName);
+    }
+
+    [Fact]
+    public void ExactCaseMemberTimelinePreservesAddedPair()
+    {
+        var vector = Vector("1.0.0", "2.0.0");
+        TimelineCommand.TimelineEvaluation[] evaluations =
+        [
+            Evaluation(
+                vector,
+                0,
+                Surface(Type(
+                    "Widget",
+                    members: [Method("Run", "void Run()")]))),
+            Evaluation(
+                vector,
+                1,
+                Surface(Type(
+                    "widget",
+                    members: [Method("Run", "void Run()")]))),
+        ];
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.widget",
+            MetadataFindings.MemberDescriptor.Id,
+            evaluations,
+            Sections(),
+            memberName: "Run");
+
+        Assert.Contains(
+            view.Transitions!,
+            row => row.Transition == "Added");
+    }
+
+    [Theory]
+    [InlineData("Widget")]
+    [InlineData("sample.widget")]
+    public void PartialTypeIdentity_CanonicalizesSelectorAndFailsCensus(
+        string selector)
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var partialSurface = new ApiSurface();
+        partialSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+        var vector = Vector("1.0.0");
+        TimelineCommand.TimelineEvaluation[] evaluations =
+        [
+            Evaluation(vector, 0, partialSurface),
+        ];
+
+        bool resolved = TimelineCommand.TryResolveTypeName(
+            selector,
+            evaluations,
+            out string? typeFullName,
+            out string? error);
+
+        Assert.True(resolved, error);
+        Assert.Equal("Sample.Widget", typeFullName);
+        var view = TimelineCommand.BuildView(
+            vector,
+            typeFullName!,
+            "api.member",
+            evaluations,
+            Sections());
+        Assert.Equal("Failed", Assert.Single(view.Evaluations!).State);
+    }
+
     static TimelineCommand.TimelineEvaluation Evaluation(
         PackageVersionVector vector,
         int position,
@@ -631,6 +1063,101 @@ public sealed class TimelineCommandTests
             TimelineCommand.EvaluationsSection,
             TimelineCommand.TransitionsSection,
         };
+
+    static byte[] BuildMalformedBodyImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("TimelineMalformedBody.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("TimelineMalformedBody"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Broken"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 1,
+                returnType => returnType.Void(),
+                parameters =>
+                    parameters.AddParameter()
+                        .Type()
+                        .Pointer()
+                        .Int32());
+        var helperSignature = new BlobBuilder();
+        new BlobEncoder(helperSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                _ => { });
+        var malformedIl = new BlobBuilder();
+        malformedIl.WriteByte((byte)ILOpCode.Call);
+        malformedIl.WriteInt32(0x06000002);
+        malformedIl.WriteByte(0xFE);
+        malformedIl.WriteByte(0x06);
+        malformedIl.WriteInt32(0x0AFFFFFF);
+        malformedIl.WriteByte((byte)ILOpCode.Pop);
+        malformedIl.WriteByte((byte)ILOpCode.Ret);
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        int bodyOffset = bodyEncoder.AddMethodBody(
+                new InstructionEncoder(malformedIl),
+                maxStack: 1);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Run"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        var helperIl = new BlobBuilder();
+        var helperInstructions = new InstructionEncoder(helperIl);
+        helperInstructions.OpCode(ILOpCode.Ret);
+        int helperBodyOffset = bodyEncoder.AddMethodBody(
+            helperInstructions,
+            maxStack: 0);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Helper"),
+            metadata.GetOrAddBlob(helperSignature),
+            helperBodyOffset,
+            MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
 
     static ApiSurface Surface(params ApiType[] types)
         => new() { Types = [.. types] };

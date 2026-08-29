@@ -4,6 +4,8 @@
 //   eng/generate-inspect-web-engine-dts.sh
 // CI fails if the committed file drifts from this output.
 
+export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
+
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
@@ -34,6 +36,19 @@ export interface BrowserAnnotatedSource {
   readonly document: unknown;
   readonly provenance: string;
   readonly contextLimitation: string | null;
+}
+
+export interface BrowserAssemblyMetadata {
+  readonly assembly: string;
+  readonly metadataVersion: string;
+  readonly metadataVersionTruncated: boolean;
+  readonly kind: string;
+  readonly isAssembly: boolean;
+  readonly metadataSize: number;
+  readonly projectedTableTotal: number;
+  readonly heaps: ReadonlyArray<BrowserMetadataHeap>;
+  readonly tables: ReadonlyArray<BrowserMetadataTable>;
+  readonly headers: BrowserMetadataHeaders;
 }
 
 export interface BrowserAssemblyReference {
@@ -127,6 +142,12 @@ export interface BrowserCallGraphTarget {
   readonly platformPack: string | null;
 }
 
+export interface BrowserCompileLibraryAvailability {
+  readonly status: BrowserCompileLibraryStatus;
+  readonly targetFramework: string | null;
+  readonly message: string | null;
+}
+
 export interface BrowserDependencyCoordinateCandidate {
   readonly key: string;
   readonly provenance: BrowserDependencyCoordinateProvenance;
@@ -157,6 +178,23 @@ export interface BrowserExceptionSurface {
 export interface BrowserGraphMemberSurface {
   readonly member: BrowserMemberSurface;
   readonly selectedBody: BrowserMemberBodySelector;
+}
+
+export interface BrowserHeapEntry {
+  readonly offset: number;
+  readonly value: BrowserMetadataCell;
+  readonly referenceCount: number;
+}
+
+export interface BrowserHeapListing {
+  readonly assembly: string;
+  readonly heap: string;
+  readonly streamName: string;
+  readonly coverage: string;
+  readonly entries: ReadonlyArray<BrowserHeapEntry>;
+  readonly rowsTruncated: boolean;
+  readonly entriesTruncated: boolean;
+  readonly error: string | null;
 }
 
 export interface BrowserHomeDemoCatalog {
@@ -286,6 +324,74 @@ export interface BrowserMemberSurface {
   readonly bodySelectors: ReadonlyArray<BrowserMemberBodySelector>;
 }
 
+export interface BrowserMetadataCell {
+  readonly kind: string;
+  readonly raw: number | null;
+  readonly display: string | null;
+  readonly decoded: string | null;
+  readonly heap: string | null;
+  readonly text: string | null;
+  readonly preview: string | null;
+  readonly offset: number | null;
+  readonly length: number | null;
+  readonly truncated: boolean | null;
+  readonly targetTable: number | null;
+  readonly targetRowId: number | null;
+  readonly startRowId: number | null;
+  readonly endRowId: number | null;
+  readonly count: number | null;
+  readonly token: number | null;
+  readonly detail: string | null;
+}
+
+export interface BrowserMetadataColumn {
+  readonly name: string;
+  readonly kind: string;
+  readonly candidateTargets: ReadonlyArray<number>;
+}
+
+export interface BrowserMetadataHeaders {
+  readonly machine: string;
+  readonly isPE32Plus: boolean;
+  readonly subsystem: string;
+  readonly corFlags: string | null;
+  readonly majorRuntimeVersion: number | null;
+  readonly minorRuntimeVersion: number | null;
+  readonly entryPointToken: number | null;
+}
+
+export interface BrowserMetadataHeap {
+  readonly name: string;
+  readonly sizeInBytes: number;
+  readonly maxAddress: number;
+  readonly addressing: string;
+}
+
+export interface BrowserMetadataRow {
+  readonly rowId: number;
+  readonly token: number;
+  readonly cells: ReadonlyArray<BrowserMetadataCell>;
+}
+
+export interface BrowserMetadataTable {
+  readonly index: number;
+  readonly name: string;
+  readonly rowCount: number;
+  readonly isProjected: boolean;
+}
+
+export interface BrowserMetadataWindow {
+  readonly assembly: string;
+  readonly index: number;
+  readonly name: string;
+  readonly rowCount: number;
+  readonly startRowId: number;
+  readonly columns: ReadonlyArray<BrowserMetadataColumn>;
+  readonly rows: ReadonlyArray<BrowserMetadataRow>;
+  readonly truncated: boolean;
+  readonly error: string | null;
+}
+
 export interface BrowserMethodSignals {
   readonly allocations: number;
   readonly copies: number;
@@ -326,11 +432,12 @@ export interface BrowserPackageDependencies {
   readonly package: string;
   readonly version: string;
   readonly activeFramework: string;
-  readonly assembly: string;
+  readonly assembly: string | null;
   readonly dependencyGroups: ReadonlyArray<BrowserPackageDependencyGroup>;
   readonly assemblyReferences: ReadonlyArray<BrowserAssemblyReference>;
   readonly dependencyGroupError: string | null;
   readonly assemblyReferenceError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackageDependency {
@@ -367,6 +474,13 @@ export interface BrowserPackageIntegrations {
   readonly totalSignals: number;
   readonly isComplete: boolean;
   readonly inspectionError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
+}
+
+export interface BrowserPackageMetadata {
+  readonly assemblies: ReadonlyArray<BrowserAssemblyMetadata>;
+  readonly inspectionError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackageOpportunities {
@@ -377,6 +491,7 @@ export interface BrowserPackageOpportunities {
   readonly totalOpportunities: number;
   readonly isComplete: boolean;
   readonly inspectionError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackagePerformance {
@@ -384,6 +499,7 @@ export interface BrowserPackagePerformance {
   readonly inspectionError: string | null;
   readonly nonPublicOpportunities: number;
   readonly totalOpportunities: number;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackageSurface {
@@ -391,7 +507,8 @@ export interface BrowserPackageSurface {
   readonly version: string;
   readonly frameworks: ReadonlyArray<string>;
   readonly activeFramework: string;
-  readonly defaultAssemblyId: string;
+  readonly defaultAssemblyId: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
   readonly assemblies: ReadonlyArray<BrowserAssemblySurface>;
   readonly types: ReadonlyArray<BrowserTypeSurface>;
   readonly accessibility: ReadonlyArray<BrowserAccessibilityDescriptor>;
@@ -633,17 +750,17 @@ export declare function queryMemberFacts(packageId: string, version: string, tar
 export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryPackage(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageSurface>;
 export declare function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies>;
-export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string): Promise<string>;
+export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPackageIntegrations(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageIntegrations>;
-export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string): Promise<string>;
-export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
+export declare function queryPackageMetadata(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageMetadata>;
+export declare function queryPackageMetadataTable(packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
 export declare function queryPackageOpportunities(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageOpportunities>;
 export declare function queryPackagePerformance(packageId: string, version: string, targetFramework: string): Promise<BrowserPackagePerformance>;
 export declare function queryPackageVersions(packageId: string): Promise<ReadonlyArray<string>>;
-export declare function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string): Promise<string>;
+export declare function queryPlatformHeapEntries(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string): Promise<BrowserHeapListing>;
 export declare function queryPlatformIntegrations(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageIntegrations>;
-export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
-export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<string>;
+export declare function queryPlatformMetadata(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageMetadata>;
+export declare function queryPlatformMetadataTable(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, tableIndex: number, startRowId: number, maxRows: number): Promise<BrowserMetadataWindow>;
 export declare function queryPlatformOpportunities(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackageOpportunities>;
 export declare function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;

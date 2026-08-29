@@ -193,9 +193,11 @@ public static class AttributeDecoder
     /// <summary>
     /// Decodes an attribute, consulting <paramref name="enumUnderlyingType"/>
     /// for serialized enum names that are not TypeDefs in
-    /// <paramref name="reader"/>. The resolver receives the blob name with
-    /// the assembly suffix stripped and nested <c>+</c> rewritten to <c>.</c>,
-    /// matching the string SRM later passes to <c>GetUnderlyingEnumType</c>.
+    /// <paramref name="reader"/>. The resolver receives the exact metadata
+    /// name SRM's provider derives from the blob: the assembly suffix removed,
+    /// reflection escapes restored, and nested segments joined with <c>.</c>.
+    /// The pre-decode guard asks with that same projection, so a guard skip
+    /// and this decode never select different widths.
     /// </summary>
     public static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
@@ -338,14 +340,36 @@ public static class AttributeDecoder
                 beforeMaterialize,
                 enumUnderlyingType).GetUnderlyingEnumType;
 
+    /// <summary>
+    /// Applies the same projection SRM applies to a blob-authored serialized
+    /// enum name before it calls <c>GetUnderlyingEnumType</c>. SRM resolves the
+    /// SerString through <see cref="ArgTypeProvider.GetTypeFromSerializedName"/>
+    /// first, so a guard that consults the width oracle with the raw name asks a
+    /// different question whenever those two spellings normalize differently —
+    /// including names that only parse after the assembly suffix is removed.
+    /// Composing the same two steps keeps the guard skip and
+    /// <c>DecodeValue</c> on one width by construction rather than by relying on
+    /// two normalizations agreeing.
+    /// </summary>
+    internal static string ProjectSerializedEnumName(
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
+        string name)
+        => enumUnderlyingType?.Target is ArgTypeProvider provider
+            ? provider.GetTypeFromSerializedName(name)
+            : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
+
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
-    sealed class ArgTypeProvider(
+    internal sealed class ArgTypeProvider(
         MetadataReader reader,
         bool preserveSerializedTypeNames,
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType) : ICustomAttributeTypeProvider<string>
     {
         Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+        bool _lastNameFromBlob;
+        TypeDefinitionHandle _pendingDefinition;
+        TypeReferenceHandle _pendingReference;
+        MetadataReader? _pendingReader;
         readonly MaterializationContext? _materializationContext =
             beforeMaterialize?.Target as MaterializationContext;
 
@@ -371,23 +395,98 @@ public static class AttributeDecoder
         public bool IsSystemType(string type) => type == "System.Type";
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
+        {
+            _lastNameFromBlob = false;
+            // Remember the definition itself, not just its rendered name, and
+            // the reader it belongs to. The pre-decode guard resolves a
+            // definition-typed enum straight from this handle, so resolving the
+            // width from the same handle here is what keeps the two sides on
+            // one width; a rendered name cannot carry that identity, because
+            // distinct definitions can render to the same string.
+            _pendingDefinition = handle;
+            _pendingReference = default;
+            _pendingReader = r;
+            return TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
+        }
+
         public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeName(
+        {
+            _lastNameFromBlob = false;
+            // A reference carries a resolution scope that its flattened
+            // spelling discards, so remember the reference and let the enum
+            // lookup resolve it structurally, exactly as the guard does. The
+            // handle is recorded rather than resolved here because most
+            // references in an attribute blob name a typeof target rather than
+            // an enum, and resolving one costs a scan of the definition table.
+            _pendingDefinition = default;
+            _pendingReference = handle;
+            _pendingReader = r;
+            return TypeResolver.GetTypeName(
                 r,
                 handle,
                 context: null,
                 beforeMaterialize: ObserveBeforeMaterialize) ?? "object";
+        }
+
         public string GetTypeFromSerializedName(string name)
         {
-            if (preserveSerializedTypeNames)
-                return name;
-            int comma = name.IndexOf(',');
-            return comma >= 0 ? name[..comma] : name;
+            // Record that the name produced most recently came from the blob.
+            // SRM asks for a type name and then immediately asks for that
+            // name's underlying enum type, so this tracks the provenance of the
+            // pending lookup rather than remembering spellings. A set would
+            // accumulate, and a spelling that is legitimately handle-derived
+            // later in the same blob would then be resolved as blob syntax.
+            _lastNameFromBlob = true;
+            _pendingDefinition = default;
+            _pendingReference = default;
+            _pendingReader = null;
+            return preserveSerializedTypeNames
+                ? name
+                : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
         {
+            // A handle-typed argument is resolved from the definition the
+            // signature named, never from its rendered name. Nested types join
+            // their declaring type with '.', the same separator used between a
+            // namespace and a type name, so distinct definitions can render to
+            // one string and a name index must drop one of them; a reference
+            // also carries a resolution scope that its spelling discards. The
+            // guard resolves the same argument from the same handle through the
+            // same function, so taking the handle here keeps both sides on one
+            // width by construction.
+            //
+            // A blob-authored name is reflection syntax and is normalized
+            // first; a handle-derived name that has no pending definition is an
+            // exact metadata spelling and is matched verbatim before being
+            // normalized.
+            bool fromBlob = _lastNameFromBlob;
+            TypeDefinitionHandle pending = _pendingDefinition;
+            TypeReferenceHandle pendingReference = _pendingReference;
+            MetadataReader? pendingReader = _pendingReader;
+            _lastNameFromBlob = false;
+            _pendingDefinition = default;
+            _pendingReference = default;
+            _pendingReader = null;
+
+            if (pendingReader is not null)
+            {
+                if (!pending.IsNil)
+                    return EnumUnderlyingPrimitive.FromDefinition(pendingReader, pending);
+                if (!pendingReference.IsNil
+                    && EnumUnderlyingPrimitive.TryResolveDefinition(
+                        pendingReader,
+                        pendingReference,
+                        out TypeDefinitionHandle referenced))
+                {
+                    return EnumUnderlyingPrimitive.FromDefinition(pendingReader, referenced);
+                }
+            }
+
+            if (!fromBlob && TypeDefinitionsByName.TryGetValue(type, out var exact))
+                return EnumUnderlyingPrimitive.FromDefinition(reader, exact);
+
             string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
             if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))
                 return EnumUnderlyingPrimitive.FromDefinition(reader, handle);

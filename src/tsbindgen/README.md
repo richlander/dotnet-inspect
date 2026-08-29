@@ -4,8 +4,18 @@
 `[JSExport]` wasm/JS interop surface, and can diff generated output against a
 hand-written `.d.ts`/`.ts` file to detect drift (for CI gating).
 
-It is a standalone tool, packaged like `mdi`, and does not add a
-`dotnet-inspect` subcommand.
+It is configured as a standalone .NET tool like `mdi`, but is currently built
+from repository source rather than distributed as a NuGet package. It does not
+add a `dotnet-inspect` subcommand.
+
+> **Target architecture:** This implementation is transitioning to
+> `ts-jsexport`, which generates one native TypeScript facade and leaves
+> compilation and optional declaration emission to the consumer's TypeScript
+> compiler.
+> [`ts-jsexport` TypeScript facade generation](../../docs/design/ts-jsexport.md)
+> owns that decision, its boundaries, and the current implementation
+> mismatches. The usage below describes the current command until that migration
+> lands.
 
 ## Usage
 
@@ -28,13 +38,29 @@ a C#-faithful object model of an assembly's `[JSExport]` surface built on
 target-language rewriting: a `Task<T>` return type is reported as `Task<T>`,
 not unwrapped to a target-language "promise" concept.
 
-All TypeScript-specific opinion — `Task<T>`/`ValueTask<T>` unwrapping to
+All reachable TypeScript-specific opinion — `Task<T>` unwrapping to
 `Promise<T>`, property naming based on the owning `JsonSerializerContext`'s
 `[JsonSourceGenerationOptions(PropertyNamingPolicy = ...)]`, array/nullable
 syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 `CamelCase`, `DtsEmitter`). A future binding-generation target besides
 TypeScript would add its own "personality" layer here without needing to touch
-the OM.
+the OM. `TsTypeMapper` currently also contains legacy `ValueTask` mapping
+branches that mapper tests and hand-composed declaration-only surfaces can
+reach. The SDK's JavaScript interop source generator instead rejects a compiled
+`[JSExport] ValueTask` signature with `SYSLIB1072`, before a runtime-publishable
+surface exists. The target architecture removes those mapper branches, retains
+that SDK compile-time negative, and rejects an unsupported hand-composed input
+visibly. For supported `Task<string>` exports whose serializer result reaches
+the completion sink with direct call provenance, `ILInspector.JsExportSurface`
+authenticates async JSON returns in both the compiler-async form whose physical
+result sink is in `MoveNext` and the runtime-async form whose physical body and
+return sink remain on the exported method. `tsbindgen` consumes the resulting
+owner-issued `JsExportFunction` facts and does not recognize either lowering
+itself.
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
+gates structurally equal owner-issued facts for the paired direct-result
+artifacts. Analysis issue #5025 tracks the missing compiler provenance when a
+serialized value is hoisted through a state-machine field across a suspension.
 
 Generated JSON-wire interfaces are producer-owned snapshots: their properties
 are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use
@@ -76,6 +102,18 @@ published. `JsExportSurfaceBuilderTests.Build_ProjectsRuntimeQualifiedDeclaringT
 and `Build_ProjectsNestedRuntimeDeclaringTypePath` gate the compiled namespaced
 top-level and nested paths, while the inspect-web generated-artifact check
 remains the global-namespace consumer canary.
+
+The current wrapper indexes that path by the bare managed method name. It also
+traverses each declaring-type segment through ordinary JavaScript property
+lookup, so an inherited segment can escape the assembly export root.
+`JsExportSurfaceBuilder` authenticates each generated registration's signature
+hash and retains the exact runtime member key as
+`JsExportFunction.RuntimeDispatchKey`, but the current emitter does not consume
+it and therefore cannot select overloads exactly. The replacement
+`ts-jsexport` emitter will consume that target-language-neutral input instead of
+inferring dispatch from a TypeScript or managed display name, and will validate
+the complete path through own data-property descriptors before publishing
+initialized state.
 
 The inspect-web bootstrap convention automatically invokes only an exact
 `static void ConfigureHost(string)` export with `window.location.origin`.
@@ -508,7 +546,12 @@ strict-mode names and collisions with the wrapper's generated `dotnet`,
 `<name>Export`, and `result` bindings are fatal. Valid Unicode TypeScript
 identifiers remain supported, including TypeScript's measured continuation-only
 edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
-rather than the runtime's newer Unicode tables. Qualified CLR type identities must match a discovered local identity by
+rather than the runtime's newer Unicode tables. The target architecture
+replaces current public operation, parameter, enum, and DTO spelling collisions
+with deterministic, scope-aware allocation from complete managed identities
+while keeping genuinely illegal identifier input visible.
+
+Qualified CLR type identities must match a discovered local identity by
 complete ECMA assembly identity and structured metadata definition name; the
 structure distinguishes a top-level `N.A.B` from nested `N.A+B` even when a
 display projection is identical. An unrelated external type with the same

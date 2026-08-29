@@ -252,6 +252,77 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RealQueryOmitsAbsentExtensionEndpoint()
+    {
+        bool observedMissingPeer = false;
+        Execution execution = await ExecuteAsync(
+            ["--json"],
+            relationships:
+            [
+                InspectionGraphIntegrationsCatalog.Extension.Id,
+            ],
+            documentFactory: (context, request) =>
+            {
+                InspectionGraphDocument workspace =
+                    InspectionGraphIntegrationsQuery.Execute(context);
+                InspectionGraphFailure missing = Assert.Single(
+                    workspace.Failures,
+                    failure =>
+                    {
+                        if (failure.Target is not
+                            {
+                                Kind: InspectionGraphTargetKind.Node,
+                            } target)
+                        {
+                            return false;
+                        }
+
+                        return workspace.Nodes[target.Id].Subject is
+                        InspectionGraphSubject.MemberSubject
+                        {
+                            Identity:
+                                InspectionGraphMemberIdentity.AcquiredApi
+                                acquired,
+                        }
+                        && acquired.Member.StableSelector.Contains(
+                            nameof(
+                                InspectionGraphMissingPeerExtensions
+                                    .MissingPeer),
+                            StringComparison.Ordinal);
+                    });
+                var evidence = Assert.IsType<
+                    InspectionGraphIntegrationFailureEvidence>(
+                        missing.Evidence);
+                Assert.Contains(
+                    evidence.Details,
+                    detail =>
+                        detail.Producer == "extensions"
+                        && detail.Kind
+                            == InspectionGraphIntegrationFailureKind
+                                .BindingMissing
+                        && detail.Reference?.Name == "System.Net.Http");
+                observedMissingPeer = true;
+                return InspectionGraphIntegrationsQuery.Execute(
+                    context,
+                    request);
+            });
+
+        Assert.True(observedMissingPeer);
+        Assert.Equal(0, execution.ExitCode);
+        Assert.Empty(execution.Error);
+        using JsonDocument json = JsonDocument.Parse(execution.Output);
+        JsonElement root = json.RootElement;
+        Assert.Empty(root.GetProperty("failures").EnumerateArray());
+        Assert.DoesNotContain(
+            root.GetProperty("nodes").EnumerateArray(),
+            static node => node.GetProperty("label").GetString()!
+                .Contains(
+                    nameof(
+                        InspectionGraphMissingPeerExtensions.MissingPeer),
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task OutputModes_UseTheSameWindowedLogicalEdges()
     {
         InspectionGraphDocument document = GraphWithTwoEdges();
@@ -1091,4 +1162,11 @@ public sealed class InspectionGraphCommandTests
     }
 
     sealed record Execution(int ExitCode, string Output, string Error);
+}
+
+public static class InspectionGraphMissingPeerExtensions
+{
+    public static void MissingPeer(this HttpClient client)
+    {
+    }
 }

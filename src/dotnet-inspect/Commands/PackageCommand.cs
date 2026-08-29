@@ -179,6 +179,44 @@ public class PackageCommand
                 return 1;
             }
 
+            string? packageLens = options.ListVersions
+                ? options.ForceLatest
+                    ? "--latest-version"
+                    : options.ListVersionsWithFeed
+                        ? "--versions-with-feed"
+                        : "--versions"
+                : options.ListLayout
+                    ? "--layout"
+                    : options.ListTfms
+                        ? "--tfms"
+                        : options.ShowContent
+                            ? "--content"
+                            : null;
+
+            // Opaque lens payload projections are target-independent failures. Reject them
+            // before version lookup, package resolution, or extraction; --count needs the rows.
+            if (packageLens is not null
+                && !options.Count
+                && LensProjection.TryProject(
+                    options,
+                    packageLens,
+                    rowCount: 0,
+                    out var lensProjectionExit))
+            {
+                return lensProjectionExit;
+            }
+
+            if (packageLens is not null
+                && !options.Count
+                && (options.Fields is { Length: > 0 }
+                    || options.Columns is { Length: > 0 }))
+            {
+                CommandError.Write(
+                    $"--fields/--columns are not available with {packageLens}, which "
+                    + "renders its own payload. Omit the projection to keep the lens output.");
+                return 1;
+            }
+
             if (!ValidateDependencyTreeProjection(options))
                 return 1;
 
@@ -1070,6 +1108,9 @@ public class PackageCommand
             }
             else
             {
+                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    return 1;
+
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection)
                     ProjectionDiagnostics.DiagnoseRendered(
@@ -1220,6 +1261,9 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
+            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                return 1;
+
             Console.WriteLine(JsonSerializer.Serialize(
                 results.Select(PackageInspectionJson.Create).ToArray(),
                 PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
@@ -1589,6 +1633,8 @@ public class PackageCommand
         {
             return true;
         }
+        if (options.Discover != null)
+            return true;
 
         DocumentSchema schema = PackageDiscoverySchema();
         if (packageCount > 1
@@ -1944,6 +1990,9 @@ public class PackageCommand
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
+        if (options.Value) conflicts.Add("--value");
+        if (options.Urls) conflicts.Add("--urls");
+        if (options.Paths) conflicts.Add("--paths");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         else if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");
@@ -2258,7 +2307,9 @@ public class PackageCommand
                     normalizeGithubLinksToRaw: !options.BrowsableUrls,
                     includeExactContent: HasUnstructuredOutputPath(options)
                         && options.ContentScope == PackageFileContentScope.Full);
-                return new PrintableContent(content.Content, content.ExactContent);
+                return content.SelectedContent is { } selected
+                    ? PrintableContent.FromContainmentSelection(selected)
+                    : new PrintableContent(content.Content, content.ExactContent);
             },
             new PrintProjectionOptions(
                 options.PrintRow,
@@ -3352,6 +3403,23 @@ public class PackageCommand
         var content = MarkdownContent.ApplyScope(
             ReadText(exactContent),
             scope);
+        if (PackageFileFamily.IsSkillDocument(file))
+        {
+            ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
+                content,
+                normalizeGithubLinksToRaw);
+            return new PackageFileContent(
+                packageName,
+                version,
+                file.Path,
+                file.Size,
+                Found: true,
+                selected.ToString(),
+                file.IsReadme,
+                ExactContent: null,
+                SelectedContent: selected);
+        }
+
         if (normalizeGithubLinksToRaw)
             content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
@@ -3471,7 +3539,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(found[0].Content, outputPath: null);
+        return WriteBarePackageContent(found[0]);
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -3532,9 +3600,14 @@ public class PackageCommand
                 continue;
             }
 
-            builder.Append(row.EncodedContent);
+            builder.Append(row.RenderedContent);
             if (row.Content.Length == 0 || row.Content[^1] != '\n')
-                builder.AppendLine();
+            {
+                if (row.IsContainmentSelected)
+                    builder.Append('\n');
+                else
+                    builder.AppendLine();
+            }
         }
 
         return builder.ToString();
@@ -3759,7 +3832,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(content.Content, outputPath: null);
+        return WriteBarePackageContent(content);
     }
 
     private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
@@ -3786,6 +3859,17 @@ public class PackageCommand
         return 0;
     }
 
+    private static int WriteBarePackageContent(PackageFileContent content)
+    {
+        if (content.SelectedContent is not { } selected)
+            return WriteBarePackageText(content.Content, outputPath: null);
+
+        Console.Write(selected.ToString());
+        if (!content.Content.EndsWith('\n'))
+            Console.Write('\n');
+        return 0;
+    }
+
     private static void WritePackageFileExport(
         PackageFileContent content,
         string outputPath)
@@ -3793,7 +3877,9 @@ public class PackageCommand
         if (content.ExactContent is { } exact)
             File.WriteAllBytes(outputPath, exact);
         else
-            File.WriteAllText(outputPath, content.Content);
+            File.WriteAllText(
+                outputPath,
+                content.SelectedContent?.ToString() ?? content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)

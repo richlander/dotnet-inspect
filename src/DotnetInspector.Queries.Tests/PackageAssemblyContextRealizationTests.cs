@@ -1,7 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Reflection;
+using System.Reflection.Emit;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -12,13 +14,168 @@ public sealed class PackageAssemblyContextRealizationTests
     const string Framework = "net11.0";
 
     [Fact]
+    public void PackageWithoutCompileAssets_RetainsRootWithoutAssemblyRoles()
+    {
+        PackageRootRealization package = RootSelection(
+            "Tool.Pointer",
+            ("tools/net11.0/any/Tool.Pointer.dll", [0x01]));
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            package.AssetSelection.Status);
+
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(realization.HasAssemblyContexts);
+        Assert.Empty(realization.SurfaceParticipants);
+        Assert.Empty(realization.ImplementationParticipants);
+        Assert.Null(realization.ImplementationGroup);
+        Assert.False(realization.SharesGroup);
+        Assert.Throws<InvalidOperationException>(() => realization.SurfaceGroup);
+        Assert.Equal(Framework, package.RequestedTargetFramework);
+        Assert.Equal("tests", package.ProducerKey);
+        Assert.False(package.FromCache);
+    }
+
+    [Fact]
+    public void PackageWorkspaceIntegrationsQuery_RejectsRootOnlyRealization()
+    {
+        PackageRootRealization package = RootSelection(
+            "Tool.Pointer",
+            ("tools/net11.0/any/Tool.Pointer.dll", [0x01]));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => PackageWorkspaceIntegrationsQuery.Execute(realization));
+
+        Assert.Contains("selected compile asset", error.Message);
+    }
+
+    [Fact]
+    public void ExplicitEmptyCompileGroup_RetainsRootWithoutAssemblyRoles()
+    {
+        PackageRootRealization package = RootSelection(
+            "Empty.Compile.Group",
+            ("ref/net11.0/_._", []),
+            ("lib/net11.0/Empty.Compile.Group.dll", [0x01]));
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            package.AssetSelection.Status);
+
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(realization.HasAssemblyContexts);
+        Assert.Empty(realization.SurfaceParticipants);
+        Assert.Empty(realization.ImplementationParticipants);
+    }
+
+    [Fact]
+    public void NoMatchingFramework_RetainsRequestedRootWithoutAssemblyRoles()
+    {
+        PackageRootRealization package = RootSelection(
+            "Future.Library",
+            "net10.0",
+            ("lib/net11.0/Future.Library.dll", [0x01]));
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            package.AssetSelection.Status);
+
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(realization.HasAssemblyContexts);
+        Assert.Equal("net10.0", package.RequestedTargetFramework);
+        Assert.Equal("net10.0", package.AssetSelection.TargetFramework);
+    }
+
+    [Fact]
+    public void InvalidImplementationLayout_RetainsFailedRootWithoutAssemblyRoles()
+    {
+        PackageRootRealization package = RootSelection(
+            "Invalid.Layout",
+            ("lib/net11.0/Invalid.Layout.dll", [0x01]),
+            ("LIB/NET11.0/invalid.layout.dll", [0x02]));
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.InvalidImplementationAssets,
+            package.AssetSelection.Status);
+        Assert.NotNull(package.AssetSelection.Message);
+
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(realization.HasAssemblyContexts);
+        Assert.Empty(realization.SurfaceParticipants);
+    }
+
+    [Fact]
+    public void MixedPackages_CreateRolesOnlyForSelectedCompileAssets()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
+        PackageRootRealization selected = Selection(
+            "Library.Package",
+            ("lib/net11.0/Library.Package.dll", image));
+        PackageRootRealization rootOnly = RootSelection(
+            "Tool.Pointer",
+            ("tools/net11.0/any/Tool.Pointer.dll", [0x01]));
+
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [selected, rootOnly],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(realization.HasAssemblyContexts);
+        PackageAssemblyRoleParticipant participant =
+            Assert.Single(realization.SurfaceParticipants);
+        Assert.Same(selected.Identity, participant.Package);
+        Assert.DoesNotContain(
+            realization.SurfaceParticipants,
+            candidate => ReferenceEquals(candidate.Package, rootOnly.Identity));
+    }
+
+    [Fact]
+    public void PackageRootIdentity_DistinguishesRequestedFrameworksByReference()
+    {
+        PackageRootRealization net10 = RootSelection(
+            "Multi.Targeted",
+            "net10.0",
+            ("tools/net10.0/any/Multi.Targeted.dll", [0x01]));
+        PackageRootRealization net11 = RootSelection(
+            "Multi.Targeted",
+            "net11.0",
+            ("tools/net11.0/any/Multi.Targeted.dll", [0x01]));
+
+        Assert.NotSame(net10.Identity, net11.Identity);
+        Assert.Equal("net10.0", net10.Identity.RequestedTargetFramework);
+        Assert.Equal("net11.0", net11.Identity.RequestedTargetFramework);
+    }
+
+    [Fact]
     public void ReferenceAndLibraryAssets_ProduceExactSeparateRoleAssociations()
     {
         byte[] surfaceAndImplementation =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         byte[] implementationOnly =
             File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Role.Sample",
             ("ref/net11.0/Role.Sample.dll", surfaceAndImplementation),
             ("lib/net11.0/Role.Sample.dll", surfaceAndImplementation),
@@ -32,7 +189,7 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.False(realization.SharesGroup);
         PackageAssemblyRoleParticipant surface =
             Assert.Single(realization.SurfaceParticipants);
-        Assert.Same(package, surface.Package);
+        Assert.Same(package.Identity, surface.Package);
         Assert.Equal(
             "ref/net11.0/Role.Sample.dll",
             surface.Asset.Path);
@@ -57,7 +214,7 @@ public sealed class PackageAssemblyContextRealizationTests
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Shared.Sample",
             ("lib/net11.0/Shared.Sample.dll", image));
         using var workspace = new InspectionWorkspace();
@@ -87,7 +244,7 @@ public sealed class PackageAssemblyContextRealizationTests
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         byte[] secondImage =
             File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Shared.Ordering",
             ("lib/net11.0/Zebra.dll", firstImage),
             ("lib/net11.0/apple.dll", secondImage));
@@ -125,7 +282,7 @@ public sealed class PackageAssemblyContextRealizationTests
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Reference.Only",
             ("ref/net11.0/Reference.Only.dll", image));
         using var workspace = new InspectionWorkspace();
@@ -148,10 +305,10 @@ public sealed class PackageAssemblyContextRealizationTests
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         byte[] secondImage =
             File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
-        PackageAssemblyContextSelection first = Selection(
+        PackageRootRealization first = Selection(
             "First.Package",
             ("lib/net11.0/Common.dll", firstImage));
-        PackageAssemblyContextSelection second = Selection(
+        PackageRootRealization second = Selection(
             "Second.Package",
             ("lib/net11.0/Common.dll", secondImage));
         using var workspace = new InspectionWorkspace();
@@ -162,10 +319,10 @@ public sealed class PackageAssemblyContextRealizationTests
 
         PackageAssemblyRoleParticipant firstParticipant =
             realization.SurfaceParticipants.Single(participant =>
-                ReferenceEquals(participant.Package, first));
+                ReferenceEquals(participant.Package, first.Identity));
         PackageAssemblyRoleParticipant secondParticipant =
             realization.SurfaceParticipants.Single(participant =>
-                ReferenceEquals(participant.Package, second));
+                ReferenceEquals(participant.Package, second.Identity));
         var firstProvenance =
             Assert.IsType<AssemblyResolutionProvenance.PackageAsset>(
                 firstParticipant.Participant.Assembly.Provenance);
@@ -183,17 +340,179 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback()
+    {
+        byte[] surface = IntegrationAssembly(
+            "Primary.Integrations",
+            "Example.Surface");
+        byte[] implementation = IntegrationAssembly(
+            "Primary.Integrations",
+            "Microsoft.Extensions.Logging.CustomLogger");
+        byte[] helper = IntegrationAssembly(
+            "Primary.Integrations.Helper",
+            "OpenTelemetry.CustomTracer");
+        byte[] referenceOnly = IntegrationAssembly(
+            "Reference.Only.Integrations",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection");
+        PackageRootRealization primary = Selection(
+            "Primary.Package",
+            ("ref/net11.0/Primary.Integrations.dll", surface),
+            ("lib/net11.0/Primary.Integrations.dll", implementation),
+            ("lib/net11.0/Primary.Integrations.Helper.dll", helper));
+        PackageRootRealization secondary = Selection(
+            "Secondary.Package",
+            ("ref/net11.0/Reference.Only.Integrations.dll", referenceOnly));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [primary, secondary],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var registry =
+            new InspectionQueryRegistry<PackageAssemblyContextRealization>()
+                .Add(
+                    PackageWorkspaceIntegrationsQuery.Definition,
+                    PackageWorkspaceIntegrationsQuery.Execute);
+        Assert.Equal(
+            InspectionCost.Unbounded,
+            registry.CostOf(PackageWorkspaceIntegrationsQuery.Definition));
+        PackageWorkspaceIntegrationsResult result =
+            registry.Run(
+                    [PackageWorkspaceIntegrationsQuery.Definition],
+                    realization)
+                .Get(PackageWorkspaceIntegrationsQuery.Definition);
+
+        Assert.True(result.IsComplete);
+        Assert.Equal(
+            [
+                "Primary.Package",
+                "Primary.Package",
+                "Secondary.Package",
+            ],
+            result.Libraries.Select(entry => entry.Subject.PackageId));
+        Assert.Equal(
+            [
+                "lib/net11.0/Primary.Integrations.Helper.dll",
+                "lib/net11.0/Primary.Integrations.dll",
+                "ref/net11.0/Reference.Only.Integrations.dll",
+            ],
+            result.Libraries.Select(entry => entry.Subject.Asset.Path));
+
+        PackageWorkspaceIntegrationsEntry primaryLibrary =
+            result.Libraries.Single(entry =>
+                entry.Subject.Asset.Path
+                == "lib/net11.0/Primary.Integrations.dll");
+        var primaryResult =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                primaryLibrary.Integrations);
+        Assert.Contains(
+            primaryResult.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.Logging);
+        Assert.DoesNotContain(
+            primaryResult.EcosystemSignals,
+            signal => signal.Name == "Example.Surface");
+
+        PackageWorkspaceIntegrationsEntry helperLibrary =
+            result.Libraries.Single(entry =>
+                entry.Subject.Asset.Path
+                == "lib/net11.0/Primary.Integrations.Helper.dll");
+        var helperResult =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                helperLibrary.Integrations);
+        Assert.Contains(
+            helperResult.OpenTelemetrySignals,
+            signal => signal.Name == "OpenTelemetry.CustomTracer");
+
+        PackageWorkspaceIntegrationsEntry referenceLibrary =
+            result.Libraries.Single(entry =>
+                entry.Subject.Asset.Path
+                == "ref/net11.0/Reference.Only.Integrations.dll");
+        var referenceResult =
+            Assert.IsType<AssemblyIntegrationsEntry.Available>(
+                referenceLibrary.Integrations);
+        Assert.Contains(
+            referenceResult.EcosystemSignals,
+            signal =>
+                signal.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+    }
+
+    [Fact]
+    public void PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries()
+    {
+        byte[] implementation = IntegrationAssembly(
+            "Shared.Integrations",
+            "Microsoft.Extensions.Logging.CustomLogger");
+        PackageRootRealization package = Selection(
+            "Shared.Package",
+            ("lib/net11.0/Shared.Integrations.dll", implementation));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [package],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        PackageWorkspaceIntegrationsResult result =
+            PackageWorkspaceIntegrationsQuery.Execute(realization);
+
+        PackageWorkspaceIntegrationsEntry library =
+            Assert.Single(result.Libraries);
+        Assert.Equal("Shared.Package", library.Subject.PackageId);
+        Assert.Equal("1.0.0", library.Subject.PackageVersion);
+        Assert.Equal(
+            "lib/net11.0/Shared.Integrations.dll",
+            library.Subject.Asset.Path);
+        Assert.True(result.IsComplete);
+    }
+
+    [Fact]
+    public void PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity()
+    {
+        PackageRootRealization first = Selection(
+            "Same.Package",
+            ("lib/net11.0/Same.dll", IntegrationAssembly(
+                "First.Same",
+                "Microsoft.Extensions.Logging.First")));
+        PackageRootRealization second = Selection(
+            "Same.Package",
+            ("lib/net11.0/Same.dll", IntegrationAssembly(
+                "Second.Same",
+                "OpenTelemetry.Second")));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [first, second],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        PackageWorkspaceIntegrationsResult result =
+            PackageWorkspaceIntegrationsQuery.Execute(realization);
+
+        Assert.Equal(2, result.Libraries.Length);
+        Assert.Contains(
+            result.Libraries,
+            entry => ReferenceEquals(entry.Subject.Package, first.Identity));
+        Assert.Contains(
+            result.Libraries,
+            entry => ReferenceEquals(entry.Subject.Package, second.Identity));
+        Assert.NotEqual(
+            result.Libraries[0].Subject,
+            result.Libraries[1].Subject);
+    }
+
+    [Fact]
     public void ReferenceCorrespondence_UsesPackageIdentityAndCaseInsensitiveName()
     {
         byte[] firstImage =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         byte[] secondImage =
             File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
-        PackageAssemblyContextSelection first = Selection(
+        PackageRootRealization first = Selection(
             "First.Reference.Package",
             ("ref/net11.0/COMMON.dll", firstImage),
             ("lib/net11.0/common.dll", firstImage));
-        PackageAssemblyContextSelection second = Selection(
+        PackageRootRealization second = Selection(
             "Second.Reference.Package",
             ("ref/net11.0/COMMON.dll", secondImage),
             ("lib/net11.0/common.dll", secondImage));
@@ -220,7 +539,7 @@ public sealed class PackageAssemblyContextRealizationTests
     [Fact]
     public void MalformedSelectedAsset_RemainsARejectedParticipant()
     {
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Malformed.Sample",
             ("lib/net11.0/Malformed.Sample.dll", new byte[] { 1, 2, 3 }));
         using var workspace = new InspectionWorkspace();
@@ -243,7 +562,7 @@ public sealed class PackageAssemblyContextRealizationTests
     [Fact]
     public void MalformedAssets_UseSafeUniqueRejectionCarrierIdentities()
     {
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Whitespace.Sample",
             ("lib/net11.0/ .dll", new byte[] { 1, 2, 3 }),
             ("lib/net11.0/RejectedPackageAsset0.dll", new byte[] { 4, 5, 6 }));
@@ -275,7 +594,7 @@ public sealed class PackageAssemblyContextRealizationTests
         byte[] healthy =
             File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
         byte[] malformed = [1, 2, 3];
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Mixed.Health",
             (
                 "ref/net11.0/ILInspector.Metadata.dll",
@@ -331,7 +650,7 @@ public sealed class PackageAssemblyContextRealizationTests
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         byte[] implementation =
             File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Mismatch.Sample",
             ("ref/net11.0/Mismatch\u202e.Sample.dll", surface),
             ("lib/net11.0/Mismatch\u202e.Sample.dll", implementation));
@@ -356,7 +675,7 @@ public sealed class PackageAssemblyContextRealizationTests
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Collision.Sample",
             ("lib/net11.0/Collision.Sample.dll", image),
             ("lib/net11.0/Collision.Sample.Second.dll", image));
@@ -380,7 +699,7 @@ public sealed class PackageAssemblyContextRealizationTests
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Budget.Sample",
             ("lib/net11.0/Budget.Sample.dll", image));
         using var workspace = new InspectionWorkspace();
@@ -413,7 +732,7 @@ public sealed class PackageAssemblyContextRealizationTests
                 index => $"lib/net11.0/Asset{index:D3}.dll"),
         ];
         var content = new CountingPackageContent(paths);
-        var package = new PackageAssemblyContextSelection(
+        var package = new PackageRootRealization(
             content,
             "Count.Sample",
             "1.0.0",
@@ -445,7 +764,7 @@ public sealed class PackageAssemblyContextRealizationTests
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         const string path = "lib/net11.0/Budget\u202e.Sample.dll";
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Budget.Sample",
             (path, image));
         using var workspace = new InspectionWorkspace();
@@ -478,7 +797,7 @@ public sealed class PackageAssemblyContextRealizationTests
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
         const string path = "lib/net11.0/Underreported\u202e.Sample.dll";
         var content = new UnderreportingPackageContent(path, image);
-        var package = new PackageAssemblyContextSelection(
+        var package = new PackageRootRealization(
             content,
             "Underreported.Sample",
             "1.0.0",
@@ -514,7 +833,7 @@ public sealed class PackageAssemblyContextRealizationTests
     {
         byte[] image =
             File.ReadAllBytes(typeof(PackageAssemblyContextRealizationTests).Assembly.Location);
-        PackageAssemblyContextSelection package = Selection(
+        PackageRootRealization package = Selection(
             "Cancelled.Sample",
             ("lib/net11.0/Cancelled.Sample.dll", image));
         using var workspace = new InspectionWorkspace();
@@ -528,21 +847,52 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal(0, GroupCount(workspace));
     }
 
-    static PackageAssemblyContextSelection Selection(
+    static PackageRootRealization Selection(
         string packageId,
         params (string Path, byte[] Content)[] entries)
     {
-        var content = new InMemoryPackageContent(
-            Archive(entries),
-            fromCache: false,
-            producerKey: "tests");
-        var selection = new PackageAssemblyContextSelection(
-            content,
-            packageId,
-            "1.0.0",
-            Framework);
+        PackageRootRealization selection =
+            RootSelection(packageId, entries);
         Assert.True(selection.AssetSelection.IsSelected);
         return selection;
+    }
+
+    static PackageRootRealization RootSelection(
+        string packageId,
+        params (string Path, byte[] Content)[] entries) =>
+        RootSelection(packageId, Framework, entries);
+
+    static PackageRootRealization RootSelection(
+        string packageId,
+        string targetFramework,
+        params (string Path, byte[] Content)[] entries) =>
+        new(
+            new InMemoryPackageContent(
+                Archive(entries),
+                fromCache: false,
+                producerKey: "tests"),
+            packageId,
+            "1.0.0",
+            targetFramework);
+
+    static byte[] IntegrationAssembly(
+        string assemblyName,
+        string typeName)
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule(assemblyName);
+        TypeBuilder type = module.DefineType(
+            typeName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+        type.CreateType();
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
     }
 
     static byte[] Archive(

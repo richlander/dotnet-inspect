@@ -204,6 +204,23 @@ original value-equal record to a registration-backed, non-equatable descriptor:
 > authorization lease; a descriptor path is not read authority. Do not add
 > another source variant to Metadata as the target integration seam.
 
+The current artifact bridge is
+`ResolvedAssemblyReference.CreateFromArtifactIfManaged`. It consumes the exact
+artifact acquisition registration and a guarded stream callback supplied by
+the artifact owner, decodes the assembly identity, and binds the registration
+to the image's non-empty MVID. Artifact-backed opens revalidate both assembly
+identity and MVID. `AssemblyImage`, retained snapshots, metadata-only
+`PdbContext` assembly-image opens, and the remaining descriptor-based Metadata
+readers all use that same check. Compatibility path and stream factories remain
+available while their callers migrate; they do not manufacture an artifact
+registration.
+
+This bridge does not consume workspace roles or source-specific provenance.
+Those remain owner-issued evidence for workspace admission and trust policy.
+PDB artifact acquisition, symbol stores, and SourceLink policy are separate
+contracts; only validation of the assembly PE opened by an existing
+descriptor-based PDB entry point belongs here.
+
 ```csharp
 public abstract record AssemblyResolutionProvenance
 {
@@ -532,7 +549,10 @@ separate image lifetimes and budgets.
 
 Opened from a `ResolvedAssemblyReference`, it owns the `PEReader`/`MetadataReader`, opens once,
 and exposes each scan as a method. Crucially it must be the **single** PE-lifetime owner, not a
-new parallel one.
+new parallel one. This document owns service composition at that seam; the
+focused [assembly image lifetime](assembly-image-lifetime.md) document owns
+which bytes the session retains, what an MVID proves, and which outer lifetime
+scopes cache owners may use.
 
 The library Analysis path now uses `PdbContext` as its target-file owner. Full body-index analysis
 prefetches the complete image and consumes immutable content so its parallel readers never seek a

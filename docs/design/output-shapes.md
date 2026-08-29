@@ -506,14 +506,23 @@ Printing documents (`-S "Package README file" --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
 explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
-including encoding, byte order mark, and line endings; a Markdown scope exports
-that projected text. Terminal-facing output never emits a live control or bidi
-scalar from package content. Multi-item `--print --out` and multi-file or
-multi-package `--content --out` are refused unless a structured JSON shape
-owns the destination; global selection cardinality is resolved before any
-selected payload is read, and a unique exact payload is read from the same
-retained package acquisition that supplied its selection metadata. Narrow it
-with row or path selectors for exact transfer.
+including encoding, byte order mark, and line endings, except for package skill
+documents: skills are agent instructions, so every route, including
+`project -S Skills --print`, `package -S "Package skill files" --print`,
+`--content`, and a package README declaration, classifies through a
+`TextPolicy.Prose` `InertString` and carries one containment-selected value
+through stdout, structured output, and `--out`. The raw scoped skill is
+classified before link normalization; concerning text becomes the standard
+placeholder, safe text retains its full presented spelling, and exact package
+bytes are not retained. A Markdown scope exports projected text.
+Terminal-facing output never emits a live control or bidi scalar from package
+content. Multi-item
+`--print --out` and multi-file or multi-package `--content --out` are refused
+unless a structured JSON shape owns the destination; global selection
+cardinality is resolved before any selected payload is read, and a unique exact
+payload is read from the same retained package acquisition that supplied its
+selection metadata. Narrow it with row
+or path selectors for exact transfer.
 Unstructured exact `--out` rejects line windows because clipping would no
 longer be exact. Every refused export is decided before opening its destination:
 an absent path stays absent, and an existing file remains byte-for-byte
@@ -532,9 +541,11 @@ document to stdout and the `# Info` table to stderr.
 
 Two consequences define the boundary:
 
-- `--jsonl` preserves the payload as a JSON string value. The wire format
-  escapes control characters as required by JSON; parsing the JSON reconstructs
-  the original value.
+- `--jsonl` preserves ordinary payloads as JSON string values. The wire format
+  escapes control characters as required by JSON; parsing reconstructs the
+  original ordinary payload. A package skill document that requires containment
+  is omitted before serialization, so parsing returns
+  `[Text omitted: required containment]`.
 - `--content` and target `--print` write framing to stdout. `--content`
   delimits each matched file with a
   `------------ <package> :: <path> ------------` banner; `--print` uses its
@@ -551,7 +562,9 @@ gates both framed and `--bare` single-file content export with a UTF-16 payload
 that has no trailing newline. The target
 `MultiPrintFrameFieldsAreContained` gate applies the same adversarial coverage
 to every `--print` frame field, and `MultiPrintPayloadCannotForgeFrames` covers
-frame-shaped payload lines and line-ending edge cases.
+frame-shaped payload lines and line-ending edge cases. Package skill output is
+gated separately by `SkillDocuments_OmitPayloadsThatRequireContainment` and
+`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads`.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must
@@ -567,7 +580,7 @@ the caller made.
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire the lowered path; `type` and `member` reject unsupported combinations, while some other paths still succeed after silently dropping the projection. Complete structured values under item and line limits remain unverified; `ProjectedJsonWindowingTests` and the gates in [Item and line limits](item-and-line-limits.md) own the target. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`). Accepted lenses and payload projections claim their own output first. Plain document `--json` keeps the pre-lowered typed document; an otherwise-unclaimed, non-empty `--fields`/`--columns` request names lowered vocabulary and opts into the lowered display view (#3494), with the same machine table keys as `--jsonl` and with semantic item/range windows and `--compact` preserved. `find` and `vocabulary` currently wire lowered document paths, while discovery owns projected JSON under its lens contract; unadopted projection-capable routes reject unsupported combinations before typed JSON serialization. Complete structured values under item and line limits remain unverified; `ProjectedJsonWindowingTests` and the gates in [Item and line limits](item-and-line-limits.md) own the target. See [Projected JSON output](projected-json.md) for routing, representability, diagnostics, and compatibility. |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |

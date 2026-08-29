@@ -21,12 +21,28 @@ namespace InspectWeb.Engine;
 /// The participants the workspace could not project, if any. A partial surface says so rather
 /// than reading as a complete one.
 /// </param>
+public sealed record BrowserCompileLibraryAvailability(
+    BrowserCompileLibraryStatus Status,
+    string? TargetFramework,
+    string? Message);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCompileLibraryStatus>))]
+public enum BrowserCompileLibraryStatus
+{
+    Selected,
+    NoCompileAssets,
+    NoMatchingTargetFramework,
+    EmptyCompileGroup,
+    InvalidImplementationAssets,
+}
+
 public sealed record BrowserPackageSurface(
     string Package,
     string Version,
     string[] Frameworks,
     string ActiveFramework,
-    string DefaultAssemblyId,
+    string? DefaultAssemblyId,
+    BrowserCompileLibraryAvailability CompileLibrary,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
     BrowserAccessibilityDescriptor[] Accessibility,
@@ -412,6 +428,99 @@ public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string 
 
 public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kind);
 
+public sealed record BrowserPackageMetadata(
+    BrowserAssemblyMetadata[] Assemblies,
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
+
+public sealed record BrowserAssemblyMetadata(
+    string Assembly,
+    string MetadataVersion,
+    bool MetadataVersionTruncated,
+    string Kind,
+    bool IsAssembly,
+    int MetadataSize,
+    int ProjectedTableTotal,
+    BrowserMetadataHeap[] Heaps,
+    BrowserMetadataTable[] Tables,
+    BrowserMetadataHeaders Headers);
+
+public sealed record BrowserMetadataHeap(
+    string Name,
+    int SizeInBytes,
+    int MaxAddress,
+    string Addressing);
+
+public sealed record BrowserMetadataTable(
+    int Index,
+    string Name,
+    int RowCount,
+    bool IsProjected);
+
+public sealed record BrowserMetadataHeaders(
+    string Machine,
+    bool IsPE32Plus,
+    string Subsystem,
+    string? CorFlags,
+    int? MajorRuntimeVersion,
+    int? MinorRuntimeVersion,
+    int? EntryPointToken);
+
+public sealed record BrowserMetadataWindow(
+    string Assembly,
+    int Index,
+    string Name,
+    int RowCount,
+    int StartRowId,
+    BrowserMetadataColumn[] Columns,
+    BrowserMetadataRow[] Rows,
+    bool Truncated,
+    string? Error);
+
+public sealed record BrowserMetadataColumn(
+    string Name,
+    string Kind,
+    int[] CandidateTargets);
+
+public sealed record BrowserMetadataRow(
+    int RowId,
+    int Token,
+    BrowserMetadataCell[] Cells);
+
+public sealed record BrowserMetadataCell(
+    string Kind,
+    long? Raw = null,
+    string? Display = null,
+    string? Decoded = null,
+    string? Heap = null,
+    string? Text = null,
+    string? Preview = null,
+    int? Offset = null,
+    int? Length = null,
+    bool? Truncated = null,
+    int? TargetTable = null,
+    int? TargetRowId = null,
+    int? StartRowId = null,
+    int? EndRowId = null,
+    int? Count = null,
+    int? Token = null,
+    string? Detail = null);
+
+public sealed record BrowserHeapListing(
+    string Assembly,
+    string Heap,
+    string StreamName,
+    string Coverage,
+    BrowserHeapEntry[] Entries,
+    bool RowsTruncated,
+    bool EntriesTruncated,
+    string? Error);
+
+public sealed record BrowserHeapEntry(
+    int Offset,
+    BrowserMetadataCell Value,
+    int ReferenceCount);
+
 /// <summary>
 /// Declared package dependency groups and one selected assembly's direct references. Dependency
 /// parsing and exact-framework selection belong to <c>PackageDependencyGroupsQuery</c>; direct
@@ -421,11 +530,12 @@ public sealed record BrowserPackageDependencies(
     string Package,
     string Version,
     string ActiveFramework,
-    string Assembly,
+    string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
     BrowserAssemblyReference[] AssemblyReferences,
     string? DependencyGroupError,
-    string? AssemblyReferenceError);
+    string? AssemblyReferenceError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserPackageDependencyGroup(
     int Index,
@@ -520,7 +630,8 @@ public sealed record BrowserPackageIntegrations(
     BrowserIntegrationCategory[] Categories,
     int TotalSignals,
     bool IsComplete,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserIntegrationCategory(
     string Integration,
@@ -540,7 +651,8 @@ public sealed record BrowserPackageOpportunities(
     BrowserOpportunityCategory[] Categories,
     int TotalOpportunities,
     bool IsComplete,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserOpportunityCategory(
     string Integration,
@@ -560,7 +672,8 @@ public sealed record BrowserPackagePerformance(
     BrowserPerformanceMember[] Members,
     string? InspectionError,
     int NonPublicOpportunities,
-    int TotalOpportunities);
+    int TotalOpportunities,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserPerformanceMember(
     string Assembly,
@@ -727,6 +840,9 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserPackageMetadata))]
+[JsonSerializable(typeof(BrowserMetadataWindow))]
+[JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]

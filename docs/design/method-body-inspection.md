@@ -321,7 +321,20 @@ gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
 unsafe/generated attribute judgments, token/member/type/field/calli/value-type
 and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
+adapters. `LibraryBodyStableReceiverGetterClassifier` owns the narrow
+PE-backed readonly-field getter judgment and its acquisition-scoped cache;
+`OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
+the optimization adapter shares one classification. The classifier does not
+own optimization policy or general method-body scheduling.
+`LibraryBodyGenericConstraintClassifier` owns generic-constraint presence for
+reader-relative async-sibling analysis and primary-image generic-parameter
+value-type eligibility for optimization analysis. It does not own sibling
+selection or opportunity policy.
+`OptimizationOpportunities_GenericObjectEqualsBox_IsReported`,
+`OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
+`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
+judgments.
+`LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
 budgets. The primary resolver adapters and
@@ -329,7 +342,12 @@ budgets. The primary resolver adapters and
 The lifted-source-owner resolver owns acquisition-scoped local-function/lambda
 owner correlation, memoized owner-body reference evidence, top-level
 entry-point authentication, and classic async state-machine type-name
-resolution. It reuses primary metadata identity and generated-code judgments.
+resolution. Its authenticated owner evidence pairs method identity with
+method- and enclosing-type generated provenance from the primary metadata
+resolver, so malformed-name authentication uses the provenance captured with
+the resolved owner instead of re-deriving a narrower attribute subset.
+Ultimate-owner traversal preserves that typed provenance for recommendation
+suppression instead of projecting identity alone.
 `LibraryBodyDeclaredSourceResolver` composes that lifted ownership with async
 source mapping. It owns bounded ultimate-owner traversal, declared-method
 resolution, the async/lifted/async scoped-evidence expansion sequence, and
@@ -349,12 +367,119 @@ attribute authentication, and scoped evidence expansion. It consumes primary
 metadata identity and generated-code judgments plus the builder-owned local
 type-definition index; full builds prewarm its snapshots before parallel
 method analysis.
+For value-flow consumers, `AsyncBodyAttribution` projects the exact
+Analysis-authenticated source method together with an explicit `Runtime` or
+`StateMachine` lowering. Runtime-async evidence retains the source as its own
+physical method; state-machine evidence retains a distinct physical execution
+method and kickoff source. This keeps lowering independent of identity-equality
+sentinels and display names. `SourceMethod` uses the same exact
+`MethodIdentity` currency as the attributed sink caller, so consumers can
+require identity equality without reconstructing correspondence.
+`ResultSinks_PublishRuntimeAsyncBodyAttribution`,
+`ResultSinks_PublishStateMachineAsyncBodyAttribution`, and
+`ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync` gate the typed
+projection, mixed runtime/state-machine assembly behavior, and the close
+negative.
 `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
 `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
 `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
 `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
 gate projection, authentication, close-negative scope behavior, and
 read-only parallel cache consumption.
+Unscoped declared-source publication retains an authenticated immediate async
+source when ultimate lifted-owner resolution fails; scoped publication and
+ownership-derived recommendations remain fail-closed.
+Async execution sources and owner chains reject malformed generated-like names
+while ordinary compiler-generated owners, including async owners, retain
+established attribution. Rejected identities and incomplete lifted-owner
+chains cannot expand scoped acquisition.
+Lifted local-function and lambda names require canonical compiler ordinal tails
+before they can authenticate an owner. A display-class-hosted lifted method
+typically carries one ordinal, while a containing-type or shared-holder method
+typically carries two. The pre-Roslyn native C# compiler also emits
+one-ordinal lambdas directly on containing types, so ordinal count is not
+treated as compiler provenance. Roslyn ordinals are decimal; native-csc
+one-ordinal lambda counters may be lowercase hexadecimal. A local-function name
+carries exactly one name-to-ordinal delimiter. Generic metadata arity is
+removed before that grammar and before async-local or async-lambda
+state-machine leaves are classified as owner-required. A special state-machine
+leaf whose embedded lifted name or raw outer arity is malformed is `Rejected`:
+its physical intrinsic evidence remains visible in an unscoped inspection,
+while scoped attribution and recommendations fail closed.
+Owner-required admission recognizes an authenticated
+`IAsyncStateMachine.MoveNext` `MethodImpl` body even when its physical metadata
+name differs from `MoveNext`.
+Ultimate-owner traversal distinguishes an incomplete canonical chain
+(`Unresolved`) from malformed, ambiguous, cyclic, or invalid relationships
+(`Rejected`). Canonical generated bodies without an authenticated claimant,
+including Roslyn's async-lambda and async-local-function state-machine
+spellings, remain owner-unresolved in every scope. Authored bodies retain
+intrinsic findings when malformed or ambiguous state-machine metadata prevents
+ownership resolution.
+Allocation fanout classifies calls into owner-excluded bodies as opaque before
+transitive composition.
+`OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
+and
+`OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes`
+gate fail-closed allocation-fanout and async-state-machine generic-box
+projection while retaining body-intrinsic opportunities, and
+`OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes`,
+`OptimizationOpportunities_MalformedLiftedStateMachineFailsClosedInScopedViews`,
+`OptimizationOpportunities_MethodImplMoveNextMappingControlsMalformedStateMachineScopeAdmission`,
+`OptimizationOpportunities_CompiledAsyncLambdaStateMachineIsScopeInvariant`,
+`OptimizationOpportunities_CompiledGenericAsyncLocalStateMachineIsScopeInvariant`,
+`OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`,
+and `AllocationFanoutTests.Analyze_TreatsExcludedTargetsAsOpaque` gate the
+orphan-generated spelling parity, malformed special-state-machine admission,
+compiled async-lambda and generic async-local scope parity, authored-intrinsic,
+and transitive-fanout close negatives.
+`OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
+gates that boundary for generated generic-box recommendations,
+while
+`DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
+`DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
+multi-hop caller projection for unresolved and recoverable-failure paths;
+`ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` and
+`ResolveDeclaredMethod_RejectsMalformedLiftedOrdinalSuffix`,
+`ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
+and
+`ResolveUltimateDeclaredMethod_PreservesRejectedFirstLiftedHop`
+gate canonical generated-name admission and typed rejection preservation at
+immediate and intermediate hops.
+`ResolveDeclaredMethod_CompiledCapturedAsyncLocalMapsToAuthoredOwner` gates the
+one-ordinal local-function form with current Release compiler output.
+`ResolveDeclaredMethod_LegacyHexLambdaOrdinalOnContainingHostMapsToAuthoredOwner`
+gates legacy native-csc compatibility, including the containing-host form that
+prevents ordinal count from serving as provenance.
+`ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
+`DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
+`ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,
+`ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
+`Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
+`ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` plus
+`OptimizationOpportunities_TerminalMalformedOwnerFailsClosedWhenEvidenceIsSelected`
+gate compiled owner compatibility, generated provenance, async scope admission,
+terminal-hop authentication, and the `Rejected`/`Unresolved` recommendation
+boundary.
+`OptimizationOpportunities_CompilerGeneratedAsyncOwnerIsScopeInvariant`,
+`OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes`,
+and
+`ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint` gate
+body-intrinsic scope parity, ordinary async-source suppression, and the
+authenticated top-level exception.
+`ScopedAsyncAdmission_DoesNotIndexUnselectedTopLevelEntryPoint` gates
+metadata-only scope admission before top-level body authentication.
+`OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
+gates ultimate-owner recommendation and caller attribution across full, method,
+and type scopes.
+`OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes`
+and
+`OptimizationOpportunities_GeneratedUltimateSuppressesNestedAsyncAcrossScopes`
+gate generated ultimate-owner suppression for generic-box and async-sibling
+recommendations across those scopes.
+`ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner` and
+`ResolveDeclaredMethod_MapsAsyncOwnerLambdaToOwner` gate compiled Release
+async-owner shapes.
 `LibraryBodyAsyncSiblingSignatureMatcher` supplies the async-sibling
 subsystem's stateless signature decoding, exact identity/comparison, async
 return compatibility, optional cancellation matching, and bounded finding

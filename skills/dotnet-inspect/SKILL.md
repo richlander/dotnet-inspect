@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect
-version: 0.22.0
+version: 0.23.0
 description: Find evidence instead of guessing for .NET packages, platform libraries, local assemblies, APIs, dependencies, and version-to-version API changes.
 ---
 
@@ -8,11 +8,8 @@ description: Find evidence instead of guessing for .NET packages, platform libra
 
 Use dotnet-inspect for evidence about .NET packages, platform libraries, assemblies, APIs, dependencies, or API version diffs.
 
-```bash
-dnx dotnet-inspect -y -- <command>
-```
-
-`-y` skips interactive confirmation, including after package updates; `--` sends remaining options to dotnet-inspect, so `--help` does not show `dnx` help.
+Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation,
+and `--` sends remaining options to dotnet-inspect rather than `dnx`.
 
 ## Common starts
 
@@ -35,16 +32,17 @@ dnx dotnet-inspect -y -- <command>
 Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
 defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
-```bash
-dnx dotnet-inspect -y -- find JsonSerializer
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Member Index"
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S Signature
-dnx dotnet-inspect -y -- member System.Text.Json.JsonSerializer.Serialize -S "Member Index"
-```
-
 ## Tips
 
 - `package` and `library` produce terse, token-efficient, high-value domain content by default. Output supports Markdown, tables, TSV, JSONL, and JSON; load `dotnet-inspect skill query` for discovery, selection, projection, and limits.
 - Add `--project <csproj|dir|project.assets.json>` when project-referenced packages should be in scope; it reads existing restored assets, so restore/build first if dependencies changed.
 - Common BCL types resolve without scope: `type string`, `type 'List<T>'`. Quote generics and patterns: `member 'Dictionary<TKey,TValue>'`, `-S "Async*"`.
 - Unpinned packages use latest stable; add `--preview` for prerelease APIs.
+
+## Interpret fixed text
+
+- `[Text omitted: required containment]`: a complete value or document was not shared because it carried a text concern; this does not imply malicious intent.
+- `REDACTED`: a URL query or credential-bearing path segment was removed.
+- `<unparsable-url>`: no original locator was shown because an authority-like value could not be parsed into URL components.
+- `<absent>` or `(absent)`: a requested package document was not present; this is not containment or redaction.
+- `\u202E`, `\U0001F600`, `\^[`, and similar backslash forms preserve source text as reversible visual spellings. They are not replacements; do not decode them into live control or format characters before display or persistence.

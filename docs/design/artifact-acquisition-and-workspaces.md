@@ -14,7 +14,9 @@ are identified explicitly under [Current mismatches](#current-mismatches).
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
-`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
+`ResolvedAssemblyReference` and `AssemblyInspectionSession` seam, and
+[assembly-image-lifetime.md](assembly-image-lifetime.md) for the focused
+single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
@@ -107,7 +109,7 @@ package dependency closure.
 | Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans, aggregate admission budgets | feed or archive mechanics |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
-| Assembly inspection session | One opened PE inspection lifetime | reader/image lifetime and session-scoped operations | artifact acquisition |
+| Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
 | Inspection producer | Computes one family of facts | metadata, IL, source, or comparison evidence | source discovery |
 
 An artifact is broader than an assembly. An artifact set may contain assemblies,
@@ -295,6 +297,74 @@ reports quiescence. Synchronous disposal may initiate this deferred release; it
 must not invalidate content under an active callback. Cleanup failures compose
 with, and never replace, the active operation failure.
 
+### Interaction model
+
+[`docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
+model-checks the admission lifecycle described above: single-flight admission
+across concurrent demands, an incompatible-generation demand's inability to
+join or start duplicate work while a prior admission is active, voluntary
+cancellation draining, disposal-forced draining, the rule that a late adapter
+result must never publish a session or group, and that a published group's
+artifact leases release only as part of the disposal cleanup path once the
+group is quiescent. It abstracts away budget arithmetic, adapter identity,
+content digests, and query-lease authorization, and it bounds the state space
+to one outstanding published group's lease lifecycle at a time (a fresh
+admission cannot publish while the previous group awaits lease release); this
+is a scope-bounding simplification of the model, not a claim about real
+concurrent groups. A demand's requested generation is also fixed once it
+arrives; the model does not represent a caller re-deriving a different
+generation when it replans after an incompatible admission terminates.
+
+The model checks the design intent stated in the prose above, not the current
+`ArtifactSetSession` implementation. `ArtifactSetSession`'s own doc comment
+states it "does not yet implement workspace-wide reservation, single-flight
+admission, or dependent-group quiescence": today it serves one caller per
+generation with no multi-demand join or incompatible-generation wait, and
+`Dispose()` releases every acquisition lease immediately rather than
+deferring release until dependent groups quiesce. Closing that gap is
+tracked as future implementation work, not a defect this model found.
+
+TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
+see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
+checked the model with 3 demands and 2 admission generations: 16,790 states
+generated, 8,292 distinct states, no invariant violations, and no
+counterexamples for the checked liveness properties. The invariants include
+the headline `DisposalPreventsPublication` (`disposed => admission #
+"InFlight"`, since only `"InFlight"` can transition to a published outcome)
+and independent guard-witness invariants that re-derive, at the point of
+action, the exact condition each of `DisposalPreventsPublication`, the
+lease-release ordering, and outcome authorization (only a demand attached to
+the admission immediately beforehand may receive its outcome) depends on.
+
+The companion model
+[`docs/design/models/artifact-generation-access/ArtifactGenerationAccess.tla`](models/artifact-generation-access/ArtifactGenerationAccess.tla)
+covers the layer the admission model treats as an abstract given: what "the
+dependent group reports quiescent" must mean for content access. It models
+admission-phase materialization reads through acquisition leases, query-phase
+opens of retained content, and the `EndGeneration`/lease-disposal sequence,
+in both the target design and the current mechanics (flag rechecks outside
+the gate; immediate release). Generation end and backing-resource release
+are distinct events: the access contract deliberately keeps an
+already-returned stream valid after `EndGeneration` and rejects only later
+opens, so the target design registers each admitted open atomically with
+generation end, runs its potentially blocking opener after registration, ends
+access immediately at termination, cancels registered openers and an in-flight
+materialization read it owns, and releases acquisition leases only at content
+quiescence. The target configurations pass safety and
+liveness; three committed current-mechanics configurations produce
+counterexamples showing an open can complete after `EndGeneration`, a
+disposal racing `SealAsync` disposes acquisition leases under an active
+materialization read, and leases can be released while a published
+generation's query stream is open. Its `README.md` records the checked
+bounds, results, assumptions, and the three termination-policy obligations it
+exposes: a registered opener must be owner-interruptible (today
+`OpenReadable` invokes a synchronous `Func<Stream>` with no cancellation or
+bounded-completion contract), an in-flight materialization read must likewise
+be owner-interruptible (today it awaits `Stream.ReadAsync` with only the caller
+token), and abandoned returned query streams need a stated policy (bound the
+wait, or invalidate visibly). These results establish evidence about the
+model, not the implementation.
+
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
 
@@ -327,6 +397,20 @@ opening that path grants no designation or core-library trust; those remain
 separate workspace admission roles. This is a target change from the current
 parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
+
+`ArtifactContentReference` is the query-time input to a downstream content
+consumer. The artifact owner issues it for one identity in a sealed generation
+and binds that artifact's descriptor and acquisition registration. Role
+and registration observations and retained-content opens revalidate the query
+lease supplied when the reference was issued. The type makes no claim that the
+content is a managed assembly; Metadata owns that decode and identity.
+
+Assembly projection passes the exact acquisition registration and the
+reference's guarded content callback to
+`ResolvedAssemblyReference.CreateFromArtifactIfManaged`. Metadata retains the
+registration, decodes assembly identity, and binds a non-empty MVID. It does
+not receive the workspace role set or interpret a lease-scoped path as content
+authority, designation, or trust.
 
 It does not:
 
@@ -448,12 +532,69 @@ identity stays in artifact/workspace provenance and optional package query
 results. It does not become a case in a Metadata-owned provenance union that
 assembly inspection must understand.
 
+#### Package Root realization
+
+An exact acquired package is a `PackageRootRealization` before compile-asset
+selection succeeds. That host-neutral product result retains:
+
+- exact package id and version;
+- the requested target framework and the selector's selected framework, when
+  either exists;
+- the package content producer key and cache origin;
+- the complete typed `PackageCompileAssetSelection`, including
+  `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
+  `InvalidImplementationAssets`.
+
+Compile-library availability is a capability of that Root, not a precondition
+for the Root to exist. The host workspace retains every requested Root.
+`PackageAssemblyContextRealization` separately creates surface or
+implementation assembly-context groups only for Roots whose selection status is
+`Selected` and whose selected asset set is non-empty. It does not become a
+package-root container. A workspace containing only Root-capable coordinates
+has no assembly groups. A mixed workspace retains all Roots at the host
+boundary while creating groups for selected coordinates only.
+
+A host may project Root-owned facts such as exact identity, package documents,
+or manifest dependencies from a Root-only coordinate. Assembly-backed
+operations must report the retained compile-library outcome as unavailable or
+failed. They must not invent an assembly participant, reinterpret an absent
+group as an empty API surface, or route package-root access through an
+acquisition-only assembly set. A selected assembly that fails metadata decoding
+remains a distinct visible participant failure.
+
+Browser workspace registry identity frames every package, version, and
+framework component with its length before composing a multi-package key.
+Caller-controlled framework text therefore remains data inside one coordinate
+and cannot create or remove coordinate boundaries. Manifest dependency groups
+with a missing or blank framework project as NuGet's framework-neutral `any`;
+nonblank framework text that the Browser cannot represent still fails visibly
+rather than being emitted or silently dropped.
+
+This contract does not choose the initial UI subject or define package-view
+presentation. Inspection Subject Navigation owns subject availability and
+initial subject recommendation; host presentation consumes those decisions.
+
 The adapter also validates package coordinate, version, selected asset path,
 producer, and content identity before minting a package realization and
 acquisition registration. Package-aware graph and dependency queries move to an
 optional companion and consume that proof. The shared graph document may retain
 its serialized `package` subject kind as a full-host contract; core assembly
 queries do not construct package subjects or parse package provenance.
+
+`DotnetInspector.PackageQueries` is that optional package-aware query companion.
+Its `PackageWorkspaceIntegrationsQuery` consumes the current package-role
+realization proof and the package-neutral `AssemblyContextIntegrationsQuery`.
+It scans implementation assets in their product role order, then scans only
+surface assets without an implementation correspondence. Results retain
+immutable package and asset identity beside each typed participant outcome
+without exposing package content or merging the role groups.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback`
+gates role selection, package/asset provenance, ordering, and reference-only
+fallback.
+`PackageAssemblyContextRealizationTests.PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries`
+gates the shared-role case. Moving the existing package realization itself out
+of core Queries remains part of the broader workspace-realization migration,
+not this query-adapter slice.
 
 ### Project adapter
 
@@ -843,6 +984,7 @@ The target is complete only when tests equivalent to these exist:
 - `DefinitionLoadAndScenarioResolution_PerformNoAcquisition`
 - `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
+- `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 - `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
@@ -850,6 +992,24 @@ The target is complete only when tests equivalent to these exist:
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`
 - `PackageAdapter_ProjectsSelectedEntriesWithoutLeakingPackageTypes`
+- `PackageWithoutCompileAssets_RetainsRootWithoutAssemblyRoles`
+- `ExplicitEmptyCompileGroup_RetainsRootWithoutAssemblyRoles`
+- `NoMatchingFramework_RetainsRequestedRootWithoutAssemblyRoles`
+- `InvalidImplementationLayout_RetainsFailedRootWithoutAssemblyRoles`
+- `MixedPackages_CreateRolesOnlyForSelectedCompileAssets`
+- `PackageRootIdentity_DistinguishesRequestedFrameworksByReference`
+- `PackageWorkspaceIntegrationsQuery_RejectsRootOnlyRealization`
+- `PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity`
+- `PackageCoordinate_RejectsDifferentContentWithSameIdentity`
+- `PackageScope_DoesNotCollapseDifferentContentAtSameCoordinate`
+- `PackageScope_ValidatesEveryCoordinateAgainstCacheProvenance`
+- `PackageScope_RequestedFrameworkCannotForgeCompositeRegistryKey`
+- `MixedPackageScope_RealizesOnlySelectedCoordinates`
+- `PackageFrameworkUnavailability_DoesNotEmitArtifactFramework`
+- `PackageDependencies_BlankDeclaredFrameworkDoesNotAbortProjection`
+- `QueryPackage_ToolsPointerRetainsRootAndManifestDependencies`
+- `QueryPackage_ExplicitEmptyCompileGroupRetainsTypedAbsence`
+- `QueryPackage_NoMatchingFrameworkRetainsRequestedRoot`
 - `PackageGraphProjection_UsesAdapterOwnedCorrespondence`
 - `PlatformGraphProjection_UsesAdapterOwnedCorrespondence`
 - `RemotePlatformPack_UsesPackageMappingVersionAndProducerAuthorization`
@@ -889,13 +1049,21 @@ immutability, bounded owner-private materialization, read-only retained streams,
 visible required-acquisition and cleanup failures, acquisition-lease disposal,
 owner-held state release, late-outcome lease disposal, seal exclusion during
 acquisition and disposal, shared termination completion, query revocation,
-non-masking disposal, and role assignment separate from provenance.
+non-masking disposal, role assignment separate from provenance, and
+owner-bound content references that cannot mix descriptor, registration, role,
+or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
 remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
-deletes its temporary source after publication, then passes the guarded
-published snapshot to Metadata, so a source-path fallback cannot satisfy the
-gate.
+deletes its temporary source after publication, then passes an
+`ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
+a source-path fallback cannot satisfy the gate.
+
+`PackageAssemblyContextRealizationTests` enforce package Root retention,
+producer/cache provenance, and assembly-group creation only for selected
+compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
+explicit-empty-group cases, including typed compile-library absence, package
+documents, manifest dependencies, and no fabricated default assembly.
 
 Workspace-wide admission budgets, single-flight/reentrancy, directory
 acquisition, content digests, dependent-group quiescence, and Metadata

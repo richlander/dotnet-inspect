@@ -314,6 +314,20 @@ internal static class DetectionTestSuite
                 FormatValues(webDependency));
         }
 
+        Dictionary<string, string> manifestQueryDependency = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/DotnetInspector.Queries/PackageManifestFactsQuery.cs",
+            outputs);
+        if (manifestQueryDependency["code"] != "true"
+            || manifestQueryDependency["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Package-manifest query canary did not select code and web: "
+                + FormatValues(manifestQueryDependency));
+        }
+
         Dictionary<string, string> sharedWebCompileInput = RunDetection(
             repository,
             body,
@@ -340,6 +354,19 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 "Global analyzer input canary did not select code and web: "
                 + FormatValues(globalAnalyzerInput));
+        }
+
+        Dictionary<string, string> sourceOraclePreparation = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/prepare-authored-source-oracles.sh",
+            outputs);
+        if (sourceOraclePreparation["code"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Source-oracle preparation canary did not select code: " +
+                FormatValues(sourceOraclePreparation));
         }
 
         Dictionary<string, string> web = RunDetection(

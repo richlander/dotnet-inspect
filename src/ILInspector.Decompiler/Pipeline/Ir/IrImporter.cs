@@ -1320,7 +1320,22 @@ public static class IrImporter
                     for (int i = argumentCount - 1; i >= 0; i--)
                         arguments[i] = Pop(stack);
 
-                    var call = new Call(callee, opcode == ILOpCode.Callvirt, arguments) { ConstrainedTo = constrainedTo };
+                    var call = new Call(
+                        callee,
+                        opcode == ILOpCode.Callvirt,
+                        arguments)
+                    {
+                        ConstrainedTo = constrainedTo,
+                        ExtensionSyntaxConflict =
+                            arguments.Length > 0
+                                && arguments[0].ResultType
+                                    is { } receiverType
+                                ? source.CrossAssembly
+                                    .ExtensionSyntaxConflict(
+                                        receiverType,
+                                        callee)
+                                : MetadataFactState.Unknown,
+                    };
                     constrainedTo = null;
                     if (callee.ReturnType is { Name: "Void", Namespace: "System" })
                     {

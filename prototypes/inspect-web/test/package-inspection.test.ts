@@ -22,6 +22,12 @@ import type {
 } from "../src/inspect-web-engine.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
 
+const selectedCompileLibrary = {
+  status: "Selected" as const,
+  targetFramework: "net10.0",
+  message: null,
+};
+
 function packageModel(
   overrides: Partial<AppPackage> = {},
 ): AppPackage {
@@ -97,6 +103,7 @@ function dependencyResult(
     assemblyReferences: [],
     dependencyGroupError: error,
     assemblyReferenceError: null,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
@@ -109,6 +116,7 @@ function integrationsResult(): BrowserPackageIntegrations {
     totalSignals: 0,
     isComplete: true,
     inspectionError: null,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
@@ -121,6 +129,7 @@ function opportunitiesResult(): BrowserPackageOpportunities {
     totalOpportunities: 0,
     isComplete: true,
     inspectionError: null,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
@@ -130,6 +139,7 @@ function performanceResult(): PackagePerformance {
     inspectionError: null,
     nonPublicOpportunities: 0,
     totalOpportunities: 0,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
@@ -222,6 +232,13 @@ function metadataResult(): PackageMetadata {
   return { assemblies: [] };
 }
 
+function metadataFailureResult(): PackageMetadata {
+  return {
+    assemblies: [],
+    inspectionError: "all metadata reads failed",
+  };
+}
+
 function inspectionDependencies(
   state: PackageInspectionState,
   overrides: Partial<Omit<PackageInspectionDependencies, "state">> = {},
@@ -263,6 +280,7 @@ type PackageInspectionCoordinator =
 interface PackageLensFixture<T> {
   name: string;
   result: T;
+  cachesFailure?: boolean;
   createCoordinator:
     (
       state: PackageInspectionState,
@@ -364,11 +382,23 @@ async function verifyPackageLensLifecycle<T>(
 
     await fixture.load(coordinator, "cached");
 
-    assert.equal(queries, 0, `${fixture.name} cached query`);
-    assert.equal(
-      fixture.readError(state),
-      "cached failure",
-      `${fixture.name} cached failure`);
+    if (fixture.cachesFailure ?? true) {
+      assert.equal(queries, 0, `${fixture.name} cached query`);
+      assert.equal(
+        fixture.readError(state),
+        "cached failure",
+        `${fixture.name} cached failure`);
+    } else {
+      assert.equal(queries, 1, `${fixture.name} retried query`);
+      assert.deepEqual(
+        fixture.readResult(state),
+        fixture.result,
+        `${fixture.name} retried result`);
+      assert.equal(
+        fixture.readError(state),
+        "",
+        `${fixture.name} cleared retried failure`);
+    }
   }
 
   {
@@ -659,6 +689,7 @@ test("every package lens preserves its complete request lifecycle", async () => 
   await verifyPackageLensLifecycle({
     name: "metadata",
     result: metadataResult(),
+    cachesFailure: false,
     createCoordinator: (state, query, render = () => {}) =>
       createPackageInspectionCoordinator(
         inspectionDependencies(state, {
@@ -673,6 +704,67 @@ test("every package lens preserves its complete request lifecycle", async () => 
     setKey: (state, key) => { state.packageMetadataKey = key; },
     setError: (state, error) => { state.packageMetadataError = error; },
   });
+});
+
+test("metadata requests suppress duplicates and preserve unique ownership", async () => {
+  const packageItem = packageModel();
+  const firstA = deferred<PackageMetadata>();
+  const b = deferred<PackageMetadata>();
+  const newestA = deferred<PackageMetadata>();
+  const requests = [firstA, b, newestA];
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageMetadata: async () => requests[queries++]!.promise,
+    }));
+
+  const firstALoad = coordinator.loadMetadata(packageItem, "A", null);
+  const duplicateALoad = coordinator.loadMetadata(packageItem, "A", null);
+  assert.equal(queries, 1);
+  await duplicateALoad;
+
+  const bLoad = coordinator.loadMetadata(packageItem, "B", null);
+  const newestALoad = coordinator.loadMetadata(packageItem, "A", null);
+  assert.equal(queries, 3);
+
+  const newest = metadataResult();
+  newestA.resolve(newest);
+  await newestALoad;
+  firstA.reject(new Error("stale A failure"));
+  await firstALoad;
+
+  assert.strictEqual(state.packageMetadata, newest);
+  assert.equal(state.packageMetadataError, "");
+  assert.equal(state.packageMetadataLoading, false);
+
+  b.resolve(metadataResult());
+  await bLoad;
+  assert.strictEqual(state.packageMetadata, newest);
+});
+
+test("all-failed metadata results remain visible and retryable", async () => {
+  const packageItem = packageModel();
+  let queries = 0;
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageMetadata: async () => {
+        queries++;
+        return metadataFailureResult();
+      },
+    }));
+
+  await coordinator.loadMetadata(packageItem, "metadata", null);
+
+  assert.equal(state.packageMetadata, null);
+  assert.equal(state.packageMetadataError, "all metadata reads failed");
+  assert.equal(state.packageMetadataLoading, false);
+
+  await coordinator.loadMetadata(packageItem, "metadata", null);
+
+  assert.equal(queries, 2);
+  assert.equal(state.packageMetadataError, "all metadata reads failed");
 });
 
 test("stale package lens rejection cannot overwrite newer state", async () => {

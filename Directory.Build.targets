@@ -56,10 +56,10 @@
        nearest Directory.Build.props. eng/ does so directory-wide; standalone
        tools may make the same declaration at their own boundary.
 
-       The rule is repository-wide, not solution-wide. Six projects are outside
-       dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests, four
-       metadata fixtures, and .review-fixtures/FixtureLib — so a solution build
-       is not evidence that this rule holds. Build them too, or let CI find it. -->
+       The rule is repository-wide, not solution-wide. Five projects are outside
+       dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests and four
+       metadata fixtures — so a solution build is not evidence that this rule
+       holds. Build them too, or let CI find it. -->
   <ItemGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
       <PrivateAssets>all</PrivateAssets>
@@ -68,12 +68,10 @@
     <AdditionalFiles Include="$(MSBuildThisFileDirectory)eng/BannedSymbols.txt" />
   </ItemGroup>
 
-  <!-- Escalated here rather than left to TreatWarningsAsErrors, which is set in
-       src/Directory.Build.props and so covers only src/. The analyzer is added
-       to every project, and a rule that stops the build under src/ but merely
-       warns under tests/ and tools/ is two different rules wearing one name.
-       Warnings scroll past; this makes the rule mean the same thing everywhere
-       it is on, which is the only form in which "on by default" is honest. -->
+  <!-- Escalated explicitly rather than left to the repository-wide
+       TreatWarningsAsErrors default. Warning-producing fixture projects can opt
+       out of that default, but the banned-API rule must remain an error
+       everywhere it is on. -->
   <PropertyGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
     <WarningsAsErrors>$(WarningsAsErrors);RS0030</WarningsAsErrors>
   </PropertyGroup>

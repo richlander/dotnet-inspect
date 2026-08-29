@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
@@ -878,6 +879,48 @@ public sealed class TypeResolutionContext : IDisposable
 
                 return _catalog.Acquisition
                     .RetainAssemblyReference(candidate);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads the defining image's instance-field primitive for a type already
+    /// resolved in this generation. Returns <see langword="false"/> when the
+    /// definition is from another catalog or generation, or the retained
+    /// session cannot be opened. Does not expose a <see cref="MetadataReader"/>.
+    /// Gated by <c>TypeResolutionEnumWidthTests</c>.
+    /// </summary>
+    public bool TryGetEnumUnderlyingType(
+        ResolvedTypeDefinition definition,
+        out PrimitiveTypeCode code)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        code = default;
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+                if (definition.Key.Catalog != Catalog
+                    || !ReferenceEquals(definition.Key.Generation, Generation))
+                {
+                    return false;
+                }
+                if (definition.Kind
+                    != MetadataTypeDefinitionKind.ValueType)
+                {
+                    return false;
+                }
+
+                CandidateSessionResult session =
+                    _catalog.Acquisition.OpenSession(definition.Assembly);
+                if (session is not CandidateSessionResult.Ready ready)
+                    return false;
+
+                return ready.Session.TryGetEnumUnderlyingType(
+                    definition.Address,
+                    out code);
             }
         }
     }
@@ -2412,7 +2455,9 @@ public sealed class TypeResolutionContext : IDisposable
             CachedBindingEvaluation evaluation = selection switch
             {
                 AssemblyBindingSelection.Selected selected =>
-                    SelectOne(selected.Assembly),
+                    SelectOne(
+                        selected.Assembly,
+                        selected.ShadowedAssemblies),
                 AssemblyBindingSelection.Missing =>
                     new(new AssemblyBindingOutcome.Missing()),
                 AssemblyBindingSelection.Unavailable unavailable =>
@@ -2438,7 +2483,9 @@ public sealed class TypeResolutionContext : IDisposable
             return evaluation;
         }
 
-        CachedBindingEvaluation SelectOne(ResolvedAssemblyReference assembly)
+        CachedBindingEvaluation SelectOne(
+            ResolvedAssemblyReference assembly,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
         {
             Register(assembly);
             if (_strictRegistrationFailures.TryGetValue(
@@ -2448,7 +2495,8 @@ public sealed class TypeResolutionContext : IDisposable
                 return new(
                     new AssemblyBindingOutcome.Unavailable(
                         new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.CandidateUnavailable)),
+                            AssemblyBindingFailureKind.CandidateUnavailable),
+                        shadowedAssemblies),
                     assembly,
                     strictFailure,
                     [assembly]);
@@ -2458,7 +2506,9 @@ public sealed class TypeResolutionContext : IDisposable
                     out ResolvedAssemblyCandidate? candidate))
             {
                 return new(
-                    new AssemblyBindingOutcome.Resolved(candidate),
+                    new AssemblyBindingOutcome.Resolved(
+                        candidate,
+                        shadowedAssemblies),
                     Registrations: [assembly]);
             }
 
@@ -2467,7 +2517,8 @@ public sealed class TypeResolutionContext : IDisposable
             return new(
                 new AssemblyBindingOutcome.Unavailable(
                     new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable)),
+                        AssemblyBindingFailureKind.CandidateUnavailable),
+                    shadowedAssemblies),
                 assembly,
                 failure,
                 [assembly]);
@@ -2527,7 +2578,8 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 AssemblyBindingOutcome.Resolved resolved =>
                     SelectOne(
-                        resolved.Candidate.Assembly),
+                        resolved.Candidate.Assembly,
+                        resolved.ShadowedAssemblies),
                 AssemblyBindingOutcome.Ambiguous =>
                     SelectMany(evaluation.Registrations),
                 _ => evaluation,

@@ -121,6 +121,10 @@ gates this composition.
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
 
+- [Assembly context group lifecycle model](models/assembly-context-group-lifecycle/README.md)
+  checks the current callback admission, participant-local image opening,
+  retained-image budget, disposal, and quiescent release protocol. Its bounded
+  TLC evidence supplements rather than replaces the named Release tests.
 - [Inspection layers](design/inspection-layers.md) owns host and query-layer
   boundaries.
 - [Assembly inspection query model](design/assembly-inspection-query.md) owns

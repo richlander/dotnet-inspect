@@ -4,6 +4,11 @@
 `[JSExport]` wasm/JS interop surface, projected from `ILInspector.Metadata`'s
 `ApiSurface`/`ApiSurfaceExtractor`.
 
+It is a host-side inspection and binding-generation library. `ts-jsexport`
+references it while reading a compiled assembly as metadata and IL data; the
+inspected assembly does not execute or reference this project, and browser
+applications do not need it in their runtime bundle.
+
 `JsExportSurfaceBuilder.Build(surface, bodyIndex)` discovers:
 
 - **Functions** — every runtime-publishable, ordinary static `[JSExport]`
@@ -20,13 +25,23 @@
   MethodDef. A registration for another declaring type, or a handwritten
   registration elsewhere, cannot be borrowed. Analysis then authenticates the
   exact registration token as a body containing the retained number of trusted
-  `BindManagedFunction` calls, exactly one trusted call whose proven first
-  string-literal argument equals the export's structured runtime binding name,
-  non-empty equal metadata/body module MVIDs, an exact
+  `BindManagedFunction` calls, exactly as many trusted calls whose proven first
+  string-literal argument equals the export's structured runtime binding name
+  as managed exports sharing that name, non-empty equal metadata/body module
+  MVIDs, an exact
   `System.Runtime.InteropServices.JavaScript` `JSMarshalerArgument`, plus a
   **reachable** wrapper-to-stub-to-export MethodDef call chain. The
   registration's second argument must be an `int32` literal equal to the
   decimal suffix of the wrapper's own `__Wrapper_<Name>_<digits>` name, and its
+  signed decimal value is retained with the method name as the exact
+  `RuntimeDispatchKey` published by `getAssemblyExports()`. Overloads sharing a
+  managed name are matched by both binding name and authenticated signature
+  hash, so each receives its own runtime key without relying on registration
+  order. The number of same-name runtime bindings must equal the number of
+  managed exports in the overload group. This retains the stricter
+  one-binding-name requirement for a non-overloaded export and prevents an
+  unmatched registration from taking over the runtime's bare-name
+  compatibility alias. The
   `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
   element per export return and parameter, each built by a
   `JSMarshalerType` factory compatible with that managed type. A diagnosed
@@ -45,7 +60,8 @@
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
-consumer such as [`tsbindgen`](../tsbindgen).
+consumer such as the proposed
+[`ts-jsexport` TypeScript facade](../../docs/design/ts-jsexport.md).
 The single-argument `Build(surface)` overload is a declaration-only
 compatibility seam for metadata-focused tests and hand-composed surfaces. It
 does not establish runtime publication; the product path always supplies
@@ -111,21 +127,51 @@ Two matching generated-root PropertyDefs with the same metadata identity also
 fail rather than letting declaration metadata select one while runtime code
 calls the other.
 
+For a direct serializer-to-completion contract, return JSON-wire facts are
+lowering-independent. A synchronous `string` export must return only
+authenticated source-generated `Serialize<T>` results. A compiler-async
+`Task<string>` export must feed those results into the authenticated `MoveNext`
+builder completion sink. A runtime-async `Task<string>` export must instead
+carry Analysis's explicit `Runtime` attribution on the exact exported physical
+method and return those same serializer results from that method's own `ret`.
+The resolver does not infer lowering from identity coincidences or recognize
+runtime-async IL shapes.
+Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
+declaration, or serializer evidence from a lifted local function or another
+method leaves `ReturnWireType` unset.
+When compiler lowering hoists a serialized value across a suspension,
+Analysis does not yet carry its call provenance through the state-machine
+field. Issue #5025 owns that prerequisite; this layer leaves the compiler form
+unresolved rather than reconstructing field flow or weakening the runtime
+form.
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
+gates equal owner-issued facts from paired compilations of the same genuinely
+awaited direct-result export.
+`RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata`,
+`Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns`,
+`Build_RuntimeAsyncRejectsIncompleteReturnCoverage`, and
+`Build_RuntimeAsyncRejectsAnotherMethodsSerializerEvidence` gate the close
+negative boundaries.
+
 `JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
 `Build_RejectsHandwrittenRuntimeWrapperCandidate`,
 `Build_DoesNotBorrowWrapperRegistrationFromAnotherType`,
 `Build_RejectsRegistrationBodyCountMismatch`,
-`Build_RejectsDuplicatedRuntimeBindingTarget`,
 `Build_RejectsRuntimeWrapperFromDifferentModule`,
 `Build_RejectsRuntimeWrapperWithoutModuleIdentity`,
 `Build_RejectsRuntimeWrapperWithNullModuleIdentity`,
+`Build_RejectsSecondRuntimeBindingTargetWithDifferentHash`,
+`Build_RejectsUnmatchedRuntimeBindingForOverloadGroup`,
 `Build_RejectsRuntimeWrapperWithUnauthenticatedMarshalerArgument`,
 `Build_RejectsRuntimeRegistrationWithUntrustedCoreAlias`,
 `Build_RejectsRuntimeWrapperWithUntrustedCoreVoid`,
 `Build_WithBodiesRejectsLegacyNullWrapperProvenance`,
 `Build_DoesNotCreditPrefixSiblingWrapper`,
+`Build_ProjectsDistinctRuntimeDispatchKeysForCompiledOverloads`,
+`Build_PreservesNegativeRuntimeDispatchKeyLiteral`,
+`Build_DoesNotBorrowAnotherOverloadWrapperRegistration`,
 `Build_RejectsDiagnosedRuntimeWrapperChain`,
 `Build_ProjectsRuntimeQualifiedDeclaringTypePath`,
 `Build_ProjectsNestedRuntimeDeclaringTypePath`,

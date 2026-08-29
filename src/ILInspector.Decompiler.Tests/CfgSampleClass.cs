@@ -5398,17 +5398,6 @@ public sealed class JoinImpl : IJoinShape
     public string Shape() => "impl";
 }
 
-public sealed class SlotReuseSection
-{
-    public string Status { get; set; } = "";
-    public int Missing { get; set; }
-}
-
-public sealed class JoinTypeProvider
-{
-    public System.Type ResolvedType => typeof(string);
-}
-
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
 public interface CfgDimFace
@@ -5445,26 +5434,6 @@ public enum CfgTiny : byte { A = 1, B = 2 }
 // pointee's shape and member names for the int constant to name `Gamma`.
 [System.Flags]
 public enum CfgStyles { None = 0, Alpha = 1, Beta = 2, Gamma = 16 }
-
-// A value-type instance method whose `this` value is read directly: returning
-// `this` by value compiles to `ldarg.0; ldobj` (a load-indirect of the `this`
-// managed pointer), which must render as `this`, not the CS0193 `*this`.
-public struct CfgSelf
-{
-    public int Value;
-    public CfgSelf Identity() => this;
-}
-
-// A value-type Equals(object) that reads a field off the unboxed argument:
-// `((CfgBoxed)other).Value` compiles to `unbox` (a managed pointer into the
-// box) + `ldfld`, so the field receiver is an Unbox node. The printer must
-// spell the access `((CfgBoxed)other).Value`, NOT `(ref (CfgBoxed)other).Value`
-// — the `ref` form is CS1525 "Invalid expression term 'ref'".
-public struct CfgBoxed
-{
-    public int Value;
-    public bool FieldEquals(object other) => Value == ((CfgBoxed)other).Value;
-}
 
 public sealed class CfgNullableTarget
 {

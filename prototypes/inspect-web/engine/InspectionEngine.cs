@@ -4,6 +4,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -74,13 +75,40 @@ public static partial class InspectionEngine
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(coordinate);
+        BrowserCompileLibraryAvailability compileLibrary =
+            CompileLibrary(coordinate.Selection);
+        if (!coordinate.Selection.IsSelected)
+        {
+            return new BrowserPackageProjection(
+                new BrowserPackageSurface(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    BrowserFrameworks(coordinate.Selection),
+                    BrowserFramework(coordinate),
+                    DefaultAssemblyId: null,
+                    compileLibrary,
+                    Assemblies: [],
+                    Types: [],
+                    Accessibility: [],
+                    TotalMembers: 0,
+                    [.. coordinate.Package.Documents()],
+                    InspectionErrors: [],
+                    InspectionError: null),
+                ApiSurfaces: null);
+        }
+
+        PackageCompileAsset defaultAsset = coordinate.DefaultAsset
+            ?? throw new InvalidOperationException(
+                "A selected compile-library outcome did not identify its default asset.");
         // Only this coordinate's assemblies are projected. A composite workspace may hold several
         // packages, and projecting all of them here materialized every other package's surface
         // only to discard it.
         BrowserWorkspaceParticipant[] requested =
         [
             .. scope.SurfaceParticipants.Where(candidate =>
-                candidate.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal)),
+                ReferenceEquals(
+                    candidate.Coordinate.Root.Identity,
+                    coordinate.Root.Identity)),
         ];
 
         // The site's default path shows public types by default and reaches non-public ones
@@ -116,19 +144,20 @@ public static partial class InspectionEngine
 
         string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
                 assembly => assembly.Id.Equals(
-                    coordinate.DefaultAsset.Id,
+                    defaultAsset.Id,
                     StringComparison.Ordinal))
             ?.Id
             ?? projected.Assemblies.FirstOrDefault()?.Id
-            ?? coordinate.DefaultAsset.Id;
+            ?? defaultAsset.Id;
 
         return new BrowserPackageProjection(
             new BrowserPackageSurface(
                 coordinate.PackageId,
                 coordinate.Version,
-                [.. coordinate.Selection.AvailableTargetFrameworks],
-                coordinate.Framework,
+                BrowserFrameworks(coordinate.Selection),
+                BrowserFramework(coordinate),
                 defaultAssemblyId,
+                compileLibrary,
                 projected.Assemblies,
                 projected.Types,
                 projected.Accessibility,
@@ -141,7 +170,104 @@ public static partial class InspectionEngine
 
     sealed record BrowserPackageProjection(
         BrowserPackageSurface Surface,
-        AssemblyContextApiSurfaceResult ApiSurfaces);
+        AssemblyContextApiSurfaceResult? ApiSurfaces);
+
+    static BrowserCompileLibraryAvailability CompileLibrary(
+        PackageCompileAssetSelection selection)
+    {
+        string? framework = BrowserFramework(selection.TargetFramework);
+        if (selection.IsSelected && framework is null)
+        {
+            throw new InvalidOperationException(
+                "The selected compile-library framework cannot be represented safely.");
+        }
+
+        return new(
+            selection.Status switch
+            {
+                PackageCompileAssetSelectionStatus.Selected =>
+                    BrowserCompileLibraryStatus.Selected,
+                PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                    BrowserCompileLibraryStatus.NoCompileAssets,
+                PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                    BrowserCompileLibraryStatus.NoMatchingTargetFramework,
+                PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                    BrowserCompileLibraryStatus.EmptyCompileGroup,
+                PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
+                    BrowserCompileLibraryStatus.InvalidImplementationAssets,
+                _ => throw new InvalidOperationException(
+                    "Package compile-asset selection returned an unknown outcome."),
+            },
+            framework,
+            selection.Status switch
+            {
+                PackageCompileAssetSelectionStatus.Selected => null,
+                PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                    "The package contains no compile assets.",
+                PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
+                    "No compatible target framework was selected.",
+                PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
+                    "The selected target framework declares an empty compile group.",
+                PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
+                    "The package has an invalid implementation-asset layout.",
+                _ => throw new InvalidOperationException(
+                    "Package compile-asset selection returned an unknown outcome."),
+            });
+    }
+
+    static BrowserCompileLibraryAvailability SelectedCompileLibrary(
+        string framework)
+    {
+        string projectedFramework = RequiredBrowserFramework(framework);
+        return new(
+            BrowserCompileLibraryStatus.Selected,
+            projectedFramework,
+            Message: null);
+    }
+
+    static string[] BrowserFrameworks(PackageCompileAssetSelection selection) =>
+    [
+        .. selection.AvailableTargetFrameworks
+            .Select(BrowserFramework)
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase),
+    ];
+
+    static string BrowserFramework(BrowserPackageCoordinate coordinate) =>
+        BrowserFramework(coordinate.Framework) ?? "";
+
+    static string RequiredBrowserFramework(string framework) =>
+        BrowserFramework(framework)
+        ?? throw new InvalidOperationException(
+            "A framework identifier cannot be represented safely.");
+
+    static string BrowserDependencyGroupFramework(string framework) =>
+        string.IsNullOrWhiteSpace(framework)
+            ? "any"
+            : RequiredBrowserFramework(framework);
+
+    static string? BrowserFramework(string? framework)
+    {
+        if (string.IsNullOrWhiteSpace(framework)
+            || framework.Length > 128)
+        {
+            return null;
+        }
+
+        foreach (char character in framework)
+        {
+            if (!(character is >= 'a' and <= 'z')
+                && !(character is >= 'A' and <= 'Z')
+                && !(character is >= '0' and <= '9')
+                && character is not
+                    ('.' or '-' or '+' or '_' or ',' or '=' or ' '))
+            {
+                return null;
+            }
+        }
+
+        return framework;
+    }
 
     /// <summary>
     /// One type's metadata projection, produced by
@@ -511,10 +637,12 @@ public static partial class InspectionEngine
             version,
             targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            CompileLibrary(coordinate.Selection);
 
         PackageDependencyGroupsResult dependencyResult =
             await PackageDependencyGroupsQuery.ExecuteAsync(
-                coordinate.Package.Content,
+        coordinate.Package.Content,
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework);
@@ -532,55 +660,64 @@ public static partial class InspectionEngine
                 "Unknown package dependency-group query result."),
         };
 
-        PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
-        BrowserWorkspaceParticipant participant =
-            scope.SurfaceParticipant(coordinate, asset);
-        AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>> referenceResult =
-            scope.UseSurfaceParticipant(
-                participant,
-                AssemblyContextReferencesQuery.ExecuteParticipant);
-
+        string? assembly = null;
         BrowserAssemblyReference[] assemblyReferences = [];
         string? assemblyReferenceError = null;
-        switch (referenceResult)
+        if (coordinate.Selection.IsSelected)
         {
-            case AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceIdentity>>.Available available:
-                assemblyReferences =
-                [
-                    .. available.Value
-                        .Select(reference => reference.ToReference())
-                        .OrderBy(
-                            reference => reference.Name,
-                            StringComparer.OrdinalIgnoreCase)
-                        .ThenBy(
-                            reference => reference.Version,
-                            StringComparer.Ordinal)
-                        .ThenBy(
-                            reference => reference.Culture,
-                            StringComparer.OrdinalIgnoreCase)
-                        .ThenBy(
-                            reference => reference.PublicKeyToken,
-                            StringComparer.OrdinalIgnoreCase)
-                        .Select(reference => new BrowserAssemblyReference(
-                            reference.Name,
-                            reference.Version,
-                            reference.Culture,
-                            reference.PublicKeyToken)),
-                ];
-                break;
-            case AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected:
-                assemblyReferenceError =
-                    $"{rejected.Failure.Kind} ({rejected.Failure.Detail})";
-                break;
-            case AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceIdentity>>.Failed failed:
-                assemblyReferenceError = failed.Error.Message;
-                break;
-            default:
-                throw new InvalidOperationException(
-                    "Unknown assembly-context reference query result.");
+            PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
+            assembly = asset.AssemblyName;
+            BrowserWorkspaceParticipant participant =
+                scope.SurfaceParticipant(coordinate, asset);
+            AssemblyContextEntry<ImmutableArray<AssemblyReferenceIdentity>> referenceResult =
+                scope.UseSurfaceParticipant(
+                    participant,
+                    AssemblyContextReferencesQuery.ExecuteParticipant);
+
+            switch (referenceResult)
+            {
+                case AssemblyContextEntry<
+                    ImmutableArray<AssemblyReferenceIdentity>>.Available available:
+                    assemblyReferences =
+                    [
+                        .. available.Value
+                            .Select(reference => reference.ToReference())
+                            .OrderBy(
+                                reference => reference.Name,
+                                StringComparer.OrdinalIgnoreCase)
+                            .ThenBy(
+                                reference => reference.Version,
+                                StringComparer.Ordinal)
+                            .ThenBy(
+                                reference => reference.Culture,
+                                StringComparer.OrdinalIgnoreCase)
+                            .ThenBy(
+                                reference => reference.PublicKeyToken,
+                                StringComparer.OrdinalIgnoreCase)
+                            .Select(reference => new BrowserAssemblyReference(
+                                reference.Name,
+                                reference.Version,
+                                reference.Culture,
+                                reference.PublicKeyToken)),
+                    ];
+                    break;
+                case AssemblyContextEntry<
+                    ImmutableArray<AssemblyReferenceIdentity>>.Rejected rejected:
+                    assemblyReferenceError =
+                        $"{rejected.Failure.Kind} ({rejected.Failure.Detail})";
+                    break;
+                case AssemblyContextEntry<
+                    ImmutableArray<AssemblyReferenceIdentity>>.Failed failed:
+                    assemblyReferenceError = failed.Error.Message;
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown assembly-context reference query result.");
+            }
+        }
+        else
+        {
+            assemblyReferenceError = compileLibrary.Message;
         }
 
         string? dependencyGroupError =
@@ -592,13 +729,13 @@ public static partial class InspectionEngine
             new BrowserPackageDependencies(
                 coordinate.PackageId,
                 coordinate.Version,
-                coordinate.Framework,
-                asset.AssemblyName,
+                BrowserFramework(coordinate),
+                assembly,
                 [
                     .. dependencies.Groups.Select((group, index) =>
                         new BrowserPackageDependencyGroup(
                             index,
-                            group.TargetFramework,
+                            BrowserDependencyGroupFramework(group.TargetFramework),
                             index == dependencies.SelectedGroupIndex,
                             [
                                 .. group.Dependencies.Select(dependency =>
@@ -609,14 +746,18 @@ public static partial class InspectionEngine
                 ],
                 assemblyReferences,
                 dependencyGroupError,
-                assemblyReferenceError),
+                assemblyReferenceError,
+                compileLibrary),
             BrowserJsonContext.Default.BrowserPackageDependencies);
     }
 
     /// <summary>
     /// Ecosystem integration evidence for one package/version/framework workspace, produced by
-    /// <see cref="AssemblyContextIntegrationsQuery"/> over the workspace's own group. The query
-    /// owns every session; this method groups its signals for display and composes no evidence.
+    /// <see cref="PackageWorkspaceIntegrationsQuery"/> over the product-selected package roles.
+    /// Its group query owns every session; this method groups signals for display and composes no
+    /// evidence. Role selection is gated by
+    /// <c>PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback</c> and
+    /// <c>PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries</c>.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryPackageIntegrations(
@@ -629,31 +770,33 @@ public static partial class InspectionEngine
             version,
             targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-
-        // The workspace is retained and reused, so this runs the whole-group query rather than
-        // the streaming per-participant form: that form's release is terminal for the released
-        // participant, which would leave the reused group unable to answer a later query.
-        AssemblyContextIntegrationsResult result =
-            scope.UseImplementationOrSurface(AssemblyContextIntegrationsQuery.Execute);
-        if (scope.ImplementationParticipants.Length > 0
-            && scope.ReferenceOnlySurfaceParticipants.Length > 0)
+        BrowserCompileLibraryAvailability compileLibrary =
+            CompileLibrary(coordinate.Selection);
+        if (!coordinate.Selection.IsSelected)
         {
-            result = new AssemblyContextIntegrationsResult(
-            [
-                .. result.Assemblies,
-                .. scope.ReferenceOnlySurfaceParticipants.Select(participant =>
-                    scope.UseSurfaceParticipant(
-                        participant,
-                        AssemblyContextIntegrationsQuery.ExecuteParticipant)),
-            ]);
+            return JsonSerializer.Serialize(
+                new BrowserPackageIntegrations(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    BrowserFramework(coordinate),
+                    Categories: [],
+                    TotalSignals: 0,
+                    IsComplete: false,
+                    InspectionError: null,
+                    compileLibrary),
+                BrowserJsonContext.Default.BrowserPackageIntegrations);
         }
+
+        PackageWorkspaceIntegrationsResult result =
+            scope.QueryIntegrations();
 
         return JsonSerializer.Serialize(
             CreateIntegrations(
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework,
-                result.Assemblies),
+                result.Libraries.Select(entry => entry.Integrations),
+                compileLibrary),
             BrowserJsonContext.Default.BrowserPackageIntegrations);
     }
 
@@ -673,6 +816,22 @@ public static partial class InspectionEngine
             version,
             targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            CompileLibrary(coordinate.Selection);
+        if (!coordinate.Selection.IsSelected)
+        {
+            return JsonSerializer.Serialize(
+                new BrowserPackageOpportunities(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    BrowserFramework(coordinate),
+                    Categories: [],
+                    TotalOpportunities: 0,
+                    IsComplete: false,
+                    InspectionError: null,
+                    compileLibrary),
+                BrowserJsonContext.Default.BrowserPackageOpportunities);
+        }
 
         var registry = new InspectionQueryRegistry<AssemblyContextGroup>()
             .Add(
@@ -694,7 +853,8 @@ public static partial class InspectionEngine
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework,
-                result.Assemblies),
+                result.Assemblies,
+                compileLibrary),
             BrowserJsonContext.Default.BrowserPackageOpportunities);
     }
 
@@ -702,7 +862,8 @@ public static partial class InspectionEngine
         string package,
         string version,
         string framework,
-        IEnumerable<AssemblyIntegrationsEntry> entries)
+        IEnumerable<AssemblyIntegrationsEntry> entries,
+        BrowserCompileLibraryAvailability? compileLibrary = null)
     {
         AssemblyIntegrationsEntry[] materialized = [.. entries];
         var failures = new List<string>();
@@ -732,7 +893,7 @@ public static partial class InspectionEngine
         return new BrowserPackageIntegrations(
                 package,
                 version,
-                framework,
+                RequiredBrowserFramework(framework),
                 [
                     .. signals
                         .GroupBy(
@@ -765,14 +926,16 @@ public static partial class InspectionEngine
                         is AssemblyIntegrationsEntry.Available),
                 failures.Count == 0
                     ? null
-                    : string.Join("; ", failures));
+                    : string.Join("; ", failures),
+                compileLibrary ?? SelectedCompileLibrary(framework));
     }
 
     internal static BrowserPackageOpportunities CreateOpportunities(
         string package,
         string version,
         string framework,
-        IEnumerable<AssemblyIntegrationOpportunitiesEntry> entries)
+        IEnumerable<AssemblyIntegrationOpportunitiesEntry> entries,
+        BrowserCompileLibraryAvailability? compileLibrary = null)
     {
         AssemblyIntegrationOpportunitiesEntry[] materialized =
             [.. entries];
@@ -819,7 +982,7 @@ public static partial class InspectionEngine
         return new BrowserPackageOpportunities(
                 package,
                 version,
-                framework,
+                RequiredBrowserFramework(framework),
                 [
                     .. distinctOpportunities
                         .GroupBy(
@@ -856,7 +1019,8 @@ public static partial class InspectionEngine
                         is AssemblyIntegrationOpportunitiesEntry.Available),
                 failures.Count == 0
                     ? null
-                    : string.Join("; ", failures));
+                    : string.Join("; ", failures),
+                compileLibrary ?? SelectedCompileLibrary(framework));
     }
 
     /// <summary>
@@ -875,6 +1039,21 @@ public static partial class InspectionEngine
                 packageId,
                 version,
                 targetFramework);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            CompileLibrary(coordinate.Selection);
+        if (!coordinate.Selection.IsSelected)
+        {
+            return JsonSerializer.Serialize(
+                new BrowserPackagePerformance(
+                    Members: [],
+                    InspectionError: null,
+                    NonPublicOpportunities: 0,
+                    TotalOpportunities: 0,
+                    compileLibrary),
+                BrowserJsonContext.Default.BrowserPackagePerformance);
+        }
+
         ImmutableArray<BrowserWorkspaceParticipant> participants =
             scope.ImplementationParticipants.Length > 0
                 ? scope.ImplementationParticipants
@@ -898,7 +1077,7 @@ public static partial class InspectionEngine
                             AssemblyContextOptimizationOpportunitiesQuery
                                 .Definition));
         BrowserPackageSurface surface =
-            ProjectPackageSurface(scope, scope.Coordinates[0]);
+            ProjectPackageSurface(scope, coordinate);
         HashSet<(
             string Assembly,
             string Type,
@@ -971,7 +1150,8 @@ public static partial class InspectionEngine
                     ? null
                     : string.Join("; ", failures),
                 result.NonPublicOpportunities,
-                result.TotalOpportunities),
+                result.TotalOpportunities,
+                compileLibrary),
             BrowserJsonContext.Default.BrowserPackagePerformance);
     }
 
@@ -1571,7 +1751,10 @@ public static partial class InspectionEngine
 
         (ApiType Type, AssemblyContextSubject Subject)[] apiTypes =
         [
-            .. focusProjection.ApiSurfaces.Assemblies.Assemblies
+            .. (focusProjection.ApiSurfaces
+                ?? throw new InvalidOperationException(
+                    "The product home demo focus has no compile-library API surface."))
+                .Assemblies.Assemblies
                 .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
                 .SelectMany(entry => entry.Value.Surface.Types
                     .Where(candidate => string.Equals(

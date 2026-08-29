@@ -49,10 +49,10 @@ namespace InertText;
 public static class UrlRedaction
 {
     /// <summary>
-    /// What replaces a query that was present. It keeps "this resource was
-    /// requested with a query" legible without carrying any of it.
+    /// What replaces a query or credential-bearing path segment. It keeps the
+    /// redaction visible without carrying any of the removed text.
     /// </summary>
-    public const string QueryMarker = "REDACTED";
+    public const string RedactedMarker = "REDACTED";
 
     /// <summary>
     /// What replaces text that names an authority but cannot be parsed as a
@@ -67,6 +67,28 @@ public static class UrlRedaction
     /// feed or a caller produced something no URI grammar accepts.
     /// </remarks>
     public const string UnparsableMarker = "<unparsable-url>";
+
+    /// <summary>
+    /// Returns an already-separated URL path component with credential-bearing
+    /// segments removed and non-graphic scalars encoded.
+    /// </summary>
+    /// <remarks>
+    /// This method does not parse or classify <paramref name="path"/> as a URL,
+    /// authority, network path, query, or fragment. The caller must separate
+    /// the path from those components before calling it. This preserves every
+    /// non-credential path distinction while sharing the path-token rule used
+    /// by complete-URL diagnostics.
+    ///
+    /// Gated by
+    /// <c>ForPathComponent_PreservesNonCredentialPathText</c>,
+    /// <c>ForPathComponent_RedactsCredentialSlots</c>, and
+    /// <c>ForPathComponent_EncodesNonGraphicScalars</c>.
+    /// </remarks>
+    public static InertString ForPathComponent(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return new InertString(TextPolicy.Field, RedactPath(path));
+    }
 
     /// <summary>
     /// Returns <paramref name="url"/> with credential-bearing components
@@ -100,7 +122,7 @@ public static class UrlRedaction
                     : RedactPath(locator);
         return new InertString(
             TextPolicy.Field,
-            hadQuery ? $"{rendered}?{QueryMarker}" : rendered);
+            hadQuery ? $"{rendered}?{RedactedMarker}" : rendered);
     }
 
     /// <summary>
@@ -118,7 +140,7 @@ public static class UrlRedaction
         string rendered = RenderAuthorityAndPath(uri);
         return new InertString(
             TextPolicy.Field,
-            HasQueryContent(uri.Query) ? $"{rendered}?{QueryMarker}" : rendered);
+            HasQueryContent(uri.Query) ? $"{rendered}?{RedactedMarker}" : rendered);
     }
 
     /// <summary>
@@ -320,7 +342,7 @@ public static class UrlRedaction
             ReadOnlySpan<char> segment =
                 path.AsSpan(segmentStart, index - segmentStart);
             bool redact = segment.Length > 0 && previousWasAuth;
-            builder.Append(redact ? "REDACTED" : segment);
+            builder.Append(redact ? RedactedMarker : segment);
             if (index < path.Length)
                 builder.Append(path[index]);
 

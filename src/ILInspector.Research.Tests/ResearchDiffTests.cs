@@ -1498,6 +1498,149 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_IlBody_IndexFailureDoesNotBecomeAddedFinding()
+    {
+        string path = typeof(ResearchDiff).Module.FullyQualifiedName;
+        LibraryBodyIndex actual = LibraryBodyIndex.Open(
+            path,
+            includeAllocations: false,
+            includeOpportunities: false);
+        MethodIdentity target = Assert.Single(
+            actual.DeclaredMethods,
+            method => method.Name == nameof(ResearchDiff.ToChangeIdPart));
+        LibraryBodyIndex partial = LibraryBodyIndex.FromEvidence(
+            [
+                .. actual.DeclaredMethods.Where(
+                    method => method.MetadataToken != target.MetadataToken),
+            ],
+            [],
+            diagnostics:
+            [
+                new AnalysisDiagnostic(
+                    target.MetadataToken,
+                    target.Name,
+                    "Method identity could not be decoded."),
+            ]);
+        Assert.DoesNotContain(
+            partial.DeclaredMethods,
+            method => method.MetadataToken == target.MetadataToken);
+        Assert.Single(partial.Diagnostics);
+        using var oldSource = DecompilerMetadataSource.Open(path);
+        using var newSource = DecompilerMetadataSource.Open(path);
+        var oldInput = new ResearchDiffInput([])
+        {
+            AssemblyContents =
+            [
+                new ResearchAssemblyContent(oldSource, partial),
+            ],
+        };
+        var newInput = new ResearchDiffInput([])
+        {
+            AssemblyContents =
+            [
+                new ResearchAssemblyContent(newSource, actual),
+            ],
+        };
+
+        ResearchComparison diff = ResearchDiff.Compare(
+            oldInput,
+            newInput,
+            new ResearchDiffOptions(ResearchChangeMechanism.IlBody)
+            {
+                RetainedComparisonDescriptorIds =
+                    ImmutableHashSet.Create(
+                        StringComparer.Ordinal,
+                        IlFindings.OperationDescriptor.Id),
+            });
+
+        var retained = Assert.Single(
+            diff.RetainedComparisons
+                .Get<CanonicalIlOperation>(
+                    IlFindings.OperationDescriptor),
+            item => item.Subject.MemberName
+                == nameof(ResearchDiff.ToChangeIdPart));
+        var failed =
+            Assert.IsType<FindingComparison<CanonicalIlOperation>.Failed>(
+                retained.Comparison.Value);
+        Assert.Contains(
+            "Method identity could not be decoded",
+            failed.Failure);
+    }
+
+    [Fact]
+    public void CompareAssemblies_IlBody_KnownOwnerFailureDoesNotPoisonOtherType()
+    {
+        string path = typeof(ResearchDiff).Module.FullyQualifiedName;
+        LibraryBodyIndex actual = LibraryBodyIndex.Open(
+            path,
+            includeAllocations: false,
+            includeOpportunities: false);
+        MethodIdentity target = Assert.Single(
+            actual.DeclaredMethods,
+            method => method.Name == nameof(ResearchDiff.ToChangeIdPart));
+        MethodIdentity unrelated = actual.DeclaredMethods.First(method =>
+            method.DeclaringType != target.DeclaringType);
+        LibraryBodyIndex partial = LibraryBodyIndex.FromEvidence(
+            [
+                .. actual.DeclaredMethods.Where(method =>
+                    method.MetadataToken != target.MetadataToken
+                    && method.MetadataToken != unrelated.MetadataToken),
+            ],
+            [],
+            diagnostics:
+            [
+                new AnalysisDiagnostic(
+                    unrelated.MetadataToken,
+                    unrelated.Name,
+                    "Unrelated method identity could not be decoded.",
+                    DeclaringType: unrelated.DeclaringType),
+            ]);
+        using var oldSource = DecompilerMetadataSource.Open(path);
+        using var newSource = DecompilerMetadataSource.Open(path);
+        var oldInput = new ResearchDiffInput([])
+        {
+            AssemblyContents =
+            [
+                new ResearchAssemblyContent(oldSource, partial),
+            ],
+        };
+        var newInput = new ResearchDiffInput([])
+        {
+            AssemblyContents =
+            [
+                new ResearchAssemblyContent(newSource, actual),
+            ],
+        };
+
+        ResearchComparison diff = ResearchDiff.Compare(
+            oldInput,
+            newInput,
+            new ResearchDiffOptions(ResearchChangeMechanism.IlBody)
+            {
+                RetainedComparisonDescriptorIds =
+                    ImmutableHashSet.Create(
+                        StringComparer.Ordinal,
+                        IlFindings.OperationDescriptor.Id),
+            });
+
+        var retained = Assert.Single(
+            diff.RetainedComparisons
+                .Get<CanonicalIlOperation>(
+                    IlFindings.OperationDescriptor),
+            item => item.Subject.MemberName
+                == nameof(ResearchDiff.ToChangeIdPart));
+        var complete =
+            Assert.IsType<FindingComparison<CanonicalIlOperation>.Complete>(
+                retained.Comparison.Value);
+        Assert.True(
+            complete.OldInspection
+                is FindingInspection<CanonicalIlOperation>.Absent);
+        Assert.All(
+            complete.Pairs,
+            pair => Assert.Equal(PairKind.Added, pair.Kind));
+    }
+
+    [Fact]
     public void CompareAssemblies_IlBody_PreservesAbsentBodyAgainstPresentBody()
     {
         var diff = ResearchDiff.CompareAssemblies(
@@ -1972,8 +2115,12 @@ public class ResearchDiffTests
             [
                 new PdbSourceComparisonInput(
                     subject,
-                    new FindingInspection<string>.Absent("old source unavailable"),
-                    new FindingInspection<string>.Absent("new source unavailable"))
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "old source unavailable"),
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new source unavailable"))
             ]);
 
         var member = Assert.Single(result.Members);

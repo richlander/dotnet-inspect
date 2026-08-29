@@ -155,6 +155,33 @@ Uniformity is the other half. An encoder does not decide *whether* a given
 value is hostile, so it cannot be wrong about a value — only about the sink.
 That is a much smaller thing to be right about, and it is written down.
 
+### URL path-component redaction
+
+`InertText.UrlRedaction` owns both complete-URL diagnostic redaction and the
+narrower redaction of an already-parsed URL path component. The two inputs have
+different trust boundaries:
+
+- `ForDiagnostics` accepts URL-like text, classifies its locator and authority
+  shape, and fails closed when safe components cannot be located.
+- `ForPathComponent` accepts only a path already separated from scheme,
+  authority, query, and fragment. It does not parse or classify that value as a
+  locator. It applies the same owner-issued `auth` credential-slot rule and
+  returns an `InertString`, preserving every other path distinction and
+  encoding non-graphic scalars.
+
+Consumers may retain or frame the path-only result without copying the
+credential-slot rule or depending on complete-URL parser branch order. They
+must not pass an unseparated URL or reconstruct removed components from the
+safe result. Producer identity, endpoint validation, cache authority, and
+presentation policy remain outside this owner.
+
+This contract is gated by
+`ForPathComponent_PreservesNonCredentialPathText`,
+`ForPathComponent_RedactsCredentialSlots`, and
+`ForPathComponent_EncodesNonGraphicScalars` in the Release
+`InertText.Tests` suite. The authority-shaped and credential-bearing cases
+make the path-only wiring non-vacuous.
+
 ### Failure messages carry no artifact data
 
 A rejection message names the **user-supplied** input — the path, coordinate,
@@ -232,6 +259,23 @@ What *is* in scope is the ordinary language surface: a public constructor, a
 contributor writing normal code, which is how an invariant actually decays, and
 `SourceLinkProvenanceTests.ASourceLinkOrigin_CannotBeConstructedOrRewrittenOutsideItsOwnAssembly`
 is the gate for them. It deliberately does not claim more.
+
+**Nor is a local actor on the user's own machine.** Do not model our own code,
+another contributor or agent, or a user who can act on the machine as a hostile
+actor that product code must contain. A party that can edit the codebase, run
+code in the process, create local symlinks, or place credentials in the
+repository can already bypass product invariants and has more direct targets.
+Treat those scenarios as code review, testing, or repository-hygiene concerns,
+not as reasons to add product hardening. Before accepting a security concern,
+identify how an actor *outside* the user's machine can affect the user through
+data the tool reads — that is the boundary table above. A locally supplied
+assembly does not independently establish an attacker boundary; it may receive
+the same containment as an internet-origin assembly when both use a shared
+path, but that benefit is incidental and does not justify extra complexity.
+Robustness against accidental internal mistakes still matters, and is achieved
+with simple, auditable code, structured types instead of strings, narrow APIs,
+compiler-enforced invariants, and focused tests — not by pretending trusted
+code is an attacker.
 
 ## Existing controls
 
@@ -811,6 +855,11 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithoutDefiningImage_DoesNotDecode`,
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_Decodes`,
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_WithDefiningImage_StillRefusesHostileCount`,
+`TypeResolutionEnumWidthTests.PlannedQualifiedName_DecodesInt64FromRetainedDefiningImage`,
+`TypeResolutionEnumWidthTests.UnplannedRequest_StaysInt32`,
+`TypeResolutionEnumWidthTests.MissingDefiningImage_StaysInt32`,
+`TypeResolutionEnumWidthTests.FacadeForwarder_DecodesInt64`,
+`TypeResolutionEnumWidthTests.HostileLeftoverCount_IsUnsafe`,
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_Decodes`,
 `CustomAttributeValueGuardTests.CrossAssemblyInt64NamedEnum_ExactSimpleNameResolver_SeesOverlappingHostileCount`,
 `CustomAttributeValueGuardTests.LocalInt64EnumFixedArgument_IgnoresConflictingExternalResolver`,

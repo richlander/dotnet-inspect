@@ -1420,9 +1420,6 @@ public sealed class PackagePayloadAcquisitionTests
     [Fact]
     public void CaseOnlyNupkgSibling_CountsTowardExpandedBytesOnCaseSensitiveFs()
     {
-        if (OperatingSystem.IsWindows())
-            return;
-
         string root = TempDirectory();
         Directory.CreateDirectory(root);
         try
@@ -1435,6 +1432,13 @@ public sealed class PackagePayloadAcquisitionTests
             string sibling = Path.Combine(
                 root,
                 $"{PackageId}.{Version}.NUPKG");
+            if (File.Exists(sibling))
+            {
+                Assert.Skip(
+                    "The filesystem does not support case-distinct sibling files.");
+                return;
+            }
+
             File.WriteAllBytes(sibling, new byte[4096]);
 
             Assert.False(
