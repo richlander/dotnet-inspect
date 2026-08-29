@@ -342,18 +342,24 @@ covers the layer the admission model treats as an abstract given: what "the
 dependent group reports quiescent" must mean for content access. It models
 admission-phase materialization reads through acquisition leases, query-phase
 opens of retained content, and the `EndGeneration`/lease-disposal sequence,
-in both the target design (opens admitted atomically with the
-ended/draining decision; termination releases leases only at content
-quiescence) and the current mechanics (flag rechecks outside the gate;
-immediate release). The target configurations pass safety and liveness;
-three committed current-mechanics configurations produce counterexamples
-showing an open can complete after `EndGeneration`, a disposal racing
-`SealAsync` disposes acquisition leases under an active materialization
-read, and the generation can end while a query stream is open. Its
-`README.md` records the checked bounds, results, assumptions, and the open
-design question it exposes: a quiescence-awaiting termination needs a stated
-policy for abandoned streams. These results establish evidence about the
-model, not the implementation.
+in both the target design and the current mechanics (flag rechecks outside
+the gate; immediate release). Generation end and backing-resource release
+are distinct events: the access contract deliberately keeps an
+already-returned stream valid after `EndGeneration` and rejects only later
+opens, so the target design ends access immediately at termination, cancels
+an in-flight materialization read it owns, and releases acquisition leases
+only at content quiescence. The target configurations pass safety and
+liveness; three committed current-mechanics configurations produce
+counterexamples showing an open can complete after `EndGeneration`, a
+disposal racing `SealAsync` disposes acquisition leases under an active
+materialization read, and leases can be released while a published
+generation's query stream is open. Its `README.md` records the checked
+bounds, results, assumptions, and the two termination-policy obligations it
+exposes: an in-flight materialization read must be owner-interruptible
+(today it awaits `Stream.ReadAsync` with only the caller token, so a stalled
+read would block a quiescence-awaiting termination forever), and abandoned
+query streams need a stated policy (bound the wait, or invalidate visibly).
+These results establish evidence about the model, not the implementation.
 
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
