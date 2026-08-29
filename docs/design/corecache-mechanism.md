@@ -26,8 +26,13 @@ docs-only change.
 
 `CoreCache` supplies, for any caller-chosen category:
 
-- a stable base directory scoped to the current application name and
-  platform (or an override);
+- a base directory scoped to the current application name and platform (or
+  an override) — not a *stable* one: `GetBasePath()` re-derives it on every
+  call rather than caching a value from `Initialize`, so on Linux, absent an
+  explicit override, changing `XDG_CACHE_HOME` in the process environment
+  changes every subsequent path, containment, and clear decision without any
+  `Initialize` call at all (see the trust-boundary and initialization-lifecycle
+  sections below for the concrete consequences);
 - a collision-resistant, filesystem-safe path for a caller-chosen key within
   a category;
 - read, write, and background-maintenance operations whose *filesystem-access*
@@ -87,12 +92,17 @@ differently, but the difference is enforced for only one of them:
   `IsPathInCacheContext` anchors every containment decision to. Unlike
   `category`/`extension`/`appName`, this is **not** a fixed-literal value in
   production today: `dotnet-inspect`'s CLI entry point
-  (`src/dotnet-inspect/Program.cs`) reads it verbatim from the
-  `DOTNET_INSPECT_CACHE_DIR` environment variable, or — for `--isolated`/
-  `DOTNET_INSPECT_ISOLATED` — builds it by concatenating that environment
-  value into a temp-directory path, then forwards it unchanged through
-  `NuGetCache.Initialize` to `CoreCache.Initialize`. A caller (here, an
-  end user or their shell environment) that controls `basePath` controls the
+  (`src/dotnet-inspect/Program.cs`) resolves it with explicit precedence —
+  the `DOTNET_INSPECT_CACHE_DIR` environment variable wins verbatim if set;
+  otherwise, when `--isolated`/`DOTNET_INSPECT_ISOLATED` selects an
+  isolation session name (from either the `--isolated <name>` command-line
+  argument or the `DOTNET_INSPECT_ISOLATED` environment variable — not only
+  the environment variable), it builds a temp-directory path from that
+  session name; otherwise `basePath` is `null` and `CoreCache` falls back to
+  its own platform default. Whichever value results is forwarded unchanged
+  through `NuGetCache.Initialize` to `CoreCache.Initialize`. A caller (here,
+  an end user or their shell environment, or a `--isolated` command-line
+  argument) that controls `basePath` controls the
   cache root itself, which is a strictly larger trust concession than
   `category` or `extension` — and it is exercised in production, not merely
   hypothetical. `basePath` is not the only environment-controlled root
@@ -119,20 +129,39 @@ constrains it once accepted.
 
 **Gap:** the contract above is enforced only by code review convention today.
 `GetCategoryPath`, `GetFilePath`, `GetDefaultBasePath`, `GetCacheInfo`,
-`TryGet`, `TryGetBytes`, `Set`, and `SetBytes` do not reject a `category`,
-`extension`, or `appName` containing a path separator or a `..` segment, so
-a future caller that violates the contract (for example, building a
-category from a package id, or an `extension` from configuration) would
-silently gain a path-traversal write/read/enumerate primitive outside the
-intended cache root, undetected by any existing test. `basePath` is exempt
-from this particular gap since it is already the accepted exception above,
-but `GetBasePath`/`Initialize` still place no containment constraint on it
-at all — a `basePath` sourced from untrusted *content* rather than trusted
-operator configuration would be unconstrained in a different way, as noted
-above. Closing the `category`/`extension`/`appName` gap — for example,
-asserting each contains no directory separator and no `.` segment before
-every path computation — is recommended follow-up work; this document
-records the invariant so that follow-up has a contract to enforce against.
+`TryGet`, `TryGetBytes`, `Set`, `SetBytes`, and `Clear` do not reject a
+`category`, `extension`, or `appName` containing a path separator or a `..`
+segment, so a future caller that violates the contract (for example,
+building a category from a package id, or an `extension` from
+configuration) would silently gain a path-traversal write/read/enumerate
+primitive outside the intended cache root, undetected by any existing test.
+`Clear` in particular does not merely gain a wider read/write primitive from
+a non-conforming `category` — an empty or entirely-`..`-normalizing
+`category` can *alias a different, unintended deletion target that is still
+inside the root*, which the containment guard cannot catch because the
+resulting path is genuinely contained: `Clear("")` computes
+`Path.Combine(GetBasePath(), "")`, which `Path.Combine` returns as the base
+path itself (an empty path segment is dropped, not appended), so `Clear("")`
+deletes the *entire* cache root rather than "the empty category" — indistinguishable
+from `Clear(null)`'s target path but without `Clear(null)`'s "clear
+everything" semantics being the caller's evident intent; and a `category`
+like `"a/../b"` combines and normalizes to sibling category `b`, so
+`Clear("a/../b")` clears an entirely different, existing category `b`
+instead of failing or clearing a nonexistent `"a/../b"` entry. Neither case
+escapes the cache root — the existing traversal test only covers the
+root-escaping case (`Clear("..")`, correctly rejected) — so this is a
+distinct failure mode from the path-traversal gap above: a non-conforming
+`category` can silently retarget a destructive operation to a different
+in-root location, not just widen it outside the root. `basePath` is exempt
+from the path-traversal framing of this gap since it is already the accepted
+exception above, but `GetBasePath`/`Initialize` still place no containment
+constraint on it at all — a `basePath` sourced from untrusted *content*
+rather than trusted operator configuration would be unconstrained in a
+different way, as noted above. Closing the `category`/`extension`/`appName`
+gap — for example, asserting each contains no directory separator and no
+`.` segment before every path computation — is recommended follow-up work;
+this document records the invariant so that follow-up has a contract to
+enforce against.
 
 ## Path-context containment
 
@@ -144,13 +173,16 @@ any exception while resolving the full path (malformed path, denied access)
 returns `false`, never `true`. `Clear` calls it internally before deleting;
 other owners call it directly, but not exclusively before deletion —
 `NuGetCache` and `PlatformPackService` each guard both their commit
-`targetPath` and their staging `stagingPath` before *publish/write*
-operations (`Directory.CreateDirectory`, copying staged contents in), not
-before deletion; only `PlatformPackService`'s separate `destDir` guard
-(inside its content-copy helper, before overwriting an existing destination
-subdirectory) and `PackageCacheService`'s legacy-cache guard precede an
-actual `Directory.Delete`. It is the
-mechanism's one exported containment primitive; any future caller that
+`targetPath` and their staging `stagingPath` once, before a *publish/write*
+operation begins (`Directory.CreateDirectory`, copying staged contents in);
+that same single guard call also covers the staging path's later, separate
+best-effort cleanup delete in a `finally` block once publication succeeds or
+fails, since the guarded local variable is reused rather than re-derived.
+Only `PlatformPackService`'s separate `destDir` guard (inside its
+content-copy helper, before overwriting an existing destination
+subdirectory) and `PackageCacheService`'s legacy-cache guard are dedicated
+guards whose sole purpose is preceding an actual `Directory.Delete`. It is
+the mechanism's one exported containment primitive; any future caller that
 writes, deletes, or otherwise mutates a path derived from
 `GetBasePath()`/`GetCategoryPath()` should call it too.
 
@@ -178,14 +210,23 @@ base path) is ever configured as a bare root such as `/`,
 `IsSameOrChildPath` compares an ordinary descendant path like `/tmp/x`
 against `"//"` (the root with its separator re-appended for the prefix
 check) rather than `"/"`, so the prefix match fails and a path that is in
-fact under the root is reported as **not** contained. This does not create a
-traversal exposure — the guard still fails closed, rejecting a legitimate
-path rather than admitting an illegitimate one — but it does mean
-`EnsurePathInCacheContext`/`Clear` would incorrectly refuse a legitimate,
-in-root operation whenever `basePath` is a filesystem root. This is a narrow
-edge case — no current caller configures `basePath` as a filesystem root —
-but it is unverified by any existing test and not stated as a constraint on
-`basePath` anywhere.
+fact under the root is reported as **not** contained — but this only
+affects a *descendant* path, not the root itself: `IsSameOrChildPath`
+checks exact equality first (`fullPath.Equals(fullRoot, ...)`), which is
+unaffected by the separator-trimming issue, so an operation that targets the
+root path directly — including `Clear()` (no category), whose target path
+*is* `GetBasePath()` — is correctly recognized as in-context and proceeds
+as designed (deleting the entire root), not incorrectly refused. Only a
+narrower, category-scoped operation such as `Clear("category")` or
+`EnsurePathInCacheContext` on some other descendant path would be
+incorrectly refused when `basePath` is a bare root. This does not create a
+traversal exposure either way — the guard still fails closed for the
+descendant case, rejecting a legitimate path rather than admitting an
+illegitimate one. No known caller currently configures `basePath` as a
+filesystem root, but nothing in `Initialize`/`GetBasePath` prevents it —
+`basePath` is accepted verbatim from an environment variable in production
+(see the trust-boundary section above) — so this is an unverified,
+narrow-but-reachable edge case, not a provably unreachable one.
 
 **Gap:** `CoreCache`'s own read/write/statistics entry points (`TryGet`,
 `TryGetBytes`, `Set`, `SetBytes`, `GetFilePath`, `GetCacheInfo`) never call
@@ -232,29 +273,47 @@ moment of the second `Initialize` call, not the location actually recorded
 against by the earlier maintenance: the "old" root is `GetBasePath()`
 evaluated with the previous `appName`/`basePath` but the *current* process
 environment, and the "new" root is `GetBasePath()` evaluated with the new
-values and that same current environment. If no explicit `basePath` override
-was ever given and `XDG_CACHE_HOME` (or another ambient input
-`GetDefaultBasePath` reads) changes between the first and second
-`Initialize` call, both sides of the comparison observe the *same* changed
-environment and so still compare equal — counters can carry forward across
-an actual root change that neither `Initialize` call's caller intended, and
-conversely cannot be relied on to always reset just because the ambient
-environment changed since the first call.
+values and that same current environment. If `appName` is unchanged across
+the two calls, and no explicit `basePath` override was ever given, and
+`XDG_CACHE_HOME` (or another ambient input `GetDefaultBasePath` reads)
+changes between the first and second `Initialize` call, both sides of the
+comparison observe the *same* changed environment and so still compare equal
+— counters can carry forward across an actual root change that neither
+`Initialize` call's caller intended, and conversely cannot be relied on to
+always reset just because the ambient environment changed since the first
+call. (If `appName` *does* change between calls, the two sides diverge — one
+ends in the old `appName`, the other in the new one — so this specific
+carry-forward-despite-environment-change case requires an unchanged
+`appName`, not merely an unchanged `basePath` override.)
 
 **Gap:** re-initialization is not exception-safe against a malformed new
-root. `Initialize` mutates `_appName`, `_basePathOverride`, the maintenance
-cancellation source, the progress object, and the task dictionary to their
-new values *before* calling `IsSamePath` to decide whether to carry progress
-forward — and `IsSamePath` calls `Path.GetFullPath` on both sides, which
-throws for a sufficiently malformed path (invalid characters, exceeding
-platform path-length limits). Because `basePath` receives no validation (see
-the trust-boundary section above), a caller-supplied `basePath` that
-`Path.GetFullPath` rejects makes `Initialize` throw *after* the new fields
-are already committed and *before* the `foreach` loop re-schedules cleanup
-for previously registered categories. The result is partial, not
-all-or-nothing: the new root and app name take effect, but no versioned
-category's cleanup is rescheduled against it until some other call
-re-triggers scheduling.
+root, and the failure is destructive to more than scheduling. `Initialize`
+mutates `_appName`, `_basePathOverride`, the maintenance cancellation
+source, the progress object, and the task dictionary to their new values —
+and, before that, takes a destructive snapshot of the *old* generation's
+reclaimed-byte/directory counters via `TakeSnapshot()` (which zeros them) —
+all *before* calling `IsSamePath` to decide whether to carry that snapshot
+forward into the new progress object. `IsSamePath` calls `Path.GetFullPath`
+on both sides, which throws for a sufficiently malformed path (invalid
+characters, exceeding platform path-length limits). Because `basePath`
+receives no validation (see the trust-boundary section above), a
+caller-supplied `basePath` that `Path.GetFullPath` rejects makes `Initialize`
+throw *after* the new fields are already committed, *after* the old
+counters have already been zeroed and captured only in a local variable,
+and *before* the `foreach` loop re-schedules cleanup for previously
+registered categories. The result is partial, not all-or-nothing: the new
+root and app name take effect, no versioned category's cleanup is
+rescheduled against it until some other call re-triggers scheduling, and the
+old generation's reclaimed-byte/directory counts are lost permanently — the
+captured local snapshot is discarded along with the exception, and the new
+`s_maintenanceProgress` object was already installed with zeros. The
+identical destructive-then-possibly-thrown pattern applies to
+`Clear(category: null)`, which passes `consumeProgress: true` to
+`WaitForMaintenance` (destructively zeroing the counters via the same
+`TakeSnapshot()`) before validating `EnsurePathInCacheContext` and
+performing the measurement/deletion — if either of those later steps
+throws, the already-consumed counters are lost with no return value to
+carry them.
 
 `RegisterVersionedCategory` may be called before or after `Initialize`, and
 repeated registration of the same prefix is idempotent only when `current`
@@ -330,6 +389,20 @@ before any background work is scheduled. Retirement:
   previous generation's tasks, waits for them best-effort, and starts a new
   generation rather than waiting for the old one to finish on its own.
 
+**Gap:** the retired-directory byte count is itself only a best-effort
+measurement, not a confirmed pre-deletion size — `CleanupVersionedCategory`
+measures each obsolete directory via `GetDirectorySizeBestEffort`, which
+catches any enumeration failure and returns `0` rather than propagating it,
+and then proceeds to `Directory.Delete` the directory regardless and record
+a deletion with that (possibly `0`) size. A directory that fails to measure
+(permissions, a concurrent modification during enumeration) is still
+deleted and still counted as one retired directory, but contributes `0` to
+the accumulated byte total — so the maintenance byte counter that `Clear(null)`
+later consumes into its return value (see
+[Clear and concurrent writers](#clear-and-concurrent-writers)) can
+undercount real reclaimed space for a reason distinct from the concurrent-write
+undercounting already described there.
+
 **Gap:** the retirement rule above is scoped to one registered family (one
 `prefix`) at a time; nothing prevents two *different* registered prefixes
 from overlapping, and a directory that is the current member of one family
@@ -371,7 +444,25 @@ all — `task.Wait(Timeout.InfiniteTimeSpan)` cannot return `false`, so `Clear`
 always waits for the full maintenance generation (including any pending
 generation-restart drain) to either complete or fault before proceeding; it
 does not return early with partial progress the way a finite-timeout
-`CancelAndWaitForMaintenance` call can. **Every** `Clear` call — not only `Clear(category:
+`CancelAndWaitForMaintenance` call can.
+
+**Gap:** `CancelAndWaitForMaintenance`'s `timeout` parameter is not
+validated, and an out-of-range value silently skips both the cancellation
+and the 25ms secondary wait rather than producing a documented error or the
+documented cancel-and-wait behavior. `task.Wait(TimeSpan)` throws
+`ArgumentOutOfRangeException` for a negative `TimeSpan` other than
+`Timeout.InfiniteTimeSpan` (`-1` ms) or one exceeding `int.MaxValue`
+milliseconds (about 24.8 days) — a plausible caller mistake, not only an
+adversarial input. `WaitForMaintenance` wraps `task.Wait(timeout)` and the
+subsequent cancel/25ms-wait in one blanket `try`/`catch`, so that exception
+is caught by the *same* handler that also swallows a legitimate
+cancellation-related exception; the method falls straight through to
+returning whatever progress is currently recorded, having neither canceled
+the task nor waited the documented 25ms. A caller who passes an
+out-of-range timeout observes an immediate, non-canceling progress read
+that looks identical to any other best-effort outcome, not a timeout error.
+
+**Every** `Clear` call — not only `Clear(category:
 null)` — unconditionally waits (`Timeout.InfiniteTimeSpan`) for the current
 maintenance generation before deleting anything; only `Clear(null)` also
 *consumes* the recorded byte counter into its return value (`Clear(category)`
@@ -525,8 +616,14 @@ solely by `FileInfo.LastWriteTimeUtc`, compared as
 `DateTime.UtcNow - info.LastWriteTimeUtc < maxAge`. The comparison is strict,
 so an entry written exactly `maxAge` ago is stale, not fresh; and because the
 comparison is one-sided, a `LastWriteTimeUtc` in the future (a clock change, a
-restored backup, a manipulated file) makes an entry read as fresh for
-`maxAge`s of zero or even negative duration. Any failure while resolving
+restored backup, a manipulated file) makes an entry read as fresh for any
+non-negative `maxAge` regardless of how far in the future it is. For a
+negative `maxAge` the same future-dated entry is fresh only conditionally:
+with `LastWriteTimeUtc` `δ` ahead of `UtcNow`, the comparison becomes
+`-δ < maxAge`, so a negative `maxAge` of magnitude `M` still reports the
+entry fresh whenever the future skew `δ` exceeds `M` — a small future skew
+can still be stale against a large-magnitude negative `maxAge`, but any
+future skew is read as fresh once `maxAge` is zero or positive. Any failure while resolving
 `FileInfo` or reading the file is caught by the same guarded region and
 *returns* a miss (`null`), exactly like the non-`maxAge` overloads' hit
 path — but the miss is not otherwise *recorded* the same way: the
