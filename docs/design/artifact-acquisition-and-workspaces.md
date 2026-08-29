@@ -339,23 +339,32 @@ tracked as future implementation work, not a defect this model found.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
-checked the target model with 3 demands and 2 admission generations: 49,508
-states generated, 18,395 distinct states, maximum depth 16, no invariant
+checked the target model with 3 demands and 2 admission generations: 65,395
+states generated, 24,305 distinct states, maximum depth 16, no invariant
 violations, and no counterexamples for the checked liveness properties. The
 invariants include the headline `DisposalPreventsPublication` (`disposed =>
 admission # "InFlight"`, since only `"InFlight"` can transition to a published
-outcome), cancellation coherence and detachment, and independent guard-witness
-invariants that re-derive, at the point of action, the exact condition each of
-disposal publication safety, lease-release ordering, outcome authorization,
-pending cancellation, and draining cancellation depends on.
+outcome), cancellation authorization and detachment, exact-race request and
+completion witnesses, and independent guard-witness invariants that re-derive,
+at the point of action, the exact condition each of disposal publication
+safety, lease-release ordering, outcome authorization, pending cancellation,
+and attached cancellation depends on.
 
-Disabling pending cancellation explored 38,431 generated and 15,609 distinct
-states before violating `CancellationRequestsEventuallyCancel`; disabling
-draining cancellation explored 40,086 generated and 15,248 distinct states
-before violating the same property. Dedicated reachability configurations
-violated only their intentional `PendingCancellationNotReached` and
-`DrainingCancellationNotReached` invariants, proving that both corrected paths
-execute. These results establish the bounded model properties, not
+Disabling pending cancellation explored 49,489 generated and 21,311 distinct
+states before violating
+`IncompatiblePendingCancellationEventuallyCompletes`; disabling draining
+cancellation explored 51,071 generated and 20,378 distinct states before
+violating `PostDisposalDrainingCancellationEventuallyCompletes`. Removing the
+request guard from pending or attached cancellation violated its independent
+guard witness after 15 or 90 generated states, respectively.
+
+Dedicated reachability configurations now require the exact races. The pending
+trace starts one generation, leaves another demand pending on the incompatible
+generation, records its request, and cancels it. The draining trace starts
+admission, begins disposal, records the attached waiter's request only after
+admission is draining, and cancels it. They violate only their intentional
+`PendingCancellationNotReached` and `DrainingCancellationNotReached`
+invariants. These results establish the bounded model properties, not
 implementation conformance.
 
 The companion model

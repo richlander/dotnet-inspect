@@ -48,8 +48,10 @@ The model demonstrates single-flight admission, incompatible-generation
 exclusion, cancellation before attachment and after disposal enters draining,
 voluntary and disposal-forced draining, late-result suppression, guard
 witnesses, and weak-fairness progress. Focused broken-policy configurations
-prove both cancellation paths are required for progress, while reachability
-configurations prove each path executes.
+prove the exact incompatible-pending and post-disposal-draining paths are
+required for progress. Guard mutations prove cancellation requires an
+owner-recorded request, while reachability configurations prove each exact race
+executes in the intended order.
 
 ## Inspection subject navigation
 

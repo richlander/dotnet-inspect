@@ -15,6 +15,8 @@ reservation, and at most one published group's lease lifecycle. It explores:
 - caller cancellation as a recorded owner-visible request;
 - cancellation before attachment, while attached to an in-flight admission,
   and after disposal has moved that admission to draining;
+- exact scenario witnesses for an incompatible pending demand and for an
+  attached waiter whose request arrives only after disposal enters draining;
 - adapter success and failure, final-waiter draining, disposal-forced draining,
   and late-result suppression;
 - atomic publication to every still-authorized waiter; and
@@ -53,12 +55,17 @@ owned by an implementation gate, not inferred from this model.
 | `AuthorizedOutcomeWitnessHolds` | Only a demand attached immediately before adapter completion receives its outcome. |
 | `LeaseSafetyWitnessHolds` | A published group's leases release only after disposal and group quiescence. |
 | `CancellationRequestCoherence` | A demand with recorded cancellation is unresolved or terminally cancelled, never published, failed, or disposed. |
+| `CancelledDemandsWereRequested` | Every cancelled outcome follows a recorded caller request. |
 | `CancelledDemandsAreDetached` | Cancellation clears pending and attached eligibility. |
-| `PendingCancellationWitnessHolds` | The pending-cancellation transition produces a detached terminal demand. |
-| `DrainingCancellationWitnessHolds` | Cancellation after disposal moved an attached admission to draining produces a detached terminal demand. |
+| `PendingCancellationGuardWitnessHolds` and `AttachedCancellationGuardWitnessHolds` | Cancellation actions independently recheck their request and lifecycle guards. |
+| `ScenarioCancellationRequestsAreRecorded` | Both exact-race request witnesses remain part of the owner-recorded cancellation set. |
+| `PendingCancellationWitnessHolds` | An incompatible pending request reaches a detached terminal cancellation. |
+| `DrainingCancellationWitnessHolds` | A request recorded after disposal entered draining reaches a detached terminal cancellation. |
 | `WaitingDemandsEventuallyResolve` | Every attached waiter eventually receives a terminal outcome. |
 | `PendingDemandsEventuallyAttachOrResolve` | Every pending demand eventually attaches or resolves. |
 | `CancellationRequestsEventuallyCancel` | Every recorded cancellation request eventually reaches `cancelled`. |
+| `IncompatiblePendingCancellationEventuallyCompletes` | Every request witnessed behind an incompatible active generation reaches its matching cancellation completion. |
+| `PostDisposalDrainingCancellationEventuallyCompletes` | Every request witnessed after disposal entered draining reaches its matching cancellation completion. |
 | `DisposalEventuallyReleasesLeases` | Disposal eventually releases a published group's leases after quiescence. |
 
 ## Configurations
@@ -66,10 +73,12 @@ owned by an implementation gate, not inferred from this model.
 | Configuration | Purpose |
 | --- | --- |
 | `ArtifactSessionAdmission.cfg` | Enables both cancellation paths and checks the complete safety and liveness set. |
-| `BrokenPendingCancellation.cfg` | Disables cancellation before attachment; it must violate `CancellationRequestsEventuallyCancel`. |
-| `BrokenDrainingCancellation.cfg` | Disables attached cancellation after admission enters draining; it must violate `CancellationRequestsEventuallyCancel`. |
-| `ReachabilityPendingCancellation.cfg` | Negates the pending-cancellation witness; it must fail when that transition executes. |
-| `ReachabilityDrainingCancellation.cfg` | Negates the draining-cancellation witness; it must fail when that transition executes. |
+| `BrokenPendingCancellation.cfg` | Disables cancellation before attachment; it must violate `IncompatiblePendingCancellationEventuallyCompletes` from the exact incompatible-pending request witness. |
+| `BrokenDrainingCancellation.cfg` | Disables attached cancellation after admission enters draining; it must violate `PostDisposalDrainingCancellationEventuallyCompletes` from the exact post-disposal request witness. |
+| `BrokenPendingCancellationGuard.cfg` | Allows pending cancellation without a recorded request; it must violate `PendingCancellationGuardWitnessHolds`. |
+| `BrokenAttachedCancellationGuard.cfg` | Allows attached cancellation without a recorded request; it must violate `AttachedCancellationGuardWitnessHolds`. |
+| `ReachabilityPendingCancellation.cfg` | Negates completion of the exact incompatible-pending scenario; it must fail only after that request and cancellation execute. |
+| `ReachabilityDrainingCancellation.cfg` | Negates completion of the exact post-disposal-draining scenario; it must fail only after disposal, request, and cancellation execute in that order. |
 
 ## Running TLC
 
@@ -83,14 +92,15 @@ TLA_TOOLS_JAR=/path/to/tla2tools.jar
 cd docs/models/artifact-session-admission
 
 java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
-  -workers 1 -cleanup -coverage 1 \
+  -workers 1 -seed 1 -fp 1 -cleanup -coverage 1 \
   -config ArtifactSessionAdmission.cfg \
   ArtifactSessionAdmission.tla
 
 for config in BrokenPendingCancellation BrokenDrainingCancellation \
+  BrokenPendingCancellationGuard BrokenAttachedCancellationGuard \
   ReachabilityPendingCancellation ReachabilityDrainingCancellation; do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
-    -workers 1 -cleanup -noGenerateSpecTE \
+    -workers 1 -seed 1 -fp 1 -cleanup -noGenerateSpecTE \
     -config "$config.cfg" \
     ArtifactSessionAdmission.tla
 done
@@ -113,16 +123,27 @@ runtime was not replaced.
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `ArtifactSessionAdmission.cfg` | No error | 49,508 | 18,395 | 16 |
-| `BrokenPendingCancellation.cfg` | `CancellationRequestsEventuallyCancel` violated | 38,431 | 15,609 | 16 |
-| `BrokenDrainingCancellation.cfg` | `CancellationRequestsEventuallyCancel` violated | 40,086 | 15,248 | 15 |
-| `ReachabilityPendingCancellation.cfg` | `PendingCancellationNotReached` violated | 97 | 67 | 4 |
-| `ReachabilityDrainingCancellation.cfg` | `DrainingCancellationNotReached` violated | 1,496 | 711 | 6 |
+| `ArtifactSessionAdmission.cfg` | No error | 65,395 | 24,305 | 16 |
+| `BrokenPendingCancellation.cfg` | `IncompatiblePendingCancellationEventuallyCompletes` violated | 49,489 | 21,311 | 16 |
+| `BrokenDrainingCancellation.cfg` | `PostDisposalDrainingCancellationEventuallyCompletes` violated | 51,071 | 20,378 | 14 |
+| `BrokenPendingCancellationGuard.cfg` | `PendingCancellationGuardWitnessHolds` violated | 15 | 15 | 3 |
+| `BrokenAttachedCancellationGuard.cfg` | `AttachedCancellationGuardWitnessHolds` violated | 90 | 64 | 4 |
+| `ReachabilityPendingCancellation.cfg` | `PendingCancellationNotReached` violated | 1,319 | 680 | 6 |
+| `ReachabilityDrainingCancellation.cfg` | `DrainingCancellationNotReached` violated | 1,529 | 768 | 6 |
 
 The positive run explored its complete bounded state graph. The broken pending
-trace records cancellation for an incompatible demand that has not joined; with
-the transition disabled, the demand remains pending and may never resolve. The
-broken draining trace starts an admission, begins disposal, records the
-attached waiter's cancellation, and then cannot detach it. The reachability
-traces respectively execute cancellation directly from pending state and after
-an attached admission has moved to draining.
+trace starts one generation, records cancellation for a demand pending on the
+other generation, and leaves that exact scenario incomplete when the active
+admission terminates. The broken draining trace starts an admission, begins
+disposal, records the attached waiter's cancellation only after admission is
+draining, and then cannot detach it. The request-guard mutations cancel an
+unrequested pending or attached demand and are rejected by their independently
+latched guard witnesses.
+
+The pending reachability trace is `DemandArrives(g1)`,
+`DemandArrives(g2)`, `DemandStartsAdmission(g1)`,
+`CallerRequestsCancellation(g2)`, then `PendingDemandCancels(g2)`. The draining
+trace is `DemandArrives`, `DemandStartsAdmission`, `DisposalBegins`,
+`CallerRequestsCancellation`, then `AttachedDemandCancels`. Their intentional
+invariant failures therefore require the exact races rather than simpler idle
+or pre-disposal cancellation.
