@@ -108,12 +108,26 @@ public sealed class StateMachineCompletenessTests
     ///
     /// The set here is derived from the build rather than listed, so it widens
     /// when dependencies do and cannot silently shrink to the convenient cases.
-    /// Today it is 35 assemblies carrying 464 structural machines, including
-    /// Microsoft.CodeAnalysis and Microsoft.Testing.Platform, both an order of
-    /// magnitude larger than either specimen. The assertion that some neighbour
-    /// exceeds the larger specimen is what keeps that true: it is derived from
-    /// the specimens rather than pinned to a number, so it stays meaningful if
-    /// the specimens grow.
+    /// Today it is 35 assemblies carrying 464 structural machines. The
+    /// assertion that some neighbour exceeds the larger specimen is what keeps
+    /// the set reaching past them: it is derived from the specimens rather than
+    /// pinned to a number, so it stays meaningful if they grow.
+    ///
+    /// Its margin is worth stating plainly, because an earlier revision of this
+    /// comment called two neighbours "an order of magnitude larger" than the
+    /// specimens without measuring either. They are not. The larger specimen has
+    /// 761 type rows; the widest neighbours are Microsoft.CodeAnalysis.CSharp at
+    /// 2,829 and Microsoft.CodeAnalysis at 2,381, and the next one down is 887 --
+    /// within 17% of the specimen. So only two assemblies, both Roslyn, carry
+    /// this gate past the 1,000-row threshold the round-11 mutation used.
+    ///
+    /// That is the residual: if those dependencies went away, the reach
+    /// assertion would still pass on a neighbour a few rows wider than the
+    /// specimen while the size sensitivity that motivated this test quietly
+    /// left. The assertion pins direction, not margin, and no principled
+    /// threshold is available to pin margin -- the mutation's 1,000 was
+    /// arbitrary, and a constant here would only encode one reviewer's guess.
+    /// Recorded rather than papered over.
     ///
     /// A neighbour reporting Absent is not automatically a product defect -- a
     /// reference assembly retains the nested machine while stripping the
