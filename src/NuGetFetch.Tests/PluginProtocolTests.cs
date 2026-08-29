@@ -693,11 +693,11 @@ public sealed class PluginProtocolTests : IDisposable
                     isNonInteractive: true,
                     canShowDialog: false,
                     cancellation.Token));
-
-            Assert.DoesNotContain(
-                plugin.ReceivedRequests(),
-                recorded => recorded.Method == MessageMethods.GetAuthenticationCredentials);
         }
+
+        Assert.DoesNotContain(
+            plugin.ReceivedRequests(),
+            recorded => recorded.Method == MessageMethods.GetAuthenticationCredentials);
     }
 
     [Fact]
