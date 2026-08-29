@@ -6326,6 +6326,7 @@ function workspaceUrlProjection() {
 }
 
 function syncUrl() {
+  if (packageQueryHandoffInProgress) return;
   if (retainFailedWorkspaceUrl()) return;
   try {
     if (state.atPackageRoot && state.package && !state.loading) {

@@ -2728,6 +2728,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   const handoff =
     appSource.match(/async function openPackageQueryRow\([\s\S]*?\n}\n\nconst packageQueryActions/)?.[0]
     ?? "";
+  const syncUrl =
+    appSource.match(/function syncUrl\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
 
   assert.match(
     results,
@@ -2745,6 +2748,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.match(
     handoff,
     /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*packageQueryHandoffInProgress = true;\s*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*packageQueryHandoffInProgress = false;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+  assert.match(
+    syncUrl,
+    /function syncUrl\(\) \{\s*if \(packageQueryHandoffInProgress\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
   assert.match(
     handoff,
     /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
