@@ -284,6 +284,9 @@ import {
   type QueryFacetTerm,
 } from "./package-query.ts";
 import {
+  createPackageQueryAnnouncementTracker,
+} from "./package-query-announcements.ts";
+import {
   createBrowserPackageQueryDataSource,
   packageQueryFacets,
 } from "./package-query-source.ts";
@@ -938,6 +941,8 @@ const packageQueryController = createPackageQueryController(
     if (state.packageQueryOpen) render();
   },
 );
+const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
+
 const metadataInspection = createMetadataInspectionCoordinator({
   state,
   queryTypeMetadata: request => inspectTypeProjection(
@@ -6750,7 +6755,7 @@ function retainFailedWorkspaceUrl() {
     && !recoverWorkspaceRouteFailure(
       failedState,
       location,
-      url => workspaceLocation.replace(url))) {
+      url => workspaceLocation.replace(url, history.state))) {
     return true;
   }
   failedWorkspaceUrlState = null;
@@ -6762,7 +6767,7 @@ function clearWorkspaceRouteFailure(recoveryUrl?: string) {
   if (!recoverWorkspaceRouteFailure(
     failedWorkspaceUrlState,
     location,
-    url => workspaceLocation.replace(url),
+    url => workspaceLocation.replace(url, history.state),
     recoveryUrl)) {
     return false;
   }
@@ -7018,6 +7023,18 @@ function resetPackageQueryState() {
   state.packageQueryState.outcome = fresh.outcome;
 }
 
+function resetPackageQueryAnnouncements() {
+  packageQueryAnnouncements.reset();
+}
+
+function takePackageQueryAnnouncement(): string {
+  return packageQueryAnnouncements.take({
+    catalogError: state.packageQueryCatalogError,
+    navigationError: state.packageQueryNavigationError,
+    failures: state.packageQueryState.outcome.failures,
+  });
+}
+
 function ensureCurrentHistoryEntryId(): string | null {
   const current = historyEntryId(history.state);
   if (current) return current;
@@ -7040,9 +7057,11 @@ function applyPackageQueryHistory(historyState: unknown) {
 
 function openPackageQueryRoute(seed = "") {
   if (!state.engineReady || state.loading || state.error) return;
+  dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   resetPackageQueryState();
+  resetPackageQueryAnnouncements();
   state.packageQueryPrefix = validPackageQueryPrefix(seed);
   state.packageQueryNavigationError = "";
   const returnFocus: PackageQueryReturnFocus = state.home
@@ -7060,7 +7079,6 @@ function openPackageQueryRoute(seed = "") {
   state.packageQueryOpen = true;
   state.credits = false;
   state.home = false;
-  spotlight.reset();
   workspaceLocation.push(
     "/query",
     predecessorEntryId
@@ -7206,6 +7224,7 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
+    announcement: takePackageQueryAnnouncement(),
     escapeHtml,
   });
   bindPackageQueryView(document, packageQueryActions);
@@ -9706,7 +9725,7 @@ function failCanonicalWorkspaceRestore(
     ? bindWorkspaceRetryToUrl(
       failedUrl,
       () => location.href,
-      url => workspaceLocation.replace(url),
+      url => workspaceLocation.replace(url, history.state),
       retryAction)
     : null;
   if (snapshot?.hasWorkspace) {
@@ -10344,7 +10363,7 @@ function clearNavigationError() {
   state.retryAction = null;
 }
 
-function dismissModalsForHistoryNavigation() {
+function dismissModalsForRoutedNavigation() {
   state.settings = false;
   state.explorer = null;
   state.tasteOpen = false;
@@ -10355,7 +10374,7 @@ function dismissModalsForHistoryNavigation() {
 
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
-  dismissModalsForHistoryNavigation();
+  dismissModalsForRoutedNavigation();
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
   state.loading = false;

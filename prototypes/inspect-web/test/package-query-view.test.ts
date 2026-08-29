@@ -83,6 +83,7 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.match(html, /streaming…/);
   assert.match(html, /data-query-cancel="1"/);
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
+  assert.doesNotMatch(html, /class="query-footer" role="status"/);
 });
 
 test("result rows render typed producer identity instead of a source literal", () => {
@@ -124,11 +125,18 @@ test("a facet catalog failure remains visible beside an empty facet rail", () =>
     state: initialQueryState(),
     availableFacets: [],
     navigationError: "Package-query facets are unavailable: catalog failed.",
+    announcement: "Package-query facets are unavailable: catalog failed.",
     escapeHtml,
   });
 
   assert.match(html, /Package-query facets are unavailable: catalog failed/);
   assert.match(html, /class="query-facets"><\/div>/);
+  assert.match(
+    html,
+    /class="query-announcement" role="alert">Package-query facets are unavailable/);
+  assert.doesNotMatch(
+    html,
+    /class="query-navigation-error" role="alert"/);
 });
 
 test("failures render alongside already-streamed rows, never as a bare empty state", () => {
@@ -141,6 +149,7 @@ test("failures render alongside already-streamed rows, never as a bare empty sta
 
   assert.match(html, /feed Y unreachable/);
   assert.match(html, /<h2>A<\/h2>/);
+  assert.doesNotMatch(html, /class="query-failures" role="alert"/);
 });
 
 test("an exhausted outcome with a partial failure never claims 'all matches'", () => {
@@ -348,9 +357,14 @@ class FakeElement {
 class FakeRoot {
   private readonly elements = new Map<string, FakeElement[]>();
   readonly activeElement: FakeElement | null;
+  readonly body: FakeElement | null;
 
-  constructor(activeElement: FakeElement | null = null) {
+  constructor(
+    activeElement: FakeElement | null = null,
+    body: FakeElement | null = null,
+  ) {
     this.activeElement = activeElement;
+    this.body = body;
   }
 
   add(selector: string, ...elements: FakeElement[]) {
@@ -379,6 +393,11 @@ test("query focus snapshots restore semantic controls after a full render", () =
       active: new FakeElement({}, "package-query-run"),
       selector: "#package-query-run",
       replacement: new FakeElement({}, "package-query-run"),
+    },
+    {
+      active: new FakeElement({}, "package-query-home"),
+      selector: "#package-query-home",
+      replacement: new FakeElement({}, "package-query-home"),
     },
     {
       active: new FakeElement({}, "package-query-back"),
@@ -451,13 +470,10 @@ test("query scroll position survives streamed full renders", () => {
 });
 
 test("unrecognized or vanished query controls fall back to the prefix", () => {
-  const cases = [
-    new FakeElement({}, "query-brand"),
-    new FakeElement({
-      queryRowOpen: "Vanished.Package",
-      queryRowVersion: "1.0.0",
-    }),
-  ];
+  const cases = [new FakeElement({
+    queryRowOpen: "Vanished.Package",
+    queryRowVersion: "1.0.0",
+  })];
 
   for (const active of cases) {
     const prefix = new FakeElement({}, "package-query-prefix");
@@ -472,6 +488,22 @@ test("unrecognized or vanished query controls fall back to the prefix", () => {
 
     assert.equal(prefix.focusCount, 1);
   }
+});
+
+test("an unfocused query render does not move focus into the prefix", () => {
+  const body = new FakeElement();
+  const prefix = new FakeElement({}, "package-query-prefix");
+  const root = new FakeRoot(body, body);
+  root.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(snapshot, null);
+  assert.equal(prefix.focusCount, 0);
 });
 
 test("query prefix focus preserves its selection across a full render", () => {

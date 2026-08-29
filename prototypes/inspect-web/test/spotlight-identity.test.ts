@@ -2450,7 +2450,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*restoreWorkspaceFromLocation\([\s\S]*return;[\s\S]*const packageId = loc\.package/);
   assert.match(
     appSource,
-    /function failCanonicalWorkspaceRestore\([\s\S]*const failedUrl = location\.href;[\s\S]*bindWorkspaceRetryToUrl\(\s*failedUrl,\s*\(\) => location\.href,\s*url => workspaceLocation\.replace\(url\),\s*retryAction\)[\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\([\s\S]*ownedRetryAction\);[\s\S]*failedWorkspaceUrlState = \{\s*kind: "canonical",\s*url: failedUrl,[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
+    /function failCanonicalWorkspaceRestore\([\s\S]*const failedUrl = location\.href;[\s\S]*bindWorkspaceRetryToUrl\(\s*failedUrl,\s*\(\) => location\.href,\s*url => workspaceLocation\.replace\(url, history\.state\),\s*retryAction\)[\s\S]*snapshot\?\.hasWorkspace[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\)[\s\S]*appendQueryNotice\([\s\S]*ownedRetryAction\);[\s\S]*failedWorkspaceUrlState = \{\s*kind: "canonical",\s*url: failedUrl,[\s\S]*projection: workspaceUrlProjection\(\)[\s\S]*render\(\);\s*return/);
   assert.match(
     restore,
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
@@ -2465,7 +2465,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /if \(retainFailedWorkspaceUrl\(\)\) return;/);
   assert.match(
     appSource,
-    /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
+    /function retainFailedWorkspaceUrl\(\) \{\s*const failedState = failedWorkspaceUrlState;\s*const retainedState = retainWorkspaceUrlPreservation\(\s*failedState,\s*location\.href,\s*workspaceUrlProjection\(\)\);\s*if \(retainedState\) return true;\s*if \(failedState\?\.kind === "route"\s*&& !recoverWorkspaceRouteFailure\(\s*failedState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\)\)\) \{\s*return true;\s*\}\s*failedWorkspaceUrlState = null;\s*return false;\s*\}/);
   assert.match(
     appSource,
     /if \(state\.loading \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.home\)/);
@@ -2561,7 +2561,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /function visibleQueryNotice\(\) \{\s*const routeNotice = failedWorkspaceUrlState\?\.kind === "route"\s*\? failedWorkspaceUrlState\.notice\s*: null;\s*return \[state\.queryNotice, routeNotice\]\s*\.filter\(Boolean\)\s*\.join\(" "\);\s*\}/);
   assert.match(
     appSource,
-    /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
+    /function clearWorkspaceRouteFailure\(recoveryUrl\?: string\) \{\s*if \(failedWorkspaceUrlState\?\.kind !== "route"\) return true;\s*if \(!recoverWorkspaceRouteFailure\(\s*failedWorkspaceUrlState,\s*location,\s*url => workspaceLocation\.replace\(url, history\.state\),\s*recoveryUrl\)\) \{\s*return false;\s*\}\s*failedWorkspaceUrlState = null;\s*return true;\s*\}[\s\S]*function dismissQueryNotice\(\) \{\s*const routeFailureOnHome =\s*failedWorkspaceUrlState\?\.kind === "route" && state\.home;\s*state\.queryNotice = "";\s*state\.queryNoticeRetryAction = null;\s*if \(!clearWorkspaceRouteFailure\(routeFailureOnHome \? "\/" : undefined\)\) \{\s*render\(\);\s*return;\s*\}\s*failedWorkspaceUrlState = null;\s*render\(\);\s*\}/);
   assert.match(
     appSource,
     /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,/);
@@ -2761,10 +2761,13 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
-    /const navigationSeq = navigationSequence\.begin\(\);\s*dismissModalsForHistoryNavigation\(\)/);
+    /const navigationSeq = navigationSequence\.begin\(\);\s*dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForHistoryNavigation\(\) \{\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\)/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\)/);
+  assert.match(
+    route,
+    /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
     /if \(isPackageQueryPath\(location\.pathname\)\) \{[\s\S]*applyPackageQueryHistory\(history\.state\)/);
@@ -2806,6 +2809,12 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.match(
     appSource,
     /navigationError: \[\s*state\.packageQueryCatalogError,\s*state\.packageQueryNavigationError/);
+  assert.match(
+    appSource,
+    /announcement: takePackageQueryAnnouncement\(\)/);
+  assert.match(
+    appSource,
+    /url => workspaceLocation\.replace\(url, history\.state\)/);
 });
 
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {

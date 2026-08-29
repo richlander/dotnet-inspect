@@ -124,11 +124,12 @@ package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
 ## Sharing and URL shape
 
 The first production route stores no query request or outcome in the URL.
-Opening or refreshing `/query` starts with an empty prefix and no selected
-facets. Browser history preserves route identity only. A future sharing design
-may define a product-issued query record, but it must not encode a resolved
-`QueryOutcome`: nuget.org moves, so a shared request must be re-run rather than
-presenting stale rows as current.
+Directly loading or refreshing `/query` starts with an empty prefix and no
+selected facets. Browser Back and Forward retain in-memory query state for the
+session; the request and outcome remain absent from URL and history metadata. A
+future sharing design may define a product-issued query record, but it must not
+encode a resolved `QueryOutcome`: nuget.org moves, so a shared request must be
+re-run rather than presenting stale rows as current.
 
 ## Future visualization (unverified)
 

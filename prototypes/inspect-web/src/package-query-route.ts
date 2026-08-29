@@ -1,5 +1,10 @@
+import {
+  isRoutedEntryPath,
+  ROUTED_ENTRY_PATHS,
+} from "./entry-routes.ts";
+
 export function isPackageQueryPath(pathname: string): boolean {
-  return pathname === "/query" || pathname === "/query/";
+  return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.packageQuery);
 }
 
 export type PackageQueryReturnFocus = "home-search" | "package-search";

@@ -19,6 +19,7 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
+  | { kind: "home" }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
@@ -56,6 +57,7 @@ export function capturePackageQueryFocus(
 ): PackageQueryFocusSnapshot | null {
   const active = root.activeElement;
   if (!isFocusableQueryElement(active)) return null;
+  if (active === root.body) return null;
   if (active.id === "package-query-prefix") {
     return {
       kind: "prefix",
@@ -69,6 +71,7 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
+  if (active.id === "package-query-home") return { kind: "home" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.dataset.queryFacet) {
@@ -99,6 +102,9 @@ export function restorePackageQueryFocus(
   switch (snapshot.kind) {
     case "prefix":
       target = root.querySelector("#package-query-prefix");
+      break;
+    case "home":
+      target = root.querySelector("#package-query-home");
       break;
     case "back":
       target = root.querySelector("#package-query-back");
@@ -248,7 +254,7 @@ function renderCompletionFooter(
     ? `<button type="button" data-query-cancel="1">Cancel</button>`
     : "";
   return `
-    <div class="query-footer" role="status">
+    <div class="query-footer">
       <span>${outcome.rows.length} package${outcome.rows.length === 1 ? "" : "s"} · ${label}</span>
       ${cancelButton}
     </div>`;
@@ -312,6 +318,7 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
+  announcement?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -323,6 +330,7 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
+    announcement = "",
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -331,7 +339,7 @@ export function renderPackageQueryView(
     .join("");
   const failures = state.outcome.failures.length
     ? `
-      <section class="query-failures" role="alert">
+      <section class="query-failures">
         <strong>Some package source work failed</strong>
         <ul>${state.outcome.failures
           .map(failure => `<li>${escapeHtml(failure)}</li>`)
@@ -344,16 +352,19 @@ export function renderPackageQueryView(
   const results = rows
     ? `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running" role="status"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as their manifests are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as their manifests are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
       : renderEmptyState(state, escapeHtml);
 
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        <a id="package-query-home" class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
         <button id="package-query-back" type="button">Back</button>
       </header>
       <main class="query-main">
+        ${announcement
+          ? `<div class="query-announcement" role="alert">${escapeHtml(announcement)}</div>`
+          : ""}
         <div class="query-heading">
           <p class="query-kicker">nuspec-only · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
@@ -368,7 +379,7 @@ export function renderPackageQueryView(
             : ""}
         </form>
         ${navigationError
-          ? `<div class="query-navigation-error" role="alert">${escapeHtml(navigationError)}</div>`
+          ? `<div class="query-navigation-error">${escapeHtml(navigationError)}</div>`
           : ""}
         ${failures}
         <div class="query-layout">
