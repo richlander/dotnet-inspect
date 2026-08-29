@@ -97,6 +97,9 @@ public sealed class JsExportFunction
     /// cref="ReturnType"/> is already a marshalable type, or the export has no return payload), or
     /// when more than one distinct DTO was found for the return position (an ambiguity this is
     /// left unresolved rather than guessed — see <see cref="JsonWireContractResolver"/> remarks).
+    /// Compiler-state-machine and runtime-async implementations issue the same fact when their
+    /// authenticated wire contracts are equivalent; gated by
+    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLowerings</c>.
     /// </summary>
     public string? ReturnWireType { get; init; }
 

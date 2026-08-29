@@ -127,6 +127,26 @@ Two matching generated-root PropertyDefs with the same metadata identity also
 fail rather than letting declaration metadata select one while runtime code
 calls the other.
 
+Return JSON-wire facts are lowering-independent. A synchronous `string` export
+must return only authenticated source-generated `Serialize<T>` results.
+A compiler-async `Task<string>` export must feed those results into the
+authenticated `MoveNext` builder completion sink. A runtime-async
+`Task<string>` export must instead carry Analysis's explicit `Runtime`
+attribution on the exact exported physical method and return those same
+serializer results from that method's own `ret`. The resolver does not infer
+lowering from identity coincidences or recognize runtime-async IL shapes.
+Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
+declaration, or serializer evidence from a lifted local function or another
+method leaves `ReturnWireType` unset.
+`JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLowerings`
+gates equal owner-issued facts from paired compilations of the same genuinely
+awaited export.
+`RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata`,
+`Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns`,
+`Build_RuntimeAsyncRejectsIncompleteReturnCoverage`, and
+`Build_RuntimeAsyncRejectsAnotherMethodsSerializerEvidence` gate the close
+negative boundaries.
+
 `JsExportSurfaceBuilderTests.Build_RejectsBodylessJsExportsWithoutRuntimeWrappers`,
 `Extract_RetainsFilteredJsExportRowsFromCompilerGeneratedTypes`,
 `Build_RejectsJsExportWithoutGeneratedRuntimeWrapper`,
