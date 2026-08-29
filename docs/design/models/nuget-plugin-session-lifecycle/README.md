@@ -130,11 +130,11 @@ product behavior:
 | Initialization follows the required wire sequence | `PluginProtocolTests.InitializationFollowsTheProtocolSequence` |
 | The symmetric handshake accepts only protocol 2.0.0 | `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo`, `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse`, and `PluginProtocolTests.InvalidOrUnsupportedOutboundHandshakeStopsInitialization` |
 | A dying process settles the current request as plugin failure | `PluginProtocolTests.WhenOnePluginDiesDuringTheRequest_TheNextIsTried` |
-| Caller cancellation remains caller cancellation | `PluginProtocolTests.CallerCancellationContinuesToPropagate` |
+| Caller cancellation remains caller cancellation | `PluginProtocolTests.CallerCancellationContinuesToPropagate`, `PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, and `PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation` |
 | A malformed response header does not end the read loop | `PluginProtocolTests.AProtocolMessageWithNonStringHeadersIsIgnoredRatherThanEndingTheConversation` |
 | Concurrent request-ID correlation and out-of-order replies | Unverified. |
 | Progress renews the matching implementation timer | Unverified; the design previously described this as tested, but no matching test exists. |
-| Pipe loss closes admission before pending requests are collected | Not implemented; `CurrentShutdownAdmission.cfg` and `CurrentShutdownSnapshot.cfg` abstract the current ordering. |
+| Pipe loss closes admission before pending requests are collected | `PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout`, `PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, and `PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot` |
 | A stalled in-progress write is bounded by terminating the connection | Not implemented; `CurrentStalledWrite.cfg` abstracts the current control flow. |
 | Malformed plugin-originated payloads settle inbound work | `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse` |
 
