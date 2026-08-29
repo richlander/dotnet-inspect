@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -25,6 +24,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly PEReader _peReader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver;
+    readonly LibraryBodyGenericConstraintClassifier
+        _genericConstraintClassifier;
     readonly LibraryBodyStableReceiverGetterClassifier
         _stableReceiverGetterClassifier;
     readonly LibraryBodyMethodReferenceResolver
@@ -95,6 +96,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             new LibraryBodyMethodReferenceResolver(
                 reader,
                 methodReferenceResolved);
+        _genericConstraintClassifier =
+            new LibraryBodyGenericConstraintClassifier(reader);
         _stableReceiverGetterClassifier =
             new LibraryBodyStableReceiverGetterClassifier(
                 reader,
@@ -106,7 +109,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _assemblyName,
                 _mvid,
                 _methodReferenceResolver.ResolveMethod,
-                GenericParameterCanBeValueType,
+                _genericConstraintClassifier
+                    .GenericParameterCanBeValueType,
                 _stableReceiverGetterClassifier
                     .IsStableReceiverGetter,
                 asyncStateMachineTypesBuilt);
@@ -148,7 +152,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 reader,
                 ResolveExternalAsyncSiblingTypeDefinition,
                 _asyncSiblingMethodIndex,
-                HasGenericConstraints);
+                _genericConstraintClassifier
+                    .HasGenericConstraints);
         _asyncSiblingAccessibilityAnalyzer =
             new LibraryBodyAsyncSiblingAccessibilityAnalyzer(
                 reader,
@@ -162,7 +167,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _asyncSiblingMethodIndex,
                 _asyncSiblingDispatchAnalyzer,
                 _asyncSiblingAccessibilityAnalyzer,
-                HasGenericConstraints);
+                _genericConstraintClassifier
+                    .HasGenericConstraints);
     }
 
     public void Dispose() =>
@@ -666,23 +672,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return inherited;
     }
 
-    static bool HasGenericConstraints(
-        MetadataReader reader,
-        MethodDefinition method)
-    {
-        foreach (var handle in method.GetGenericParameters())
-        {
-            var parameter = reader.GetGenericParameter(handle);
-            if (parameter.Attributes
-                    != GenericParameterAttributes.None
-                || parameter.GetConstraints().Count > 0)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {
         if (constructor.Kind == HandleKind.MemberReference
@@ -697,79 +686,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
         }
         return ("", "");
-    }
-
-    bool GenericParameterCanBeValueType(
-        TypeRef genericParameter,
-        MethodIdentity caller)
-    {
-        try
-        {
-            var methodHandle = (MethodDefinitionHandle)
-                MetadataTokens.EntityHandle(caller.MetadataToken);
-            var method = _reader.GetMethodDefinition(methodHandle);
-            GenericParameterHandleCollection handles =
-                genericParameter.Kind == TypeRefKind.MethodGenericParameter
-                    ? method.GetGenericParameters()
-                    : _reader.GetTypeDefinition(method.GetDeclaringType())
-                        .GetGenericParameters();
-            if (genericParameter.GenericParameterIndex < 0
-                || genericParameter.GenericParameterIndex >= handles.Count)
-            {
-                return false;
-            }
-
-            var handle = handles.ElementAt(
-                genericParameter.GenericParameterIndex);
-            var parameter = _reader.GetGenericParameter(handle);
-            if ((parameter.Attributes
-                    & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
-            {
-                return false;
-            }
-
-            foreach (var constraintHandle in parameter.GetConstraints())
-            {
-                EntityHandle constraint =
-                    _reader.GetGenericParameterConstraint(constraintHandle).Type;
-                if (!ConstraintCanIncludeValueType(constraint))
-                    return false;
-            }
-            return true;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException
-            or InvalidCastException)
-        {
-            return false;
-        }
-    }
-
-    bool ConstraintCanIncludeValueType(EntityHandle constraint)
-    {
-        if (constraint.Kind == HandleKind.TypeDefinition)
-        {
-            TypeAttributes attributes = _reader
-                .GetTypeDefinition((TypeDefinitionHandle)constraint)
-                .Attributes;
-            return (attributes & TypeAttributes.Interface) != 0;
-        }
-
-        if (constraint.Kind == HandleKind.TypeReference)
-        {
-            var reference = _reader.GetTypeReference(
-                (TypeReferenceHandle)constraint);
-            string @namespace = _reader.GetString(reference.Namespace);
-            string name = _reader.GetString(reference.Name);
-            return @namespace == "System"
-                && name is "ValueType" or "Enum";
-        }
-
-        // Type specifications and generic-parameter constraints cannot be
-        // proven here to admit a value-type instantiation.
-        return false;
     }
 
     TypeRef TypeFromEntity(EntityHandle handle)
