@@ -255,7 +255,8 @@ internal sealed class PluginConnection : IAsyncDisposable
 
                 _testHooks?.RequestAdmissionAccepted?.Invoke(gateEntry);
                 _pending[requestId] = pending;
-                _testHooks?.RequestRegistered?.Invoke(gateEntry);
+                _testHooks?.RequestRegistered?.Invoke(
+                    (gateEntry, Monitor.IsEntered(_pendingGate)));
             }
 
             await WriteAsync(
@@ -375,7 +376,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
         public Action<long>? RequestAdmissionAccepted { get; init; }
 
-        public Action<long>? RequestRegistered { get; init; }
+        public Action<(long GateEntry, bool GateHeld)>? RequestRegistered { get; init; }
 
         public Action? TerminalSettlementAttempted { get; init; }
 
