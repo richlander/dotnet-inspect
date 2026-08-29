@@ -247,12 +247,43 @@ internal sealed class LibraryBodyAsyncSourceResolver
             typeSourceGenerated,
             includeGeneratedIntermediate: true);
 
+    internal AsyncBodyAttribution? ResolveAsyncBody(
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated)
+    {
+        MethodIdentity? source = ResolveSourceMethod(
+            physicalMethod,
+            methodDefinition,
+            typeSourceGenerated,
+            includeGeneratedIntermediate: true,
+            out AsyncLoweringKind? lowering);
+        if (source is null || lowering is null)
+            return null;
+
+        return new(source, lowering.Value);
+    }
+
     MethodIdentity? ResolveSourceMethod(
         MethodIdentity physicalMethod,
         MethodDefinition methodDefinition,
         bool typeSourceGenerated,
-        bool includeGeneratedIntermediate)
+        bool includeGeneratedIntermediate) =>
+        ResolveSourceMethod(
+            physicalMethod,
+            methodDefinition,
+            typeSourceGenerated,
+            includeGeneratedIntermediate,
+            out _);
+
+    MethodIdentity? ResolveSourceMethod(
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated,
+        bool includeGeneratedIntermediate,
+        out AsyncLoweringKind? lowering)
     {
+        lowering = null;
         MethodClassification? classification =
             MethodClassificationScanner.ClassifyAsyncMethod(
                 _reader,
@@ -265,15 +296,19 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 throw new BadImageFormatException(
                     "The async source method does not have an analyzable managed IL body.");
             }
-            return !typeSourceGenerated
-                && !_primaryMetadataResolver.HasGeneratedCodeAttribute(
+            if (typeSourceGenerated
+                || _primaryMetadataResolver.HasGeneratedCodeAttribute(
                     methodDefinition.GetCustomAttributes())
-                && !_primaryMetadataResolver
+                || _primaryMetadataResolver
                     .HasCompilerGeneratedAttribute(
                         methodDefinition.GetCustomAttributes())
-                && !IsBlazorRenderMethod(physicalMethod)
-                    ? physicalMethod
-                    : null;
+                || IsBlazorRenderMethod(physicalMethod))
+            {
+                return null;
+            }
+
+            lowering = AsyncLoweringKind.Runtime;
+            return physicalMethod;
         }
 
         AsyncStateMachineAttributeInfo stateMachineAttribute =
@@ -386,30 +421,45 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 out MethodIdentity? executionSource))
         {
             if (includeGeneratedIntermediate)
+            {
+                lowering = AsyncLoweringKind.StateMachine;
                 return ValidateGeneratedIntermediate(
                     executionSource);
-            return actionableSources.TryGetValue(
+            }
+            MethodIdentity? actionableExecutionSource =
+                actionableSources.TryGetValue(
                 physicalMethod.MetadataToken,
-                out MethodIdentity? actionableExecutionSource)
-                ? actionableExecutionSource
+                out MethodIdentity? actionable)
+                ? actionable
                 : null;
+            if (actionableExecutionSource is not null)
+                lowering = AsyncLoweringKind.StateMachine;
+            return actionableExecutionSource;
         }
         if (executionMethods.SourceByMoveNextToken.TryGetValue(
                 physicalMethod.MetadataToken,
                 out MethodIdentity? source))
         {
             if (includeGeneratedIntermediate)
+            {
+                lowering = AsyncLoweringKind.StateMachine;
                 return ValidateGeneratedIntermediate(source);
-            return actionableSources.TryGetValue(
+            }
+            MethodIdentity? actionableSource =
+                actionableSources.TryGetValue(
                     physicalMethod.MetadataToken,
-                    out MethodIdentity? actionableSource)
-                ? actionableSource
+                    out MethodIdentity? actionable)
+                ? actionable
                 : null;
+            if (actionableSource is not null)
+                lowering = AsyncLoweringKind.StateMachine;
+            return actionableSource;
         }
         if (actionableSources.TryGetValue(
                 physicalMethod.MetadataToken,
                 out source))
         {
+            lowering = AsyncLoweringKind.StateMachine;
             return source;
         }
         return null;

@@ -503,6 +503,48 @@ identity stays in artifact/workspace provenance and optional package query
 results. It does not become a case in a Metadata-owned provenance union that
 assembly inspection must understand.
 
+#### Package Root realization
+
+An exact acquired package is a `PackageRootRealization` before compile-asset
+selection succeeds. That host-neutral product result retains:
+
+- exact package id and version;
+- the requested target framework and the selector's selected framework, when
+  either exists;
+- the package content producer key and cache origin;
+- the complete typed `PackageCompileAssetSelection`, including
+  `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
+  `InvalidImplementationAssets`.
+
+Compile-library availability is a capability of that Root, not a precondition
+for the Root to exist. The host workspace retains every requested Root.
+`PackageAssemblyContextRealization` separately creates surface or
+implementation assembly-context groups only for Roots whose selection status is
+`Selected` and whose selected asset set is non-empty. It does not become a
+package-root container. A workspace containing only Root-capable coordinates
+has no assembly groups. A mixed workspace retains all Roots at the host
+boundary while creating groups for selected coordinates only.
+
+A host may project Root-owned facts such as exact identity, package documents,
+or manifest dependencies from a Root-only coordinate. Assembly-backed
+operations must report the retained compile-library outcome as unavailable or
+failed. They must not invent an assembly participant, reinterpret an absent
+group as an empty API surface, or route package-root access through an
+acquisition-only assembly set. A selected assembly that fails metadata decoding
+remains a distinct visible participant failure.
+
+Browser workspace registry identity frames every package, version, and
+framework component with its length before composing a multi-package key.
+Caller-controlled framework text therefore remains data inside one coordinate
+and cannot create or remove coordinate boundaries. Manifest dependency groups
+with a missing or blank framework project as NuGet's framework-neutral `any`;
+nonblank framework text that the Browser cannot represent still fails visibly
+rather than being emitted or silently dropped.
+
+This contract does not choose the initial UI subject or define package-view
+presentation. Inspection Subject Navigation owns subject availability and
+initial subject recommendation; host presentation consumes those decisions.
+
 The adapter also validates package coordinate, version, selected asset path,
 producer, and content identity before minting a package realization and
 acquisition registration. Package-aware graph and dependency queries move to an
@@ -921,6 +963,24 @@ The target is complete only when tests equivalent to these exist:
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`
 - `PackageAdapter_ProjectsSelectedEntriesWithoutLeakingPackageTypes`
+- `PackageWithoutCompileAssets_RetainsRootWithoutAssemblyRoles`
+- `ExplicitEmptyCompileGroup_RetainsRootWithoutAssemblyRoles`
+- `NoMatchingFramework_RetainsRequestedRootWithoutAssemblyRoles`
+- `InvalidImplementationLayout_RetainsFailedRootWithoutAssemblyRoles`
+- `MixedPackages_CreateRolesOnlyForSelectedCompileAssets`
+- `PackageRootIdentity_DistinguishesRequestedFrameworksByReference`
+- `PackageWorkspaceIntegrationsQuery_RejectsRootOnlyRealization`
+- `PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity`
+- `PackageCoordinate_RejectsDifferentContentWithSameIdentity`
+- `PackageScope_DoesNotCollapseDifferentContentAtSameCoordinate`
+- `PackageScope_ValidatesEveryCoordinateAgainstCacheProvenance`
+- `PackageScope_RequestedFrameworkCannotForgeCompositeRegistryKey`
+- `MixedPackageScope_RealizesOnlySelectedCoordinates`
+- `PackageFrameworkUnavailability_DoesNotEmitArtifactFramework`
+- `PackageDependencies_BlankDeclaredFrameworkDoesNotAbortProjection`
+- `QueryPackage_ToolsPointerRetainsRootAndManifestDependencies`
+- `QueryPackage_ExplicitEmptyCompileGroupRetainsTypedAbsence`
+- `QueryPackage_NoMatchingFrameworkRetainsRequestedRoot`
 - `PackageGraphProjection_UsesAdapterOwnedCorrespondence`
 - `PlatformGraphProjection_UsesAdapterOwnedCorrespondence`
 - `RemotePlatformPack_UsesPackageMappingVersionAndProducerAuthorization`
@@ -969,6 +1029,12 @@ remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
 a source-path fallback cannot satisfy the gate.
+
+`PackageAssemblyContextRealizationTests` enforce package Root retention,
+producer/cache provenance, and assembly-group creation only for selected
+compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
+explicit-empty-group cases, including typed compile-library absence, package
+documents, manifest dependencies, and no fabricated default assembly.
 
 Workspace-wide admission budgets, single-flight/reentrancy, directory
 acquisition, content digests, dependent-group quiescence, and Metadata

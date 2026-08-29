@@ -1164,12 +1164,8 @@ public class DiffCommand
         var comparisons = subjects.Values.Select(subject =>
             new PdbSourceComparisonInput(
                 subject,
-                from.GetValueOrDefault(subject.Id)
-                    ?? new FindingInspection<string>.Absent(
-                        "The member is unavailable in the old endpoint."),
-                to.GetValueOrDefault(subject.Id)
-                    ?? new FindingInspection<string>.Absent(
-                        "The member is unavailable in the new endpoint.")));
+                PdbSourceInspectionFor(from, subject, oldSide: true),
+                PdbSourceInspectionFor(to, subject, oldSide: false)));
         return ImplementationDiff.WithPdbSourceComparisons(
             result,
             comparisons,
@@ -1178,7 +1174,35 @@ public class DiffCommand
                 MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal)));
     }
 
-    static async Task<Dictionary<string, FindingInspection<string>>> AcquirePdbSourceInspectionsAsync(
+    internal sealed record PdbSourceInspectionBatch(
+        ImmutableDictionary<string, FindingInspection<string>> Inspections,
+        ImmutableArray<string> IndexingFailures);
+
+    internal static FindingInspection<string> PdbSourceInspectionFor(
+        PdbSourceInspectionBatch batch,
+        ResearchSubjectKey subject,
+        bool oldSide)
+    {
+        if (batch.Inspections.TryGetValue(subject.Id, out var inspection))
+            return inspection;
+
+        string side = oldSide ? "old" : "new";
+        if (!batch.IndexingFailures.IsEmpty)
+        {
+            return new FindingInspection<string>.Failed(
+                new InspectionError(
+                    new FindingSubject(subject.Id, subject.Display),
+                    ILInspector.Text.TextFindings.LineDescriptor,
+                    $"PDB-source target indexing failed for the {side} endpoint: "
+                    + string.Join("; ", batch.IndexingFailures)));
+        }
+
+        return new FindingInspection<string>.Absent(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            $"The member is unavailable in the {side} endpoint.");
+    }
+
+    internal static async Task<PdbSourceInspectionBatch> AcquirePdbSourceInspectionsAsync(
         IReadOnlyList<string> paths,
         IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
         DiffOptions options,
@@ -1187,6 +1211,7 @@ public class DiffCommand
         VerboseLogger logger)
     {
         var results = new Dictionary<string, FindingInspection<string>>(StringComparer.Ordinal);
+        var indexingFailures = ImmutableArray.CreateBuilder<string>();
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var (packageName, packageVersion) = DiffPackageIdentity(options, oldSide);
 
@@ -1206,8 +1231,21 @@ public class DiffCommand
                 or BadImageFormatException
                 or InvalidOperationException)
             {
-                logger.Log($"Could not index PDB-source targets in '{path}': {ex.Message}");
+                string failure =
+                    $"Could not index PDB-source targets in '{path}' "
+                    + $"({ex.GetType().Name}): {ex.Message}";
+                logger.Log(failure);
+                indexingFailures.Add(failure);
                 continue;
+            }
+
+            foreach (string failure in PdbSourceDeclarationIndexFailures(
+                path,
+                index.DeclaredMethods,
+                index.Diagnostics))
+            {
+                logger.Log(failure);
+                indexingFailures.Add(failure);
             }
 
             var targets = index.DeclaredMethods
@@ -1266,7 +1304,29 @@ public class DiffCommand
             }
         }
 
-        return results;
+        return new PdbSourceInspectionBatch(
+            results.ToImmutableDictionary(StringComparer.Ordinal),
+            indexingFailures.ToImmutable());
+    }
+
+    internal static ImmutableArray<string> PdbSourceDeclarationIndexFailures(
+        string path,
+        IEnumerable<MethodIdentity> declaredMethods,
+        IEnumerable<AnalysisDiagnostic> diagnostics)
+    {
+        var declaredTokens = declaredMethods
+            .Select(static method => method.MetadataToken)
+            .ToHashSet();
+        return
+        [
+            .. diagnostics
+                .Where(diagnostic =>
+                    !declaredTokens.Contains(diagnostic.MethodToken))
+                .Select(diagnostic =>
+                    $"Could not index PDB-source target in '{path}' "
+                    + $"(method token 0x{diagnostic.MethodToken:X8}, "
+                    + $"'{diagnostic.Method}'): {diagnostic.Message}"),
+        ];
     }
 
     static (string? PackageName, string? PackageVersion) DiffPackageIdentity(
@@ -1483,58 +1543,90 @@ public class DiffCommand
         var diffOptions = new ApiDiffOptions(
             options.IncludeAll ? ApiDiffScope.All : ApiDiffScope.Signature);
         string descriptor = ResolveFindingDescriptor(options);
+        IEnumerable<string> typeNames = ResolveFindingTypeNames(
+            fromSurface,
+            toSurface,
+            options.TypeFilter);
         if (descriptor == MetadataFindings.TypeDescriptor.Id)
         {
-            var typeComparison = MetadataFindings.CompareApiTypes(
-                fromSurface,
-                toSurface,
-                subject,
-                diffOptions);
-            return CompletePairs(typeComparison)
-                .Where(pair => options.TypeFilter.Any(filter =>
-                    MatchesDiffTypeFilter(TypeTarget(pair), filter)))
-                .Select(pair => ToTypeTransitionRow(pair, fromVersion, toVersion))
+            return typeNames
+                .SelectMany(typeName => ComparisonRows(
+                    MetadataFindings.CompareApiType(
+                        fromSurface,
+                        toSurface,
+                        subject,
+                        typeName,
+                        diffOptions),
+                    MetadataFindings.TypeDescriptor,
+                    typeName,
+                    fromVersion,
+                    toVersion,
+                    emitEmptyComparison: false,
+                    pair => ToTypeTransitionRow(
+                        pair,
+                        fromVersion,
+                        toVersion)))
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ToList();
         }
 
         if (descriptor == MetadataFindings.AttributeDescriptor.Id)
         {
-            var typeNames = ResolveFindingTypeNames(fromSurface, toSurface, options.TypeFilter);
             return typeNames
-                .SelectMany(typeName => CompletePairs(MetadataFindings.CompareApiAttributes(
+                .SelectMany(typeName => ComparisonRows(
+                    MetadataFindings.CompareApiAttributes(
+                        fromSurface,
+                        toSurface,
+                        subject,
+                        typeName),
+                    MetadataFindings.AttributeDescriptor,
+                    typeName,
+                    fromVersion,
+                    toVersion,
+                    emitEmptyComparison: false,
+                    pair => ToAttributeTransitionRow(
+                        pair,
+                        fromVersion,
+                        toVersion)))
+                .OrderBy(row => row.Target, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        ResolvedDiffMemberTargets? targets = null;
+        if (options.MemberFilter.Count == 0)
+        {
+            targets = null;
+        }
+        else
+        {
+            targets = ResolveMemberTargetIdentities(
+                fromSurface,
+                toSurface,
+                options.MemberFilter,
+                options.TypeFilter);
+            typeNames = targets.TypeNames;
+        }
+
+        return typeNames
+            .SelectMany(typeName => ComparisonRows(
+                MetadataFindings.CompareApiMembers(
                     fromSurface,
                     toSurface,
                     subject,
-                    typeName)))
-                .Select(pair => ToAttributeTransitionRow(pair, fromVersion, toVersion))
-                .OrderBy(row => row.Target, StringComparer.Ordinal)
-                .ToList();
-        }
-
-        var memberComparison = MetadataFindings.CompareApiMembers(
-            fromSurface,
-            toSurface,
-            subject,
-            diffOptions);
-        if (options.MemberFilter.Count == 0)
-        {
-            return CompletePairs(memberComparison)
-                .Where(pair => options.TypeFilter.Any(filter =>
-                    MatchesDiffTypeFilter(MemberTypeTarget(pair), filter)))
-                .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion))
-                .OrderBy(row => row.Target, StringComparer.Ordinal)
-                .ToList();
-        }
-
-        var targets = ResolveMemberTargetIdentities(
-            fromSurface,
-            toSurface,
-            options.MemberFilter,
-            options.TypeFilter);
-        return CompletePairs(memberComparison)
-            .Where(pair => MatchesMemberPair(pair, targets))
-            .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion))
+                    typeName,
+                    diffOptions),
+                MetadataFindings.MemberDescriptor,
+                typeName,
+                fromVersion,
+                toVersion,
+                emitEmptyComparison: false,
+                pair => ToMemberTransitionRow(
+                    pair,
+                    fromVersion,
+                    toVersion),
+                targets is null
+                    ? null
+                    : pair => MatchesMemberPair(pair, targets)))
             .OrderBy(row => row.Target, StringComparer.Ordinal)
             .ToList();
     }
@@ -1703,62 +1795,101 @@ public class DiffCommand
         Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
             toTransitionRow)
         where T : notnull
+        => ComparisonRows(
+            retained.Comparison,
+            retained.Descriptor,
+            retained.Subject.Display,
+            fromVersion,
+            toVersion,
+            emitEmptyComparison,
+            pair => toTransitionRow(
+                retained.Subject,
+                pair,
+                fromVersion,
+                toVersion));
+
+    internal static IEnumerable<FindingTransitionRow> ComparisonRows<T>(
+        FindingComparison<T> comparison,
+        FindingDescriptor descriptor,
+        string target,
+        string fromVersion,
+        string toVersion,
+        bool emitEmptyComparison,
+        Func<PairFinding<T>, FindingTransitionRow> toTransitionRow,
+        Func<PairFinding<T>, bool>? includePair = null)
+        where T : notnull
     {
-        if (retained.Comparison.Value is FindingComparison<T>.Failed failed)
+        if (comparison.Value is FindingComparison<T>.Failed failed)
         {
             yield return new FindingTransitionRow(
                 "FindingComparison.Failed",
-                retained.Descriptor.Id,
-                retained.Subject.Display,
+                descriptor.Id,
+                target,
                 fromVersion,
                 toVersion,
                 InspectionState(failed.OldInspection),
                 InspectionState(failed.NewInspection),
-                failed.Failure);
+                failed.Failure)
+                .WithInspectionStates(
+                    InspectionState(failed.OldInspection),
+                    InspectionState(failed.NewInspection));
             yield break;
         }
 
-        var complete = retained.Comparison switch
+        var complete = (FindingComparison<T>.Complete)comparison.Value;
+        PairFinding<T>[] pairs = includePair is null
+            ? [.. complete.Pairs]
+            : [.. complete.Pairs.Where(includePair)];
+        if (pairs.Length == 0)
         {
-            FindingComparison<T>.Complete
-                => (FindingComparison<T>.Complete)retained.Comparison.Value,
-            FindingComparison<T>.Failed => throw new InvalidOperationException(
-                "Failed comparisons are handled before completed comparisons."),
-        };
-        if (complete.Pairs.IsEmpty)
-        {
-            if (!emitEmptyComparison)
+            if (!emitEmptyComparison
+                && complete.Transition.IsSameTopology)
+            {
                 yield break;
+            }
 
             yield return new FindingTransitionRow(
                 "FindingComparison.Complete",
-                retained.Descriptor.Id,
-                retained.Subject.Display,
+                descriptor.Id,
+                target,
                 fromVersion,
                 toVersion,
                 InspectionState(complete.OldInspection),
                 InspectionState(complete.NewInspection),
-                null);
+                null)
+                .WithInspectionStates(
+                    InspectionState(complete.OldInspection),
+                    InspectionState(complete.NewInspection));
             yield break;
         }
 
-        foreach (var pair in complete.Pairs)
+        foreach (PairFinding<T> pair in pairs)
         {
-            yield return toTransitionRow(
-                retained.Subject,
-                pair,
-                fromVersion,
-                toVersion);
+            yield return toTransitionRow(pair)
+                .WithInspectionStates(
+                    InspectionState(complete.OldInspection),
+                    InspectionState(complete.NewInspection));
         }
     }
 
     static string InspectionState<T>(FindingInspection<T> inspection)
         where T : notnull
-        => inspection switch
+        => inspection.Value switch
         {
             FindingInspection<T>.Complete => "complete",
-            FindingInspection<T>.Absent => "absent",
+            FindingInspection<T>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.SubjectAbsent,
+                } => "subject-absent",
+            FindingInspection<T>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.NoApplicableInput,
+                } => "no-applicable-input",
+            FindingInspection<T>.Absent absent => throw new InvalidOperationException(
+                $"Unsupported Finding inspection absence kind '{absent.Kind}'."),
             FindingInspection<T>.Failed => "failed",
+            _ => throw new InvalidOperationException(
+                "Finding inspection returned an unknown outcome."),
         };
 
     static IReadOnlyList<PairFinding<T>> CompletePairs<T>(FindingComparison<T> comparison)
@@ -2037,16 +2168,35 @@ public class DiffCommand
         string bodySectionName = "Analysis Diff")
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
-        HashSet<string> typeNames = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> typeNames = new(StringComparer.Ordinal);
         foreach (var rawTarget in memberTargets)
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
+            foreach (string typeName in ResolveFindingTypeNames(
+                fromSurface,
+                toSurface,
+                [parsed.TypeName]))
+            {
+                typeNames.Add(typeName);
+            }
+
             var found = false;
             var bodyFound = false;
             MemberTargetDiagnostic? diagnostic = null;
             MemberTargetDiagnostic? nonFatalDiagnostic = null;
-            var oldType = FindExactType(fromSurface, parsed.TypeName);
-            var newType = FindExactType(toSurface, parsed.TypeName);
+            ApiType? oldType = FindSelectedType(
+                fromSurface,
+                parsed.TypeName,
+                out string? oldTypeError);
+            ApiType? newType = FindSelectedType(
+                toSurface,
+                parsed.TypeName,
+                out string? newTypeError);
+            if (oldTypeError is not null || newTypeError is not null)
+            {
+                throw new InvalidOperationException(
+                    oldTypeError ?? newTypeError);
+            }
 
             if (oldType is not null)
             {
@@ -2200,36 +2350,24 @@ public class DiffCommand
 
     static bool TryFindSingleType(ApiSurface fromSurface, ApiSurface toSurface, string query, out string typeName, out string? error)
     {
-        error = null;
-        var matches = FindTypes(fromSurface, query)
-            .Concat(FindTypes(toSurface, query))
-            .Select(type => type.FullName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.Ordinal)
-            .ToList();
-
-        if (matches.Count == 0)
+        string? oldTypeName = SelectTypeName(
+            fromSurface,
+            query,
+            out string? oldError);
+        string? newTypeName = SelectTypeName(
+            toSurface,
+            query,
+            out string? newError);
+        error = oldError ?? newError;
+        if (error is not null
+            || oldTypeName is null && newTypeName is null)
         {
             typeName = "";
             return false;
         }
 
-        if (matches.Count > 1)
-        {
-            typeName = "";
-            error = $"Type target '{query}' is ambiguous. Use one of: {string.Join(", ", matches)}.";
-            return false;
-        }
-
-        typeName = matches[0];
+        typeName = query;
         return true;
-    }
-
-    static IEnumerable<ApiType> FindTypes(ApiSurface surface, string query)
-    {
-        foreach (var type in surface.Types)
-            if (TypeMatcher.MatchesTypeFilter(type.FullName, query))
-                yield return type;
     }
 
     static IReadOnlyList<string> ResolveFindingTypeNames(
@@ -2238,18 +2376,65 @@ public class DiffCommand
         IReadOnlyCollection<string> typeFilters)
     {
         var names = typeFilters
-            .SelectMany(filter => FindTypes(fromSurface, filter)
-                .Concat(FindTypes(toSurface, filter))
-                .Select(type => type.FullName)
+            .SelectMany(filter => ResolveFindingTypeNames(fromSurface, filter)
+                .Concat(ResolveFindingTypeNames(toSurface, filter))
                 .DefaultIfEmpty(filter))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
         return names;
     }
 
-    static ApiType? FindExactType(ApiSurface surface, string fullName)
-        => surface.Types.FirstOrDefault(type => type.FullName.Equals(fullName, StringComparison.OrdinalIgnoreCase));
+    static IEnumerable<string> ResolveFindingTypeNames(
+        ApiSurface surface,
+        string filter)
+    {
+        string[] matches = FindingTypeNames.EnumerateResolvable(surface)
+            .Where(typeName =>
+                TypeMatcher.MatchesTypeFilter(typeName, filter))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string? exact = matches.FirstOrDefault(typeName =>
+            typeName.Equals(filter, StringComparison.Ordinal));
+        return exact is null ? matches : [exact];
+    }
+
+    static ApiType? FindSelectedType(
+        ApiSurface surface,
+        string query,
+        out string? error)
+    {
+        string? selectedName = SelectTypeName(
+            surface,
+            query,
+            out error);
+        if (selectedName is null)
+            return null;
+
+        return surface.Types.FirstOrDefault(type =>
+            type.FullName.Equals(
+                selectedName,
+                StringComparison.Ordinal));
+    }
+
+    static string? SelectTypeName(
+        ApiSurface surface,
+        string query,
+        out string? error)
+    {
+        string[] matches = ResolveFindingTypeNames(surface, query)
+            .ToArray();
+        if (matches.Length > 1)
+        {
+            error = $"Type target '{query}' is ambiguous. Use one of: "
+                + $"{string.Join(", ", matches)}.";
+            return null;
+        }
+
+        error = null;
+        return matches.SingleOrDefault();
+    }
 
     static bool IsMemberChange(ChangeKind kind)
         => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
