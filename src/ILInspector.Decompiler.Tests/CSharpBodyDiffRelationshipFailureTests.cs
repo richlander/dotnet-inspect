@@ -105,6 +105,50 @@ public class CSharpBodyDiffRelationshipFailureTests
     }
 
     [Fact]
+    public void MissingInspection_RetainedBodyFailureDoesNotPoisonAbsence()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-csharp-retained-failure-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "old.dll");
+
+        try
+        {
+            File.WriteAllBytes(path, BuildBodyReferenceImage());
+
+            CSharpBodyDiff.CSharpMethodIndex index =
+                CSharpBodyDiff.BuildMethodIndexWithFailures(
+                    [path],
+                    includeNonPublic: true,
+                    typeFilters: null,
+                    side: "old");
+            Assert.Single(index.Failures);
+            Assert.Empty(index.DeclarationOmissionFailures);
+            string stableAssemblyKey =
+                Assert.Single(index.Methods.Values).StableAssemblyKey;
+
+            FindingInspection<CSharpCanonicalLine> inspection =
+                CSharpFindings.MissingInspection(
+                    index,
+                    stableAssemblyKey,
+                    new FindingSubject("added", "Added"),
+                    "old");
+
+            var absent = Assert.IsType<
+                FindingInspection<CSharpCanonicalLine>.Absent>(
+                    inspection.Value);
+            Assert.Equal(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                absent.Kind);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CompareAssemblies_AsymmetricIdentityFailureDoesNotBecomeAddedFinding()
     {
         string directory = Path.Combine(

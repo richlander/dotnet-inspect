@@ -692,6 +692,69 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildFindingTransitions_MemberFilterPreservesCaseOnlyTypeIdentities()
+    {
+        var rows = DiffCommand.BuildFindingTransitions(
+            DiffSurface(DiffType(
+                "Sample",
+                "Widget",
+                DiffMember("Run"))),
+            DiffSurface(DiffType(
+                "Sample",
+                "widget",
+                DiffMember("Run"))),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = MetadataFindings.MemberDescriptor.Id,
+                TypeFilter = ["Sample.Widget"],
+                MemberFilter = ["Run"],
+            });
+
+        Assert.Collection(
+            rows.OrderBy(row => row.Target, StringComparer.Ordinal),
+            row => Assert.Equal("PairFinding.Removed", row.Transition),
+            row => Assert.Equal("PairFinding.Added", row.Transition));
+    }
+
+    [Theory]
+    [InlineData("Widget")]
+    [InlineData("sample.widget")]
+    [InlineData("*Widget")]
+    public void BuildFindingTransitions_PartialTypeCanonicalizesSelector(
+        string selector)
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var partialSurface = new ApiSurface();
+        partialSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            partialSurface,
+            new ApiSurface(),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = MetadataFindings.MemberDescriptor.Id,
+                TypeFilter = [selector],
+            }));
+
+        Assert.Equal("Sample.Widget", row.Target);
+        Assert.Equal("FindingComparison.Failed", row.Transition);
+    }
+
+    [Fact]
     public void BuildFindingTransitions_TypeMissingAtBothEndpoints_HasNoPair()
     {
         var rows = DiffCommand.BuildFindingTransitions(

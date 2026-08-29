@@ -189,13 +189,13 @@ public static class CSharpFindings
             [.. oldIndex.Failures, .. newIndex.Failures]);
     }
 
-    static FindingInspection<CSharpCanonicalLine> MissingInspection(
+    internal static FindingInspection<CSharpCanonicalLine> MissingInspection(
         CSharpBodyDiff.CSharpMethodIndex index,
         string stableAssemblyKey,
         FindingSubject subject,
         string side)
     {
-        var failures = index.Failures
+        var failures = index.DeclarationOmissionFailures
             .Where(failure => string.Equals(
                 failure.StableAssemblyKey,
                 stableAssemblyKey,

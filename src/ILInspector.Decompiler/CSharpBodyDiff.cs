@@ -469,6 +469,8 @@ public static partial class CSharpBodyDiff
     {
         var entries = new List<CSharpMethodEntry>();
         var failures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
+        var declarationOmissionFailures =
+            ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
         var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var path in paths.Distinct(StringComparer.Ordinal))
         {
@@ -484,10 +486,14 @@ public static partial class CSharpBodyDiff
                 includeNonPublic,
                 typeFilters,
                 side,
-                failures));
+                failures,
+                declarationOmissionFailures));
         }
 
-        return CreateMethodIndex(entries, failures);
+        return CreateMethodIndex(
+            entries,
+            failures,
+            declarationOmissionFailures);
     }
 
     internal static CSharpMethodIndex BuildMethodIndexWithFailures(
@@ -498,6 +504,8 @@ public static partial class CSharpBodyDiff
     {
         var entries = new List<CSharpMethodEntry>();
         var failures = ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
+        var declarationOmissionFailures =
+            ImmutableArray.CreateBuilder<CSharpIdentityResolutionFailure>();
         var assemblyOccurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         var seen = new HashSet<MetadataSource>(
             ReferenceEqualityComparer.Instance);
@@ -517,15 +525,22 @@ public static partial class CSharpBodyDiff
                 includeNonPublic,
                 typeFilters,
                 side,
-                failures).Select(entry => entry with { Source = source }));
+                failures,
+                declarationOmissionFailures)
+                .Select(entry => entry with { Source = source }));
         }
 
-        return CreateMethodIndex(entries, failures);
+        return CreateMethodIndex(
+            entries,
+            failures,
+            declarationOmissionFailures);
     }
 
     static CSharpMethodIndex CreateMethodIndex(
         List<CSharpMethodEntry> entries,
-        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures)
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder
+            declarationOmissionFailures)
     {
         var methods = entries
             .GroupBy(entry => $"{entry.StableAssemblyKey}|{entry.RawKey}", StringComparer.Ordinal)
@@ -543,7 +558,10 @@ public static partial class CSharpBodyDiff
                     }))
                 .Select(entry => (Key: entry.StableMemberKey, Entry: entry)))
             .ToDictionary(pair => pair.Key, pair => pair.Entry, StringComparer.Ordinal);
-        return new CSharpMethodIndex(methods, failures.ToImmutable());
+        return new CSharpMethodIndex(
+            methods,
+            failures.ToImmutable(),
+            declarationOmissionFailures.ToImmutable());
     }
 
     static CSharpMethodRender Decompile(CSharpMethodEntry entry, SourceCache sources)
@@ -631,7 +649,9 @@ public static partial class CSharpBodyDiff
         bool includeNonPublic,
         IReadOnlySet<string>? typeFilters,
         string side,
-        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures)
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder
+            declarationOmissionFailures)
     {
         var reader = source.Reader;
         var typeDefinitionsByName = BuildTypeDefinitionMap(reader);
@@ -652,13 +672,14 @@ public static partial class CSharpBodyDiff
             }
             catch (MetadataIdentityResolutionException ex)
             {
-                AddIdentityFailure(
-                    failures,
-                    side,
-                    path,
-                    stableAssemblyKey,
-                    typeHandle,
-                    ex.Failure);
+                declarationOmissionFailures.Add(
+                    AddIdentityFailure(
+                        failures,
+                        side,
+                        path,
+                        stableAssemblyKey,
+                        typeHandle,
+                        ex.Failure));
                 continue;
             }
 
@@ -672,13 +693,14 @@ public static partial class CSharpBodyDiff
             }
             catch (MetadataIdentityResolutionException ex)
             {
-                AddIdentityFailure(
-                    failures,
-                    side,
-                    path,
-                    stableAssemblyKey,
-                    typeHandle,
-                    ex.Failure);
+                declarationOmissionFailures.Add(
+                    AddIdentityFailure(
+                        failures,
+                        side,
+                        path,
+                        stableAssemblyKey,
+                        typeHandle,
+                        ex.Failure));
                 continue;
             }
 
@@ -700,6 +722,7 @@ public static partial class CSharpBodyDiff
                     stableAssemblyKey,
                     side,
                     failures,
+                    declarationOmissionFailures,
                     typeFullName,
                     typeKey,
                     overloadIndex);
@@ -716,6 +739,8 @@ public static partial class CSharpBodyDiff
         string stableAssemblyKey,
         string side,
         ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
+        ImmutableArray<CSharpIdentityResolutionFailure>.Builder?
+            declarationOmissionFailures = null,
         string? typeFullName = null,
         string? typeKey = null,
         int? overloadIndex = null)
@@ -734,13 +759,14 @@ public static partial class CSharpBodyDiff
         }
         catch (MetadataIdentityResolutionException ex)
         {
-            AddIdentityFailure(
+            CSharpIdentityResolutionFailure failure = AddIdentityFailure(
                 failures,
                 side,
                 source.Path,
                 stableAssemblyKey,
                 methodHandle,
                 ex.Failure);
+            declarationOmissionFailures?.Add(failure);
             return null;
         }
 
@@ -2466,25 +2492,31 @@ public static partial class CSharpBodyDiff
         return text.Trim();
     }
 
-    static void AddIdentityFailure(
+    static CSharpIdentityResolutionFailure AddIdentityFailure(
         ImmutableArray<CSharpIdentityResolutionFailure>.Builder failures,
         string side,
         string path,
         string stableAssemblyKey,
         EntityHandle subject,
         MetadataTypeNameFailure failure)
-        => failures.Add(new CSharpIdentityResolutionFailure(
+    {
+        var recorded = new CSharpIdentityResolutionFailure(
             side,
             path,
             failure.SubjectToken ?? MetadataTokens.GetToken(subject),
             failure.Mechanism,
             failure.Kind,
             failure.Detail,
-            stableAssemblyKey));
+            stableAssemblyKey);
+        failures.Add(recorded);
+        return recorded;
+    }
 
     internal sealed record CSharpMethodIndex(
         Dictionary<string, CSharpMethodEntry> Methods,
-        ImmutableArray<CSharpIdentityResolutionFailure> Failures);
+        ImmutableArray<CSharpIdentityResolutionFailure> Failures,
+        ImmutableArray<CSharpIdentityResolutionFailure>
+            DeclarationOmissionFailures);
 
     internal sealed record ExplicitImplementationVisibility(
         HashSet<MethodDefinitionHandle> Handles,

@@ -578,6 +578,36 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public void InspectAnalysisAssemblies_CaseDistinctTypeIsSubjectAbsent()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Signature = "int Value",
+        };
+
+        var inspection =
+            TimelineCommand.InspectAnalysisAssemblies<UnsafetyOccurrence>(
+                [("unused.dll", Surface(Type(
+                    "widget",
+                    members: [property])))],
+                "Sample.Widget",
+                "Value",
+                AnalysisFindings.UnsafetyDescriptor,
+                AnalysisSubject(),
+                static (_, _, _) =>
+                    throw new InvalidOperationException(
+                        "A case-distinct type is not the selected subject."));
+
+        var absent = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Absent>(
+            inspection.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            absent.Kind);
+    }
+
+    [Fact]
     public void BuildTransitionRows_PreservesNineCompletedTopologyCells()
     {
         FindingInspection<string>[] inspections =
@@ -933,6 +963,39 @@ public sealed class TimelineCommandTests
 
         Assert.True(resolved, error);
         Assert.Equal("Sample.Widget", typeFullName);
+    }
+
+    [Fact]
+    public void ExactCaseMemberTimelinePreservesAddedPair()
+    {
+        var vector = Vector("1.0.0", "2.0.0");
+        TimelineCommand.TimelineEvaluation[] evaluations =
+        [
+            Evaluation(
+                vector,
+                0,
+                Surface(Type(
+                    "Widget",
+                    members: [Method("Run", "void Run()")]))),
+            Evaluation(
+                vector,
+                1,
+                Surface(Type(
+                    "widget",
+                    members: [Method("Run", "void Run()")]))),
+        ];
+
+        var view = TimelineCommand.BuildView(
+            vector,
+            "Sample.widget",
+            MetadataFindings.MemberDescriptor.Id,
+            evaluations,
+            Sections(),
+            memberName: "Run");
+
+        Assert.Contains(
+            view.Transitions!,
+            row => row.Transition == "Added");
     }
 
     [Theory]

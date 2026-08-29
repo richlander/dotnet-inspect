@@ -2174,7 +2174,7 @@ public class DiffCommand
         string bodySectionName = "Analysis Diff")
     {
         HashSet<string> identities = new(StringComparer.Ordinal);
-        HashSet<string> typeNames = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> typeNames = new(StringComparer.Ordinal);
         foreach (var rawTarget in memberTargets)
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
@@ -2375,9 +2375,10 @@ public class DiffCommand
         IReadOnlyCollection<string> typeFilters)
     {
         var names = typeFilters
-            .SelectMany(filter => FindTypes(fromSurface, filter)
-                .Concat(FindTypes(toSurface, filter))
-                .Select(type => type.FullName)
+            .SelectMany(filter => FindingTypeNames.EnumerateResolvable(fromSurface)
+                .Concat(FindingTypeNames.EnumerateResolvable(toSurface))
+                .Where(typeName =>
+                    TypeMatcher.MatchesTypeFilter(typeName, filter))
                 .DefaultIfEmpty(filter))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)

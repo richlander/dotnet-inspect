@@ -265,7 +265,7 @@ public static class TimelineCommand
         foreach (var evaluation in evaluated.OrderBy(item => item.Address.Position))
         {
             var type = evaluation.Surface?.Types.FirstOrDefault(type =>
-                string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(type.FullName, typeFullName, StringComparison.Ordinal));
             if (type is null)
                 continue;
 
@@ -542,7 +542,7 @@ public static class TimelineCommand
             }
 
             var type = surface?.Types.FirstOrDefault(type =>
-                string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(type.FullName, typeFullName, StringComparison.Ordinal));
             if (type is null)
             {
                 var typeInspection = MetadataFindings.InspectApiType(
@@ -1054,7 +1054,7 @@ public static class TimelineCommand
         string[] typeNames = evaluations
             .Where(evaluation => evaluation.Surface is not null)
             .SelectMany(evaluation =>
-                EnumerateResolvableTypeNames(evaluation.Surface!))
+                FindingTypeNames.EnumerateResolvable(evaluation.Surface!))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -1103,29 +1103,6 @@ public static class TimelineCommand
         typeFullName = matches.Length == 1 ? matches[0] : requested;
         error = null;
         return true;
-    }
-
-    static IEnumerable<string> EnumerateResolvableTypeNames(
-        ApiSurface surface)
-    {
-        foreach (ApiType type in surface.Types)
-            yield return type.FullName;
-
-        foreach (ApiSurfaceInspectionFailure failure
-            in surface.InspectionFailures)
-        {
-            if (failure.OwningTypeDefinition is { } owner)
-                yield return owner.ToMetadataFullName();
-
-            if (failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
-                continue;
-
-            foreach (MetadataTypeDefinitionName affected in
-                failure.AffectedTypeDefinitions)
-            {
-                yield return affected.ToMetadataFullName();
-            }
-        }
     }
 
     static bool TrySelectAddresses(
