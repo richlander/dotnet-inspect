@@ -2901,6 +2901,16 @@ amplify: at worst it examines each byte once. Materializing amplifies, because
 a managed copy is allocated and retained, UTF-8 becomes wider UTF-16, and the
 same entry is reached once per occurrence.
 
+Those costs describe *physical* heap entries, which is every entry a supported
+input contains. SRM can also return **projected** virtual strings, whose bytes
+it synthesizes and allocates inside `GetBlobReader` itself; for those the price
+is paid in the act of reading it, and pricing before materializing is not
+available. Projected strings arise only from Windows Metadata, which
+`MetadataImageFormatClassifier` refuses as `UnsupportedWindowsMetadata` before
+any decode begins, so no supported decode reaches one. That exclusion is what
+makes the allocation-free claim above sound; a decode that ever admitted
+Windows Metadata would need this row reclassified.
+
 The concrete contrast at a Class B site is therefore:
 
 | Call | Produces | Allocates | Can amplify |
@@ -2933,9 +2943,9 @@ introduces a new quantity must extend this table in the same change.
 | --- | --- | --- | --- |
 | Expanded signature nodes | one provider callback per decoded node | A | `MaxSignatureTypeNodes` node budget |
 | Occurrence copies | copying occurrence arrays through aggregate layers | A | materialization budget, `MaxSignatureTypeNodes * 8` |
-| Type name characters | `TypeDef`/`TypeRef` name projection | A | `MaxTypeNameCharacters` per name, enforced by the name reader before materializing; repetition charged to the ledger |
+| Type name characters | `TypeDef`/`TypeRef` name projection | A | `MaxTypeNameCharacters`, applied by the aggregate as the budget it hands the name reader, which refuses an over-budget entry before materializing; repetition charged to the ledger |
 | Resolution-scope chain length | walking a `TypeRef` parent chain | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
-| `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | A | `TypeSpecGuard.MaxCumulativeBytes` per `TypeSpec`; repetition charged to the ledger |
+| `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | A | `TypeSpecGuard.MaxCumulativeBytes` across the active re-entry closure, not per `TypeSpec`; repetition charged to the ledger |
 | Array shape bounds | array shape materialization | A | the enclosing signature blob, bounded by `SignatureBlobGuard` before decoding begins |
 | `AssemblyRef` public-key **token** | terminal scope projection | A | exactly 8 bytes, enforced before the token is projected |
 | `AssemblyRef` **full public key** | terminal scope projection, when `AssemblyFlags.PublicKey` is set | **B** | charged from storage length before materializing |
@@ -2988,11 +2998,14 @@ complete decode.
 
 Per-decode consumption against each budget:
 
-| Budget | Ceiling | p50 | p99.99 | Observed max | Headroom |
+| Budget | Ceiling | p50 bucket | p99.99 bucket | Observed max | Headroom |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Node budget | 65,536 | 1 | 63 | 72 | 910x |
-| Materialization budget | 524,288 | 1 | 63 | 158 | 3,318x |
-| Work ledger | 262,144 | 63 | 511 | 1,182 | 222x |
+| Node budget | 65,536 | ≤1 | ≤63 | 72 | 910x |
+| Materialization budget | 524,288 | ≤1 | ≤63 | 158 | 3,318x |
+| Work ledger | 262,144 | ≤63 | ≤511 | 1,182 | 222x |
+
+Percentiles are recorded as base-2 histogram buckets, so each is reported as
+its bucket's upper bound rather than an exact value. Observed maxima are exact.
 
 Per-quantity consumption, as the largest single charge and the largest total
 within one decode:
@@ -3002,11 +3015,17 @@ within one decode:
 | Type name characters | 175 | 1,078 | 2,574,175 | 4,096 |
 | Resolution-scope chain length | 3 | 19 | 1,465,380 | 256 |
 | `AssemblyRef` name storage | 58 | 292 | 1,232,837 | none |
-| `AssemblyRef` public-key token | 8 | 64 | 1,232,641 | 8 |
+| `AssemblyRef` `PublicKeyOrToken` storage | 8 | 64 | 1,232,641 | 8 when a token |
 | `AssemblyRef` culture storage | 0 | 0 | 0 | none |
-| `AssemblyRef` full public key | 0 | 0 | 0 | **none** |
 | `ModuleRef` name storage | 0 | 0 | 0 | **none** |
 | `TypeSpec` blob bytes | 0 | 0 | 0 | 4,096 |
+
+The census charges `PublicKeyOrToken` at one site and does not record
+`AssemblyFlags.PublicKey`, so it does not separate the two classes by
+measurement. It bounds them together, which is sufficient here: the largest
+single charge was 8 bytes, and a full public key cannot be 8 bytes, so no
+`AssemblyRef` in either corpus carried one. That is an inference from the
+measured maximum, not a separately counted row.
 
 Two results set the ceilings. Every Class A quantity stays far below its cap --
 the longest single type name observed is 175 characters against a 4,096
@@ -3014,7 +3033,7 @@ ceiling, and the longest resolution-scope chain is 3 against 256 -- so the caps
 constrain nothing real. And no decode approached any budget, which is what
 makes the budgets available to bound repetition rather than typical cost.
 
-The last four rows were never exercised. That is a statement about the corpus,
+The last three rows were never exercised. That is a statement about the corpus,
 not about reachability: each is reachable by construction, and the two probes
 below drive them. `GetTypeFromSpecification` in particular is unreachable
 through `ELEMENT_TYPE_CLASS`, which admits only `TypeDef` and `TypeRef`; it is
@@ -3123,11 +3142,14 @@ satisfy all of the following.
 A gate that does not meet these obligations is named and documented for the
 property it actually checks.
 
-The static gate establishes that every site is classified. The census
-establishes that the classification is complete, by recording any charge no
-classified site accounts for. The two are complementary: a gate cannot see a
-quantity the contract never named, and a census cannot see a site the corpus
-never reaches.
+No gate meeting these obligations exists yet, so this property is currently
+**unverified**; building one is implementation work, not part of this contract.
+
+The obligations describe a division of labor that gate would complete. A gate
+establishes that every site is classified. The census establishes that the
+classification is complete, by recording any charge no classified site accounts
+for. The two are complementary: a gate cannot see a quantity the contract never
+named, and a census cannot see a site the corpus never reaches.
 
 ### Failure is visible and attributed
 
