@@ -229,6 +229,41 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
+    public void SyntaxInventory_TracksPatternSwitchLabelsAndWhenGuards()
+    {
+        const string body = """
+            switch (value)
+            {
+                case string text when ready:
+                    break;
+            }
+            return value switch
+            {
+                int number when ready => 1,
+            };
+            """;
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            body,
+            out IReadOnlyList<string> features,
+            out string? error),
+            error);
+        Assert.Equal(
+            [
+                "clause.switch-case-pattern",
+                "clause.switch-expression-arm",
+                "clause.when",
+                "expression.numeric-literal",
+                "expression.switch",
+                "pattern.declaration",
+                "statement.break",
+                "statement.return",
+                "statement.switch",
+            ],
+            features);
+    }
+
+    [Fact]
     public void Manifest_SyntaxInventoryRequiresExactObservedFeatureSet()
     {
         var row = Row(

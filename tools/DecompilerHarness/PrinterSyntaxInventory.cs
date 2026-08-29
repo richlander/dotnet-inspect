@@ -92,11 +92,17 @@ static class PrinterSyntaxInventory
                 case CaseSwitchLabelSyntax:
                     Features.Add("clause.switch-case");
                     break;
+                case CasePatternSwitchLabelSyntax:
+                    Features.Add("clause.switch-case-pattern");
+                    break;
                 case DefaultSwitchLabelSyntax:
                     Features.Add("clause.switch-default");
                     break;
                 case SwitchExpressionArmSyntax:
                     Features.Add("clause.switch-expression-arm");
+                    break;
+                case WhenClauseSyntax:
+                    Features.Add("clause.when");
                     break;
                 case InterpolationSyntax interpolation:
                     Features.Add("interpolation");
