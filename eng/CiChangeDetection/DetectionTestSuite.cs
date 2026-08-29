@@ -748,10 +748,10 @@ internal static class DetectionTestSuite
             "pull_request",
             ".github/workflows/ci.yml",
             outputs);
-        if (workflow["code"] != "true" || workflow["skills"] != "true")
+        if (workflow["code"] != "true" || workflow["skills"] != "true" || workflow["tla"] != "true")
         {
             throw new InvalidOperationException(
-                "Workflow canary did not select code and skills: " +
+                "Workflow canary did not select code, skills, and tla: " +
                 FormatValues(workflow));
         }
 
@@ -820,6 +820,75 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 "Nested skill support document canary selected the wrong lanes: " +
                 FormatValues(nestedSkillSupportDoc));
+        }
+
+        Dictionary<string, string> tlaModule = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/semantic-row-selection/SemanticRowSelection.tla",
+            outputs);
+        if (tlaModule["tla"] != "true"
+            || tlaModule["docs"] != "true"
+            || tlaModule["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ module canary did not select only docs and tla: " +
+                FormatValues(tlaModule));
+        }
+
+        Dictionary<string, string> tlaConfig = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/design/models/nuget-deadline-stream/DeadlineStreamLifecycle.cfg",
+            outputs);
+        if (tlaConfig["tla"] != "true"
+            || tlaConfig["docs"] != "true"
+            || tlaConfig["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ config canary did not select only docs and tla: " +
+                FormatValues(tlaConfig));
+        }
+
+        Dictionary<string, string> tlaRunner = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/run-tla-checks.sh",
+            outputs);
+        if (tlaRunner["tla"] != "true" || tlaRunner["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ runner canary did not select only tla: " +
+                FormatValues(tlaRunner));
+        }
+
+        Dictionary<string, string> tlaOverrides = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/tla-module-overrides.txt",
+            outputs);
+        if (tlaOverrides["tla"] != "true" || tlaOverrides["code"] != "false")
+        {
+            throw new InvalidOperationException(
+                "TLA+ module overrides canary did not select only tla: " +
+                FormatValues(tlaOverrides));
+        }
+
+        Dictionary<string, string> nonModelDoc = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/design/models/nuget-deadline-stream/README.md",
+            outputs);
+        if (nonModelDoc["tla"] != "false" || nonModelDoc["docs"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Model README canary selected the wrong lanes: " +
+                FormatValues(nonModelDoc));
         }
 
         Dictionary<string, string> pushedSource = RunDetection(

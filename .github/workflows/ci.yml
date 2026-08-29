@@ -68,6 +68,7 @@ jobs:
       shipped: ${{ steps.filter.outputs.shipped }}
       web: ${{ steps.filter.outputs.web }}
       skills: ${{ steps.filter.outputs.skills }}
+      tla: ${{ steps.filter.outputs.tla }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -130,6 +131,48 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@v19
         with:
           globs: '**/*.md'
+
+  # Upholds the bar in docs/tla-plus-methodology.md for every committed
+  # TLA+ model: SANY parses every module, and TLC runs every .cfg to
+  # completion without an unexpected error. See eng/run-tla-checks.sh for
+  # what "unexpected" excludes (an intentional violation verdict) and why
+  # (some committed .cfg files are negative controls expected to find one).
+  tla-plus:
+    needs: changes
+    if: needs.changes.outputs.tla == 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      # Ubuntu 26.04's default-jre metapackage resolves to OpenJDK 25,
+      # matching the Java pin in docs/runbooks/tla-plus-setup.md.
+      - name: Install Java
+        run: sudo apt-get install -y default-jre
+
+      - name: Cache tla2tools.jar
+        id: cache-tla
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/tlaplus/tla2tools.jar
+          key: tla2tools-v1.8.0
+
+      # Pinned per docs/runbooks/tla-plus-setup.md: v1.8.0 is a GitHub
+      # prerelease, so it is never resolved by a "latest" alias -- always
+      # fetch this exact tagged asset URL.
+      - name: Download tla2tools.jar
+        if: steps.cache-tla.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.local/share/tlaplus
+          curl -fLo ~/.local/share/tlaplus/tla2tools.jar \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+
+      - name: Run TLA+ checks
+        shell: bash
+        run: |
+          export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
+          eng/run-tla-checks.sh
 
   inspect-web:
     needs: changes
@@ -1112,6 +1155,7 @@ jobs:
       - inspect-web
       - skill-gate
       - test
+      - tla-plus
       # Path-gated jobs report `skipped` when their input class is absent; all
       # expensive jobs except inspect-web also skip on pushes to main. That
       # passes the gate by design; the allow list below distinguishes
