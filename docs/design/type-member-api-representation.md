@@ -213,8 +213,9 @@ the target MethodDefs. The plan considers only exact same-name candidates and
 reuses `CatalogMemberCorrespondencePlan` for complete open-member identity,
 including canonical signature headers, generic arity, required vararg
 parameters, multidimensional-array sizes and lower bounds, modifiers, and
-recursive function-pointer payloads. The result is one closed choice: `Exact`,
-`Missing`, `Ambiguous`, or `Unavailable`.
+recursive function-pointer payloads. Named leaves retain the signature's
+class-versus-value-type discriminator. The result is one closed choice:
+`Exact`, `Missing`, `Ambiguous`, or `Unavailable`.
 
 The selected pair establishes one narrow correspondence between the source and
 target root type definitions. Recursive named types still correspond only
@@ -236,13 +237,15 @@ method in the runtime image, while the exact arm selects runtime `Transform`.
 `FunctionPointerCallingConvention_IsIdentityBearing`, and
 `TypeDefAndTypeRefAddressing_ResolveThroughSelectedRoots` gate complete member
 identity; `RecursiveSameNameDefinitions_AreNotSelectedRootCorrespondence` and
-`MultidimensionalArrayBounds_AreIdentityBearing` gate the recursive and array
-boundaries. `DuplicateExactTargets_AreAmbiguous`,
+`SelectedRootClassAndValueType_DoNotCorrespond` gate the root boundary, while
+`MultidimensionalArrayBounds_AreIdentityBearing` and
+`MalformedArrayBounds_AreUnavailable` gate exact and malformed array shapes.
+`DuplicateExactTargetCandidates_ReportAmbiguous`,
 `TargetGenerationMismatch_IsUnavailable`,
 `SnapshotFromAnotherRegistration_IsUnavailable`,
 `InvalidSourceMethodDefToken_IsUnavailable`,
 `ContextWithDifferentTargetGeneration_IsUnavailable`,
-`UnresolvedNominalTypes_AreUnavailable`, and
+`UnresolvedNominalTypes_AreUnavailableRatherThanUnique`, and
 `SameNameCandidateLimit_FailsClosed` gate the visible non-success boundaries.
 This currency does not choose acquisitions, resolve platform forwarders,
 acquire PDBs, select CLI overloads, or authorize Decompiler consumption.

@@ -20,3 +20,8 @@ public sealed class Helper
 {
     public int Value { get; init; }
 }
+
+public sealed class KindShape
+{
+    public static int TransformKind(KindShape value) => 1;
+}

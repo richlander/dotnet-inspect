@@ -69,7 +69,8 @@ internal sealed class CatalogMemberCorrespondencePlanner
                 }
                 return PlannedType.Named(
                     requestIndex,
-                    type.Resolution.Type);
+                    type.Resolution.Type,
+                    type.RawTypeKind);
 
             case TypeRefKind.GenericInstance:
                 if (type.ElementType is null
@@ -94,7 +95,10 @@ internal sealed class CatalogMemberCorrespondencePlanner
                     Plan(type.ElementType, depth + 1));
 
             case TypeRefKind.Array:
-                if (type.ElementType is null || type.Rank <= 0)
+                if (type.ElementType is null
+                    || type.Rank <= 0
+                    || type.ArraySizes.Length > type.Rank
+                    || type.ArrayLowerBounds.Length > type.Rank)
                     return Malformed(type, "array shape is invalid");
                 return PlannedType.Unary(
                     type.Kind,
@@ -227,6 +231,7 @@ internal sealed class PlannedType
         int rank = 0,
         ImmutableArray<int> arraySizes = default,
         ImmutableArray<int> arrayLowerBounds = default,
+        byte rawTypeKind = 0,
         int genericParameterIndex = -1,
         bool isRequiredModifier = false,
         byte signatureHeader = 0,
@@ -242,6 +247,7 @@ internal sealed class PlannedType
         ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
         ArrayLowerBounds =
             arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
+        RawTypeKind = rawTypeKind;
         GenericParameterIndex = genericParameterIndex;
         IsRequiredModifier = isRequiredModifier;
         SignatureHeader = signatureHeader;
@@ -260,6 +266,7 @@ internal sealed class PlannedType
     internal int Rank { get; }
     internal ImmutableArray<int> ArraySizes { get; }
     internal ImmutableArray<int> ArrayLowerBounds { get; }
+    internal byte RawTypeKind { get; }
     internal int GenericParameterIndex { get; }
     internal bool IsRequiredModifier { get; }
     internal byte SignatureHeader { get; }
@@ -268,11 +275,13 @@ internal sealed class PlannedType
 
     internal static PlannedType Named(
         int requestIndex,
-        MetadataTypeDefinitionName typeName) =>
+        MetadataTypeDefinitionName typeName,
+        byte rawTypeKind) =>
         new(
             PlannedTypeKind.Named,
             requestIndex: requestIndex,
-            typeName: typeName);
+            typeName: typeName,
+            rawTypeKind: rawTypeKind);
 
     internal static PlannedType GenericInstance(
         PlannedType definition,

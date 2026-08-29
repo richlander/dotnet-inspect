@@ -37,7 +37,8 @@ internal sealed class CatalogMemberJoinProjector
             case PlannedTypeKind.Named:
                 return ProjectNamed(
                     planned.RequestIndex,
-                    planned.TypeName!);
+                    planned.TypeName!,
+                    planned.RawTypeKind);
             case PlannedTypeKind.GenericInstance:
             {
                 CatalogTypeShape? definition =
@@ -109,7 +110,8 @@ internal sealed class CatalogMemberJoinProjector
 
     CatalogTypeShape? ProjectNamed(
         int requestIndex,
-        MetadataTypeDefinitionName type)
+        MetadataTypeDefinitionName type,
+        byte rawTypeKind)
     {
         TypeResolutionOutcome outcome = _outcomes[requestIndex];
         switch (outcome)
@@ -118,19 +120,22 @@ internal sealed class CatalogMemberJoinProjector
                 return ProjectResolved(
                     requestIndex,
                     type,
-                    resolved);
+                    resolved,
+                    rawTypeKind);
             case TypeResolutionOutcome.UnboundBinding unbound:
                 return ProjectUnresolved(
                     requestIndex,
                     type,
                     unbound.Binding,
-                    outcome);
+                    outcome,
+                    rawTypeKind);
             case TypeResolutionOutcome.Unavailable unavailable:
                 return ProjectUnresolved(
                     requestIndex,
                     type,
                     unavailable.Binding,
-                    outcome);
+                    outcome,
+                    rawTypeKind);
             case TypeResolutionOutcome.Rejected
                 {
                     Failure:
@@ -153,7 +158,8 @@ internal sealed class CatalogMemberJoinProjector
     CatalogTypeShape? ProjectResolved(
         int requestIndex,
         MetadataTypeDefinitionName type,
-        TypeResolutionOutcome.Resolved resolved)
+        TypeResolutionOutcome.Resolved resolved,
+        byte rawTypeKind)
     {
         switch (_context.ProjectDefinitionJoinToken(
             resolved.Definition.Key))
@@ -172,7 +178,11 @@ internal sealed class CatalogMemberJoinProjector
                                 ?? throw new InvalidOperationException(
                                     "Duplicate join token has no evidence.")));
                 }
-                return CatalogTypeShape.Resolved(issued.Token);
+                return CatalogTypeShape.Resolved(
+                    issued.Token,
+                    EffectiveRawTypeKind(
+                        rawTypeKind,
+                        resolved.Definition.Kind));
             case DefinitionJoinTokenProjection.IncomparableCatalogs:
                 throw new InvalidOperationException(
                     "A context resolved currency from another catalog.");
@@ -189,11 +199,25 @@ internal sealed class CatalogMemberJoinProjector
         }
     }
 
+    static byte EffectiveRawTypeKind(
+        byte rawTypeKind,
+        MetadataTypeDefinitionKind definitionKind) =>
+        rawTypeKind != 0
+            ? rawTypeKind
+            : definitionKind switch
+            {
+                MetadataTypeDefinitionKind.Class
+                    or MetadataTypeDefinitionKind.Interface => (byte)0x12,
+                MetadataTypeDefinitionKind.ValueType => (byte)0x11,
+                _ => (byte)0,
+            };
+
     CatalogTypeShape? ProjectUnresolved(
         int requestIndex,
         MetadataTypeDefinitionName type,
         UnresolvedBindingReference binding,
-        TypeResolutionOutcome outcome)
+        TypeResolutionOutcome outcome,
+        byte rawTypeKind)
     {
         switch (_context.ProjectUnresolvedBindingKey(binding))
         {
@@ -206,7 +230,8 @@ internal sealed class CatalogMemberJoinProjector
                 }
                 return CatalogTypeShape.Degraded(
                     issued.Key,
-                    type);
+                    type,
+                    rawTypeKind);
             case UnresolvedBindingKeyProjection.IncomparableCatalogs:
                 throw new InvalidOperationException(
                     "A context resolved currency from another catalog.");

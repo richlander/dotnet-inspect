@@ -569,6 +569,54 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void NamedSignatureTypeKind_IsIdentityBearing()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        TypeRef classType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x12);
+        TypeRef valueType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x11);
+        CatalogMemberCorrespondencePlan first =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [classType], owner));
+        CatalogMemberCorrespondencePlan second =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [valueType], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            first.Requests.Concat(second.Requests));
+        var firstProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                first.Project(context));
+        var secondProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                second.Project(context));
+
+        Assert.NotEqual(
+            firstProjection.Key.ParameterTypes[0],
+            secondProjection.Key.ParameterTypes[0]);
+        Assert.False(
+            first.CorrespondsTo(
+                second,
+                firstProjection,
+                secondProjection));
+    }
+
+    [Fact]
     public void EstablishedTypeRequestPairDoesNotVouchForAnotherType()
     {
         byte[] targetImage = BuildAssembly("Target", ["Api"]);

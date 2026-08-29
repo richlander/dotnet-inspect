@@ -41,6 +41,7 @@ public sealed class CatalogTypeShape : IEquatable<CatalogTypeShape>
         int rank = 0,
         ImmutableArray<int> arraySizes = default,
         ImmutableArray<int> arrayLowerBounds = default,
+        byte rawTypeKind = 0,
         int genericParameterIndex = -1,
         bool isRequiredModifier = false,
         byte signatureHeader = 0,
@@ -57,6 +58,7 @@ public sealed class CatalogTypeShape : IEquatable<CatalogTypeShape>
         ArraySizes = arraySizes.IsDefault ? [] : arraySizes;
         ArrayLowerBounds =
             arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
+        RawTypeKind = rawTypeKind;
         GenericParameterIndex = genericParameterIndex;
         IsRequiredModifier = isRequiredModifier;
         SignatureHeader = signatureHeader;
@@ -73,6 +75,7 @@ public sealed class CatalogTypeShape : IEquatable<CatalogTypeShape>
     public int Rank { get; }
     public ImmutableArray<int> ArraySizes { get; }
     public ImmutableArray<int> ArrayLowerBounds { get; }
+    public byte RawTypeKind { get; }
     public int GenericParameterIndex { get; }
     public bool IsRequiredModifier { get; }
     public byte SignatureHeader { get; }
@@ -80,18 +83,22 @@ public sealed class CatalogTypeShape : IEquatable<CatalogTypeShape>
     public int RequiredParameterCount { get; }
 
     internal static CatalogTypeShape Resolved(
-        DefinitionJoinToken token) =>
+        DefinitionJoinToken token,
+        byte rawTypeKind) =>
         new(
             CatalogTypeShapeKind.Definition,
-            definition: token);
+            definition: token,
+            rawTypeKind: rawTypeKind);
 
     internal static CatalogTypeShape Degraded(
         UnresolvedBindingKey binding,
-        MetadataTypeDefinitionName typeName) =>
+        MetadataTypeDefinitionName typeName,
+        byte rawTypeKind) =>
         new(
             CatalogTypeShapeKind.DegradedDefinition,
             unresolvedBinding: binding,
-            typeName: typeName);
+            typeName: typeName,
+            rawTypeKind: rawTypeKind);
 
     internal static CatalogTypeShape Unary(
         CatalogTypeShapeKind kind,
@@ -160,6 +167,7 @@ public sealed class CatalogTypeShape : IEquatable<CatalogTypeShape>
             || Rank != other.Rank
             || !ArraySizes.SequenceEqual(other.ArraySizes)
             || !ArrayLowerBounds.SequenceEqual(other.ArrayLowerBounds)
+            || RawTypeKind != other.RawTypeKind
             || GenericParameterIndex != other.GenericParameterIndex
             || IsRequiredModifier != other.IsRequiredModifier
             || SignatureHeader != other.SignatureHeader
@@ -195,6 +203,7 @@ public sealed class CatalogTypeShape : IEquatable<CatalogTypeShape>
             hash.Add(size);
         foreach (int lowerBound in ArrayLowerBounds)
             hash.Add(lowerBound);
+        hash.Add(RawTypeKind);
         hash.Add(GenericParameterIndex);
         hash.Add(IsRequiredModifier);
         hash.Add(SignatureHeader);
@@ -865,6 +874,20 @@ public sealed class CatalogMemberCorrespondencePlan
         switch (planned.Kind)
         {
             case PlannedTypeKind.Named:
+                if (planned.RawTypeKind != 0
+                    && otherPlanned.RawTypeKind != 0
+                    && planned.RawTypeKind != otherPlanned.RawTypeKind)
+                {
+                    return false;
+                }
+                if (shape.Kind == otherShape.Kind
+                    && shape.Definition == otherShape.Definition
+                    && shape.UnresolvedBinding
+                        == otherShape.UnresolvedBinding
+                    && shape.TypeName == otherShape.TypeName)
+                {
+                    return true;
+                }
                 bool degraded =
                     shape.Kind == CatalogTypeShapeKind.DegradedDefinition
                     || otherShape.Kind

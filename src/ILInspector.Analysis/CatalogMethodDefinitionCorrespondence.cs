@@ -476,7 +476,8 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
             || context.Resolve(sourceRequest)
                 is not TypeResolutionOutcome.Resolved source
             || context.Resolve(targetRequest)
-                is not TypeResolutionOutcome.Resolved target)
+                is not TypeResolutionOutcome.Resolved target
+            || source.Definition.Kind != target.Definition.Kind)
         {
             return false;
         }

@@ -194,6 +194,79 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     }
 
     [Fact]
+    public void SelectedRootClassAndValueType_DoNotCorrespond()
+    {
+        FixturePair pair = OpenFixtures();
+        MethodIdentity source = Method(
+            pair.SourceIndex,
+            "TransformKind",
+            declaringType: "KindShape");
+        MethodIdentity target = Method(
+            pair.TargetIndex,
+            "TransformKind",
+            declaringType: "KindShape");
+        CatalogMethodDefinitionCorrespondencePlan plan =
+            CatalogMethodDefinitionCorrespondencePlan.Create(
+                pair.SourceAssembly,
+                pair.SourceSnapshot,
+                source,
+                pair.TargetAssembly,
+                pair.TargetSnapshot,
+                [target]);
+
+        Assert.IsType<CatalogMethodDefinitionCorrespondenceOutcome.Missing>(
+            Project(pair, plan));
+    }
+
+    [Fact]
+    public void MalformedArrayBounds_AreUnavailable()
+    {
+        FixturePair pair = OpenFixtures();
+        MethodIdentity source = Method(pair.SourceIndex, "Transform");
+        MethodIdentity target = Method(pair.TargetIndex, "Transform");
+        source = source with
+        {
+            ParameterTypes =
+            [
+                TypeRef.MdArray(
+                    source.ParameterTypes[0],
+                    new ArrayShape(1, [2, 3], [])),
+            ],
+        };
+        target = target with
+        {
+            ParameterTypes =
+            [
+                TypeRef.MdArray(
+                    target.ParameterTypes[0],
+                    new ArrayShape(1, [2, 3], [])),
+            ],
+        };
+        CatalogMethodDefinitionCorrespondencePlan plan =
+            CatalogMethodDefinitionCorrespondencePlan.Create(
+                pair.SourceAssembly,
+                pair.SourceSnapshot,
+                source,
+                pair.TargetAssembly,
+                pair.TargetSnapshot,
+                [target]);
+
+        var unavailable = Assert.IsType<
+            CatalogMethodDefinitionCorrespondenceOutcome.Unavailable>(
+                Project(pair, plan));
+
+        Assert.Contains(
+            unavailable.Failures,
+            failure => failure
+                is CatalogMethodDefinitionCorrespondenceFailure
+                    .IncompleteProjection incomplete
+                && incomplete.Failures.Any(
+                    nested => nested
+                        is MemberCorrespondenceFailure
+                            .MalformedTypeShape));
+    }
+
+    [Fact]
     public void DuplicateExactTargetCandidates_ReportAmbiguous()
     {
         FixturePair pair = OpenFixtures();
@@ -487,9 +560,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
 
     static MethodIdentity Method(
         LibraryBodyIndex index,
-        string name) =>
+        string name,
+        string declaringType = "Widget") =>
         index.DeclaredMethods.Single(
-            method => method.DeclaringType.Name == "Widget"
+            method => method.DeclaringType.Name == declaringType
                 && method.Name == name);
 
     static MethodIdentity WithMissingParameter(MethodIdentity method)
