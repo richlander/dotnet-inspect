@@ -708,6 +708,23 @@ Browser history uses the same classification:
 - do not mutate history for hover, focus, uncommitted listbox movement,
   disclosure animation, or incidental scroll position.
 
+The session-scoped location adapter tracks whether the browser-selected entry
+is aligned with the installed snapshot. A Back or Forward event records one
+UI-local unresolved traversal serial and the installed snapshot's retained
+canonical location before submitting product restoration. This serial is
+presentation bookkeeping, not product intent or effect authority.
+
+A newer Back or Forward event replaces the unresolved traversal with its own
+serial because it now owns the browser-selected entry. Before the UI submits
+any non-browser intent while an unresolved traversal remains, it synchronously
+replaces the selected entry with the retained canonical location and marks it
+aligned. The later intent then uses its ordinary push, replace, or no-write
+classification. Exact restoration adoption, changed-snapshot installation, or
+current-authority location realignment also marks the matching traversal
+aligned. Product-side discard or stale-authority abandonment performs no
+history write; its successor has already replaced the traversal obligation or
+realigned the selected entry before submission.
+
 A future packet projection does not decide its own history granularity. It
 inherits this UI-owned push, replace, or adopt classification.
 
@@ -770,11 +787,12 @@ This is location realignment, not a snapshot installation or successful
 restoration.
 
 Location realignment is a required consumer effect. Immediately before the
-history write, the consumer validates the returned authority; if the authority
-is stale or foreign, it changes neither canonical URL nor history and abandons
-the authority. Realignment completes before result-derived focus,
-announcement, and acknowledgement. If an implementation defers the write, its
-callback repeats the authority check at execution time.
+history write, the consumer validates both the returned authority and the
+matching unresolved traversal serial. If either is stale or foreign, it changes
+neither canonical URL nor history and abandons the authority; the current
+successor owns the still-current alignment obligation. Realignment completes
+before acknowledgement. If an implementation defers the write, its callback
+repeats both checks at execution time.
 
 An applied result uses the initiating explicit action's push-or-replace
 classification or a browser restoration's adopt classification. An unavailable
@@ -1269,8 +1287,17 @@ these named Inspect Web tests:
   history, produces no later focus or announcement, and is abandoned before
   it can be acknowledged.
 - `navigation-consumer.test.ts`:
+  `superseded restoration cannot strand the browser-selected entry` covers a
+  restoration superseded before product result publication, after authority
+  return but before realignment, and by a newer browser traversal. A
+  non-browser successor first repairs the unresolved selected entry before
+  submission; a browser successor replaces the traversal serial. In every case
+  a non-installing current result leaves the address bar and selected entry
+  aligned with the installed snapshot while superseded work writes nothing.
+- `navigation-consumer.test.ts`:
   `acknowledgement follows every required visible effect` proves that
-  installation, focus, and announcement complete before acknowledgement.
+  location realignment, installation, focus, and announcement complete before
+  acknowledgement whenever each effect is required.
 - `navigation-consumer.test.ts`:
   `surface destruction abandons authority and suppresses stale callbacks`
   destroys and remounts a surface before its callbacks execute, then returns a
@@ -1456,6 +1483,14 @@ outcomes:
    location, surfaces and announces the outcome, focuses the retained
    destination heading or shell fallback, and lets a later traversal continue
    past the failed location without a pushed entry.
+7. Supersede a Back restoration before product result publication, then repeat
+   after authority returns but before realignment. Follow each with a
+   non-browser action whose current result does not install. Confirm that the
+   selected entry was repaired before successor submission, the retained
+   snapshot and address remain aligned, and superseded work writes nothing.
+8. Supersede a Back restoration with Forward, then return a non-installing
+   outcome for the current Forward restoration. Confirm that only the newest
+   traversal serial may realign the selected entry.
 
 ### Package-source composition
 
