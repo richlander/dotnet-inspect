@@ -2731,6 +2731,161 @@ become a false change.
 - No metadata name is used as a filesystem path component by the resolution
   engine.
 - No result that escapes the context holds a metadata handle or reader.
+- Signature decode boundedness is specified by the
+  [signature decode bounding contract](#signature-decode-bounding-contract).
+
+## Signature decode bounding contract
+
+A signature decode walks artifact-authored metadata on behalf of a caller who
+has not inspected it. The decode must therefore complete within a stated bound
+or refuse, and it must never report success after doing unbounded work.
+
+This section is the contract for that bound. It exists because the bound was
+built without one. Three consecutive review rounds on the spellability
+aggregate each found a structural defect of the same family -- the budget
+bounded the wrong quantity -- and a fourth round found that the gate written to
+end the family did not enforce what it claimed. Every one of those defects was
+found by inspection, because no document enumerated the quantities a decode
+consumes or said how each was bounded. Enumerating them is the point of this
+section.
+
+### Owner
+
+The signature decode inside `ILInspector.Metadata` owns this contract:
+`SignatureOccurrenceProvider` and the work budget it charges. This document is
+the owning document.
+
+This contract does not govern acquisition, binding policy, forwarding
+semantics, the evidence model, or anything outside a single signature decode.
+
+### The two classes of cost
+
+Every quantity a decode consumes falls into exactly one class, and the class
+determines what the decode owes it.
+
+**Class A -- individually bounded.** A stated constant caps what a *single*
+materialization can cost, and a pre-existing gate enforces that cap before the
+materialization happens. The per-item cost is therefore known in advance and
+cannot be inflated by the artifact author.
+
+**Class B -- author-sized.** The artifact author chooses the size. A single
+read can cost arbitrarily much, so nothing about one occurrence is known in
+advance.
+
+### The bounding invariant
+
+> Every metadata materialization inside the decode is **either** individually
+> bounded by a stated constant, **or** charged against the work ledger before it
+> occurs.
+
+The disjunction is the whole contract, and both arms are load-bearing.
+
+For **Class A**, charging may follow materialization. The ledger's role there is
+bounding *repetition*, not magnitude: a name capped at
+`MaxTypeNameCharacters` cannot exceed the ceiling by itself, so reading it and
+then charging it is sound. Requiring charge-before-read for Class A would be a
+correctness claim the code does not need and does not make.
+
+For **Class B**, the charge **must** precede the materialization, and must be
+computed without performing it. A single author-sized blob can exceed any
+aggregate ceiling on its own, so charging afterwards is charging a bill already
+paid. `MetadataReader.GetBlobReader(handle).Length` reports storage length
+without copying and is the sanctioned way to price a Class B read.
+
+Misclassification is the defect this contract exists to prevent. Treating a
+Class B quantity as Class A is exactly how a 382 KiB artifact came to allocate
+490 MiB and then be accepted.
+
+### The cost model
+
+These are the quantities a decode consumes. The set is closed: a change that
+introduces a new quantity must extend this table in the same change.
+
+| Quantity | Arises from | Class | Bounded by |
+| --- | --- | --- | --- |
+| Expanded signature nodes | one provider callback per decoded node | A | `MaxSignatureTypeNodes` node budget |
+| Occurrence copies | copying occurrence arrays through aggregate layers | A | materialization budget, `MaxSignatureTypeNodes * 8` |
+| Type name characters | `TypeDef`/`TypeRef` name projection | A | `MaxTypeNameCharacters` per name, enforced by the name reader before materializing; repetition charged to the ledger |
+| Resolution-scope chain length | walking a `TypeRef` parent chain | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
+| `AssemblyRef` name, culture, public key storage | terminal scope projection | **B** | charged from storage length before materializing |
+| `ModuleRef` name storage | terminal scope projection | **B** | charged from storage length before materializing |
+| `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | **B** | charged from blob length before scanning |
+| Array shape bounds | array shape materialization | **B** | charged before materializing |
+
+### Budgets
+
+Three budgets, each bounding a distinct thing. They are not interchangeable and
+one cannot substitute for another.
+
+- **Node budget** -- how many callbacks run. Bounds decode *breadth*.
+- **Materialization budget** -- how many occurrence copies are made. Bounds
+  aggregation *fan-out*.
+- **Work ledger** -- how much metadata is examined, in bytes or characters.
+  Bounds decode *cost*.
+
+The first two count events; only the ledger observes magnitude. This is the
+distinction that three rounds of review kept rediscovering: a budget that counts
+callbacks cannot see that one callback read a megabyte.
+
+The ledger ceiling is `MaxTypeNameCharacters * 64`. The rationale is that one
+decode may legitimately examine the equivalent of 64 maximum-length type names.
+Real member signatures reference tens of types with short names, so the ceiling
+leaves large headroom; a change that raises it must state why a legitimate
+signature needed more, not merely that an input was rejected.
+
+### Charging bounds; caching does not
+
+Caching a projection is an optimization and must never be load-bearing for the
+bound. Removing any cache must leave the decode *bounded* -- it may cause a
+legitimate input to be rejected, but it must not permit unbounded work.
+
+This is a testable distinction and the reason cache-removal mutations are
+meaningful evidence: the correct failure is the ledger refusing, not an
+exception, a duplicate key, or an unrelated budget. A cache-removal mutation
+that fails a gate for any other reason has proved nothing about the bound.
+
+### Enforcement obligation
+
+Review does not enforce this contract. The scope projection was named as a gap,
+believed fixed, and shipped uncharged anyway, and the census written to prevent
+that recurrence permitted two independent evasions. A conforming gate must
+therefore satisfy all of the following.
+
+1. **Deny by default.** Any call that can materialize metadata fails the gate
+   unless its site is classified by this contract. A gate that enumerates
+   forbidden member names is not conforming, because every unnamed member --
+   and every member added later -- is permitted by omission.
+2. **No exempt regions.** A method that charges is not thereby trusted for its
+   other reads. Sanctioned methods are checked like any other.
+3. **Ordering is verified, not assumed.** For Class B sites the gate must
+   establish that the charge dominates the materialization on every
+   control-flow path. Asserting that a charge appears somewhere in the method
+   does not discharge this obligation, and a gate named for ordering must
+   actually test ordering.
+4. **Classification is explicit.** Each materializing site names its class. An
+   unclassified site fails.
+
+A gate that cannot yet meet these obligations must be named and documented for
+what it actually checks. Naming a gate after the property one intends it to have
+is how an unenforced invariant comes to be believed.
+
+### Failure is visible and attributed
+
+A decode that exceeds a budget fails closed through the typed rejection outcome.
+Exceeding a bound is a statement about the *artifact*, so it must not be
+reported as anything else, and an internal programming error must not be
+reported as a rejected signature. See #5062.
+
+### Non-claims
+
+- Does not change `MaxSignatureTypeNodes`, `MaxTypeNameCharacters`, or
+  `MaxRelationshipNodes`.
+- Does not specify the aggregate's typed API, forwarding semantics, evidence
+  model, or caching strategy beyond the load-bearing rule above.
+- Does not specify exception mapping, which is #5062.
+- Does not claim any existing gate is conforming. The obligations above are the
+  standard against which gates are to be judged, including gates already
+  written.
 
 ## Performance model
 
