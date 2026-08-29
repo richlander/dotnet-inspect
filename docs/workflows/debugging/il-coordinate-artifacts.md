@@ -42,6 +42,7 @@ Generate three coordinate artifact files from the test assembly:
 
 ```bash
 cat > "$COORD_WORKFLOW/create.cs" <<'EOF'
+#pragma warning disable IL2026, IL2075
 using System.Reflection;
 
 var assemblyPath = Path.GetFullPath("artifacts/bin/dotnet-inspect.Tests/release/dotnet-inspect.Tests.dll");
