@@ -4368,7 +4368,9 @@ public class PackageCommand
                             selection.Path,
                             relativePath,
                             groupedIntegrationsFailures,
-                            InspectAsync);
+                            InspectAsync,
+                            preserveFormatFailure:
+                                !scopeFormatFailures);
             }
             catch (LibraryMetadataService.IdentifierConfusionReferenceTraversalException ex)
             {
@@ -4377,6 +4379,14 @@ public class PackageCommand
                         relativePath,
                         ex.FailureKind));
                 continue;
+            }
+            catch (Exception ex) when (
+                !scopeFormatFailures
+                && (ex is UnsupportedMetadataFormatException
+                        or MalformedMetadataRootException))
+            {
+                CommandError.Write(ex);
+                return 1;
             }
             catch (Exception ex) when (
                 scopeFormatFailures
@@ -4547,7 +4557,8 @@ public class PackageCommand
                 ResolvedAssemblyReference?,
                 AssemblyIntegrationsEntry?,
                 AssemblyIntegrationOpportunitiesEntry?,
-                Task<LibraryInspection?>> inspectAsync)
+                Task<LibraryInspection?>> inspectAsync,
+            bool preserveFormatFailure = false)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -4557,9 +4568,16 @@ public class PackageCommand
 
         if (workspace.TryGetPreflightFailure(
                 path,
-                out string preflightFailure))
+                out PackageIntegrationPreflightFailure preflightFailure))
         {
-            failures.Add((relativePath, preflightFailure));
+            if (preserveFormatFailure
+                && preflightFailure.AdmissionException is not null)
+            {
+                return Task.FromException<LibraryInspection?>(
+                    preflightFailure.AdmissionException);
+            }
+
+            failures.Add((relativePath, preflightFailure.Reason));
             return Task.FromResult<LibraryInspection?>(null);
         }
 

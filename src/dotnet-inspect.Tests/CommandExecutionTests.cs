@@ -24816,8 +24816,30 @@ public partial class CommandExecutionTests
                 "Metadata: Image",
                 "--tips",
                 "q");
+            var allLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Metadata: Image",
+                "--tips",
+                "q");
+            var groupedAllLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--tips",
+                "q");
 
-            foreach (var result in new[] { library, package })
+            foreach (var result in new[]
+            {
+                library,
+                package,
+                allLibraries,
+                groupedAllLibraries,
+            })
             {
                 Assert.Equal(1, result.Exit);
                 Assert.Empty(result.Output);

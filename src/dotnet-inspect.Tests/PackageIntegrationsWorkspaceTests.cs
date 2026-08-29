@@ -576,11 +576,13 @@ public sealed class PackageIntegrationsWorkspaceTests
             Assert.True(
                 workspace.TryGetPreflightFailure(
                     path,
-                    out string reason));
+                    out PackageIntegrationPreflightFailure failure));
             Assert.Contains(
                 "unsupported metadata format",
-                reason,
+                failure.Reason,
                 StringComparison.OrdinalIgnoreCase);
+            Assert.IsType<UnsupportedMetadataFormatException>(
+                failure.AdmissionException);
         }
         finally
         {

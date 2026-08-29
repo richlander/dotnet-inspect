@@ -1396,6 +1396,63 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Select_UnsupportedDesignatedMetadataCannotFallBackToPlatform(
+        bool renamed)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-unsupported-overlay-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(
+                root,
+                renamed
+                    ? "overlay.dll"
+                    : Path.GetFileName(platformPath));
+            File.WriteAllBytes(
+                designatedPath,
+                CreateUnsupportedMetadataImage());
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(request));
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                unavailable.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                unavailable.Failure.CandidateFailureKind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Select_RenamedDesignatedOverlayUsesMetadataIdentity()
     {

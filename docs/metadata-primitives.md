@@ -189,7 +189,8 @@ Dependency snapshots use the same Metadata-owned admission helper before
 identity decoding. Multi-library package commands scope unsupported and
 malformed metadata to the rejected participant, emit a bounded failure, and
 continue rendering valid neighboring assemblies. A single selected package
-member retains the direct typed rejection used by single-library inspection.
+member retains the direct typed rejection used by single-library inspection,
+including when grouped Integrations preflight discovers the rejection.
 
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to

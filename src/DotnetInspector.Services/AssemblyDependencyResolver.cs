@@ -405,6 +405,7 @@ public sealed partial class AssemblyDependencyResolver :
         }
         var entitled = new List<ResolvedAssemblyReference>();
         CandidateOpenFailureKind? budgetFailure = null;
+        CandidateOpenFailureKind? unsupportedFormatFailure = null;
         foreach (ResolvedAssemblyDependency dependency in candidates)
         {
             bool designated =
@@ -432,6 +433,14 @@ public sealed partial class AssemblyDependencyResolver :
                 budgetFailure =
                     CandidateOpenFailureKind.ResourceBudget;
             }
+            else if (descriptor.FailureKind
+                    is CandidateOpenFailureKind.UnsupportedMetadataFormat
+                && (designated
+                    || PathNameMatches(dependency, identity)))
+            {
+                unsupportedFormatFailure =
+                    CandidateOpenFailureKind.UnsupportedMetadataFormat;
+            }
         }
 
         bool allowPlatformVersionRollForward =
@@ -448,6 +457,12 @@ public sealed partial class AssemblyDependencyResolver :
             return new AssemblyResolutionAttempt(
                 Assembly: null,
                 budgetFailure);
+        }
+        if (unsupportedFormatFailure is not null)
+        {
+            return new AssemblyResolutionAttempt(
+                Assembly: null,
+                unsupportedFormatFailure);
         }
         if (selection is null)
             return null;
