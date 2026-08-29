@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -750,7 +751,7 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
-    public void MissingPortablePdb_IsAbsentForEveryPdbProducer()
+    public void UnresolvedPortablePdb_FailsEveryPdbProducer()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"metadata-source-findings-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -761,19 +762,72 @@ public sealed class MetadataSourceFindingsTests
         {
             using var source = SourceLinkService.Open(assemblyPath);
 
-            Assert.IsType<FindingInspection<SourceDocumentObservation>.Absent>(
-                SourceLinkFindings.InspectSourceDocuments(source, Subject).Value);
-            Assert.IsType<FindingInspection<MemberSourceObservation>.Absent>(
-                SourceLinkFindings.InspectMemberSources(source, Subject).Value);
-            Assert.IsType<FindingInspection<CompilationOptionInfo>.Absent>(
-                MetadataFindings.InspectCompilationOptions(source.Context, Subject).Value);
-            Assert.IsType<FindingInspection<CompilationReferenceInfo>.Absent>(
-                MetadataFindings.InspectCompilationReferences(source.Context, Subject).Value);
+            AssertPortablePdbUnresolved<SourceDocumentObservation>(
+                SourceLinkFindings.InspectSourceDocuments(source, Subject));
+            AssertPortablePdbUnresolved<MemberSourceObservation>(
+                SourceLinkFindings.InspectMemberSources(source, Subject));
+            AssertPortablePdbUnresolved<CompilationOptionInfo>(
+                MetadataFindings.InspectCompilationOptions(source.Context, Subject));
+            AssertPortablePdbUnresolved<CompilationReferenceInfo>(
+                MetadataFindings.InspectCompilationReferences(source.Context, Subject));
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void WindowsPdb_IsInapplicableForEveryPdbProducer()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-source-findings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "Probe.dll");
+        File.Copy(typeof(MetadataSourceFindingsTests).Assembly.Location, assemblyPath);
+
+        try
+        {
+            using SourceLinkService source = SourceLinkService.Open(assemblyPath);
+            source.Context.LoadPdbFromStream(new MemoryStream(
+                Encoding.ASCII.GetBytes(
+                    "Microsoft C/C++ MSF 7.00\r\n\u001ADS\0\0\0"),
+                writable: false));
+            Assert.True(source.Context.WindowsPdbDetected);
+
+            AssertNoApplicableInput<SourceDocumentObservation>(
+                SourceLinkFindings.InspectSourceDocuments(source, Subject));
+            AssertNoApplicableInput<MemberSourceObservation>(
+                SourceLinkFindings.InspectMemberSources(source, Subject));
+            AssertNoApplicableInput<CompilationOptionInfo>(
+                MetadataFindings.InspectCompilationOptions(source.Context, Subject));
+            AssertNoApplicableInput<CompilationReferenceInfo>(
+                MetadataFindings.InspectCompilationReferences(source.Context, Subject));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void AssertPortablePdbUnresolved<T>(FindingInspection<T> inspection)
+        where T : notnull
+    {
+        var failed = Assert.IsType<FindingInspection<T>.Failed>(inspection.Value);
+        Assert.Contains(
+            "portable PDB remains unresolved",
+            failed.Error.Reason,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    static void AssertNoApplicableInput<T>(FindingInspection<T> inspection)
+        where T : notnull
+    {
+        var absent = Assert.IsType<FindingInspection<T>.Absent>(inspection.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            absent.Kind);
     }
 
     [Fact]

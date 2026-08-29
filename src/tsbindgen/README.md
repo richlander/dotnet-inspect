@@ -50,13 +50,17 @@ reach. The SDK's JavaScript interop source generator instead rejects a compiled
 `[JSExport] ValueTask` signature with `SYSLIB1072`, before a runtime-publishable
 surface exists. The target architecture removes those mapper branches, retains
 that SDK compile-time negative, and rejects an unsupported hand-composed input
-visibly. Async JSON return authentication currently recognizes the
-compiler-async form whose physical result sink is in `MoveNext`; it does not
-yet recognize the equivalent runtime-async form whose physical body and return
-sink remain on the exported method. Issue
-[#4790](https://github.com/richlander/dotnet-inspect/issues/4790) owns that
-`ILInspector.JsExportSurface` prerequisite; the target generator only consumes
-the lowering-independent facts.
+visibly. For supported `Task<string>` exports whose serializer result reaches
+the completion sink with direct call provenance, `ILInspector.JsExportSurface`
+authenticates async JSON returns in both the compiler-async form whose physical
+result sink is in `MoveNext` and the runtime-async form whose physical body and
+return sink remain on the exported method. `tsbindgen` consumes the resulting
+owner-issued `JsExportFunction` facts and does not recognize either lowering
+itself.
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
+gates structurally equal owner-issued facts for the paired direct-result
+artifacts. Analysis issue #5025 tracks the missing compiler provenance when a
+serialized value is hoisted through a state-machine field across a suspension.
 
 Generated JSON-wire interfaces are producer-owned snapshots: their properties
 are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use

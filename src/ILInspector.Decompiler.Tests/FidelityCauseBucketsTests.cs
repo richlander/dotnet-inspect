@@ -68,7 +68,9 @@ public class FidelityCauseBucketsTests
     public void FromInspection_Absent_RemainsDistinctFromFailure()
     {
         var census = FidelityCauseBuckets.FromInspection(
-            new FindingInspection<DecompilerFidelityCause>.Absent("no method body"));
+            new FindingInspection<DecompilerFidelityCause>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                "no method body"));
 
         Assert.False(census.Succeeded);
         Assert.Equal(FidelityCauseBuckets.CensusState.Absent, census.State);
@@ -81,7 +83,8 @@ public class FidelityCauseBucketsTests
     public void PrimaryBucket_RejectsNonCompleteInspection()
     {
         var census = FidelityCauseBuckets.FromInspection(
-            new FindingInspection<DecompilerFidelityCause>.Absent());
+            new FindingInspection<DecompilerFidelityCause>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput));
 
         Assert.Throws<InvalidOperationException>(() => FidelityCauseBuckets.PrimaryBucket(census));
     }
