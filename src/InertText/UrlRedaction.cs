@@ -49,6 +49,20 @@ namespace InertText;
 public static class UrlRedaction
 {
     /// <summary>
+    /// The semantic version of the encoded text returned by
+    /// <see cref="ForPathComponent"/>.
+    /// </summary>
+    /// <remarks>
+    /// Increment this value before changing the path grammar, replacement text,
+    /// field encoding, or any other behavior that can change the encoded output
+    /// for an admitted path. This is independent of assembly and package
+    /// versions.
+    ///
+    /// Gated by <c>ForPathComponent_ContractVersionPinsCurrentOutput</c>.
+    /// </remarks>
+    public const int PathComponentContractVersion = 1;
+
+    /// <summary>
     /// What replaces a query or credential-bearing path segment. It keeps the
     /// redaction visible without carrying any of the removed text.
     /// </summary>

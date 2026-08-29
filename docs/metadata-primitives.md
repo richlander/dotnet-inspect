@@ -297,10 +297,13 @@ kind. Adding another table requires a design change to
 [bounded metadata traversal](design/bounded-metadata-traversal.md), this
 registry, and the owning consumer contract.
 
-The boundary is unverified until a named architecture gate proves
-MetadataPrimitives remains an SRM-only leaf, no other MetadataPrimitives type
-decodes raw ECMA table-row bytes or table coded-index columns, and the primitive
-does not expose a general table decoder. The separately registered
+The primitive-local boundary is gated by
+`LayeringTests.MetadataPrimitives_RemainsLeaf`,
+`LayeringTests.MetadataPrimitives_MethodSemanticsReaderIsIsolated`, and
+`MethodSemanticsRowReaderTests`. Those gates prove MetadataPrimitives remains
+an SRM-only leaf, no other MetadataPrimitives type decodes raw ECMA table-row
+bytes or table coded-index columns, and the primitive does not expose a general
+table decoder. The separately registered
 `MetadataImageFormatClassifier` may read only its fixed metadata-root admission
 prefix and bounded version field; it may not call table-layout APIs. Blob and
 heap `BlobReader` use is outside this table-layout closure. Existing
@@ -336,8 +339,10 @@ slice 8. Its outcome tests must establish:
   the total width;
 - bounded work and allocation before retention on oversized tables; and
 - the same supported ECMA-335 result under Browser/Wasm and
-  NativeAOT-compatible hosts; unsupported-format classification and its direct
-  leaf close-negative belong to `MDP017`.
+  NativeAOT-compatible hosts, gated by
+  `LayeringTests.MetadataPrimitives_MethodSemanticsPlatformProbesAreWired` and
+  `eng/run-method-semantics-platform-probe.sh`; unsupported-format
+  classification and its direct leaf close-negative belong to `MDP017`.
 
 ## Why `TypeRef` remains local
 
@@ -566,10 +571,17 @@ The current boundary is protected by:
 - `MetadataRelationshipTraversalTests` for bounded relationship mechanics;
 - `SignatureBlobGuardTests` and `SignatureDecoderSafetyTests` for malformed and
   adversarial signature shapes;
+- `MethodSemanticsRowReaderTests` for lossless physical rows, raw bits, index
+  widths, malformed bounds, independent IL-oracle parity, and retained-row
+  budgeting;
+- `LayeringTests.MetadataPrimitives_MethodSemanticsReaderIsIsolated` and
+  `LayeringTests.MetadataPrimitives_MethodSemanticsPlatformProbesAreWired` for
+  raw-layout/API closure and executable NativeAOT/Browser wiring;
 - `LayeringTests.MetadataNameMatching_DoesNotDependOnFindingBackedText` for the
   MetadataPrimitives owner of neutral name matching.
 
-No current gate enforces that MetadataPrimitives has zero project references.
+`LayeringTests.MetadataPrimitives_RemainsLeaf` enforces that
+MetadataPrimitives has zero project references.
 
 An implementation that changes a stated safety or ownership property must
 extend the owning gate rather than relying on a green broad suite.
@@ -587,11 +599,11 @@ Keep the work in independently reviewable slices:
    census.
 3. **Optional local clarity** — rename ILDiff's two providers if the names
    continue to obscure their distinct projections.
-4. **Lossless `MethodSemantics` row boundary** — after the leaf project-closure
-   gate exists, add only the registered three-column reader and its raw-oracle,
-   malformed-row, budget, platform, and architecture-closure gates. Activate it
-   through the member-inspection plan's Metadata admission slice, not through a
-   general table-projection dependency.
+4. **Lossless `MethodSemantics` row boundary** — implemented by
+   `MethodSemanticsRowReader` and its raw-oracle, malformed-row, budget,
+   platform, and architecture-closure gates. Product activation still belongs
+   to the member-inspection plan's Metadata admission slice, not a general
+   table-projection dependency.
 
 Do not combine these slices with a `TypeRef` redesign, provider-policy rewrite,
 rendering change, or TypeSpec acceptance widening. Each slice must preserve

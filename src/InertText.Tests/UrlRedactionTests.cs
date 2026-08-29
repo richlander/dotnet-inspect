@@ -7,6 +7,23 @@ public class UrlRedactionTests
     private const string Secret = "VERY-SECRET-TOKEN";
 
     [Fact]
+    public void ForPathComponent_ContractVersionPinsCurrentOutput()
+    {
+        Assert.Equal(1, UrlRedaction.PathComponentContractVersion);
+        Assert.Equal(
+            "/F/auth/REDACTED/api",
+            UrlRedaction.ForPathComponent($"/F/auth/{Secret}/api").ToString());
+        Assert.Equal(
+            "/proxy/https://feed.test/%20",
+            UrlRedaction.ForPathComponent(
+                "/proxy/https://feed.test/%20").ToString());
+        Assert.Equal(
+            "/flat/\\u202Egnp.evil",
+            UrlRedaction.ForPathComponent(
+                "/flat/\u202Egnp.evil").ToString());
+    }
+
+    [Fact]
     public void ForPathComponent_DeclarationIsTypedAndPathOnly()
     {
         MethodInfo method = Assert.Single(
