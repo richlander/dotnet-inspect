@@ -5,11 +5,10 @@
 Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
-[Item and line limits](item-and-line-limits.md) settles the adjacent
-[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) vocabulary:
-`-n`/bare `-N` is the plain first/last item count, `--rows` carries only
-absolute ranges, and `--top` is a validated ranked count composed with
-`--order-by`.
+[Item and line selection composition](item-and-line-limits.md#composition)
+identifies this document as the L2 owner for row predicates, effective order,
+and ranking metadata. It does not settle CLI spellings or count/window
+composition; the pending L3 and L2 binding designs own those contracts.
 
 [The package query CLI](package-query-cli.md) proposes reusing this model's
 `--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
@@ -111,9 +110,10 @@ select section -> collect rows -> apply --where -> apply effective ranking order
 -> apply --top -> intersect --rows range -> project --columns/--fields -> render
 ```
 
-Plain `-n N` follows the same pipeline but makes no ranking claim. `--count`
-branches after filtering and rejects item/range windows. The full cross-shape
-pipeline lives in [Item and line limits](item-and-line-limits.md).
+The pending L3 and L2 binding designs own how count, window, and reduction
+gestures enter or branch from this L2 pipeline. The cross-component sequencing
+and typed handoffs live in
+[Item and line selection composition](item-and-line-limits.md#composition).
 
 ## Predicate grammar
 

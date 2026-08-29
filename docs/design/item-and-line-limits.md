@@ -21,7 +21,7 @@ This table identifies authority; it does not define a participant's behavior.
 | --- | --- | --- |
 | Ordered Head, Tail, Window, and Top stages | Shared `DotnetInspector.RowSelection` leaf component | [Semantic row selection](semantic-row-selection.md) |
 | Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | [Row query and ordering](row-query-order.md) |
-| Declared row sets, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | Pending focused design |
+| Declared row sets, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | Pending focused design |
 | CLI aliases, argv lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | Pending focused design |
 | Source execution, exact upstream optimization, merge, deduplication, and completion evidence | L1 query or source-owning component | Pending focused design |
 | Payload projection, printing, export, and rendered-line selection | L3 `dotnet-inspect` | Pending focused design |
@@ -44,7 +44,7 @@ CLI tokens
 -> L2 completes residual predicates and effective baseline order
 -> shared RowSelection component executes residual semantic stages
 -> L2 completes residual reductions and binds the typed result
--> payload or field projection
+-> L2 field/column projection or L3 payload projection
 -> presentation and optional rendered-line selection
 ```
 
@@ -73,7 +73,8 @@ does not choose which logical rows or values survive.
 1. Semantic row-selection behavior is locked by
    [Semantic row selection](semantic-row-selection.md).
 2. This document locks only owner sequencing and typed handoffs.
-3. Define L2 declared-row-set binding and logical reductions, including count.
+3. Define L2 declared-row-set binding, field/column projection, and logical
+   reductions, including count.
 4. Define L1/source execution and exact upstream optimization against that L2
    contract.
 5. Define L3 CLI grammar and lowering against the locked typed contracts.
@@ -91,7 +92,8 @@ partial grammar whose meaning depends on a later subsystem.
 This document does not define:
 
 - CLI spellings, aliases, compatibility, or diagnostics;
-- row predicates, ordering, count semantics, or result-binding mechanics;
+- row predicates, ordering, field/column projection mechanics, count semantics,
+  or result-binding mechanics;
 - source capabilities, stopping rules, pagination, or proof receipts;
 - payload cardinality, framing, export, or line-selection behavior;
 - Markout APIs or semantic row-selection behavior; or
