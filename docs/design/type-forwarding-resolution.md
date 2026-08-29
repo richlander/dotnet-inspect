@@ -2740,14 +2740,8 @@ A signature decode walks artifact-authored metadata on behalf of a caller who
 has not inspected it. The decode must therefore complete within a stated bound
 or refuse, and it must never report success after doing unbounded work.
 
-This section is the contract for that bound. It exists because the bound was
-built without one. Three consecutive review rounds on the spellability
-aggregate each found a structural defect of the same family -- the budget
-bounded the wrong quantity -- and a fourth round found that the gate written to
-end the family did not enforce what it claimed. Every one of those defects was
-found by inspection, because no document enumerated the quantities a decode
-consumes or said how each was bounded. Enumerating them is the point of this
-section.
+This section specifies that bound: the quantities a decode consumes, how each
+is bounded, and what a gate must do to enforce it.
 
 ### Owner
 
@@ -2792,9 +2786,8 @@ aggregate ceiling on its own, so charging afterwards is charging a bill already
 paid. `MetadataReader.GetBlobReader(handle).Length` reports storage length
 without copying and is the sanctioned way to price a Class B read.
 
-Misclassification is the defect this contract exists to prevent. Treating a
-Class B quantity as Class A is exactly how a 382 KiB artifact came to allocate
-490 MiB and then be accepted.
+Misclassifying a Class B quantity as Class A permits unbounded work on an
+accepted decode, and is the failure this classification exists to prevent.
 
 ### The cost model
 
@@ -2823,9 +2816,9 @@ one cannot substitute for another.
 - **Work ledger** -- how much metadata is examined, in bytes or characters.
   Bounds decode *cost*.
 
-The first two count events; only the ledger observes magnitude. This is the
-distinction that three rounds of review kept rediscovering: a budget that counts
-callbacks cannot see that one callback read a megabyte.
+The first two count events; only the ledger observes magnitude. A budget that
+counts callbacks cannot observe that one callback read a megabyte, so no count
+budget substitutes for the ledger.
 
 The ledger ceiling is `MaxTypeNameCharacters * 64`. The rationale is that one
 decode may legitimately examine the equivalent of 64 maximum-length type names.
@@ -2839,17 +2832,15 @@ Caching a projection is an optimization and must never be load-bearing for the
 bound. Removing any cache must leave the decode *bounded* -- it may cause a
 legitimate input to be rejected, but it must not permit unbounded work.
 
-This is a testable distinction and the reason cache-removal mutations are
-meaningful evidence: the correct failure is the ledger refusing, not an
-exception, a duplicate key, or an unrelated budget. A cache-removal mutation
-that fails a gate for any other reason has proved nothing about the bound.
+Cache removal is therefore a valid probe of the bound: the required failure is
+the ledger refusing, not an exception, a duplicate key, or an unrelated budget.
+A cache-removal mutation that fails a gate for any other reason establishes
+nothing about the bound.
 
 ### Enforcement obligation
 
-Review does not enforce this contract. The scope projection was named as a gap,
-believed fixed, and shipped uncharged anyway, and the census written to prevent
-that recurrence permitted two independent evasions. A conforming gate must
-therefore satisfy all of the following.
+This contract is enforced structurally, not by review. A conforming gate must
+satisfy all of the following.
 
 1. **Deny by default.** Any call that can materialize metadata fails the gate
    unless its site is classified by this contract. A gate that enumerates
@@ -2860,14 +2851,12 @@ therefore satisfy all of the following.
 3. **Ordering is verified, not assumed.** For Class B sites the gate must
    establish that the charge dominates the materialization on every
    control-flow path. Asserting that a charge appears somewhere in the method
-   does not discharge this obligation, and a gate named for ordering must
-   actually test ordering.
+   does not discharge this obligation.
 4. **Classification is explicit.** Each materializing site names its class. An
    unclassified site fails.
 
-A gate that cannot yet meet these obligations must be named and documented for
-what it actually checks. Naming a gate after the property one intends it to have
-is how an unenforced invariant comes to be believed.
+A gate that does not meet these obligations is named and documented for the
+property it actually checks.
 
 ### Failure is visible and attributed
 
