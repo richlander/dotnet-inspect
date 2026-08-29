@@ -210,8 +210,10 @@ PDB source is unavailable.
 
 ## Research admission and target-correspondence boundary
 
-**Status:** target design for #4771; unimplemented and unverified until the
-named gates in
+**Status:** target design for #4771.
+[Research admission and identity](#research-admission-and-identity) is
+implemented and verified. Target resolution, census, and correspondence remain
+unimplemented and unverified until their named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
 land.
 
@@ -265,6 +267,23 @@ or producer models in this slice.
 
 ### Research admission and identity
 
+**Status:** implemented by `ResearchComparisonAdmission.Admit`.
+`ResearchAdmission_MintsFreshParentedIdentitiesForEveryOccurrence` and
+`ResearchAdmission_ReturnsAtomicExactInputAssociations` are the named gates;
+`ResearchAdmission_AdmitsEveryDeclaredProfile`,
+`ResearchAdmission_RepeatedBorrowedValuesRetainDistinctOccurrences`,
+`ResearchAdmission_CopiesCallerOwnedCollections`,
+`ResearchAdmission_InvalidProfileInputExposesNoPartialPopulation`,
+`ResearchAdmission_RejectsEveryDeclaredInvalidShape`,
+`ResearchAdmissionIdentities_AreOwnerIssuedReferenceIdentities`,
+`ResearchAdmission_NewAdmissionMintsFreshOperationAndPopulation`,
+`ResearchAdmittedPopulation_RetainsOnlyImmutableState`,
+`ResearchAdmissionRequests_SeparateConstructionAndAdmissionNullContracts`,
+`ResearchAdmission_ImplementationOccurrenceValidatesEveryDirectArgument`, and
+`ResearchAdmission_DoesNotOpenOrInspectBorrowedInputs` gate the remaining
+properties below. Target scopes, domains, requests, and attempts have no
+representation in this slice.
+
 Research admission returns one immutable `ResearchAdmittedPopulation`. It owns
 opaque identities for:
 
@@ -286,11 +305,35 @@ receipt; the companion does not recover correspondence by ordinal, content,
 display value, or structural equality. Admission either returns the complete
 operation, question, and input population or exposes none of it.
 
-Admission copies all caller-owned collections. It may borrow the exact
-profile-specific assembly descriptor, resolver, body index, and typed selection
-intent while target resolution is active, but those values are evidence rather
-than identity. Invalid profile input produces a typed Research admission
-rejection before target requests are minted.
+Admission copies all caller-owned collections, and the admitted population
+retains its occurrence-to-identity association as a frozen private copy keyed
+by occurrence reference identity rather than a mutable dictionary. It may
+borrow the exact profile-specific assembly descriptor, resolver, body index,
+and typed selection intent while target resolution is active, but those values
+are evidence rather than identity. Invalid profile input produces a typed
+Research admission rejection that exposes no identity and no partial
+population. No target request can be minted from this slice at all, because it
+contains no target path.
+
+Null contracts split by where the value enters. A direct occurrence, question,
+or request constructor argument is validated at construction, so
+`BodySignalComparisonInputOccurrence` rejects a null `LibraryBodyIndex` there,
+`ImplementationComparisonInputOccurrence` rejects a null assembly descriptor,
+resolver, or body index passed to its three-argument constructor, and neither
+can report missing evidence later. Nested borrowed evidence supplied as an
+already-constructed `ImplementationAssemblyInput`, and null collection
+elements, are deliberately retained instead: an incomplete input or a null
+occurrence becomes a typed admission rejection that exposes no identity and no
+partial population, rather than a construction-time exception.
+
+Admission borrows its inputs without reading them. It calls no member of
+`ResolvedAssemblyReference`, `IAssemblyReferenceResolver`, or
+`LibraryBodyIndex`, so it never opens an assembly, reads a path, resolves a
+reference, or inspects body-index content.
+`ResearchAdmission_DoesNotOpenOrInspectBorrowedInputs` gates this both
+behaviorally, with borrowed capabilities that throw when used, and structurally,
+with an IL call-reference walk over every admission-reachable product method for
+both rank-1 profiles.
 
 The identity and atomic-association contract applies to both rank-1 profiles.
 The target-resolution path in this design initially applies only to the
@@ -571,7 +614,9 @@ Migration preserves owner and dependency direction:
 1. Research adds the opaque admission identities, atomic
    `ResearchAdmittedPopulation`, and purpose-built fixtures for both rank-1
    profiles. It adds side-local target scopes, requests, and attempts for the
-   implementation-comparison profile.
+   implementation-comparison profile. The admission identity and
+   atomic-association half of this step has landed; the target scopes,
+   requests, and attempts have not.
 2. Research adds that profile's Metadata-target adapter, exact relationship
    roles, durable target keys, and typed expected-failure outcomes. Metadata's
    resolver and diagnostics remain unchanged.
@@ -591,10 +636,12 @@ Migration preserves owner and dependency direction:
    follows #4777 independently.
 
 The target contract remains unimplemented until these named non-vacuity gates
-land:
+land. `ResearchAdmission_MintsFreshParentedIdentitiesForEveryOccurrence` and
+`ResearchAdmission_ReturnsAtomicExactInputAssociations` have landed and are
+listed under
+[Research admission and identity](#research-admission-and-identity); the rest
+remain pending:
 
-- `ResearchAdmission_MintsFreshParentedIdentitiesForEveryOccurrence`
-- `ResearchAdmission_ReturnsAtomicExactInputAssociations`
 - `ResearchTargetRequests_AreStrictlySideInputAndScopeLocal`
 - `ResearchTargetRequests_CarriedRoleIsDerivedOnlyAfterResolution`
 - `ResearchTargetAttempts_AccountForEveryRequestExactlyOnce`
