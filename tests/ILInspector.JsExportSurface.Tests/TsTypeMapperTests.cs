@@ -242,4 +242,21 @@ public sealed class TsTypeMapperTests
             TsTypeMapper.MapParameterType(csharpType, RecordNames, diagnostics, "BrowserAnnotatedSource.Document"));
         Assert.Empty(diagnostics.UnmappedTypes);
     }
+
+    [Theory]
+    [InlineData("System.Runtime.InteropServices.JavaScript.JSObject")]
+    [InlineData("JSObject")]
+    public void Map_JSObjectMapsToUnknownWithoutReportingAsUnmapped(string csharpType)
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                csharpType,
+                RecordNames,
+                diagnostics,
+                "InspectionEngine.RunPackageQuery.eventSink"));
+        Assert.Empty(diagnostics.UnmappedTypes);
+    }
 }

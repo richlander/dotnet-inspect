@@ -2508,7 +2508,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.home = state\.credits\s*\|\| \(!initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!state\.packageQueryOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -2716,6 +2716,34 @@ test("Platform Spotlight distinguishes resident content from core readiness", ()
   assert.match(
     results,
     /if \(!roster\.length && !runtimePackLoaded\(\)\)/);
+});
+
+test("Package query is a routed Spotlight action with typed workspace handoff", () => {
+  const results =
+    appSource.match(/function spotlightResults\(\): SpotlightResult\[\] \{[\s\S]*?\n}\n\ninterface NugetSearchResult/)?.[0]
+    ?? "";
+  const route =
+    appSource.match(/function openPackageQueryRoute\([\s\S]*?\n}\n\nfunction closePackageQueryRoute/)?.[0]
+    ?? "";
+  const handoff =
+    appSource.match(/async function openPackageQueryRow\([\s\S]*?\n}\n\nconst packageQueryActions/)?.[0]
+    ?? "";
+
+  assert.match(
+    results,
+    /kind: "package-query",[\s\S]*prefix: validPackageQueryPrefix\(query\),/);
+  assert.match(
+    appSource,
+    /case "package-query":\s*openPackageQueryRoute\(result\.prefix\);\s*break;/);
+  assert.match(
+    route,
+    /state\.packageQueryOpen = true;[\s\S]*workspaceLocation\.push\("\/query"\);[\s\S]*focusPackageQueryInput\(\)/);
+  assert.match(
+    handoff,
+    /packageQueryController\.cancel\(\);[\s\S]*await loadPackage\(packageId, version, ""\)[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+  assert.match(
+    handoff,
+    /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
 });
 
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {

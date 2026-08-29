@@ -274,6 +274,27 @@ import {
   isCreditsPath,
   renderCreditsPage,
 } from "./credits-panel.ts";
+import {
+  createPackageQueryController,
+  createQueryRequest,
+  initialQueryState,
+  toggleFacet,
+  type PackageQueryState,
+  type QueryFacetTerm,
+} from "./package-query.ts";
+import {
+  createBrowserPackageQueryDataSource,
+  packageQueryFacets,
+} from "./package-query-source.ts";
+import {
+  bindPackageQueryView,
+  renderPackageQueryView,
+  type PackageQueryBindingActions,
+} from "./package-query-view.ts";
+import {
+  isPackageQueryPath,
+  validPackageQueryPrefix,
+} from "./package-query-route.ts";
 import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
@@ -296,12 +317,15 @@ import type {
 type EngineModule = typeof import("./inspect-web-engine.d.ts");
 
 let initializeEngine: EngineModule["initializeEngine"];
+let cancelPackageQuery: EngineModule["cancelPackageQuery"];
 let cancelSourceInspection: EngineModule["cancelSourceQuery"];
 let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
 let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
 let inspectVocabulary: EngineModule["listVocabulary"];
 let inspectListHomeDemos: EngineModule["listHomeDemos"];
+let inspectListPackageQueryFacets: EngineModule["listPackageQueryFacets"];
 let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
+let inspectRunPackageQuery: EngineModule["runPackageQuery"];
 let inspectRunHomeDemo: EngineModule["runHomeDemo"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
@@ -340,6 +364,7 @@ let resolveDependencyVersion: EngineModule["resolvePackageDependencyVersion"];
 async function loadEngineModule() {
   ({
     buildIdentity: inspectBuildIdentity,
+    cancelPackageQuery,
     cancelSourceQuery: cancelSourceInspection,
     decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
     encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
@@ -347,9 +372,11 @@ async function loadEngineModule() {
     getPackageDocument: inspectPackageDocument,
     initializeEngine,
     listHomeDemos: inspectListHomeDemos,
+    listPackageQueryFacets: inspectListPackageQueryFacets,
     listVocabulary: inspectVocabulary,
     resolveHomeDemo: inspectResolveHomeDemo,
     runHomeDemo: inspectRunHomeDemo,
+    runPackageQuery: inspectRunPackageQuery,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
@@ -555,6 +582,13 @@ const initialState = {
   package: null,
   home: false,
   credits: false,
+  packageQueryOpen: false,
+  packageQueryPrefix: "",
+  packageQueryNavigationError: "",
+  packageQueryOpenedFromApp: false,
+  packageQueryReturnFocus: null,
+  packageQueryState: initialQueryState(),
+  packageQueryFacets: [],
   platformIndex: null,
   queryNotice: "",
   queryNoticeRetryAction: null,
@@ -753,6 +787,9 @@ interface StateOverrides {
   diag: Diagnostics | null;
   buildIdentity: BrowserBuildIdentity | null;
   packageCacheStats: BrowserPackageCacheStats | null;
+  packageQueryState: PackageQueryState;
+  packageQueryFacets: QueryFacetTerm[];
+  packageQueryReturnFocus: "home-search" | "package-search" | null;
 }
 
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
@@ -863,6 +900,29 @@ const sourceInspection = createSourceInspectionCoordinator({
   render,
   renderPreservingMemberFocus,
 });
+const packageQueryController = createPackageQueryController(
+  state.packageQueryState,
+  createBrowserPackageQueryDataSource({
+    cancel: () => cancelPackageQuery(),
+    run: (
+      prefix,
+      facetIdsJson,
+      maximumCandidates,
+      maximumMatches,
+      includePrerelease,
+      eventSink,
+    ) => inspectRunPackageQuery(
+      prefix,
+      facetIdsJson,
+      maximumCandidates,
+      maximumMatches,
+      includePrerelease,
+      eventSink),
+  }),
+  () => {
+    if (state.packageQueryOpen) render();
+  },
+);
 const metadataInspection = createMetadataInspectionCoordinator({
   state,
   queryTypeMetadata: request => inspectTypeProjection(
@@ -1241,8 +1301,10 @@ const initialLocation = initialWorkspace.visible;
 // instead of auto-loading a package. Any deep link or shared link skips home and restores
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
+state.packageQueryOpen = isPackageQueryPath(location.pathname);
 state.home = state.credits
-  || (!initialLocation.package
+  || (!state.packageQueryOpen
+    && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
     && !initialLocation.routeFailure);
 state.queryNotice = "";
@@ -2448,6 +2510,11 @@ function render() {
     renderCreditsView();
     return;
   }
+  if (state.packageQueryOpen && !state.loading && !state.error) {
+    loadingBotSrc = null;
+    renderPackageQueryPage();
+    return;
+  }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
   const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
@@ -2592,6 +2659,7 @@ function render() {
     </div>`;
 
   bindEvents();
+  restorePackageQueryReturnFocus();
   recordNav();
   syncUrl();
   maybeAutoLoadVisibleSource();
@@ -5419,6 +5487,10 @@ function spotlightResults(): SpotlightResult[] {
       results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
       if (all && ++added >= 4) break;
     }
+    results.push({
+      kind: "package-query",
+      prefix: validPackageQueryPrefix(query),
+    });
   }
   if ((all || spotlightScope === "types") && query) {
     for (const match of spotlightTypeMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "type" });
@@ -5681,6 +5753,9 @@ async function switchPackageFramework(newFramework: string) {
 function pickSpotlightResult(result: SpotlightResult) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
+    case "package-query":
+      openPackageQueryRoute(result.prefix);
+      break;
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
     case "pkg-nuget":
       observeAsync(
@@ -6784,8 +6859,13 @@ function bindHomeEvents() {
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
-  requestAnimationFrame(() =>
-    document.querySelector<HTMLInputElement>("#spotlight-input")?.focus());
+  requestAnimationFrame(() => {
+    const input =
+      document.querySelector<HTMLInputElement>("#spotlight-input");
+    input?.focus();
+    if (input && state.packageQueryReturnFocus === "home-search")
+      state.packageQueryReturnFocus = null;
+  });
 }
 
 // Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
@@ -6829,6 +6909,8 @@ function goHome() {
     render();
     return;
   }
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -6841,6 +6923,8 @@ function openCredits() {
     render();
     return;
   }
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
   state.credits = true;
   state.home = true;
   spotlight.reset();
@@ -6855,6 +6939,173 @@ function renderCreditsView() {
     onClose: goHome,
     onToggleTheme: toggleCreditsTheme,
   });
+}
+
+function focusPackageQueryInput() {
+  requestAnimationFrame(() =>
+    document.querySelector<HTMLInputElement>("#package-query-prefix")?.focus());
+}
+
+function restorePackageQueryReturnFocus() {
+  if (state.packageQueryReturnFocus !== "package-search") return;
+  requestAnimationFrame(() => {
+    const input =
+      document.querySelector<HTMLInputElement>("#package-query-input");
+    input?.focus();
+    if (input) state.packageQueryReturnFocus = null;
+  });
+}
+
+function resetPackageQueryState() {
+  const fresh = initialQueryState();
+  state.packageQueryState.request = fresh.request;
+  state.packageQueryState.outcome = fresh.outcome;
+}
+
+function openPackageQueryRoute(seed = "") {
+  if (!state.engineReady || state.loading || state.error) return;
+  packageQueryController.cancel();
+  resetPackageQueryState();
+  state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  state.packageQueryNavigationError = "";
+  state.packageQueryOpenedFromApp = true;
+  state.packageQueryReturnFocus = state.home
+    ? "home-search"
+    : "package-search";
+  state.packageQueryOpen = true;
+  state.credits = false;
+  state.home = false;
+  spotlight.reset();
+  workspaceLocation.push("/query");
+  render();
+  focusPackageQueryInput();
+  if (state.packageQueryPrefix) {
+    void packageQueryController.run(
+      createQueryRequest(state.packageQueryPrefix));
+  }
+}
+
+function closePackageQueryRoute() {
+  if (state.packageQueryOpenedFromApp) {
+    history.back();
+    return;
+  }
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
+  state.credits = false;
+  state.home = true;
+  spotlight.reset();
+  workspaceLocation.replace("/");
+  render();
+}
+
+function runPackageQuery(prefix: string) {
+  const validPrefix = validPackageQueryPrefix(prefix);
+  state.packageQueryPrefix = prefix;
+  if (!validPrefix) {
+    state.packageQueryNavigationError =
+      "Enter a non-empty package ID prefix of at most 100 characters.";
+    render();
+    focusPackageQueryInput();
+    return;
+  }
+
+  state.packageQueryPrefix = validPrefix;
+  state.packageQueryNavigationError = "";
+  const request = createQueryRequest(validPrefix);
+  void packageQueryController.run({
+    ...request,
+    facets: state.packageQueryState.request?.facets ?? [],
+  });
+}
+
+function togglePackageQueryFacet(facetKey: string, prefix: string) {
+  const facet = state.packageQueryFacets.find(
+    candidate => candidate.key === facetKey);
+  const validPrefix = validPackageQueryPrefix(prefix);
+  state.packageQueryPrefix = prefix;
+  if (!facet || !validPrefix) {
+    state.packageQueryNavigationError = facet
+      ? "Enter a package ID prefix before selecting facets."
+      : "The selected package-query facet is unavailable.";
+    render();
+    focusPackageQueryInput();
+    return;
+  }
+
+  state.packageQueryPrefix = validPrefix;
+  state.packageQueryNavigationError = "";
+  const current = state.packageQueryState.request?.scopeQuery === validPrefix
+    ? state.packageQueryState.request
+    : createQueryRequest(validPrefix);
+  void packageQueryController.run(toggleFacet(current, facet));
+}
+
+async function openPackageQueryRow(
+  packageId: string,
+  version: string,
+) {
+  packageQueryController.cancel();
+  state.packageQueryNavigationError = "";
+  const loaded = await loadPackage(packageId, version, "");
+  if (!loaded) {
+    const failure = state.error || state.queryNotice
+      || `Couldn’t open ${packageId}@${version} in the workspace.`;
+    state.loading = false;
+    state.error = "";
+    state.errorTitle = "";
+    state.errorDetail = "";
+    state.retryAction = null;
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
+    state.packageQueryOpen = true;
+    state.packageQueryNavigationError = failure;
+    render();
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(
+        `[data-query-row-open="${cssEscape(packageId)}"][data-query-row-version="${cssEscape(version)}"]`)
+        ?.focus());
+    return;
+  }
+
+  state.packageQueryOpen = false;
+  state.packageQueryOpenedFromApp = false;
+  state.packageQueryReturnFocus = null;
+  workspaceLocation.push(buildStateUrl().toString());
+  render();
+  focusTypeList();
+}
+
+const packageQueryActions: PackageQueryBindingActions = {
+  onBack: closePackageQueryRoute,
+  onCancel: () => packageQueryController.cancel(),
+  onFacetToggle: togglePackageQueryFacet,
+  onPrefixInput: prefix => {
+    state.packageQueryPrefix = prefix;
+    if (state.packageQueryState.request
+      && state.packageQueryState.request.scopeQuery !== prefix
+      && state.packageQueryState.outcome.completion.kind === "streaming") {
+      packageQueryController.cancel();
+    }
+  },
+  onRowOpen: (packageId, version) => {
+    observeAsync(
+      openPackageQueryRow(packageId, version),
+      "Opening a queried package");
+  },
+  onRun: runPackageQuery,
+};
+
+function renderPackageQueryPage() {
+  document.title = "Package query · dotnet-inspect";
+  app.innerHTML = renderPackageQueryView({
+    state: state.packageQueryState,
+    prefix: state.packageQueryPrefix,
+    availableFacets: state.packageQueryFacets,
+    navigationError: state.packageQueryNavigationError,
+    escapeHtml,
+  });
+  bindPackageQueryView(document, packageQueryActions);
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
@@ -9478,6 +9729,14 @@ async function bootstrap() {
     } catch {
       setProductHomeDemoCatalog([]);
     }
+    try {
+      state.packageQueryFacets =
+        packageQueryFacets(inspectListPackageQueryFacets());
+    } catch (error) {
+      state.packageQueryFacets = [];
+      state.packageQueryNavigationError =
+        `Package-query facets are unavailable: ${errorMessage(error) || "Unknown error."}`;
+    }
     state.engineReady = true;
     state.engineStatus = "";
     if (state.home) {
@@ -9485,6 +9744,13 @@ async function bootstrap() {
       state.loading = false;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
       if (!state.credits) render();
+      return;
+    }
+    if (state.packageQueryOpen) {
+      state.loading = false;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      render();
+      focusPackageQueryInput();
       return;
     }
     await restoreInitialWorkspace();
@@ -9554,6 +9820,10 @@ function refreshPackageStats() {
 function navigateInAppUrl(url: URL) {
   if (isCreditsPath(url.pathname)) {
     openCredits();
+    return;
+  }
+  if (isPackageQueryPath(url.pathname)) {
+    openPackageQueryRoute();
     return;
   }
   if (url.pathname === "/" && !url.search && !url.hash) {
@@ -9973,6 +10243,20 @@ window.addEventListener("popstate", () => {
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
   state.loading = false;
+  if (isPackageQueryPath(location.pathname)) {
+    clearNavigationError();
+    state.packageQueryOpen = true;
+    state.credits = false;
+    state.home = false;
+    spotlight.reset();
+    render();
+    focusPackageQueryInput();
+    return;
+  }
+  if (state.packageQueryOpen) {
+    state.packageQueryOpen = false;
+    packageQueryController.cancel();
+  }
   const loc = parseLocation();
   if (isCreditsPath(location.pathname)) {
     clearNavigationError();

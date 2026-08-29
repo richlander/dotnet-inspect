@@ -8,6 +8,7 @@ import {
   createQueryRequest,
   emptyOutcome,
   initialQueryState,
+  toggleFacet,
   withCompletion,
   withFacet,
   withoutFacet,
@@ -24,6 +25,20 @@ const TFM_FACET: QueryFacetTerm = {
   tier: "nuspec",
 };
 
+const HAS_DEPENDENCIES_FACET: QueryFacetTerm = {
+  key: "package.query.has-dependencies",
+  label: "Has dependencies",
+  tier: "nuspec",
+  selectionGroupId: "package.query.dependencies",
+};
+
+const NO_DEPENDENCIES_FACET: QueryFacetTerm = {
+  key: "package.query.no-dependencies",
+  label: "No dependencies",
+  tier: "nuspec",
+  selectionGroupId: "package.query.dependencies",
+};
+
 function row(packageId: string): QueryResultRow {
   return {
     packageId,
@@ -35,13 +50,34 @@ function row(packageId: string): QueryResultRow {
 }
 
 test("withFacet is idempotent by key and withoutFacet removes by key", () => {
-  const base = createQueryRequest("Microsoft.*", "Microsoft.");
+  const base = createQueryRequest("Microsoft.");
   const once = withFacet(base, TFM_FACET);
   const twice = withFacet(once, TFM_FACET);
 
   assert.equal(once.facets.length, 1);
   assert.equal(twice.facets.length, 1);
   assert.equal(withoutFacet(twice, TFM_FACET.key).facets.length, 0);
+});
+
+test("createQueryRequest gives candidate and match limits independent defaults", () => {
+  const defaults = createQueryRequest("Microsoft.");
+
+  assert.equal(defaults.requestedLimit, 200);
+  assert.equal(defaults.requestedMatchLimit, 100);
+  assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
+});
+
+test("toggleFacet replaces an active facet in the same producer-owned selection group", () => {
+  const withDependencies = toggleFacet(
+    createQueryRequest("Microsoft."),
+    HAS_DEPENDENCIES_FACET);
+  const withoutDependencies = toggleFacet(
+    withDependencies,
+    NO_DEPENDENCIES_FACET);
+
+  assert.deepEqual(
+    withoutDependencies.facets.map(facet => facet.key),
+    [NO_DEPENDENCIES_FACET.key]);
 });
 
 test("appendRows and appendFailure accumulate without mutating prior outcome", () => {
@@ -87,7 +123,7 @@ test("controller run() streams pages into state and applies final completion", a
     () => { updates++; },
   );
 
-  await controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  await controller.run(createQueryRequest("Microsoft."));
 
   assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["A", "B"]);
   assert.deepEqual(state.outcome.failures, ["feed Y unreachable"]);
@@ -107,7 +143,7 @@ test("a data source that rejects transitions to a visible 'failed' completion, n
 
   // run() itself must not reject past the controller — a caller awaiting it
   // should see a settled outcome, not an unhandled rejection.
-  await assert.doesNotReject(controller.run(createQueryRequest("Microsoft.*", "Microsoft.")));
+  await assert.doesNotReject(controller.run(createQueryRequest("Microsoft.")));
 
   assert.notEqual(state.outcome.completion.kind, "streaming");
   assert.equal(state.outcome.completion.kind, "failed");
@@ -141,8 +177,8 @@ test("starting a new run() aborts the previous generation's abortSignal, not jus
 
   const controller = createPackageQueryController(state, slowThenFast, () => {});
 
-  const firstRun = controller.run(createQueryRequest("slow", "slow"));
-  await controller.run(createQueryRequest("fast", "fast"));
+  const firstRun = controller.run(createQueryRequest("slow"));
+  await controller.run(createQueryRequest("fast"));
   releaseFirst();
   await firstRun;
 
@@ -178,11 +214,11 @@ test("each run() receives its own distinct abortSignal even when onUpdate() reen
   const controller = createPackageQueryController(state, slowThenFast, () => {
     if (!triggeredReentrant && state.request?.scopeQuery === "slow") {
       triggeredReentrant = true;
-      void controller.run(createQueryRequest("fast", "fast"));
+      void controller.run(createQueryRequest("fast"));
     }
   });
 
-  const slowRun = controller.run(createQueryRequest("slow", "slow"));
+  const slowRun = controller.run(createQueryRequest("slow"));
   releaseSlow();
   await slowRun;
 
@@ -209,8 +245,8 @@ test("a superseded run's late pages never land in the newer outcome", async () =
 
   const controller = createPackageQueryController(state, slowThenFast, () => {});
 
-  const firstRun = controller.run(createQueryRequest("slow", "slow"));
-  await controller.run(createQueryRequest("fast", "fast"));
+  const firstRun = controller.run(createQueryRequest("slow"));
+  await controller.run(createQueryRequest("fast"));
   releaseFirst();
   await firstRun;
 
@@ -236,8 +272,8 @@ test("a superseded run's late rejection never overwrites the newer outcome", asy
 
   const controller = createPackageQueryController(state, slowRejectThenFast, () => {});
 
-  const firstRun = controller.run(createQueryRequest("slow", "slow"));
-  await controller.run(createQueryRequest("fast", "fast"));
+  const firstRun = controller.run(createQueryRequest("slow"));
+  await controller.run(createQueryRequest("fast"));
   releaseFirst();
   await firstRun;
 
@@ -267,8 +303,8 @@ test("a superseded run's late onFailure call never lands in the newer outcome", 
 
   const controller = createPackageQueryController(state, slowFailThenFast, () => {});
 
-  const firstRun = controller.run(createQueryRequest("slow", "slow"));
-  await controller.run(createQueryRequest("fast", "fast"));
+  const firstRun = controller.run(createQueryRequest("slow"));
+  await controller.run(createQueryRequest("fast"));
   releaseFirst();
   await firstRun;
 
@@ -279,27 +315,6 @@ test("a superseded run's late onFailure call never lands in the newer outcome", 
   assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["fresh"]);
   assert.equal(state.outcome.completion.kind, "exhausted");
   assert.deepEqual(state.outcome.failures, []);
-});
-
-test("toggleSelection and clearSelection manage the selected set", () => {
-  const state = initialQueryState();
-  let updates = 0;
-  const controller = createPackageQueryController(
-    state,
-    stubSource([], { kind: "exhausted" }),
-    () => { updates++; },
-  );
-
-  controller.toggleSelection("A");
-  controller.toggleSelection("B");
-  assert.deepEqual([...state.selected].sort(), ["A", "B"]);
-
-  controller.toggleSelection("A");
-  assert.deepEqual([...state.selected], ["B"]);
-
-  controller.clearSelection();
-  assert.equal(state.selected.size, 0);
-  assert.ok(updates >= 3);
 });
 
 test("cancel() marks a streaming completion cancelled without clearing already-streamed rows", async () => {
@@ -319,7 +334,7 @@ test("cancel() marks a streaming completion cancelled without clearing already-s
     () => {},
   );
 
-  const running = controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  const running = controller.run(createQueryRequest("Microsoft."));
   controller.cancel();
   releaseGate();
   await running;
@@ -336,7 +351,7 @@ test("cancel() is a no-op once the run has already reached a final completion", 
     () => {},
   );
 
-  await controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  await controller.run(createQueryRequest("Microsoft."));
   controller.cancel();
 
   // A finished run's honesty label must not be overwritten by a later cancel().
@@ -361,7 +376,7 @@ test("cancel() signals the data source's abortSignal so in-flight work can stop"
     () => {},
   );
 
-  const running = controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  const running = controller.run(createQueryRequest("Microsoft."));
   controller.cancel();
   await running;
 
@@ -388,7 +403,7 @@ test("cancel() stays authoritative even against a source that ignores the abort 
 
   const controller = createPackageQueryController(state, uncooperativeSource, () => {});
 
-  const running = controller.run(createQueryRequest("Microsoft.*", "Microsoft."));
+  const running = controller.run(createQueryRequest("Microsoft."));
   controller.cancel();
   releaseGate();
   await running;

@@ -1,10 +1,10 @@
 # The package query experience
 
-This document proposes the UX for a new full-bleed inspect-web surface: a
+This document defines the UX for a full-bleed inspect-web surface: a
 grep.app-style wide query over nuget.org, built on the nuspec-only streaming
-profile introduced by [#4551](https://github.com/richlander/dotnet-inspect/pull/4551).
-It defines the shape now so the view can be built ahead of that infra landing
-and wired to it afterward. It extends
+profile introduced by [#4551](https://github.com/richlander/dotnet-inspect/pull/4551)
+and the product-owned package-query contract introduced by
+[#5020](https://github.com/richlander/dotnet-inspect/pull/5020). It extends
 [browser-package-sources.md](browser-package-sources.md) (source clients) and
 [progressive-disclosure.md](progressive-disclosure.md) (explicit, capability-
 gated expensive work), and follows the terminology and honesty rules in
@@ -13,30 +13,23 @@ counterpart — where the facet engine and its layering actually live — is
 [package-query-cli.md](package-query-cli.md); this document's facets are the
 browser front end for that one product surface.
 
-**What is already enforced vs. what is a design requirement.** The pure
-state/render contract in `src/package-query.ts` and
-`src/package-query-view.ts` exists today and its properties named below (race
-safety, tier escaping, the empty/partial-failure distinction, cancel
-semantics) are enforced by `test/package-query.test.ts` and
-`test/package-query-view.test.ts`. Everything else in this document —
-anything that depends on #4551's source client, the query bar, promoted-tier
-"Deepen," visualization, or saved-query persistence — is a requirement for
-that future implementation, not a claim about code that exists yet, and is
-unverified until the corresponding landing-sequence step ships its own gate.
+**What is enforced.** The production integration supplies the `/query` page,
+prefix form, product-issued nuspec facet catalog, streaming Browser engine
+source, cancellation, honest partial and bounded completion states, and typed
+Workspace handoff. The controller, adapter, route, renderer, and engine
+projection are enforced by the package-query frontend and Browser engine test
+suites. Visualization, persistence, sharing, outcome caching, and deeper
+artifact evaluation are future scope and are unverified.
 
 ## Shell placement boundary
 
-Inspect Web UI owns shell placement, lifecycle, focus, and browser-history
-composition. Its replacement of package tabs with Workspace supersedes this
-document's former `Query`-tab placement and package-tab handoff path. This
-document continues to own the query surface's internal request, state, evidence,
-and rendering contract.
-
-No query shell entry is specified yet. A later Inspect Web UI change must
-define that entry and its routed or transient behavior before the query surface
-is integrated into the shell. `Open in workspace` submits the selected
-product-issued package coordinate through the standard typed Workspace
-transition; it does not reopen the removed package-tab path.
+Inspect Web UI owns shell placement, lifecycle, focus, responsive composition,
+and browser history. Its `/query` route, Search entry, and Workspace handoff are
+specified in [inspect-web-ui.md](inspect-web-ui.md#package-query). Its
+replacement of package tabs with Workspace supersedes this document's former
+`Query`-tab placement and package-tab handoff path. This document continues to
+own the query surface's internal request, state, evidence, and rendering
+contract.
 
 ## Why this is not another workbench lens
 
@@ -69,92 +62,60 @@ QueryResultRow     — one package's nuspec-derived projection + which predicate
                       terms matched + why (the evidence, not just a checkmark)
 ```
 
-This mirrors the existing `NuGetSearchOutcome` shape (`Results` +
-`Failures`, never a success-shaped empty result) rather than inventing a new
-error convention. `QueryRequest` is the one thing that must be shareable and
-re-runnable — see [Sharing](#sharing-and-url-shape). The scaffolded
-`QueryRequest` (`scopeLabel`/`scopeQuery`/`facets: QueryFacetTerm[]`) is the
-view's in-memory runtime shape, not the persisted/URL form byte-for-byte: the
-`kind: "query"` record in
-[Saving queries and results](#saving-queries-and-results) stores `facets` as
-`FacetRef`s (references into the fixed vocabulary) rather than full
-`QueryFacetTerm` objects, and adds `schemaVersion`/`id`. The facet direction
-is unambiguous each way (`QueryFacetTerm` already carries the `key` a
-`FacetRef` needs; the reverse lookup is the fixed facet vocabulary table).
-The scope direction is not yet resolved, though: `QueryRequest` carries both
-`scopeLabel` (display) and `scopeQuery` (the actual predicate), while the
-record sketch above has only one `scope` field, and neither `FacetRef`'s nor
-`scope`'s exact shape is defined anywhere yet. None of this conversion is
-implemented or tested — tracked as part of landing-sequence step 1's
-remaining scope, not asserted as done or fully specified here.
+This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
+never a success-shaped empty result) rather than inventing a new error
+convention. The runtime `QueryRequest` carries the package-ID prefix, selected
+opaque product facet descriptors, and independent candidate and match limits.
+Facet descriptors come from `PackageQuery.Facets`; the browser does not own an
+independent predicate table. It preserves the product-issued ID, label,
+summary, weight, tier, and optional exclusive-selection group.
 
-Every row carries a **tier tag**: `nuspec` (satisfied by manifest metadata
-alone) or `promoted` (the row was opened at the assembly/IL level after the
-user asked to go deeper on the surviving set). The UI must never blur these,
-because the honesty obligation from the funnel-feasibility analysis is a
-first-class UX fact, not an implementation detail: a `nuspec`-tier "only
-out-of-support TFMs" claim is a lower bound. The scaffold tags every row with
-its tier so the two are never visually blurred; it does not yet spell out the
-lower-bound caveat in prose anywhere — that explanatory text is unimplemented,
-tracked as landing-sequence follow-up.
+Every current row carries the `nuspec` tier tag because the query uses only
+search and manifest evidence. No promoted tier or archive/assembly evaluation
+is exposed by this contract.
 
 ## Layout
 
 The query content is a full-bleed working surface rather than a modal over one
-package. Its surrounding shell entry and lifecycle remain intentionally
-unspecified:
+package. Its `/query` route and Search lifecycle are owned by Inspect Web UI:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  ⌕ [ package-prefix: Microsoft. ]  [ tfm: out-of-support only ]     ▶ 1,204   │  ← query bar
-│                                                                     streamed  │
+│  Package ID prefix [ Microsoft.                              ] [ Run query ]   │
 ├───────────────┬────────────────────────────────────────────────────────────--┤
-│ Facets         │  Microsoft.Bcl.AsyncInterfaces          nuspec              │
-│                │    net45, net461          only-out-of-support               │
-│ TFM shape      │    ↳ 3 dependency groups, no net8.0+                        │
-│  ○ any               [ Open in workspace ]                                   │
-│  ● out-of-support                                                            │
-│                │  Microsoft.AspNet.WebApi.Client         nuspec              │
-│ Downloads      │    net45                  only-out-of-support               │
-│  ▸ > 1M/week   │    [ Open in workspace ]                                    │
-│                │                                                             │
-│ Package type   │  … 1,201 more (bounded: first 1,500 relevance-ranked ids)   │
-│  ☐ tool                                                                      │
-│  ☐ template    │  [ Deepen: check IL for X on 12 selected → ]                │
+│ Facets         │  Microsoft.Extensions.Hosting           nuspec              │
+│                │    Verified source · Has dependencies                       │
+│ Verified source│    1,234,567 downloads · nuget.org                           │
+│ .NET tool      │                           [ Open in workspace ]               │
+│ Has dependencies                                                             │
+│ No dependencies│  … 99 more (bounded: first 100 matches)                     │
+│ 1M+ downloads  │                                                             │
+│ Embedded README│                                                             │
 └───────────────┴────────────────────────────────────────────────────────────--┘
 ```
 
-- **Query bar**: the request rendered as editable chips (scope, predicate
-  terms), matching the existing chip idiom (`opp-chip`, `type-chip`,
-  `framework-chip`). Not a free-text query language in v1 — see
+- **Query bar**: a required package-ID prefix input plus Run and, while
+  streaming, Cancel. It is not a free-text predicate language — see
   [Non-goals](#v1-non-goals).
-- **Facet rail**: derived from the predicate vocabulary the CLI already
-  ships as named profiles (`--package-prefix`, TFM filters, dependency-group
-  shape), not an open grammar. Selecting a facet mutates the `QueryRequest` and
-  restarts the stream; it never client-side-filters a stale result set, so the
-  displayed count is always the true count for the current request.
-- **Result stream**: virtualized rows. Each row is a compact nuspec-derived
-  summary plus the specific evidence for *why* it matched (the TFM list, the
-  matched dependency group) — never a bare name, per the same "evidence over
-  checkmark" convention `package-opportunities.ts` already uses for
-  integration signals.
+- **Facet rail**: derived from `PackageQuery.Facets`, not from a browser-owned
+  vocabulary or open grammar. Selecting a facet restarts source work; it never
+  client-side-filters stale rows. Product-issued selection groups make
+  mutually exclusive facets, such as has-dependencies and no-dependencies,
+  replace one another.
+- **Result stream**: rows append incrementally. Each row is a compact
+  nuspec-derived summary plus the product-authored evidence for *why* it
+  matched — never a bare name.
 - **Handoff, not duplication**: `Open in workspace` submits the result's
   product-issued package coordinate through the standard typed Workspace
   transition — the funnel never grows its own type/member browser.
-- **Deepen action**: an explicit, checkbox-gated escalation from `nuspec` tier
-  to `promoted` tier for the *currently selected* rows only. This is where an
-  IL-level predicate (the C# union / memory-safety-v2 examples) attaches,
-  and it is capability-gated exactly like `--all`/exhaustive flags in the CLI:
-  cheap by default, expensive only on explicit ask, bounded to a selection so a
-  thousand-row funnel doesn't silently trigger a thousand package downloads.
 
 ## States
 
 | State | Trigger | UI |
 |---|---|---|
-| Composing | Query surface opened with no predicate yet | *(depends on the query bar, not yet built — currently the scaffold renders a bare "choose a scope" card; the facet rail before any request and curated starter queries are a design requirement for that landing-sequence step, not implemented or tested today)* Facet rail with no results pane; suggested starter queries (curated, matching product-home-demos conventions) |
+| Composing | Query surface opened with no request yet | Prefix form and facet rail stay visible; the result pane explains how to start |
 | Streaming | Request dispatched | Result rows append as pages arrive; running count; cancel affordance; facets stay interactive and re-scope the live stream |
-| Partial failure | One source/page fails | Rows already fetched stay visible; a banner names the failed source, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count *(persistent for now; dismissing it is a design requirement for a future landing-sequence step, not implemented or tested today)* |
+| Partial failure | One source/page fails | Rows already fetched stay visible; a persistent banner names the failed producer or package, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count |
 | Bounded-complete | Stream reaches the declared cap or the source is exhausted | Footer states which one explicitly: `"first 1,500 relevance-ranked ids"` vs. `"all 340 matches"` — the exhaustiveness claim from the funnel-feasibility analysis is rendered, not just known internally; if a source also failed partway *and the cap was reached via exhaustion*, the footer says so ("all matches from sources that succeeded") rather than overclaiming completeness — a stream stopped by hitting the declared cap keeps its `bounded: <reason>` label regardless, since a cap-reached outcome never claimed exhaustiveness to begin with |
 | Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
 | Cancelled with no rows yet | The user cancels before any page arrived | A distinct "cancelled before any matches" state, never rendered as a confirmed empty result |
@@ -162,36 +123,14 @@ unspecified:
 
 ## Sharing and URL shape
 
-`QueryRequest` is the request the Sharing/URL mechanism must round-trip, and
-its persisted/shareable form is the `kind: "query"` record described in
-[Saving queries and results](#saving-queries-and-results) — not a separate,
-independently-invented encoding. As that section now notes, the exact
-runtime-to-record mapping (in particular, how `scopeLabel`/`scopeQuery`
-collapse into the record's single `scope` field) is not yet specified; this
-section describes the intended destination and projection split, not a
-claim that the conversion is already implemented. Following the
-canonical state contract, the product-issued query record carries a terse
-projection of the preset (scope + facet references + `requestedLimit`). This
-document does not define its surrounding route or packet encoding. A resolved
-`QueryOutcome` is never encoded into shared state — it is always re-run,
-because nuget.org state moves and a stale cached result list would misrepresent
-a live feed as a snapshot.
+The first production route stores no query request or outcome in the URL.
+Opening or refreshing `/query` starts with an empty prefix and no selected
+facets. Browser history preserves route identity only. A future sharing design
+may define a product-issued query record, but it must not encode a resolved
+`QueryOutcome`: nuget.org moves, so a shared request must be re-run rather than
+presenting stale rows as current.
 
-## Two-tier evaluation, made visible
-
-| Example | Tier | UX consequence |
-|---|---|---|
-| Only out-of-support net* TFMs | `nuspec` | Runs at full funnel width immediately |
-| Microsoft.Extensions.* integrations | `nuspec` | Same |
-| Uses the new C# union feature | `promoted` | Facet rail shows the predicate but disables it until rows are selected and "Deepen" is invoked |
-| Memory safety v2 enabled | `promoted` | Same |
-
-The facet rail always shows both tiers so the query vocabulary reads as one
-list, but visually distinguishes them (e.g., a small badge) so a user
-understands *before* running a query whether it is instant or requires an
-explicit, bounded, per-row escalation.
-
-## Visualization
+## Future visualization (unverified)
 
 The Kusto/Data Explorer query experience is the closer reference than any
 existing inspect-web lens: query, data, and a visualization of that data live
@@ -235,7 +174,7 @@ over the *same* `QueryOutcome`, not a different query. Adopt that shape:
   `bounded` outcome gets the same footer label a row list gets; a chart must
   not visually imply a total the completion state does not back.
 
-## Saving queries and results
+## Future saving and caching (unverified)
 
 Some of these queries are expensive to run at scale, and re-running "the same
 query, but bigger" today means re-fetching everything from scratch. A saved
@@ -333,39 +272,24 @@ preset never needs to "contain" its own history.
   with two front ends, not two designs to keep in sync.
 - No client-side re-filtering of a fetched result set — every facet change is
   a new request, keeping displayed counts honest.
-- No unbounded "Deepen" — IL-tier escalation always operates on an explicit,
-  size-bounded selection.
-- No server-side, account, or sync persistence — saving is local-storage-only
-  (browser storage or a CLI file), and only the `query` record is ever shared;
-  its cached outcome never leaves the machine that produced it. See
-  [Saving queries and results](#saving-queries-and-results).
-- No chart type beyond bar and pie in v1, and no free-form aggregation axis —
-  see [Visualization](#visualization).
+- No archive, assembly, metadata, or IL evaluation. This surface is nuspec-only.
+- No persistence, sharing, or outcome cache in the current slice.
+- No chart or aggregation surface in the current slice.
 
 ## Landing sequence
 
-1. **This document** — UX shape, reviewable independent of the engine work.
-2. **#4551** (nuspec-only package prefix profiles) — supplies `QueryOutcome`'s
-   data source for the `nuspec` tier.
-3. **Dependency-owner enrichment** and **persistent Wasm workspace handoff**
-   (#4551's named follow-ups) — needed before "Open in workspace" and
-   multi-package facet rows are fully backed.
-4. **Facet vocabulary wiring** — map each shipped CLI predicate flag to a facet
-   rail entry as it lands, rather than pre-inventing predicates the CLI does
-   not yet expose.
-5. **Promoted-tier "Deepen"** — depends on whatever product query eventually
-   answers each IL-level predicate (e.g., a union-usage or memory-safety-v2
-   query); the funnel only needs a stable request/result contract to consume
-   it, not the query itself.
+1. **#4551** (nuspec-only package prefix profiles) supplied bounded source and
+   manifest evidence.
+2. **#5020** supplied the product-owned facet catalog, planning, rows,
+   evidence, failures, cancellation, and completion.
+3. **Inspect Web integration** supplies the `/query` route, query bar, Browser
+   event adapter, product-issued nuspec facet rail, and typed Workspace handoff.
+4. Deeper artifact evaluation requires a separate product-owned query and UX
+   design; this nuspec contract does not reserve controls for it.
 
-The TypeScript shape (`src/package-query.ts` /
-`src/package-query-view.ts`) is scaffolded now against this contract and
-exercised in tests against inline fake sources (`test/package-query.test.ts`,
-`test/package-query-view.test.ts`), covering the result stream, facet rail,
-and selection/cancel state — no reusable stub source module or shell
-integration exists yet. Wiring in step 2 is expected to be a source-swap for
-that scaffolded surface, not a redesign of it, but that expectation is
-unverified until a real `PackageQueryDataSource` is actually built and wired
-in; the query bar (editable scope entry) and [Visualization](#visualization)
-are not scaffolded yet either and remain separate, additive work, tracked
-alongside steps 2-5 above rather than implied by this scaffold.
+The TypeScript state and renderer (`src/package-query.ts` and
+`src/package-query-view.ts`) retain their source-independent controller seam.
+The production Browser adapter satisfies it with product events; inline fake
+sources remain focused tests of race and rendering behavior. Visualization and
+the future features above remain additive work rather than implied behavior of
+the nuspec integration.

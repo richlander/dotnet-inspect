@@ -1,8 +1,3 @@
-// Render + bind shape for the package query experience (docs/design/package-query-experience.md).
-// Follows the render-function-returns-HTML-string and data-attribute binding
-// conventions used across the other full-bleed lenses (package-opportunities.ts,
-// package-view.ts).
-
 import type {
   PackageQueryState,
   QueryFacetTerm,
@@ -10,74 +5,91 @@ import type {
 } from "./package-query.ts";
 
 export interface PackageQueryBindingActions {
-  onRowOpen: (packageId: string, version: string) => void;
-  onRowSelectToggle: (packageId: string) => void;
-  onFacetToggle: (facetKey: string) => void;
-  onDeepen: () => void;
+  onBack: () => void;
   onCancel: () => void;
+  onFacetToggle: (facetKey: string, prefix: string) => void;
+  onPrefixInput: (prefix: string) => void;
+  onRowOpen: (
+    packageId: string,
+    version: string,
+    invokingButton: HTMLElement,
+  ) => void;
+  onRun: (prefix: string) => void;
 }
 
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
 ) {
+  const prefixInput = () =>
+    root.querySelector<HTMLInputElement>("#package-query-prefix");
+
+  root.querySelector("#package-query-back")
+    ?.addEventListener("click", actions.onBack);
+  root.querySelector<HTMLFormElement>("#package-query-form")
+    ?.addEventListener("submit", event => {
+      event.preventDefault();
+      actions.onRun(prefixInput()?.value ?? "");
+    });
+  prefixInput()?.addEventListener("input", event => {
+    const input = event.currentTarget;
+    if (input instanceof HTMLInputElement) actions.onPrefixInput(input.value);
+  });
   root.querySelectorAll<HTMLElement>("[data-query-row-open]").forEach(button =>
     button.addEventListener("click", () => actions.onRowOpen(
       button.dataset.queryRowOpen ?? "",
-      button.dataset.queryRowVersion ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-query-row-select]").forEach(box =>
-    box.addEventListener("change", () => actions.onRowSelectToggle(
-      box.dataset.queryRowSelect ?? "")));
+      button.dataset.queryRowVersion ?? "",
+      button)));
   root.querySelectorAll<HTMLElement>("[data-query-facet]").forEach(button =>
     button.addEventListener("click", () => actions.onFacetToggle(
-      button.dataset.queryFacet ?? "")));
-  root.querySelectorAll<HTMLElement>("[data-query-deepen]").forEach(button =>
-    button.addEventListener("click", () => actions.onDeepen()));
+      button.dataset.queryFacet ?? "",
+      prefixInput()?.value ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-cancel]").forEach(button =>
-    button.addEventListener("click", () => actions.onCancel()));
+    button.addEventListener("click", actions.onCancel));
 }
 
 function renderRow(
   row: QueryResultRow,
-  selected: boolean,
   escapeHtml: (value: unknown) => string,
 ): string {
   const evidence = row.evidence
-    .map(item => `<span class="opp-pattern">${escapeHtml(item)}</span>`)
+    .map(item => `<li>${escapeHtml(item)}</li>`)
     .join("");
   return `
-    <div class="query-row">
-      <input type="checkbox" data-query-row-select="${escapeHtml(row.packageId)}" ${selected ? "checked" : ""} />
-      <div class="opp-body">
-        <div class="opp-head">
-          <button class="opp-type-chip" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}" title="Open ${escapeHtml(row.packageId)} in the workspace">
-            <span class="opp-type-name">${escapeHtml(row.packageId)}</span><span class="opp-type-ns">${escapeHtml(row.version)}</span>
-          </button>
-          <span class="query-tier query-tier-${escapeHtml(row.tier)}">${escapeHtml(row.tier)}</span>
+    <article class="query-row">
+      <div class="query-row-head">
+        <div>
+          <h2>${escapeHtml(row.packageId)}</h2>
+          <span class="query-row-version">${escapeHtml(row.version)}</span>
         </div>
-        <div class="opp-lookfor">${evidence}</div>
+        <span class="query-tier query-tier-nuspec">nuspec</span>
       </div>
-    </div>`;
+      <ul class="query-evidence">${evidence}</ul>
+      <div class="query-row-meta">
+        <span>${row.totalDownloads.toLocaleString()} downloads</span>
+        ${row.producer
+          ? `<span title="${escapeHtml(row.producer)}">nuget.org</span>`
+          : ""}
+        <button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>
+      </div>
+    </article>`;
 }
 
-function renderFacetGroup(
-  label: string,
-  facets: readonly QueryFacetTerm[],
+function renderFacet(
+  facet: QueryFacetTerm,
   activeKeys: ReadonlySet<string>,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const items = facets.map(facet => {
-    const active = activeKeys.has(facet.key) ? "active" : "";
-    const tierBadge = facet.tier === "promoted" ? `<small class="query-tier-badge">deepen</small>` : "";
-    // The design doc's two-tier evaluation table says a promoted facet is
-    // disabled "until rows are selected and Deepen is invoked" — there is no
-    // model of a post-Deepen state yet (Deepen only forwards to the caller
-    // via onDeepen; see bindPackageQueryView), so today that condition can
-    // never be satisfied and a promoted facet must always render disabled.
-    const disabled = facet.tier === "promoted" ? "disabled" : "";
-    return `<button class="type-chip ${active}" data-query-facet="${escapeHtml(facet.key)}" ${disabled}>${escapeHtml(facet.label)}${tierBadge}</button>`;
-  }).join("");
-  return `<div class="query-facet-group"><h3>${escapeHtml(label)}</h3><div class="type-chip-list">${items}</div></div>`;
+  const active = activeKeys.has(facet.key);
+  return `
+    <button
+      type="button"
+      class="query-facet ${active ? "active" : ""}"
+      data-query-facet="${escapeHtml(facet.key)}"
+      aria-pressed="${active}"
+      title="${escapeHtml(facet.summary ?? facet.label)}">
+      ${escapeHtml(facet.label)}
+    </button>`;
 }
 
 function renderCompletionFooter(
@@ -91,95 +103,149 @@ function renderCompletionFooter(
     : completion.kind === "bounded"
       ? `bounded: ${escapeHtml(completion.reason)}`
       : completion.kind === "exhausted"
-        // A failed source means the search wasn't exhaustive after all —
-        // "all matches" would overclaim exactly the completeness this
-        // footer exists to be honest about (see the zero-row case above).
-        ? partialFailure ? "all matches from sources that succeeded" : "all matches"
+        ? partialFailure
+          ? "all matches from the source work that succeeded"
+          : "all matches"
         : completion.kind === "failed"
           ? `failed: ${escapeHtml(completion.reason)}`
           : "cancelled";
   const cancelButton = completion.kind === "streaming"
-    ? `<button data-query-cancel="1">Cancel</button>`
+    ? `<button type="button" data-query-cancel="1">Cancel</button>`
     : "";
-  return `<div class="query-footer"><span>${outcome.rows.length} package${outcome.rows.length === 1 ? "" : "s"} · ${label}</span>${cancelButton}</div>`;
+  return `
+    <div class="query-footer" role="status">
+      <span>${outcome.rows.length} package${outcome.rows.length === 1 ? "" : "s"} · ${label}</span>
+      ${cancelButton}
+    </div>`;
+}
+
+function renderEmptyState(
+  state: PackageQueryState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const completion = state.outcome.completion;
+  if (!state.request) {
+    return `
+      <section class="query-empty">
+        <span class="large-glyph">⌕</span>
+        <h2>Query nuget.org</h2>
+        <p>Enter a package ID prefix, then narrow the live result stream with nuspec facets. No package archive is downloaded.</p>
+      </section>`;
+  }
+  if (completion.kind === "cancelled") {
+    return `
+      <section class="query-empty">
+        <span class="large-glyph">◇</span>
+        <h2>Cancelled before any matches</h2>
+        <p>This was stopped before it found anything, so it is not a confirmed empty result.</p>
+      </section>`;
+  }
+  if (completion.kind === "failed") {
+    return `
+      <section class="query-empty">
+        <span class="large-glyph">◇</span>
+        <h2>Query failed</h2>
+        <p>${escapeHtml(completion.reason)} This is not a confirmed empty result.</p>
+      </section>`;
+  }
+  if (completion.kind === "bounded") {
+    return `
+      <section class="query-empty">
+        <span class="large-glyph">◇</span>
+        <h2>No matches within the bound</h2>
+        <p>Searched ${escapeHtml(completion.reason)}, not the whole source.${state.outcome.failures.length ? " Some source work also failed, so this is not a confirmed empty result within that bound." : ""}</p>
+      </section>`;
+  }
+  if (state.outcome.failures.length) {
+    return `
+      <section class="query-empty">
+        <span class="large-glyph">◇</span>
+        <h2>No matches found with failures</h2>
+        <p>Some source work failed, so this is not a confirmed empty result.</p>
+      </section>`;
+  }
+  return `
+    <section class="query-empty">
+      <span class="large-glyph">◇</span>
+      <h2>No matches</h2>
+      <p>Try a broader prefix or fewer facets.</p>
+    </section>`;
 }
 
 export interface RenderPackageQueryOptions {
   state: PackageQueryState;
+  prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
+  navigationError?: string;
   escapeHtml: (value: unknown) => string;
 }
 
-export function renderPackageQueryView(options: RenderPackageQueryOptions): string {
-  const { state, availableFacets, escapeHtml } = options;
-
-  if (!state.request) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌕</span><h2>Query nuget.org</h2><p>Choose a scope and narrow with facets — a nuspec-only funnel over the ecosystem, no package download required.</p></section>`;
-  }
-
-  const failures = state.outcome.failures.length
-    ? `<section class="document-section metadata-warning"><strong>⚠ Some sources failed</strong><ul>${state.outcome.failures.map(f => `<li><code>${escapeHtml(f)}</code></li>`).join("")}</ul></section>`
-    : "";
-
-  const isEmpty = !state.outcome.rows.length && state.outcome.completion.kind !== "streaming";
-
-  // Zero rows only means "no matches" when the search actually finished
-  // (bounded/exhausted) with no failures. A cancelled run or a run with a
-  // failed source never got to search the whole scope, so "no rows" is not
-  // the same claim as "no matches" — the empty state must say so rather
-  // than implying a clean, confident zero (see the honesty rule in
-  // package-query.ts's QueryOutcome doc comment).
-  const emptyState = isEmpty
-    ? state.outcome.completion.kind === "cancelled"
-      ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>Cancelled before any matches</h2><p>This was stopped before it found anything — not a confirmed empty result. Run it again to see whether it would have matched.</p></section>`
-      : state.outcome.completion.kind === "failed"
-        ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>Query failed</h2><p>${escapeHtml(state.outcome.completion.reason)} — not a confirmed empty result. Try again.</p></section>`
-        // A bounded completion with zero rows only searched the declared cap,
-        // not the whole scope — plain "No matches" would overclaim
-        // exhaustiveness exactly the way the bounded/exhausted footer
-        // distinction elsewhere in this file exists to prevent, so the bound
-        // itself must appear here too. This check runs before the plain
-        // failures check below: a bounded outcome keeps its bounded label
-        // regardless of a partial failure (same rule the footer follows for
-        // non-empty results), just with the failure folded into the same
-        // message rather than dropped.
-        : state.outcome.completion.kind === "bounded"
-          ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches within the bound</h2><p>Searched ${escapeHtml(state.outcome.completion.reason)} — not the whole scope.${state.outcome.failures.length ? " Some sources also failed above, so this is not a confirmed empty result within that bound." : ""} Broaden the facets or raise the limit to look further.</p></section>`
-          : state.outcome.failures.length
-          ? `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches found — with failures</h2><p>Some sources failed above, so this is not a confirmed empty result. Retry the failed sources or broaden the facets.</p></section>`
-          : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No matches</h2><p>Try a broader facet.</p></section>`
-    : "";
-
-  const activeKeys = new Set(state.request.facets.map(f => f.key));
-  const nuspecFacets = availableFacets.filter(f => f.tier === "nuspec");
-  const promotedFacets = availableFacets.filter(f => f.tier === "promoted");
-  const deepenEnabled = state.selected.size > 0;
-
-  // The rail must stay mounted even when the results pane is an empty state:
-  // several of the empty-state messages above tell the user to "broaden the
-  // facets," and that instruction is only actionable if the facet rail is
-  // still on screen to act on.
-  const rail = `
-    <aside class="query-facet-rail">
-      ${renderFacetGroup("Instant (nuspec)", nuspecFacets, activeKeys, escapeHtml)}
-      ${renderFacetGroup("Deepen (opens IL)", promotedFacets, activeKeys, escapeHtml)}
-      <button data-query-deepen="1" ${deepenEnabled ? "" : "disabled"}>Deepen ${state.selected.size} selected →</button>
-    </aside>`;
-
-  const rows = state.outcome.rows
-    .map(row => renderRow(row, state.selected.has(row.packageId), escapeHtml))
+export function renderPackageQueryView(
+  options: RenderPackageQueryOptions,
+): string {
+  const {
+    state,
+    prefix = state.request?.scopeQuery ?? "",
+    availableFacets,
+    navigationError = "",
+    escapeHtml,
+  } = options;
+  const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
+  const facets = availableFacets
+    .map(facet => renderFacet(facet, activeKeys, escapeHtml))
     .join("");
-
-  const results = isEmpty
-    ? emptyState
-    : `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`;
+  const failures = state.outcome.failures.length
+    ? `
+      <section class="query-failures" role="alert">
+        <strong>Some package source work failed</strong>
+        <ul>${state.outcome.failures
+          .map(failure => `<li>${escapeHtml(failure)}</li>`)
+          .join("")}</ul>
+      </section>`
+    : "";
+  const rows = state.outcome.rows
+    .map(row => renderRow(row, escapeHtml))
+    .join("");
+  const results = rows
+    ? `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
+    : state.outcome.completion.kind === "streaming" && state.request
+      ? `<section class="query-empty query-running" role="status"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as their manifests are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
+      : renderEmptyState(state, escapeHtml);
 
   return `
-    ${failures}
-    <div class="query-layout">
-      ${rail}
-      <div class="query-results">
-        ${results}
-      </div>
+    <div class="query-page">
+      <header class="query-page-bar">
+        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        <button id="package-query-back" type="button">Back</button>
+      </header>
+      <main class="query-main">
+        <div class="query-heading">
+          <p class="query-kicker">nuspec-only · nuget.org</p>
+          <h1 id="package-query-heading" tabindex="-1">Package query</h1>
+          <p>Find packages by product-owned manifest and source facets without downloading package archives.</p>
+        </div>
+        <form id="package-query-form" class="query-bar" role="search">
+          <label for="package-query-prefix">Package ID prefix</label>
+          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Microsoft.Extensions." required maxlength="100" />
+          <button type="submit">Run query</button>
+          ${state.outcome.completion.kind === "streaming" && state.request
+            ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`
+            : ""}
+        </form>
+        ${navigationError
+          ? `<div class="query-navigation-error" role="alert">${escapeHtml(navigationError)}</div>`
+          : ""}
+        ${failures}
+        <div class="query-layout">
+          <aside class="query-facet-rail" aria-label="Package query facets">
+            <h2>Facets</h2>
+            <p>Every change starts a fresh request.</p>
+            <div class="query-facets">${facets}</div>
+          </aside>
+          <section class="query-results" aria-label="Package query results">
+            ${results}
+          </section>
+        </div>
+      </main>
     </div>`;
 }
