@@ -3136,6 +3136,19 @@ Exceeding a bound is a statement about the *artifact*, so it must not be
 reported as anything else, and an internal programming error must not be
 reported as a rejected signature. See #5062.
 
+Refusal is not the only useful signal. Charging a Class B read requires its
+magnitude before the read, so every Class B site holds that number by
+construction; today it is compared against the ledger and discarded. Nothing in
+this contract requires discarding it. A threshold *below* the refusal ceiling
+may report an unusual magnitude as an observation, and the census shows such a
+threshold would be quiet: three of the four Class B quantities never occurred
+across the corpus, and the fourth peaked at 58 bytes.
+
+Two constraints hold if that is built. A reporting threshold never affects
+acceptance -- it is an observation, and removing it changes no outcome. And it
+never replaces the ceiling, because a threshold that reports and continues does
+not bound. The ledger refuses; a threshold only notices.
+
 ### Non-claims
 
 - Does not change `MaxSignatureTypeNodes`, `MaxTypeNameCharacters`, or
@@ -3143,6 +3156,9 @@ reported as a rejected signature. See #5062.
 - Does not specify the aggregate's typed API, forwarding semantics, evidence
   model, or caching strategy beyond the load-bearing rule above.
 - Does not specify exception mapping, which is #5062.
+- Does not specify how a bound magnitude becomes a Finding, or any audit
+  surface, which is #5074. The rule above constrains such a threshold; it does
+  not design one.
 - Does not claim any existing gate is conforming. The obligations above are the
   standard against which gates are to be judged, including gates already
   written.
