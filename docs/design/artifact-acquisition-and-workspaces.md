@@ -608,10 +608,16 @@ and block or character devices without opening the entry.
 Windows admission first rejects device and pipe namespaces and reserved DOS
 device coordinates. Extended-length disk and UNC paths are not rejected merely
 for using the `\\?\` prefix after their segments satisfy the normalization rule
-above. Ordinary filesystem paths are inspected through managed attributes. For
-a final reparse point, a metadata handle opened without following the point
-queries its tag. Classification is tag-semantic rather than based only on the
-name-surrogate bit:
+above. An ordinary drive root such as `C:\` is a supported `Directory`
+coordinate; bounded-directory limits still govern its top-level enumeration.
+An ordinary regular file directly beneath that root, such as `C:\foo.dll`, is a
+supported `RegularFile` coordinate. Neither form is a device coordinate.
+`C:` without the trailing separator is instead drive-relative input and follows
+the ordinary `Path.GetFullPath` normalization rule before classification.
+Ordinary filesystem paths are inspected through managed attributes. For a final
+reparse point, a metadata handle opened without following the point queries its
+tag. Classification is tag-semantic rather than based only on the name-surrogate
+bit:
 
 - symbolic-link and mount-point tags are supported links, so their final target
   is resolved and classified;
@@ -691,9 +697,10 @@ The implementation is complete when focused gates prove:
 - unavailable, rejected, failed, and cancellation results remain distinct; and
 - the normalized `Stat` and `FStat` classifier compiles and runs under both
   NativeAOT and Browser/Wasm, while Windows gates cover disk files,
-  directories, traversable links, reserved device names, named-pipe
-  coordinates, allowed data-bearing reparse tags, every supported special-tag
-  family, and an unknown tag.
+  drive-root directories, regular files directly beneath a drive root,
+  traversable links, reserved device names, named-pipe coordinates, allowed
+  data-bearing reparse tags, every supported special-tag family, and an unknown
+  tag.
 
 These properties are represented by
 `LocalPathAdmission_ExpectedKindsAndLinksAreShared`,
