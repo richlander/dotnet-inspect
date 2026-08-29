@@ -29,7 +29,7 @@ public sealed class SectionQueryPlan
 
     public HashSet<InspectionQueryDefinition> Activate(
         InspectionTrace? trace = null,
-        IReadOnlyList<(string Reason, InspectionQueryDefinition Query)>? commandDemand = null)
+        IReadOnlyList<HostQueryDemand>? commandDemand = null)
     {
         HashSet<InspectionQueryDefinition> queries = [.. Queries];
 
@@ -41,10 +41,10 @@ public sealed class SectionQueryPlan
 
         if (commandDemand is not null)
         {
-            foreach ((string reason, InspectionQueryDefinition query) in commandDemand)
+            foreach (HostQueryDemand demand in commandDemand)
             {
-                queries.Add(query);
-                trace?.RecordCommandQueryDemand(reason, query);
+                queries.Add(demand.Query);
+                trace?.RecordCommandQueryDemand(demand.Reason, demand.Query);
             }
         }
 
