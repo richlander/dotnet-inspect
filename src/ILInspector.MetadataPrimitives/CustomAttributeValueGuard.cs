@@ -171,6 +171,17 @@ public static class CustomAttributeValueGuard
         bool _substituteGenerics = true;
         string? _memoEnumName;
         PrimitiveTypeCode _memoEnumWidth;
+        EntityHandle _memoEnumHandle;
+        PrimitiveTypeCode _memoEnumHandleWidth;
+        EntityHandle _memoSystemTypeHandle;
+        bool _memoIsSystemType;
+        bool _memoSpecResolved;
+        Result _memoSpecResult;
+        bool _memoSpecFound;
+        BlobReader _memoSpecArguments;
+        int _memoSpecArgumentCount;
+        int _memoArgumentIndex = -1;
+        int _memoArgumentOffset;
 
         public void Push(WorkItem item) => _work.Push(item);
 
@@ -204,6 +215,79 @@ public static class CustomAttributeValueGuard
             }
 
             return width;
+        }
+
+        /// <summary>
+        /// Resolves a signature-named enum handle to its width, reusing the
+        /// previous answer when the handle repeats. This is the handle-typed
+        /// twin of <see cref="ResolveEnumNameMemoized"/> and exists for the
+        /// same reason: every element of a typed enum array re-parses the same
+        /// element type, so without this the walk resolves that handle once per
+        /// attacker-chosen element. Resolving a reference scans the definition
+        /// table, which would make the scan itself the amplification the guard
+        /// is meant to bound. The width is a pure function of the reader and
+        /// the handle, so a repeated handle has a repeated answer and
+        /// guard/SRM alignment is unaffected.
+        /// </summary>
+        PrimitiveTypeCode ResolveEnumHandleMemoized(EntityHandle handle)
+        {
+            if (!handle.IsNil && handle == _memoEnumHandle)
+                return _memoEnumHandleWidth;
+
+            PrimitiveTypeCode width = ResolveEnum(
+                _reader,
+                handle,
+                _beforeMaterialize,
+                _enumUnderlyingType);
+            if (!handle.IsNil)
+            {
+                _memoEnumHandle = handle;
+                _memoEnumHandleWidth = width;
+            }
+
+            return width;
+        }
+
+        /// <summary>
+        /// Skips a signature-typed named argument, matching SRM. SRM
+        /// special-cases only a rendered name of "System.Type"
+        /// (ArgTypeProvider.IsSystemType); structural ns+name checks miss
+        /// TypeRef {ns="", name="System.Type"} and nested System+Type, both
+        /// of which SRM consumes as a SerString.
+        /// </summary>
+        Result SkipNamedType(EntityHandle handle)
+        {
+            if (IsSrmSystemTypeMemoized(handle))
+                return SkipSerString(ref _value, _beforeMaterialize);
+            return SkipBytes(
+                ref _value,
+                EnumUnderlyingPrimitive.ByteSize(
+                    ResolveEnumHandleMemoized(handle)));
+        }
+
+        /// <summary>
+        /// Reports whether the handle renders as "System.Type", reusing the
+        /// previous answer when the handle repeats. Every element of a
+        /// signature-typed array of a named type carries the same handle, so
+        /// without this the walk renders that name once per declared element
+        /// — allocation proportional to an attacker-chosen count, inside the
+        /// guard whose purpose is to bound exactly that. The rendered name is
+        /// a pure function of the reader and the handle, so a repeated handle
+        /// has a repeated answer and guard/SRM alignment is unaffected.
+        /// </summary>
+        bool IsSrmSystemTypeMemoized(EntityHandle handle)
+        {
+            if (!handle.IsNil && handle == _memoSystemTypeHandle)
+                return _memoIsSystemType;
+
+            bool isSystemType = IsSrmSystemType(_reader, handle);
+            if (!handle.IsNil)
+            {
+                _memoSystemTypeHandle = handle;
+                _memoIsSystemType = isSystemType;
+            }
+
+            return isSystemType;
         }
 
         public Result Run()
@@ -301,11 +385,7 @@ public static class CustomAttributeValueGuard
                 ElementTypeObject => ProcessBoxed(depth),
                 ElementTypeSzArray => ProcessSzArray(depth),
                 ElementTypeClass or ElementTypeValueType => SkipNamedType(
-                    _reader,
-                    _signature.ReadTypeHandle(),
-                    ref _value,
-                    _beforeMaterialize,
-                    _enumUnderlyingType),
+                    _signature.ReadTypeHandle()),
                 ElementTypeVar or ElementTypeMVar => _substituteGenerics
                     ? ProcessGenericParameter(
                         depth,
@@ -321,6 +401,15 @@ public static class CustomAttributeValueGuard
                 return Result.Unsafe;
             if (_value.RemainingBytes < 4)
                 return Result.Truncated;
+            // Rewind to the element TYPE, not to its custom modifiers.
+            // Modifiers are a prefix of the type, not part of the value
+            // grammar, so re-reading them per element buys nothing while
+            // multiplying work by an attacker-chosen count on input the guard
+            // accepts. SRM never spends that cost: its decoder has no case for
+            // CMOD_REQD/CMOD_OPT in an argument type and rejects the blob
+            // outright, so the guard would burn the entire multiplied scan
+            // before the decode it is screening for ever fails.
+            SkipCustomModifiers(ref _signature);
             int elementStart = _signature.Offset;
             if (!TrySkipSignatureType(ref _signature, _signatureSkip))
                 return Result.Safe;
@@ -344,6 +433,28 @@ public static class CustomAttributeValueGuard
             }
 
             return Result.Safe;
+        }
+
+        /// <summary>
+        /// Advances past any leading custom modifiers, leaving the reader on
+        /// the modified type. Returns with the reader unmoved when the blob
+        /// ends; the caller's own read reports that truncation.
+        /// </summary>
+        static void SkipCustomModifiers(ref BlobReader signature)
+        {
+            while (true)
+            {
+                int start = signature.Offset;
+                if (!TryReadElementType(ref signature, out byte code))
+                    return;
+                if (code is not (ElementTypeCmodReqd or ElementTypeCmodOpt))
+                {
+                    signature.Offset = start;
+                    return;
+                }
+
+                signature.ReadTypeHandle();
+            }
         }
 
         Result ProcessSzArrayElements(WorkItem item)
@@ -574,13 +685,104 @@ public static class CustomAttributeValueGuard
             int parameterIndex = _signature.ReadCompressedInteger();
             if (methodParameter || parameterIndex < 0)
                 return Result.Unsafe;
+
+            Result located = LocateGenericArgument(
+                parameterIndex,
+                out bool found,
+                out BlobReader instantiation);
+            if (located != Result.Safe || !found)
+                return located;
+
+            // SRM substitutes once, then recurses with an empty generic
+            // context. Re-entering this method on the same TypeSpec is a
+            // stack overflow; a substituted VAR/MVAR is therefore Unsafe.
+            _frames ??= new Stack<SignatureFrame>();
+            _frames.Push(new SignatureFrame(_signature, _substituteGenerics));
+            _work.Push(WorkItem.PopFrame());
+            _signature = instantiation;
+            _substituteGenerics = false;
+            return ProcessFixedArg(depth + 1);
+        }
+
+        /// <summary>
+        /// Locates the generic argument a VAR substitutes to, reusing the work
+        /// when the index repeats. The constructor -- and so its TypeSpec -- is
+        /// fixed for the whole walk, so validating that blob and stepping to an
+        /// argument is the same work every time. A typed array rewinds and
+        /// re-reads its element type once per element, so without this the walk
+        /// re-validates the entire TypeSpec once per declared element:
+        /// allocation proportional to an attacker-chosen count, inside the
+        /// guard whose purpose is to bound exactly that. SRM resolves the
+        /// element type once before it loops over values, so resolving once
+        /// here is also what matches the decoder.
+        /// </summary>
+        Result LocateGenericArgument(
+            int parameterIndex,
+            out bool found,
+            out BlobReader instantiation)
+        {
+            instantiation = default;
+            found = false;
+            if (!_memoSpecResolved)
+            {
+                _memoSpecResolved = true;
+                _memoSpecResult = ResolveConstructorInstantiation(
+                    out _memoSpecFound,
+                    out _memoSpecArguments,
+                    out _memoSpecArgumentCount);
+            }
+
+            if (_memoSpecResult != Result.Safe || !_memoSpecFound)
+                return _memoSpecResult;
+            if (parameterIndex >= _memoSpecArgumentCount)
+                return Result.Unsafe;
+
+            instantiation = _memoSpecArguments;
+            if (_memoArgumentIndex == parameterIndex)
+            {
+                instantiation.Offset = _memoArgumentOffset;
+                found = true;
+                return Result.Safe;
+            }
+
+            for (int index = 0; index < parameterIndex; index++)
+            {
+                // Match SRM CustomAttributeDecoder.SkipType, including its
+                // CLASS/VALUETYPE recurse-as-type-code, so the remaining
+                // argument is the one DecodeValue will decode.
+                if (!TrySkipSrmAttributeType(ref instantiation, depth: 1, _srmSkip))
+                    return Result.Unsafe;
+            }
+
+            _memoArgumentIndex = parameterIndex;
+            _memoArgumentOffset = instantiation.Offset;
+            found = true;
+            return Result.Safe;
+        }
+
+        /// <summary>
+        /// Validates the constructor's TypeSpec once and positions a reader on
+        /// its first generic argument. <paramref name="found"/> is false when
+        /// the blob ends early, which the walk treats as safe rather than
+        /// hostile.
+        /// </summary>
+        Result ResolveConstructorInstantiation(
+            out bool found,
+            out BlobReader arguments,
+            out int argumentCount)
+        {
+            found = false;
+            arguments = default;
+            argumentCount = 0;
             if (!TryGetConstructorTypeSpec(_reader, _constructor, out var spec))
                 return Result.Unsafe;
             if (!SignatureBlobGuard.IsSafeToDecode(
                     _reader,
                     spec.Signature,
                     SignatureBlobGuard.Kind.TypeSpecification))
+            {
                 return Result.Unsafe;
+            }
 
             var instantiation = _reader.GetBlobReader(spec.Signature);
             if (!TryReadElementType(ref instantiation, out byte code))
@@ -601,27 +803,10 @@ public static class CustomAttributeValueGuard
             instantiation.ReadTypeHandle();
             if (instantiation.RemainingBytes < 1)
                 return Result.Safe;
-            int arguments = instantiation.ReadCompressedInteger();
-            if (parameterIndex >= arguments)
-                return Result.Unsafe;
-            for (int index = 0; index < parameterIndex; index++)
-            {
-                // Match SRM CustomAttributeDecoder.SkipType, including its
-                // CLASS/VALUETYPE recurse-as-type-code, so the remaining
-                // argument is the one DecodeValue will decode.
-                if (!TrySkipSrmAttributeType(ref instantiation, depth: 1, _srmSkip))
-                    return Result.Unsafe;
-            }
-
-            // SRM substitutes once, then recurses with an empty generic
-            // context. Re-entering this method on the same TypeSpec is a
-            // stack overflow; a substituted VAR/MVAR is therefore Unsafe.
-            _frames ??= new Stack<SignatureFrame>();
-            _frames.Push(new SignatureFrame(_signature, _substituteGenerics));
-            _work.Push(WorkItem.PopFrame());
-            _signature = instantiation;
-            _substituteGenerics = false;
-            return ProcessFixedArg(depth + 1);
+            argumentCount = instantiation.ReadCompressedInteger();
+            arguments = instantiation;
+            found = true;
+            return Result.Safe;
         }
 
         Result PopFrame()
@@ -633,27 +818,6 @@ public static class CustomAttributeValueGuard
             _substituteGenerics = frame.SubstituteGenerics;
             return Result.Safe;
         }
-    }
-
-    static Result SkipNamedType(
-        MetadataReader reader,
-        EntityHandle handle,
-        ref BlobReader value,
-        Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
-    {
-        // SRM special-cases only a rendered name of "System.Type"
-        // (ArgTypeProvider.IsSystemType). Structural ns+name checks miss
-        // TypeRef {ns="", name="System.Type"} and nested System+Type, both
-        // of which SRM consumes as a SerString.
-        if (IsSrmSystemType(reader, handle))
-            return SkipSerString(
-                ref value,
-                beforeMaterialize);
-        return SkipBytes(
-            ref value,
-            EnumUnderlyingPrimitive.ByteSize(
-                ResolveEnum(reader, handle, beforeMaterialize, enumUnderlyingType)));
     }
 
     static Result ReadFieldOrPropType(
@@ -706,45 +870,38 @@ public static class CustomAttributeValueGuard
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
+        // A handle-typed enum is resolved from the definition the signature
+        // named, never from its rendered name, and the decoder resolves the
+        // same handle through the same function. Distinct definitions can
+        // render to one string -- a nested type joins its declaring type with
+        // '.', exactly as a namespace joins a type name -- so any name-keyed
+        // index must drop one of them, and a reference carries a resolution
+        // scope that a flattened spelling discards. Routing this side through a
+        // name, or through a caller's resolver, would let the two sides select
+        // different definitions and skip different widths.
+        if (EnumUnderlyingPrimitive.TryResolveDefinition(
+                reader,
+                handle,
+                out TypeDefinitionHandle definition))
+        {
+            return EnumUnderlyingPrimitive.FromDefinition(reader, definition);
+        }
+
         if (enumUnderlyingType is not null)
         {
-            string? name = handle.Kind == HandleKind.TypeDefinition
-                ? TryGetDefinitionName(
-                    reader,
-                    (TypeDefinitionHandle)handle,
-                    beforeMaterialize)
-                : TypeResolver.GetTypeName(
-                    reader,
-                    handle,
-                    context: null,
-                    beforeMaterialize);
+            string? name = TypeResolver.GetTypeName(
+                reader,
+                handle,
+                context: null,
+                beforeMaterialize);
             return name is null
                 ? PrimitiveTypeCode.Int32
                 : EnumUnderlyingPrimitive.Normalize(
                     enumUnderlyingType(name));
         }
 
-        if (handle.Kind == HandleKind.TypeDefinition)
-            return EnumUnderlyingPrimitive.FromDefinition(
-                reader,
-                (TypeDefinitionHandle)handle);
-
         return EnumUnderlyingPrimitive.FromHandle(reader, handle);
     }
-
-    static string? TryGetDefinitionName(
-        MetadataReader reader,
-        TypeDefinitionHandle handle,
-        Action<int>? beforeMaterialize)
-        => TypeResolver.TryGetTypeNameFromDefinition(
-                reader,
-                handle,
-                beforeMaterialize,
-                out string? name,
-                out _,
-                enforceCharacterBudget: false)
-            ? name
-            : null;
 
     static PrimitiveTypeCode ResolveEnumName(
         MetadataReader reader,
