@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector;
+using DotnetInspector.Models;
 using InertText;
 
 namespace DotnetInspector.Output;
@@ -11,7 +12,11 @@ public sealed record PrintableDocument(
     string Label,
     string? Path,
     string? Url,
-    string Content);
+    string Content)
+{
+    [JsonIgnore]
+    public ContainmentSelectedText? SelectedContent { get; init; }
+}
 
 /// <summary>
 /// A printable row before its payload is acquired. Cardinality and <c>--row</c> are decided from
@@ -35,7 +40,16 @@ public sealed record PrintProjectionOptions(
 
 public sealed record PrintableContent(
     string Content,
-    byte[]? ExactBytes = null);
+    byte[]? ExactBytes = null,
+    ContainmentSelectedText? SelectedContent = null)
+{
+    public static PrintableContent FromContainmentSelection(
+        ContainmentSelectedText content)
+        => new(
+            content.ToString(),
+            ExactBytes: null,
+            SelectedContent: content);
+}
 
 public static class PrintProjectionOutput
 {
@@ -43,12 +57,14 @@ public static class PrintProjectionOutput
     {
         // Callers whose payloads are already in hand keep passing documents. Identity is by
         // reference so two rows with equal fields still resolve to their own content.
-        var content = new Dictionary<PrintableRow, string>(ReferenceEqualityComparer.Instance);
+        var content = new Dictionary<PrintableRow, PrintableContent>(ReferenceEqualityComparer.Instance);
         var rows = new List<PrintableRow>(documents.Count);
         foreach (var document in documents)
         {
             var row = new PrintableRow(document.Row, document.Section, document.Label, document.Path, document.Url);
-            content[row] = document.Content;
+            content[row] = document.SelectedContent is { } selected
+                ? PrintableContent.FromContainmentSelection(selected)
+                : new PrintableContent(document.Content);
             rows.Add(row);
         }
 
@@ -118,7 +134,13 @@ public static class PrintProjectionOutput
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            ClipStructuredContent(payload.Content, options));
+            ClipStructuredContent(
+                payload.SelectedContent?.ToString()
+                    ?? payload.Content,
+                options))
+        {
+            SelectedContent = payload.SelectedContent
+        };
 
         if (options.Jsonl)
         {
@@ -148,14 +170,19 @@ public static class PrintProjectionOutput
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
         {
-            if (output.ExactBytes is { } bytes)
+            if (output.SelectedContent is { } selected)
+                File.WriteAllText(outputPath, selected.ToString());
+            else if (output.ExactBytes is { } bytes)
                 File.WriteAllBytes(outputPath, bytes);
             else
                 File.WriteAllText(outputPath, output.Content);
         }
         else
         {
-            Console.Write(new InertString(TextPolicy.Prose, output.Content));
+            if (output.SelectedContent is { } selected)
+                Console.Write(selected.ToString());
+            else
+                Console.Write(new InertString(TextPolicy.Prose, output.Content));
         }
     }
 

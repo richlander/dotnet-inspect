@@ -2323,7 +2323,9 @@ public class PackageCommand
                     normalizeGithubLinksToRaw: !options.BrowsableUrls,
                     includeExactContent: HasUnstructuredOutputPath(options)
                         && options.ContentScope == PackageFileContentScope.Full);
-                return new PrintableContent(content.Content, content.ExactContent);
+                return content.SelectedContent is { } selected
+                    ? PrintableContent.FromContainmentSelection(selected)
+                    : new PrintableContent(content.Content, content.ExactContent);
             },
             new PrintProjectionOptions(
                 options.PrintRow,
@@ -3417,6 +3419,23 @@ public class PackageCommand
         var content = MarkdownContent.ApplyScope(
             ReadText(exactContent),
             scope);
+        if (PackageFileFamily.IsSkillDocument(file))
+        {
+            ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
+                content,
+                normalizeGithubLinksToRaw);
+            return new PackageFileContent(
+                packageName,
+                version,
+                file.Path,
+                file.Size,
+                Found: true,
+                selected.ToString(),
+                file.IsReadme,
+                ExactContent: null,
+                SelectedContent: selected);
+        }
+
         if (normalizeGithubLinksToRaw)
             content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
@@ -3536,7 +3555,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(found[0].Content, outputPath: null);
+        return WriteBarePackageContent(found[0]);
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -3597,9 +3616,14 @@ public class PackageCommand
                 continue;
             }
 
-            builder.Append(row.EncodedContent);
+            builder.Append(row.RenderedContent);
             if (row.Content.Length == 0 || row.Content[^1] != '\n')
-                builder.AppendLine();
+            {
+                if (row.IsContainmentSelected)
+                    builder.Append('\n');
+                else
+                    builder.AppendLine();
+            }
         }
 
         return builder.ToString();
@@ -3824,7 +3848,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(content.Content, outputPath: null);
+        return WriteBarePackageContent(content);
     }
 
     private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
@@ -3851,6 +3875,17 @@ public class PackageCommand
         return 0;
     }
 
+    private static int WriteBarePackageContent(PackageFileContent content)
+    {
+        if (content.SelectedContent is not { } selected)
+            return WriteBarePackageText(content.Content, outputPath: null);
+
+        Console.Write(selected.ToString());
+        if (!content.Content.EndsWith('\n'))
+            Console.Write('\n');
+        return 0;
+    }
+
     private static void WritePackageFileExport(
         PackageFileContent content,
         string outputPath)
@@ -3858,7 +3893,9 @@ public class PackageCommand
         if (content.ExactContent is { } exact)
             File.WriteAllBytes(outputPath, exact);
         else
-            File.WriteAllText(outputPath, content.Content);
+            File.WriteAllText(
+                outputPath,
+                content.SelectedContent?.ToString() ?? content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)
