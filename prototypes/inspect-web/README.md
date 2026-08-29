@@ -702,37 +702,53 @@ adding a shadow type model or migrating those files to TypeScript is outside
 this analysis change. Their dependency and reachability graph remains covered
 by Knip.
 
-Oxlint's `plugins` list enables the `import`, `jsdoc`, `node`, and `promise`
-plugins on top of the four it turns on by default. That key *replaces* the
-defaults rather than adding to them, so `eslint`, `typescript`, `unicorn`, and
-`oxc` are re-declared explicitly and the toolchain test pins all eight;
-dropping one would retire a whole family of rules with every command green.
+Oxlint's `plugins` list enables the `import`, `jsdoc`, and `promise` plugins on
+top of the ones it turns on by default. That key *replaces* the defaults rather
+than adding to them, so `typescript`, `unicorn`, and `oxc` are re-declared
+explicitly; dropping one would retire a whole family of rules with every
+command green. The core `eslint` rules are not affected by that key — they stay
+enabled whether or not the list names them — so the list does not mention them.
 Each added plugin was measured against this project at the same correctness and
-suspicious categories before being enabled. One rule is off: `promise/always-return`
-reaches two side-effect continuations handed to `observeAsync`, which watches
-settlement and never reads the resolved value, and Oxlint does not implement the
-upstream `ignoreLastCallback` option that covers exactly that case.
+suspicious categories before being enabled, and the toolchain test reads
+Oxlint's own `--print-config` output rather than the list, so a plugin that
+enables nothing at these categories fails the gate instead of reading as an
+adoption. `promise/always-return` is enabled: the two side-effect continuations
+handed to `observeAsync` return explicitly, because their promises are consumed
+rather than terminal and so fall outside the upstream `ignoreLastCallback`
+option.
 
 `npm run lint` also runs [html-validate](https://html-validate.org) over
-`**/*.{html,htm,xhtml}`. Documents are otherwise invisible to every other gate
-here: the compiler builds a program out of `.ts` files and Oxlint is handed a
-list of source paths, so nothing read `index.html` at all before this. The
-committed `.htmlvalidate.json` extends the `standard`, `document`, and `a11y`
-presets, which bring validity, element conformance, document structure, and
-WCAG rules. It sets `root: true` so configuration outside the project cannot
-merge into it, and makes one option change: `require-sri` uses
-`target: "crossorigin"`, so third-party bytes must carry a digest while
-same-origin files Vite emits are not asked for one. `.htmlvalidateignore`
-names only `dist` and `node_modules`.
+`**/*.{html,htm,xhtml}` with `--config .htmlvalidate.json`. Documents are
+otherwise invisible to every other gate here: the compiler builds a program out
+of `.ts` files and Oxlint is handed a list of source paths, so nothing read
+`index.html` at all before this. The committed `.htmlvalidate.json` extends the
+`standard`, `document`, and `a11y` presets, which bring validity, element
+conformance, document structure, and WCAG rules. It sets `root: true` so
+configuration outside the project cannot merge into it, and makes one option
+change: `require-sri` uses `target: "crossorigin"`, so third-party bytes must
+carry a digest while same-origin files Vite emits are not asked for one.
+`.htmlvalidateignore` names only `/dist` and `node_modules`, anchored the way
+the project inventory prunes: `dist` is generated at the project root only, so
+an unanchored entry would also exclude an authored `src/dist`.
 
-Four toolchain tests hold that wiring honest. They pin the preset list, the
-`require-sri` option and `root: true`; require the lint glob to reach a nested
-document of each covered extension; require the committed configuration to
-reject a specimen *by the name of the rule that must reject it*
-(`close-order`, `element-required-attributes`, `wcag/h37`, `require-sri`,
-`attribute-allowed-values`); and require every document the project owns to sit
-outside the ignore file. A linter that stops running, loses a preset, or is
-never handed a document fails there rather than going quietly green.
+Seven toolchain tests hold that wiring honest. They pin the preset list, the
+`require-sri` option and `root: true`; require the lint glob to reach a
+document of each covered extension, both nested and under `src/dist`; require
+the committed configuration to reject a specimen *by the name of the rule that
+must reject it* (`close-order`, `element-required-attributes`, `wcag/h37`,
+`require-sri`, `attribute-allowed-values`); and require every document the
+project owns to sit outside the ignore file.
+
+Two of the seven close the gap between "the linter ran" and "the linter saw
+this file", because html-validate resolves both configuration and exclusions
+per directory. A descendant `.htmlvalidate.json` replaces the committed rules
+for its own subtree and a descendant `.htmlvalidateignore` drops documents from
+the run outright, so a walk requires the tree to hold exactly one of each, at
+the root. Separately, `**` does not descend into dotted directories, so a
+second walk requires no authored document to sit under one; that keeps the set
+the glob reaches equal to the set the inventory reports. A linter that stops
+running, loses a preset, or is never handed a document fails there rather than
+going quietly green.
 
 The `<link rel="preload" id="webassembly">` element in `index.html` carries a
 scoped `html-validate-disable-next` directive for `element-required-attributes`.

@@ -5,13 +5,11 @@
     "suspicious": "error"
   },
   "plugins": [
-    "eslint",
     "typescript",
     "unicorn",
     "oxc",
     "import",
     "jsdoc",
-    "node",
     "promise"
   ],
   "env": {
@@ -50,7 +48,6 @@
   ],
   "rules": {
     "eslint/no-underscore-dangle": "off",
-    "promise/always-return": "off",
     "typescript/no-floating-promises": [
       "error",
       {

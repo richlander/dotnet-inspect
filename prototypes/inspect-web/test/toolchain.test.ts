@@ -1561,27 +1561,69 @@ test("the lint invocation refuses config and ignore files it did not declare", (
 // oxlint's `plugins` key *replaces* its defaults rather than adding to them. Verified
 // directly: with `"plugins": ["import"]` a file containing `x instanceof Array` draws no
 // `unicorn/no-instanceof-array`, while the same file under the default set does. So the
-// four plugins oxlint enables on its own have to be re-listed alongside the added ones,
-// and dropping one from that list silently retires a whole family of rules with every
-// command green -- the same failure shape as a narrowed `include` glob.
+// defaults oxlint enables on its own have to be re-listed alongside the added ones, and
+// dropping one from that list silently retires a whole family of rules with every command
+// green -- the same failure shape as a narrowed `include` glob.
 //
-// The added plugins were each measured against this project at the categories above
-// before being enabled: `import`, `jsdoc` and `node` report nothing, and `promise`
-// reported only the two `always-return` sites the config turns off with a stated reason.
-const defaultOxlintPlugins = ["eslint", "typescript", "unicorn", "oxc"] as const;
-const addedOxlintPlugins = ["import", "jsdoc", "node", "promise"] as const;
+// Round 1 (Sol, both seats) showed that checking the array for a name proves neither
+// direction of that. `eslint` is not a toggle at all -- its 69 core rules stay enabled
+// whether or not the list names it -- and `node` was listed while contributing zero rules
+// at this project's categories, so the list asserted an adoption that was not happening.
+// Both were removed, and the gate below now reads oxlint's own effective configuration
+// instead of the file that is supposed to produce it.
+const requiredOxlintRuleFamilies
+  = ["eslint", "typescript", "unicorn", "oxc", "import", "jsdoc", "promise"] as const;
 
-test("the oxlint plugin list re-declares the defaults it replaces", () => {
-  const plugins = oxlintConfig.plugins;
-  assert.ok(plugins !== undefined,
-    "the plugin list is what enables the added plugins; without it they do not run");
+// `--print-config` is oxlint resolving categories, plugins, overrides and rule entries
+// into the set it will actually run. Counting families in that output is what makes a
+// dropped plugin, a category narrowed back to `correctness`, or a plugin that contributes
+// nothing fail here rather than read as a clean run.
+function enabledOxlintRuleFamilies(root: string): Map<string, number> {
+  const run = spawnSync(
+    "npx",
+    ["--no", "--", "oxlint", "--print-config", "src/bootstrap.ts"],
+    { cwd: root, encoding: "utf8" },
+  );
+  const output = run.stdout.trim();
+  assert.ok(output.startsWith("{"),
+    `oxlint printed no usable configuration: ${run.stderr || output || "no output"}`);
 
-  for (const plugin of defaultOxlintPlugins) {
-    assert.ok(plugins.includes(plugin),
-      `${plugin} is on by default and a plugins list turns off what it omits`);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const printed = JSON.parse(output) as {
+    readonly rules: Readonly<Record<string, string | readonly unknown[]>>;
+  };
+
+  const families = new Map<string, number>();
+  for (const [rule, entry] of Object.entries(printed.rules)) {
+    const severity: unknown = Array.isArray(entry) ? entry[0] : entry;
+    if (severity === "off" || severity === "allow") {
+      continue;
+    }
+    const family = rule.includes("/") ? rule.slice(0, rule.indexOf("/")) : "eslint";
+    families.set(family, (families.get(family) ?? 0) + 1);
   }
-  for (const plugin of addedOxlintPlugins) {
-    assert.ok(plugins.includes(plugin), `${plugin} must stay enabled`);
+  return families;
+}
+
+test("every plugin this project declares contributes rules oxlint actually runs", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const families = enabledOxlintRuleFamilies(root);
+
+  for (const family of requiredOxlintRuleFamilies) {
+    assert.ok((families.get(family) ?? 0) > 0,
+      `oxlint runs no ${family} rule, so this project's analysis no longer covers that `
+        + "family; the plugin list or the categories above have narrowed");
+  }
+
+  // The other direction. A name that enables nothing reads as adoption in the config and
+  // in the README while changing no behaviour, which is exactly what `node` was doing.
+  const declared = oxlintConfig.plugins ?? [];
+  assert.notEqual(declared.length, 0,
+    "the plugin list is what enables the added plugins; without it they do not run");
+  for (const plugin of declared) {
+    assert.ok((families.get(plugin) ?? 0) > 0,
+      `${plugin} is declared but enables no rule at this project's categories, so it `
+        + "claims an adoption that is not happening");
   }
 });
 
@@ -1589,11 +1631,18 @@ test("the oxlint plugin list re-declares the defaults it replaces", () => {
 // builds a program out of `.ts` files and oxlint is handed a list of source paths, so
 // nothing in this project read `index.html` at all until html-validate was wired in.
 //
-// The glob is read out of the `lint` script rather than restated, so a lint that stops
-// covering an extension fails here instead of quietly narrowing.
-const htmlValidateGlob = (() => {
+// The whole invocation is read out of the `lint` script rather than restated, so a lint
+// that stops covering an extension, or stops pinning its configuration, fails here
+// instead of quietly narrowing. Round 1 (Sol, both seats) landed a nested
+// `.htmlvalidate.json` that turned rules off for its own subtree while the specimens --
+// all written at the project root -- stayed green; `--config` is what makes the committed
+// file the one that runs, and reading the flag from the script is what keeps it there.
+const htmlValidateInvocation = (() => {
   const lint = packageJson.scripts?.lint ?? "";
-  return /html-validate\s+"([^"]+)"/u.exec(lint)?.[1];
+  const match = /html-validate\s+--config\s+(\S+)\s+"([^"]+)"/u.exec(lint);
+  return match === null
+    ? undefined
+    : { config: match[1] ?? "", glob: match[2] ?? "" };
 })();
 
 const htmlDocumentExtensions = [".html", ".htm", ".xhtml"] as const;
@@ -1610,10 +1659,24 @@ interface HtmlValidateReport {
 // `--no` is what makes the third case fail here: without it npx reaches for the registry
 // when the binary is missing, so an uninstalled linter reads as a slow gate rather than a
 // broken one. The `--` keeps npx from claiming `--formatter` for itself.
+//
+// The `--config` flag comes from the lint script, so these specimens are checked by the
+// same configuration resolution `npm run lint` performs rather than by whatever
+// html-validate would discover on its own.
 function htmlValidateRules(root: string, targets: readonly string[]): Set<string> {
+  assert.ok(htmlValidateInvocation !== undefined,
+    "the lint script must invoke html-validate with a pinned --config and a quoted glob");
   const run = spawnSync(
     "npx",
-    ["--no", "--", "html-validate", "--formatter=json", ...targets],
+    [
+      "--no",
+      "--",
+      "html-validate",
+      "--config",
+      htmlValidateInvocation.config,
+      "--formatter=json",
+      ...targets,
+    ],
     { cwd: root, encoding: "utf8" },
   );
   const output = run.stdout.trim();
@@ -1647,24 +1710,86 @@ function withSpecimen<T>(
 
 test("the lint hands every document extension it claims to cover to html-validate", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  assert.ok(htmlValidateGlob !== undefined,
-    "the lint script must invoke html-validate with a quoted glob");
+  assert.ok(htmlValidateInvocation !== undefined,
+    "the lint script must invoke html-validate with a pinned --config and a quoted glob");
+  const { glob } = htmlValidateInvocation;
 
   // Nested, and one specimen per extension. The previous glob in this project's history
   // matched `.html` alone while the prose claimed four extensions, so `npm run lint`
   // passed markup that a later gate rejected -- the divergence that teaches people to
   // distrust the fast check.
+  //
+  // `src/dist` is one of the placements: round 1 (Sol, seat B) showed that an unanchored
+  // `dist` ignore entry matches a directory of that name at any depth, so an authored
+  // document under `src/dist` was excluded from linting while the inventory walk -- which
+  // prunes `dist` only at the project root -- still counted it as covered.
+  const placements = ["src", join("src", "dist")];
   for (const extension of htmlDocumentExtensions) {
-    const reported = withSpecimen(
-      root,
-      join("src", `toolchain-specimen${extension}`),
-      "<!doctype html>\n<html lang=\"en\"><head><title>x</title></head>"
-        + "<body><div></body></html>\n",
-      () => htmlValidateRules(root, [htmlValidateGlob]),
-    );
-    assert.ok(reported.has("close-order"),
-      `the lint glob does not reach a nested ${extension} document`);
+    for (const placement of placements) {
+      const reported = withSpecimen(
+        root,
+        join(placement, `toolchain-specimen${extension}`),
+        "<!doctype html>\n<html lang=\"en\"><head><title>x</title></head>"
+          + "<body><div></body></html>\n",
+        () => htmlValidateRules(root, [glob]),
+      );
+      assert.ok(reported.has("close-order"),
+        `the lint glob does not reach a ${extension} document under ${placement}`);
+    }
   }
+});
+
+// The glob and the inventory walk have to agree on which documents exist, and two things
+// can pull them apart. Round 1 (Sol, both seats) demonstrated each: a descendant
+// `.htmlvalidate.json` replaces the committed rules for its own subtree, and a descendant
+// `.htmlvalidateignore` removes documents from the run outright. `--config` closes the
+// first, but neither flag closes the second, and neither is visible to any specimen
+// written somewhere else.
+//
+// So the tree may hold exactly one of each, at the root, where the gates below read them.
+// This is derived from a walk rather than a list of known placements: a file added
+// anywhere fails, without anyone having to predict where.
+test("html-validate reads one configuration and one ignore file for the whole tree", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const controlFiles = [".htmlvalidate.json", ".htmlvalidateignore"];
+  const found: string[] = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!isGenerated(directory, entry.name, root)) {
+          walk(full);
+        }
+      } else if (controlFiles.includes(entry.name)) {
+        found.push(projectRelative(root, full));
+      }
+    }
+  };
+  walk(root);
+
+  assert.deepEqual(found.sort(), [".htmlvalidate.json", ".htmlvalidateignore"],
+    "a configuration or ignore file below the project root applies to its own subtree "
+      + "only, so it weakens or silences linting for documents no gate here would notice");
+});
+
+// html-validate expands `**` with dot-directories excluded, so a document under a dotted
+// path is never handed to it however the ignore file reads. The inventory walk has no
+// such rule, so it counts that document as covered and the two disagree -- which is how
+// round 1 (Sol, both seats) put invalid markup through `npm run lint`, `npm run build`
+// and the whole suite with everything green.
+//
+// Keeping authored documents out of dotted directories is what makes the glob's reachable
+// set equal the inventory. Nothing this project ships needs one, so this closes the gap
+// where it starts rather than trying to widen a glob to match a walk.
+test("no authored document sits where the lint glob cannot reach it", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const unreachable = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots)
+    .map(file => projectRelative(root, file))
+    .filter(document => document.split("/").some(segment => segment.startsWith(".")));
+
+  assert.deepEqual(unreachable, [],
+    "`**` does not descend into dotted directories, so this document is linted by "
+      + "nothing while the inventory walk still reports it as covered");
 });
 
 test("the committed html-validate configuration rejects what it is kept for", () => {
@@ -1718,6 +1843,12 @@ test("html-validate still demands a digest on third-party bytes", () => {
 // html-validate drops an ignored file silently when other targets remain, so an authored
 // document added to this file would leave analysis with every gate green. Both entries
 // are build or dependency output; nothing authored may be listed.
+//
+// The entries are anchored the way the inventory walk prunes, which is the correspondence
+// that lets the walk stand in for the glob's reachable set. `dist` is generated at the
+// project root only, so it is written `/dist`; round 1 (Sol, seat B) showed the
+// unanchored spelling silently excluding `src/dist`. `node_modules` is pruned at any
+// depth, so it stays unanchored.
 test("the html-validate ignore file names only generated directories", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const ignored = readFileSync(join(root, ".htmlvalidateignore"), "utf8")
@@ -1725,16 +1856,24 @@ test("the html-validate ignore file names only generated directories", () => {
     .map(line => line.trim())
     .filter(line => line !== "");
 
-  assert.deepEqual(ignored, ["dist", "node_modules"]);
+  assert.deepEqual(ignored, ["/dist", "node_modules"]);
 
+  // The walk prunes exactly what the ignore file names, so anything it reports is a
+  // document the lint is expected to reach. A new entry here that covered authored markup
+  // would make this list non-empty rather than making the lint quietly smaller.
   const documents = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots)
     .map(file => projectRelative(root, file));
   assert.ok(documents.length > 0,
     "this project owns no documents, so the gates above prove nothing");
   for (const document of documents) {
-    const [outermost] = document.split("/");
-    assert.ok(outermost !== undefined && !ignored.includes(outermost),
-      `${document} sits under an ignored directory and is linted by nothing`);
+    for (const entry of ignored) {
+      const directory = entry.replace(/^\//u, "");
+      assert.ok(
+        entry.startsWith("/")
+          ? !document.startsWith(`${directory}/`)
+          : !document.split("/").slice(0, -1).includes(directory),
+        `${document} sits under an ignored directory and is linted by nothing`);
+    }
   }
 });
 
@@ -1848,7 +1987,7 @@ test("the analysis host check matches locked native packages and lint wiring", (
     "node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test scripts "
       + "engine/wwwroot/inspect-web-engine.js vite.config.ts && "
-      + "html-validate \"**/*.{html,htm,xhtml}\"",
+      + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });
 
