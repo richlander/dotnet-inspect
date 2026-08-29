@@ -9,9 +9,13 @@ namespace DotnetInspector.PackageQueries;
 /// Package and asset identity for one library in an Integration roll-up.
 /// </summary>
 public sealed record PackageWorkspaceIntegrationsSubject(
-    string PackageId,
-    string PackageVersion,
-    PackageCompileAsset Asset);
+    PackageRootIdentity Package,
+    PackageCompileAsset Asset)
+{
+    public string PackageId => Package.PackageId;
+
+    public string PackageVersion => Package.PackageVersion;
+}
 
 /// <summary>
 /// One package library's Integration outcome in a realized package workspace.
@@ -55,6 +59,12 @@ public static class PackageWorkspaceIntegrationsQuery
         PackageAssemblyContextRealization realization)
     {
         ArgumentNullException.ThrowIfNull(realization);
+        if (!realization.HasAssemblyContexts)
+        {
+            throw new InvalidOperationException(
+                "Package workspace integration analysis requires at least one "
+                + "selected compile asset.");
+        }
 
         var entries =
             ImmutableArray.CreateBuilder<PackageWorkspaceIntegrationsEntry>();
@@ -116,7 +126,6 @@ public static class PackageWorkspaceIntegrationsQuery
     static PackageWorkspaceIntegrationsSubject Subject(
         PackageAssemblyRoleParticipant participant) =>
         new(
-            participant.Package.PackageId,
-            participant.Package.PackageVersion,
+            participant.Package,
             participant.Asset);
 }

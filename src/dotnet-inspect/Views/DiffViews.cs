@@ -192,6 +192,27 @@ public record FindingTransitionRow(
     public string Old => OldText.ToString();
     public string New => NewText.ToString();
     [MarkoutSkipNull] public string? Detail => DetailText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? OldInspectionText { get; init; }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? NewInspectionText { get; init; }
+
+    [MarkoutSkipNull]
+    public string? OldInspection => OldInspectionText?.ToString();
+
+    [MarkoutSkipNull]
+    public string? NewInspection => NewInspectionText?.ToString();
+
+    public FindingTransitionRow WithInspectionStates(
+        string oldInspection,
+        string newInspection)
+        => this with
+        {
+            OldInspectionText = DiffViewText.Field(oldInspection),
+            NewInspectionText = DiffViewText.Field(newInspection),
+        };
 }
 
 /// <summary>
