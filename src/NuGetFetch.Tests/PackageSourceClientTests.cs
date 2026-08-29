@@ -1212,6 +1212,144 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Operation,
+                TimeSpan.FromMilliseconds(100)),
+            failure.Timeout);
+    }
+
+    [Fact]
+    public async Task SharedContext_RequestTimeoutCanContinueWithAnotherSource()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(100),
+            OperationTimeout = TimeSpan.FromSeconds(3),
+        };
+        using var operation = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        using IPackageSourceClient stalled =
+            PackageSourceClientFactory.Create(
+                new PackageSource("stalled", ServiceIndex),
+                new StallingHandler(),
+                options);
+        var successfulHandler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "resources": [
+                    {
+                      "@id": "{{SearchEndpoint}}",
+                      "@type": "SearchQueryService/3.5.0"
+                    }
+                  ]
+                }
+                """,
+            [SearchRequest] = """{"data":[]}""",
+        };
+        HttpMessageHandler successfulTransport = successfulHandler;
+        using IPackageSourceClient successful =
+            PackageSourceClientFactory.Create(
+                new PackageSource("successful", ServiceIndex),
+                successfulTransport,
+                options);
+
+        PackageSourceFailure failure = Failed(
+            await stalled.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation));
+        PackageSearchResult result = Succeeded(
+            await successful.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation));
+
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            failure.Timeout);
+        Assert.Empty(result.Matches);
+        Assert.Equal(
+            [ServiceIndex, SearchRequest],
+            successfulHandler.Requested);
+    }
+
+    [Fact]
+    public async Task SharedContext_ExpiredCeilingPreventsAnotherSource()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        var handler = new RecordingHandler();
+        HttpMessageHandler transport = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                transport,
+                options);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation));
+
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Operation,
+                options.OperationTimeout),
+            failure.Timeout);
+        Assert.Empty(handler.Requested);
+    }
+
+    [Fact]
+    public async Task SharedContext_ExpiredUnsupportedCapabilityIsTypedTimeout()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.Create(
+                new PackageSource("v3", ServiceIndex),
+                new RecordingHandler(),
+                options);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(40),
+            TestContext.Current.CancellationToken);
+
+        PackageSourceFailure failure = Failed(
+            await source.SearchByPrefixAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Operation,
+                options.OperationTimeout),
+            failure.Timeout);
     }
 
     [Fact]
@@ -1224,10 +1362,93 @@ public sealed class PackageSourceClientTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => runtime.SearchAsync(
                 "contoso",
                 cancellationToken: cancellation.Token));
+
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+    }
+
+    [Fact]
+    public async Task SharedContext_CallerCancellationRetainsOriginalToken()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var operation = new NuGetOperationContext(
+            cancellation.Token);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                new StallingHandler());
+        cancellation.Cancel();
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => runtime.SearchAsync(
+                    "contoso",
+                    cancellationToken: cancellation.Token,
+                    operationContext: operation));
+
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+    }
+
+    [Fact]
+    public async Task SharedContext_RejectsDifferentInvocationToken()
+    {
+        using var caller = new CancellationTokenSource();
+        using var other = new CancellationTokenSource();
+        using var operation = new NuGetOperationContext(caller.Token);
+        var handler = new RecordingHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                handler);
+
+        _ = await Assert.ThrowsAsync<ArgumentException>(
+            () => runtime.SearchAsync(
+                "contoso",
+                cancellationToken: other.Token,
+                operationContext: operation));
+
+        Assert.Empty(handler.Requested);
+    }
+
+    [Fact]
+    public async Task SharedContext_DisposalIsTypedOperationTimeout()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(5),
+            OperationTimeout = TimeSpan.FromSeconds(10),
+        };
+        using var operation = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        var handler = new StallingHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                handler,
+                options);
+
+        Task<PackageSourceOperationResult<PackageSearchResult>> search =
+            runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation);
+        await handler.RequestStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        operation.Dispose();
+        PackageSourceFailure failure = Failed(await search);
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Operation,
+                options.OperationTimeout),
+            failure.Timeout);
     }
 
     [Fact]
@@ -1256,7 +1477,7 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public async Task V3SearchTransportTimeoutIsTypedTimeout()
+    public async Task V3SearchTransportTimeoutRemainsTypedTimeout()
     {
         var handler = new RecordingHandler
         {
@@ -1288,6 +1509,7 @@ public sealed class PackageSourceClientTests
 
         Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
         Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+        Assert.Null(failure.Timeout);
     }
 
     [Fact]
@@ -2813,6 +3035,31 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GallerySharedContextCallerCancellationDuringRegistrationRemainsCancellation()
+    {
+        var handler = new CancelableRegistrationHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        using var cancellation = new CancellationTokenSource();
+        using var context = new NuGetOperationContext(cancellation.Token);
+#pragma warning disable xUnit1051 // The default invocation token is the contract under test.
+        Task<PackageSourceOperationResult<PackageVersionResult>> operation =
+            runtime.GetVersionsAsync(
+                "contoso",
+                operationContext: context);
+#pragma warning restore xUnit1051
+        await handler.RegistrationStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        cancellation.Cancel();
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => operation);
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+    }
+
+    [Fact]
     public async Task GalleryCallerCancellationOutranksConcurrentRegistrationFault()
     {
         var handler = new FaultAndCancelRegistrationHandler();
@@ -2834,7 +3081,7 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public void GalleryFinalListingProjectionExpiresToPartial()
+    public void GalleryFinalListingProjectionPreservesOperationTimeout()
     {
         var candidate = new PackageCandidateObservation(
             PackageSourceCoordinate.Create("contoso", "1.0.0"),
@@ -2859,19 +3106,16 @@ public sealed class PackageSourceClientTests
             Timeout.InfiniteTimeSpan,
             TestContext.Current.CancellationToken);
 
-        PackageVersionResult result =
-            NuGetGalleryPackageSourceClient
-                .ApplyRegistrationListingsOrPartial(
-                    partial,
-                    listings,
-                    operation,
-                    TestContext.Current.CancellationToken);
+        NuGetOperationTimeoutException error =
+            Assert.Throws<NuGetOperationTimeoutException>(
+                () => NuGetGalleryPackageSourceClient
+                    .ApplyRegistrationListingsOrPartial(
+                        partial,
+                        listings,
+                        operation,
+                        TestContext.Current.CancellationToken));
 
-        Assert.Same(partial, result);
-        Assert.False(result.HasAuthoritativeListingState);
-        Assert.Equal(
-            PackageListingState.Unknown,
-            Assert.Single(result.Candidates).ListingState);
+        Assert.Equal(TimeSpan.FromMilliseconds(20), error.Timeout);
     }
 
     [Fact]
@@ -3861,6 +4105,11 @@ public sealed class PackageSourceClientTests
                 ? PackageSourceCapabilities.PackagePayload
                 : PackageSourceCapabilities.VersionEnumeration,
             failure.Capability);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                TimeSpan.FromMilliseconds(50)),
+            failure.Timeout);
     }
 
     [Theory]
@@ -3996,6 +4245,324 @@ public sealed class PackageSourceClientTests
             GalleryPackage,
             failure.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PayloadTransportFailureRetainsSafeSourceIdentity()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ThrowingPayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.Null(error.Timeout);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PayloadTransportFailureOutranksRacingReadCancellation()
+    {
+        using var readCancellation = new CancellationTokenSource();
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ThrowingPayloadStream(readCancellation.Cancel)),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    readCancellation.Token).AsTask());
+
+        Assert.True(readCancellation.IsCancellationRequested);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.Null(error.Timeout);
+    }
+
+    [Fact]
+    public async Task PayloadCallerCancellationDoesNotRetainTransportFailure()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ThrowingPayloadStream(cancellation.Cancel)),
+            });
+        using var operation = new NuGetOperationContext(cancellation.Token);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                cancellationToken: cancellation.Token,
+                operationContext: operation));
+        await using Stream content = payload.Content;
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    cancellation.Token).AsTask());
+
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PayloadDisposalFailureRetainsSafeSourceIdentity()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ThrowingDisposePayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        PackageSourceStreamException error =
+            Assert.Throws<PackageSourceStreamException>(
+                payload.Content.Dispose);
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.True(error.CleanupFailed);
+        Assert.Null(error.Timeout);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PayloadAsyncDisposalFailureRetainsSafeSourceIdentity()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ThrowingDisposePayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => payload.Content.DisposeAsync().AsTask());
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.True(error.CleanupFailed);
+        Assert.Null(error.Timeout);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PayloadTimeoutRetainsSourceAndConfiguredDuration()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(40),
+            OperationTimeout = TimeSpan.FromSeconds(1),
+        };
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new StallingPayloadStream()),
+            });
+        using var operation = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+    }
+
+    [Fact]
+    public async Task PayloadTimeoutRetainsCleanupFailureWithoutInnerException()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(40),
+            OperationTimeout = TimeSpan.FromSeconds(1),
+        };
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ThrowingDisposeStallingPayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        Stream content = payload.Content;
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            error.Timeout);
+        Assert.True(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+        _ = await Assert.ThrowsAsync<PackageSourceStreamException>(
+            () => content.DisposeAsync().AsTask());
+    }
+
+    [Fact]
+    public async Task DisposingSharedContextCancelsOutstandingPayloadRead()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(5),
+            OperationTimeout = TimeSpan.FromSeconds(10),
+        };
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new StallingPayloadStream()),
+            });
+        using var operation = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation));
+        await using Stream content = payload.Content;
+
+        Task<int> read = content.ReadAsync(
+                new byte[1],
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        operation.Dispose();
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => read);
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Operation,
+                options.OperationTimeout),
+            error.Timeout);
     }
 
     [Fact]
@@ -4386,13 +4953,170 @@ public sealed class PackageSourceClientTests
 
     private sealed class StallingHandler : HttpMessageHandler
     {
+        public TaskCompletionSource RequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            RequestStarted.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Unreachable.");
         }
+    }
+
+    private sealed class ThrowingPayloadStream(Action? beforeThrow = null)
+        : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            beforeThrow?.Invoke();
+            throw new IOException(
+                "Transport failed at https://secret.example/package.");
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            beforeThrow?.Invoke();
+            return ValueTask.FromException<int>(
+                new IOException(
+                    "Transport failed at https://secret.example/package."));
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class StallingPayloadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingDisposePayloadStream
+        : MemoryStream
+    {
+        public ThrowingDisposePayloadStream()
+            : base([1], writable: false)
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            throw new IOException(
+                "Cleanup failed for https://secret.example/package.");
+        }
+    }
+
+    private sealed class ThrowingDisposeStallingPayloadStream
+        : Stream
+    {
+        private readonly TaskCompletionSource _disposed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await _disposed.Task;
+            throw new ObjectDisposedException(
+                nameof(ThrowingDisposeStallingPayloadStream));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _disposed.TrySetResult();
+            base.Dispose(disposing);
+            throw new IOException(
+                "Cleanup failed for https://secret.example/package.");
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class BlockingEofStream : Stream

@@ -260,7 +260,7 @@ public enum PackageSourceFailureKind
     /// <summary>The source rejected or requires authentication.</summary>
     AuthenticationRequired,
 
-    /// <summary>A library-owned request or operation deadline expired.</summary>
+    /// <summary>The source operation timed out.</summary>
     Timeout,
 
     /// <summary>The source returned malformed or incomplete protocol metadata.</summary>
@@ -273,6 +273,24 @@ public enum PackageSourceFailureKind
     Transport,
 }
 
+/// <summary>The deadline that caused a package-source timeout.</summary>
+public enum PackageSourceTimeoutKind
+{
+    /// <summary>One HTTP request exceeded its deadline.</summary>
+    Request,
+
+    /// <summary>One metadata body exceeded its stricter deadline.</summary>
+    MetadataBody,
+
+    /// <summary>The complete operation exceeded its ceiling.</summary>
+    Operation,
+}
+
+/// <summary>Typed details for a package-source timeout.</summary>
+public sealed record PackageSourceTimeout(
+    PackageSourceTimeoutKind Kind,
+    TimeSpan Duration);
+
 /// <summary>
 /// A source-scoped failure safe to retain without transport URLs or credentials.
 /// </summary>
@@ -282,7 +300,78 @@ public sealed record PackageSourceFailure(
     PackageSourceCapabilities Capability,
     PackageSourceCoordinate? Coordinate,
     PackageSourceFailureKind Kind,
-    string Message);
+    string Message,
+    PackageSourceTimeout? Timeout = null);
+
+/// <summary>
+/// A source-safe failure raised while consuming an already-returned payload.
+/// </summary>
+public sealed class PackageSourceStreamException : IOException
+{
+    internal PackageSourceStreamException(
+        PackageSourceIdentity producer,
+        PackageSourceKind transportKind,
+        PackageSourceFailureKind kind,
+        PackageSourceTimeout? timeout,
+        bool cleanupFailed)
+        : base(MessageFor(kind, timeout, cleanupFailed))
+    {
+        Producer = producer;
+        TransportKind = transportKind;
+        Kind = kind;
+        Timeout = timeout;
+        CleanupFailed = cleanupFailed;
+    }
+
+    /// <summary>Gets the producer that issued the payload.</summary>
+    public PackageSourceIdentity Producer { get; }
+
+    /// <summary>Gets the transport that issued the payload.</summary>
+    public PackageSourceKind TransportKind { get; }
+
+    /// <summary>Gets whether the stream timed out or its transport failed.</summary>
+    public PackageSourceFailureKind Kind { get; }
+
+    /// <summary>Gets details when a library-owned deadline expired.</summary>
+    public PackageSourceTimeout? Timeout { get; }
+
+    /// <summary>Gets whether payload cleanup failed.</summary>
+    public bool CleanupFailed { get; }
+
+    private static string MessageFor(
+        PackageSourceFailureKind kind,
+        PackageSourceTimeout? timeout,
+        bool cleanupFailed)
+    {
+        string message = (kind, timeout) switch
+        {
+            (PackageSourceFailureKind.Timeout,
+                { Kind: PackageSourceTimeoutKind.Request }) =>
+                $"NuGet payload request did not complete within {timeout.Duration}.",
+            (PackageSourceFailureKind.Timeout,
+                { Kind: PackageSourceTimeoutKind.Operation }) =>
+                $"NuGet payload operation did not complete within {timeout.Duration}.",
+            (PackageSourceFailureKind.Timeout, null)
+                when cleanupFailed =>
+                "The package source payload cleanup timed out.",
+            (PackageSourceFailureKind.Timeout, null) =>
+                "The package source payload timed out.",
+            (PackageSourceFailureKind.Transport, null)
+                when cleanupFailed =>
+                "The package source payload cleanup failed.",
+            (PackageSourceFailureKind.Transport, null) =>
+                "The package source payload transport failed.",
+            _ => throw new ArgumentException(
+                "A payload stream failure must describe a request timeout, operation timeout, or transport failure.",
+                nameof(kind)),
+        };
+        return cleanupFailed
+            && kind == PackageSourceFailureKind.Timeout
+            && timeout is not null
+            ? $"{message} Payload cleanup also failed."
+            : message;
+    }
+}
 
 /// <summary>
 /// The typed success or expected source failure of one source operation.
@@ -310,8 +399,11 @@ internal static class PackageSourceOperation
         PackageSourceCapabilities capability,
         Func<Task<T>> operation,
         CancellationToken cancellationToken,
-        PackageSourceCoordinate? coordinate = null)
+        PackageSourceCoordinate? coordinate = null,
+        NuGetOperationContext? operationContext = null)
     {
+        cancellationToken = operationContext?.ResolveInvocationToken(
+            cancellationToken) ?? cancellationToken;
         try
         {
             return new PackageSourceOperationResult<T>.Succeeded(
@@ -327,7 +419,8 @@ internal static class PackageSourceOperation
                 exception,
                 capability,
                 coordinate,
-                out PackageSourceFailureKind kind))
+                out PackageSourceFailureKind kind,
+                out PackageSourceTimeout? timeout))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new PackageSourceOperationResult<T>.Failed(
@@ -337,7 +430,8 @@ internal static class PackageSourceOperation
                     capability,
                     coordinate,
                     kind,
-                    MessageFor(kind)));
+                    MessageFor(kind),
+                    timeout));
         }
     }
 
@@ -359,10 +453,25 @@ internal static class PackageSourceOperation
         Exception exception,
         PackageSourceCapabilities capability,
         PackageSourceCoordinate? coordinate,
-        out PackageSourceFailureKind kind)
+        out PackageSourceFailureKind kind,
+        out PackageSourceTimeout? timeout)
     {
+        timeout = exception switch
+        {
+            NuGetRequestTimeoutException request =>
+                new(PackageSourceTimeoutKind.Request, request.Timeout),
+            NuGetMetadataBodyTimeoutException body =>
+                new(PackageSourceTimeoutKind.MetadataBody, body.Timeout),
+            NuGetOperationTimeoutException operation =>
+                new(PackageSourceTimeoutKind.Operation, operation.Timeout),
+            _ => null,
+        };
         kind = exception switch
         {
+            NuGetRequestTimeoutException
+                or NuGetMetadataBodyTimeoutException
+                or NuGetOperationTimeoutException =>
+                PackageSourceFailureKind.Timeout,
             TimeoutException =>
                 PackageSourceFailureKind.Timeout,
             NuGetMetadataResponseTooLargeException =>

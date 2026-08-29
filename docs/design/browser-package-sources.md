@@ -1242,21 +1242,81 @@ visible failure with exact-pin guidance and does not reset or escape the
 enclosing resolution policy. Explicit `Name@latest` continues to use the
 configured request deadline and operation ceiling.
 
-The current implementation separately caps several body reads at
-`min(configured timeout, 30 seconds)`, so increasing `--http-timeout` does not
-extend those reads today. The target request deadline deliberately replaces
-that one-way clamp with the validated configured value in either direction;
-the larger operation ceiling preserves a finite failover bound. Implementation
-must update the private-feed timeout guidance with that behavior change.
+Metadata body readers receive the request cancellation token. An explicitly
+configured stricter metadata-body timeout remains an additional nested bound,
+but there is no implicit 30-second body clamp when the validated request
+deadline is larger.
 
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
 answer. Cache fallback follows the explicit version-resolution policy and
 retains the timeout diagnostic.
 
-Required gates include stalled-header, stalled-metadata-body, stalled-payload,
-retry, authentication, multi-source, and redirect cases that terminate without
-JavaScript cooperation.
+### Operation-context handoff
+
+`NuGetOperationContext` is the owner-issued carrier for these bounds. One
+instance records the original caller token and one monotonic operation start.
+Passing it to another built-in `IPackageSourceClient` operation creates a new
+request deadline inside the remaining shared ceiling; it does not create
+another operation ceiling. Retries, authentication exchanges, and retry delays
+reuse that request's deadline adapter. Gallery pagination and manifest
+acquisition likewise reuse one adapter for their complete public source
+operation.
+
+A caller-supplied context is caller-owned and must outlive every payload stream
+returned through it. Disposing it cancels outstanding work. The invocation
+token is either default or the same original caller token; a different token
+is rejected rather than losing cancellation identity. When no context is
+supplied, each existing source-client call creates and owns one context, which
+preserves the standalone API behavior. `DotnetInspector.Packages` exposes the
+same context handoff at typed coordinate resolution and payload acquisition;
+multi-source policy and composition remain with that owner.
+
+An operation-ceiling failure is terminal. A request-deadline failure may be
+returned while the context still permits another authorized source.
+`PackageSourceTimeout` records `Request`, `MetadataBody`, or `Operation` plus
+the configured duration for a library-owned deadline. A transport-originated
+`TimeoutException` retains the existing timeout classification without falsely
+claiming one of those owner-issued bounds, so its typed timeout detail is null.
+Caller cancellation remains an exception carrying the original caller token.
+
+After payload transfer, `PackageSourceStreamException` retains the exact
+producer and transport kind, timeout-versus-transport classification, typed
+deadline detail when applicable, and whether payload cleanup failed. It does
+not retain the transport exception or its endpoint-bearing message. The same
+translation applies to synchronous and asynchronous reads and disposal.
+
+The implementation gates are:
+
+- `PackageSourceClientTests.SharedContext_RequestTimeoutCanContinueWithAnotherSource`;
+- `PackageSourceClientTests.SharedContext_ExpiredCeilingPreventsAnotherSource`;
+- `PackageSourceClientTests.SharedContext_ExpiredUnsupportedCapabilityIsTypedTimeout`;
+- `PackageSourceClientTests.SharedContext_CallerCancellationRetainsOriginalToken`;
+- `PackageSourceClientTests.SharedContext_RejectsDifferentInvocationToken`;
+- `PackageSourceClientTests.SharedContext_DisposalIsTypedOperationTimeout`;
+- `PackageSourceClientTests.PayloadTimeoutRetainsSourceAndConfiguredDuration`;
+- `PackageSourceClientTests.PayloadTimeoutRetainsCleanupFailureWithoutInnerException`;
+- `PackageSourceClientTests.DisposingSharedContextCancelsOutstandingPayloadRead`;
+- `PackageSourceClientTests.PayloadTransportFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadTransportFailureOutranksRacingReadCancellation`;
+- `PackageSourceClientTests.PayloadCallerCancellationDoesNotRetainTransportFailure`;
+- `PackageSourceClientTests.PayloadDisposalFailureRetainsSafeSourceIdentity`;
+  and
+- `PackageSourceClientTests.PayloadAsyncDisposalFailureRetainsSafeSourceIdentity`.
+
+`PackagePayloadAcquisitionTests.TypedAcquisition_PreservesPayloadStreamTimeout`
+is the non-vacuity gate for the `DotnetInspector.Packages` stream handoff.
+`PackagePayloadAcquisitionTests.TypedCacheHit_DoesNotEscapeExpiredOperationContext`
+and
+`PackageCoordinateResolverTests.TypedExactPin_DoesNotEscapeExpiredOperationContext`
+pin context enforcement on the local fast paths.
+
+The existing deadline suites additionally cover stalled headers and metadata
+bodies, retry, authentication, redirects, delayed timer callbacks, EOF, and
+synchronous and asynchronous abort/disposal races without JavaScript
+cooperation. The
+[`DeadlineStreamLifecycle`](models/nuget-deadline-stream/README.md)
+implementation-alignment table names those concurrency gates.
 
 ## Portable source bundles
 

@@ -16,6 +16,35 @@ public sealed class PackageCoordinateResolverTests
     static readonly PackageSource NuGetOrg = PackageSource.NuGetOrg;
 
     [Fact]
+    public async Task TypedExactPin_DoesNotEscapeExpiredOperationContext()
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(new FailingHandler());
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(40),
+            TestContext.Current.CancellationToken);
+
+        NuGetOperationTimeoutException error =
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                () => PackageSourceCoordinateResolver.ResolveAsync(
+                    source,
+                    new PackageCoordinate("Example", "1.0.0"),
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    operationContext: operation));
+
+        Assert.Equal(options.OperationTimeout, error.Timeout);
+    }
+
+    [Fact]
     public async Task FloatingCoordinate_SelectsLatestListedStableVersion()
     {
         using var client = new HttpClient(new NuGetOrgHandler());

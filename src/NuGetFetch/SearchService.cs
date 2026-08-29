@@ -242,6 +242,27 @@ public partial class SearchService
         int? maximumSkip = null,
         CancellationToken cancellationToken = default)
     {
+        using var operation = new NuGetOperationDeadline(
+            _options,
+            _client.Timeout,
+            cancellationToken);
+        return await SearchByPrefixWithStateAsync(
+            prefix,
+            take,
+            prerelease,
+            auth,
+            maximumSkip,
+            operation).ConfigureAwait(false);
+    }
+
+    internal async Task<PrefixSearchResult> SearchByPrefixWithStateAsync(
+        string prefix,
+        int take,
+        bool prerelease,
+        AuthenticationHeaderValue? auth,
+        int? maximumSkip,
+        NuGetOperationDeadline operation)
+    {
         if (maximumSkip < 0)
             throw new ArgumentOutOfRangeException(nameof(maximumSkip));
 
@@ -249,11 +270,6 @@ public partial class SearchService
         var matchedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var observedResults = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int skip = 0;
-        using var operation = new NuGetOperationDeadline(
-            _options,
-            _client.Timeout,
-            cancellationToken);
-
         for (int pageNumber = 0;
             pageNumber < MaxPrefixSearchPages && matches.Count < take;
             pageNumber++)
