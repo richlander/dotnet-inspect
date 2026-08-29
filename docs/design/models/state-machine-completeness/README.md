@@ -56,11 +56,11 @@ There are two models because the invariants have different units.
 | `published` | number of rejection publications |
 | `links` | per publication: tagged keys that connect components |
 | `payload` | per publication: contributed diagnostic evidence |
-| `claimKind` | per publication: its own `(Kind, Detail)` abstraction |
+| `claimKind`, `claimDetail` | per publication: its own failure reason |
 | `component` | per publication: union-find component identity |
 | `owner` | per merge key: the current publication representative |
 | `frozenEvidence` | per publication: frozen evidence membership |
-| `frozenKind` | per publication: frozen component reason |
+| `frozenKind`, `frozenDetail` | per publication: frozen component reason |
 
 `truth` is the most important variable, and the first draft did not have it.
 Without it, C1 said only that no machine retained an `Unclassified` marker — and
@@ -91,15 +91,15 @@ Payload values are likewise domain-tagged, standing for kickoff candidates,
 state-machine candidates, and claimed types without making their unrelated
 identities collide.
 
-The selected kind is one value standing for the `(Kind, Detail)` pair.
-Production captures both from one publication in
-`new(component.Kind, component.Detail)`, so the model keeps them indivisible.
-C5 requires the pair to come from the component and to agree across its
-projection; it deliberately does not specify which contributor wins.
+Kind and detail are separate values in the model so a mutation can combine
+fields from different publications. Production captures both from one
+publication in `new(component.Kind, component.Detail)`. C5 requires that
+intact pair to come from the component and to agree across its projection; it
+deliberately does not specify which contributor wins.
 
 Freeze has no "everything is merged" precondition. Production merges eagerly
 when publishing and performs no such check before freezing. Adding the guard
-would both invent an obligation and make `C5_OverlapClosesTransitively`
+would both invent an obligation and make `C5_ComponentsEqualGraphClosure`
 vacuous: a broken merge could never reach the state in which it is checked.
 
 ## Checked properties
@@ -109,10 +109,10 @@ vacuous: a broken merge could never reach the state in which it is checked.
 | `C1_Totality` | C1 | Once `Built`, every machine's result matches an independent recount of `truth` |
 | `C2_FailureIsTyped` | C2 | `Failed` implies a typed kind, and never a success-shaped state |
 | `C3_FailureRejectsAll` | C3 | `Failed` implies *every* machine reports `Rejected` |
-| `C5_OverlapClosesTransitively` | C5 | Publications sharing any tagged merge key end in one component |
+| `C5_ComponentsEqualGraphClosure` | C5 | Component equality is exactly connectivity through tagged merge keys |
 | `C5_ComponentProjectionAgrees` | C5 | One component has one frozen evidence set and reason |
 | `C5_EvidenceMembershipIsComplete` | C5 | Frozen evidence is the union of every component publication's payload |
-| `C5_KindComesFromComponent` | C5 | The selected `(Kind, Detail)` abstraction belongs to the component |
+| `C5_ReasonComesFromComponent` | C5 | The selected `(Kind, Detail)` pair belongs intact to one component publication |
 | `FailureIsAbsorbing` | C2, C3 | `Failed` is never left, and results never change after it |
 | `EventuallyTerminal` | — | Construction always reaches `Built` or `Failed` |
 
@@ -125,12 +125,13 @@ invariants.
 | --- | --- | --- | --- |
 | `StateMachineCompleteness.cfg` | `MachineCount = 3`, `MaxBudget = 3` | Success and malformed-input failure reachable | 729 states, 351 distinct, depth 5 |
 | `BudgetExhaustion.cfg` | `MachineCount = 3`, `MaxBudget = 2` | Budget too small to classify every machine | 648 states, 297 distinct, depth 4 |
-| `RejectionComponentMerge.cfg` | three keys, two evidence values, three publications | Direct and transitive component merges | 440,077 states, 141,289 distinct, depth 5 |
+| `RejectionComponentMerge.cfg` | three keys, two evidence values, three publications | Exact graph partition, projection, and evidence | 4,899,805 states, 1,157,521 distinct, depth 5 |
 
 Three publications are the smallest bound that distinguishes joining a
 representative from joining its whole component. Three merge keys permit both
 direct overlap and a transitive chain. Two evidence values and two kinds are
-enough to expose a split frozen projection and a dropped union member.
+enough to expose a split frozen projection, a hybrid reason, and a dropped
+union member.
 
 ## Demo — the round-19 bug, in three states
 
@@ -181,35 +182,40 @@ beside the test. The counterexample is cheap, exact, and re-runnable by anyone.
 ## Deliberate counterexamples
 
 Each counterexample is a **committed configuration**, not a described edit.
-The classification model carries `FailureMode` and `FinishMode`; the merge
+The classification model carries `FailureMode`, `FailureExitMode`, and
+`FinishMode`; the merge
 model carries `MergeMode` and `FreezeMode`. Their correct settings drive the
 three scenarios above, and each configuration below selects one broken
 setting.
 
-That is deliberate. A property no mutation can falsify is not checking anything,
-so non-vacuity evidence has to exist. But recording it as a README table saying
-"this mutation was violated" would be a normative claim in prose with nothing
-holding it true — the exact defect shape this design document was written to
-eliminate. Committed configurations are re-runnable by anyone, and they fail
-loudly if a later change makes an invariant weaker than it looks.
+That is deliberate. A numbered safety claim or absorption property no mutation
+can falsify is not checking anything, so non-vacuity evidence has to exist. But
+recording it as a README table saying "this mutation was violated" would be a
+normative claim in prose with nothing holding it true — the exact defect shape
+this design document was written to eliminate. Committed configurations are
+re-runnable by anyone, and they fail loudly if a later change makes an invariant
+weaker than it looks.
 
 | Configuration | Broken behavior | Expected violation |
 | --- | --- | --- |
 | `BrokenPartialFailure.cfg` | Module failure preserves results already recorded, rejecting only unclassified machines | `C3_FailureRejectsAll` |
 | `BrokenAbsentOnFailure.cfg` | Module failure reports `Absent` rather than `Rejected` | `C2_FailureIsTyped` |
-| `BrokenPartialMerge.cfg` | A publication joins current representatives but not their whole components | `C5_OverlapClosesTransitively` |
+| `BrokenRecoveringFailure.cfg` | Whole-module failure resumes construction | `FailureIsAbsorbing` |
+| `BrokenPartialMerge.cfg` | A publication joins current representatives but not their whole components | `C5_ComponentsEqualGraphClosure` |
 | `BrokenUnvisitedPublish.cfg` | Construction publishes before classifying every machine | `C1_Totality` |
-| `BrokenUnmergedPublish.cfg` | A publication records links without joining the components they reach | `C5_OverlapClosesTransitively` |
+| `BrokenUnmergedPublish.cfg` | A publication records links without joining the components they reach | `C5_ComponentsEqualGraphClosure` |
+| `BrokenOvermerge.cfg` | A publication joins disconnected prior publications | `C5_ComponentsEqualGraphClosure` |
 | `BrokenDroppedRow.cfg` | A row never reached is published as `Absent` | `C1_Totality` |
 | `BrokenDroppedEvidence.cfg` | Freeze retains only each publication's local diagnostic payload | `C5_EvidenceMembershipIsComplete` |
-| `BrokenSplitKind.cfg` | Publications in one component retain different local reasons | `C5_ComponentProjectionAgrees` |
+| `BrokenSplitReason.cfg` | Publications in one component retain different local reasons | `C5_ComponentProjectionAgrees` |
+| `BrokenHybridReason.cfg` | Freeze combines kind and detail from different publications | `C5_ReasonComesFromComponent` |
 
 `BrokenPartialFailure.cfg` is the one worth dwelling on. It is the bug a reviewer
 found by accident in the nineteenth review round of the accompanying test change,
 after a prose comment describing the very property had been read and cleared by
 two other reviewers. TLC finds it in under a second.
 
-Four configurations record holes that earlier revisions of this model did not
+Several configurations record holes that earlier revisions of this model did not
 detect. They are kept because each is the regression test for a way the model
 was checking less than it appeared to.
 
@@ -223,10 +229,18 @@ was checking less than it appeared to.
 - `BrokenDroppedEvidence.cfg` — a publication's merge links and diagnostic
   payload were one `covers` set. That abstraction could test connectivity or
   evidence accumulation, but not distinguish them.
-- `BrokenSplitKind.cfg` replaces an earlier first-publication-wins mutation.
+- `BrokenOvermerge.cfg` — requiring every graph edge to merge checked only one
+  direction. Unrelated publications could still merge without violating any
+  invariant.
+- `BrokenSplitReason.cfg` replaces an earlier first-publication-wins mutation.
   The current implementation does select the first appended publication, but
   no consumer needs that selection rule and no gate enforces it. The contract
   is that one intact component reason is shared, not which reason wins.
+- `BrokenHybridReason.cfg` replaces an atomic reason value with independently
+  modeled kind and detail, so a hybrid pair can now falsify the intact-pair
+  statement.
+- `BrokenRecoveringFailure.cfg` makes non-vacuity evidence explicit for the
+  temporal absorption property rather than relying on the transition shape.
 
 The last two are worth generalizing from. A model can fail by idealizing the
 implementation, but it can also fail by promoting an incidental implementation
@@ -256,13 +270,13 @@ violation:
 
 ```bash
 for cfg in BrokenPartialFailure BrokenAbsentOnFailure \
-  BrokenUnvisitedPublish BrokenDroppedRow; do
+  BrokenRecoveringFailure BrokenUnvisitedPublish BrokenDroppedRow; do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
     -config "$cfg.cfg" StateMachineCompleteness.tla
 done
 
-for cfg in BrokenPartialMerge BrokenUnmergedPublish \
-  BrokenDroppedEvidence BrokenSplitKind; do
+for cfg in BrokenPartialMerge BrokenUnmergedPublish BrokenOvermerge \
+  BrokenDroppedEvidence BrokenSplitReason BrokenHybridReason; do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
     -config "$cfg.cfg" RejectionComponentMerge.tla
 done

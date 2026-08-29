@@ -16,6 +16,7 @@ CONSTANTS
     MachineCount, \* structural state machines in the image
     MaxBudget,    \* classification steps before exhaustion
     FailureMode,  \* how whole-module failure rewrites results
+    FailureExitMode, \* whether failed construction can recover
     FinishMode    \* what construction requires before publishing
 
 (***************************************************************************)
@@ -25,6 +26,9 @@ CONSTANTS
 (*               = "PreserveClassified" leave earlier results standing      *)
 (*               = "ReportAbsent"       report Absent instead of Rejected   *)
 (*                                                                         *)
+(*   FailureExitMode = "Absorbing"       failure is terminal                 *)
+(*                   = "Recover"         failure incorrectly resumes         *)
+(*                                                                         *)
 (*   FinishMode  = "Guarded"            require every machine classified    *)
 (*               = "AllowUnvisited"     publish unclassified rows           *)
 (*               = "DropAsAbsent"       publish a lost row as Absent         *)
@@ -33,6 +37,7 @@ ASSUME
     /\ MachineCount \in Nat \ {0}
     /\ MaxBudget \in Nat
     /\ FailureMode \in {"Total", "PreserveClassified", "ReportAbsent"}
+    /\ FailureExitMode \in {"Absorbing", "Recover"}
     /\ FinishMode \in {"Guarded", "AllowUnvisited", "DropAsAbsent"}
 
 Machines == 1..MachineCount
@@ -110,6 +115,13 @@ ExhaustBudget ==
     /\ visited # Machines
     /\ FailModule("BudgetExceeded")
 
+RecoverFailure ==
+    /\ phase = "Failed"
+    /\ FailureExitMode = "Recover"
+    /\ phase' = "Building"
+    /\ kind' = "None"
+    /\ UNCHANGED <<truth, result, visited, budget>>
+
 Finish ==
     /\ phase = "Building"
     /\ (FinishMode \in {"AllowUnvisited", "DropAsAbsent"} \/ visited = Machines)
@@ -127,6 +139,7 @@ Next ==
     \/ \E m \in Machines : AbsentOne(m)
     \/ Malform
     \/ ExhaustBudget
+    \/ RecoverFailure
     \/ Finish
     \/ /\ phase \in {"Built", "Failed"}
        /\ UNCHANGED vars
