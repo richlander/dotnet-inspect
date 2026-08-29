@@ -1472,7 +1472,7 @@ public class AuthoredCorpusRatchetTests
             workflow.IndexOf("  report-scheduled-failure:", authoredCorpusStart, StringComparison.Ordinal)];
 
         Assert.Equal(
-            ["- cron: '0 6 * * *'", "- cron: '0 9 * * 1'"],
+            ["- cron: '0 6 * * *'", "- cron: '0 9 * * *'", "- cron: '0 9 * * 1'"],
             schedule
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Select(line => line.Trim())
@@ -1484,7 +1484,7 @@ public class AuthoredCorpusRatchetTests
             JobCondition(packageSweep));
         Assert.Equal(
             """
-            (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
+            (github.event_name == 'schedule' && github.event.schedule == '0 9 * * *') || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
             """,
             JobCondition(authoredCorpus));
 

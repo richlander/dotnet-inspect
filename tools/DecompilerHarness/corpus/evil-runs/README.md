@@ -627,6 +627,10 @@ branch is current before treating its run as a baseline.
   underneath, and the lane remains the source of the run JSON that an append
   starts from.
 
+  The lane has its own daily scheduled workflow run, separate from the release
+  certification event. A ratchet failure therefore reports the scheduled
+  regression without invalidating otherwise successful publish evidence.
+
   The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
   records the exact version, TFM, and SHA-256 of every swept package, and the
   sweep refuses to run against a package it cannot acquire as pinned (#3353). The

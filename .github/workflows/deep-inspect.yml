@@ -17,9 +17,11 @@ on:
           - nightly
           - all
   schedule:
-    # Daily release certification: full slow tests, the decompiler and authored
-    # corpora, and Windows/macOS/latest-Ubuntu compatibility.
+    # Daily release certification: full slow tests, the decompiler corpus, and
+    # Windows/macOS/latest-Ubuntu compatibility.
     - cron: '0 6 * * *'
+    # Daily authored-corpus regression detection, separate from certification.
+    - cron: '0 9 * * *'
     # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
 
@@ -672,7 +674,7 @@ jobs:
     # than it claimed and a quality metric on such a run is meaningless. It also archives
     # the run JSON, which is the input to appending a trend-store row.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * *') ||
       inputs.lane == 'authored-corpus' ||
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
