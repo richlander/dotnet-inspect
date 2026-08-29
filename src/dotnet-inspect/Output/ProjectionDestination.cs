@@ -66,5 +66,5 @@ internal static class ProjectionDestinationWriter
     }
 
     public static bool IsFile(ProjectionDestination destination)
-        => !string.IsNullOrWhiteSpace(destination.OutputPath);
+        => !string.IsNullOrEmpty(destination.OutputPath);
 }

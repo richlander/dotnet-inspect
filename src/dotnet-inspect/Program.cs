@@ -169,9 +169,11 @@ try
         return 0;
     }
 
+    var rootCommand = CommandLineBuilder.CreateRootCommand();
+
     // Pre-process args for implicit package command (also expands -NN → -n NN)
     var argsBeforePreprocess = args;
-    args = CommandLineBuilder.PreprocessArgs(args);
+    args = CommandLineBuilder.PreprocessArgs(args, rootCommand);
     if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault() != args[0])
         RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
 
@@ -181,7 +183,6 @@ try
         return 1;
     }
 
-    var rootCommand = CommandLineBuilder.CreateRootCommand();
     var result = rootCommand.Parse(args);
 
     int exitCode = await CommandLineBuilder.InvokeWithLineWindowAsync(

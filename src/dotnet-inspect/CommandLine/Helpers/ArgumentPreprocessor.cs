@@ -141,21 +141,6 @@ public static class ArgumentPreprocessor
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
 
-        // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
-        for (int i = 0; i < args.Length; i++)
-        {
-            if (args[i] == "--")
-                break;
-
-            if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
-                && !IsFollowingRequiredOptionValue(args, i)
-                && int.TryParse(args[i].AsSpan(1), out var headN))
-            {
-                args = [.. args[..i], "-n", args[i][1..], .. args[(i + 1)..]];
-                break;
-            }
-        }
-
         // Find the first positional argument, skipping any leading options
         int firstPositional = -1;
         for (int i = 0; i < args.Length; i++)
@@ -200,6 +185,29 @@ public static class ArgumentPreprocessor
         {
             RequestTelemetry.Breadcrumb("implicit-router", "bare section discovery");
             return ["router", .. args];
+        }
+
+        return args;
+    }
+
+    internal static string[] RewriteLineWindowShorthand(
+        ParseResult parseResult,
+        string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            string token = args[i];
+            if (token == "--")
+                break;
+
+            if (token.Length >= 2
+                && token[0] == '-'
+                && char.IsDigit(token[1])
+                && int.TryParse(token.AsSpan(1), out _)
+                && !IsClaimedByRequiredOption(parseResult, args, i))
+            {
+                return [.. args[..i], "-n", token[1..], .. args[(i + 1)..]];
+            }
         }
 
         return args;
@@ -356,78 +364,23 @@ public static class ArgumentPreprocessor
         return int.TryParse(value, out count);
     }
 
-    private static bool IsFollowingRequiredOptionValue(
-        string[] args,
+    private static bool IsClaimedByRequiredOption(
+        ParseResult parseResult,
+        IReadOnlyList<string> args,
         int index)
     {
-        if (index == 0)
-            return false;
-
-        if (IsFollowingRequiredOptionValue(args, index - 1))
-            return false;
-
-        string precedingToken = args[index - 1];
-        string optionName = precedingToken.Split('=', 2)[0];
-        return !precedingToken.Contains('=', StringComparison.Ordinal)
-            && OptionsWithFollowingValue.Contains(optionName)
-            && !IsOptionWithOptionalFollowingValue(args, index - 1, optionName);
-    }
-
-    private static bool IsOptionWithOptionalFollowingValue(
-        string[] args,
-        int optionIndex,
-        string optionName)
-    {
-        if (OptionsWithOptionalFollowingValue.Contains(optionName))
-            return true;
-
-        string? explicitCommand = FindExplicitCommand(args, optionIndex);
-        if (optionName == "--platform"
-            && explicitCommand is not null
-            && SearchScopeCommands.Contains(explicitCommand))
-        {
-            return true;
-        }
-
-        if (!PackageOptionsWithOptionalFollowingValue.Contains(optionName))
-            return false;
-
-        return explicitCommand is null
-            || explicitCommand.Equals("package", StringComparison.OrdinalIgnoreCase)
-            || explicitCommand.Equals("router", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string? FindExplicitCommand(string[] args, int end)
-    {
-        for (var i = 0; i < end; i++)
-        {
-            string token = args[i];
-            if (token == "--")
-                break;
-
-            if (!token.StartsWith('-'))
-                return KnownCommands.Contains(token) ? token : null;
-
-            if (token.Contains('=', StringComparison.Ordinal))
-                continue;
-
-            if (TrySkipSeparatedDirectionValue(args, ref i, end))
-            {
-                continue;
-            }
-
-            string optionName = token.Split('=', 2)[0];
-            if (!OptionsWithFollowingValue.Contains(optionName) || i + 1 >= end)
-                continue;
-
-            bool optional =
-                OptionsWithOptionalFollowingValue.Contains(optionName)
-                || PackageOptionsWithOptionalFollowingValue.Contains(optionName);
-            if (!optional || !args[i + 1].StartsWith('-'))
-                i++;
-        }
-
-        return null;
+        string value = args[index];
+        int occurrence = args
+            .Take(index + 1)
+            .Count(arg => arg.Equals(value, StringComparison.Ordinal));
+        Token? candidate = parseResult.Tokens
+            .Where(token => token.Value.Equals(value, StringComparison.Ordinal))
+            .Skip(occurrence - 1)
+            .FirstOrDefault();
+        return candidate is not null
+            && GetOptionResults(parseResult).Any(
+                option => option.Option.Arity.MinimumNumberOfValues > 0
+                    && option.Tokens.Any(token => Equals(token, candidate)));
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];

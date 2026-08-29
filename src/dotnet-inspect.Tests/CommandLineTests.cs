@@ -16,8 +16,8 @@ public class CommandLineTests
 {
     private static string[] PreprocessAndApplyLineWindow(string[] args)
     {
-        string[] processed = CommandLineBuilder.PreprocessArgs(args);
         var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
         CommandLineBuilder.ApplyParsedLineWindow(
             root.Parse(processed),
             processed);
@@ -808,6 +808,35 @@ public class CommandLineTests
         PreprocessAndApplyLineWindow(
             ["package", "Foo", "--path", "-n1", "-t", "project"]);
         Assert.Equal(1, CommandLineBuilder.HeadLines);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RoutedRequiredValueIsNotRewrittenAsShorthand()
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["System.String.ToString", "--library", "-1"]);
+
+        Assert.Equal(
+            ["router", "System.String.ToString", "--library", "-1"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RequiredValueDoesNotHideLaterIdenticalShorthand()
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["member", "System.String.ToString", "--library", "-1", "-1"]);
+
+        Assert.Equal(
+            [
+                "member",
+                "System.String.ToString",
+                "--library",
+                "-1",
+                "-n",
+                "1",
+            ],
+            result);
     }
 
     [Theory]

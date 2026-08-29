@@ -738,7 +738,7 @@ public class PackageCommand
             }
         }
 
-        if (options.ShowContent
+        if (RequiresEarlyPackagePayloadPreflight(options)
             && !ProjectionDestinationWriter.ValidateBeforeAcquisition(
                 PackagePayloadDestination(options)))
         {
@@ -3327,6 +3327,32 @@ public class PackageCommand
         => !LensProjection.IsRequested(options)
             && (options.Bare
                 || HasUnstructuredOutputPath(options));
+
+    private static bool RequiresEarlyPackagePayloadPreflight(
+        InspectionOptions options)
+    {
+        if (options.ShowContent)
+            return true;
+
+        if (options.IncludeSections is not { Count: 1 } sections)
+            return false;
+
+        string section = sections.Single();
+        return options.Print
+            && (section.Equals(
+                    PackageSections.FilesReadme,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    PackageSections.FilesNuspec,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    PackageSections.FilesSkills,
+                    StringComparison.OrdinalIgnoreCase))
+            || options.Bare
+            && section.Equals(
+                PackageSections.FilesReadme,
+                StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool HasUnstructuredOutputPath(InspectionOptions options)
         => !string.IsNullOrEmpty(options.OutputPath)

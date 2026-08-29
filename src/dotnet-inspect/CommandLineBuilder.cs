@@ -67,10 +67,24 @@ public static class CommandLineBuilder
     internal static string[] CuratedScopePackages => ScopeConstants.CuratedPackages;
 
     /// <summary>
-    /// Pre-processes args to handle implicit package command and platform framework shorthands.
-    /// Delegates to <see cref="ArgumentPreprocessor.PreprocessArgs"/> for backward compatibility.
+    /// Pre-processes args and rewrites line-window shorthand only when the active
+    /// command parse does not own the token as a required option value.
     /// </summary>
-    public static string[] PreprocessArgs(string[] args) => ArgumentPreprocessor.PreprocessArgs(args);
+    public static string[] PreprocessArgs(string[] args)
+        => PreprocessArgs(args, CreateRootCommand());
+
+    internal static string[] PreprocessArgs(
+        string[] args,
+        RootCommand rootCommand)
+    {
+        string[] processed = ArgumentPreprocessor.PreprocessArgs(args);
+        if (processed.FirstOrDefault() == "router")
+            return processed;
+
+        return ArgumentPreprocessor.RewriteLineWindowShorthand(
+            rootCommand.Parse(processed),
+            processed);
+    }
 
     public static void ApplyParsedLineWindow(
         ParseResult parseResult,

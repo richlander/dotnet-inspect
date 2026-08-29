@@ -1594,7 +1594,8 @@ public partial class CommandExecutionTests
     {
         return ConsoleCapture.RunAsync(async () =>
         {
-            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            args = CommandLineBuilder.PreprocessArgs(args, root);
             // Mirror Program.cs: the stale `--head N`/`--tail N` spelling is a raw-token
             // question, so it is answered by the product before parsing rather than by
             // a validator. Call the same product method the entry point calls; do not
@@ -1605,7 +1606,6 @@ public partial class CommandExecutionTests
                 return 1;
             }
 
-            var root = CommandLineBuilder.CreateRootCommand();
             return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
         });
     }
@@ -7735,19 +7735,22 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Commands:", routed.Error);
     }
 
-    [Fact]
-    public async Task Router_LineWindowUsesRewrittenRequiredValueOwnership()
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public async Task Router_LineWindowUsesRewrittenRequiredValueOwnership(
+        string libraryValue)
     {
         var direct = await RunAppAsync(
             "member",
             "System.String.ToString",
             "--library",
-            "-n1",
+            libraryValue,
             "--help");
         var routed = await RunAppAsync(
             "System.String.ToString",
             "--library",
-            "-n1",
+            libraryValue,
             "--help");
 
         Assert.Equal(0, direct.Exit);
@@ -7759,14 +7762,17 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries).Length > 1);
     }
 
-    [Fact]
-    public async Task Router_LineWindowUsesRewrittenActiveWindow()
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public async Task Router_LineWindowUsesRewrittenActiveWindow(
+        string lineWindow)
     {
         var routed = await RunAppAsync(
             "System.String.ToString",
             "--focus",
             "--rows",
-            "-n1",
+            lineWindow,
             "--help");
 
         Assert.Equal(0, routed.Exit);
@@ -29150,8 +29156,13 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task PackageExactTransfer_LineWindowRejectsBeforePackageAcquisition()
+    [Theory]
+    [InlineData("content", "Package README file")]
+    [InlineData("print", "package readme file")]
+    [InlineData("bare", "PACKAGE README FILE")]
+    public async Task PackageExactTransfer_LineWindowRejectsBeforePackageAcquisition(
+        string mode,
+        string section)
     {
         string packageName =
             $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
@@ -29160,18 +29171,21 @@ public partial class CommandExecutionTests
             $"{packageName}.txt");
         try
         {
+            string[] projection = mode == "content"
+                ? ["--content", "--path", "README.md"]
+                : ["-S", section, $"--{mode}"];
             var result = await RunAppAsync(
-                "--offline",
-                "package",
-                packageName,
-                "--content",
-                "--path",
-                "README.md",
-                "-n1",
-                "--out",
-                outputPath,
-                "--tips",
-                "q");
+                [
+                    "--offline",
+                    "package",
+                    packageName,
+                    .. projection,
+                    "-n1",
+                    "--out",
+                    outputPath,
+                    "--tips",
+                    "q",
+                ]);
 
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
@@ -29188,6 +29202,43 @@ public partial class CommandExecutionTests
         finally
         {
             File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task PackageExactTransfer_WhitespaceOutputDoesNotFallBackToStdout()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.WhitespaceOutput",
+            "README.md",
+            "first\nsecond");
+        try
+        {
+            var result = await RunAppInDirectoryAsync(
+                tempDir,
+                "package",
+                packagePath,
+                "--content",
+                "--path",
+                "README.md",
+                "--bare",
+                "--out",
+                " ",
+                "-n1",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "line limit",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(tempDir, " ")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
