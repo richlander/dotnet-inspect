@@ -30537,17 +30537,25 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("\u202E")]
-    [InlineData("\f")]
-    [InlineData("\u0085")]
-    [InlineData("\u2028")]
-    [InlineData("\u2029")]
-    public async Task Project_SkillsInventory_ReplacesContainedYamlFields(string concern)
+    [InlineData("Before\u202EINJECTED")]
+    [InlineData("Before\fINJECTED")]
+    [InlineData("Before\u0085INJECTED")]
+    [InlineData("Before\u2028INJECTED")]
+    [InlineData("Before\u2029INJECTED")]
+    [InlineData("\fINJECTED")]
+    [InlineData("\u0085INJECTED")]
+    [InlineData("\u2028INJECTED")]
+    [InlineData("\u2029INJECTED")]
+    [InlineData("INJECTED\f")]
+    [InlineData("INJECTED\u0085")]
+    [InlineData("INJECTED\u2028")]
+    [InlineData("INJECTED\u2029")]
+    public async Task Project_SkillsInventory_ReplacesContainedYamlFields(string description)
     {
         var skill = $"""
             ---
             name: contained-description
-            description: Before{concern}INJECTED
+            description: {description}
             ---
             # Package skill
             """;
@@ -30563,10 +30571,51 @@ public partial class CommandExecutionTests
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--jsonl");
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Empty(error);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("\f")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public async Task Project_SkillsInventory_PreservesBlockIndicatorConcerns(string concern)
+    {
+        var skill = $"""
+            ---
+            name: contained-indicator
+            description: |{concern}
+              INJECTED
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedIndicator",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-indicator/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.DoesNotContain(concern, output, StringComparison.Ordinal);
             Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
             using var document = JsonDocument.Parse(output);
             Assert.Equal(
