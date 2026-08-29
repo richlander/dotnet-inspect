@@ -830,6 +830,14 @@ Research overlay bridge, and the application layer:
   acquiring method bodies itself;
   `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates the
   shared cache.
+  `LibraryBodyGenericConstraintClassifier` owns generic-constraint presence
+  over any supplied metadata reader and primary-image generic-parameter
+  value-type eligibility. The primary resolver and async-sibling services
+  consume those two judgments without duplicating constraint policy;
+  `OptimizationOpportunities_GenericObjectEqualsBox_IsReported`,
+  `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
+  `OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate the shared
+  behavior.
   `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
