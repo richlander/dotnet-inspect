@@ -1527,6 +1527,30 @@ test("no source file suppresses the unsafe-operation rules", () => {
   assert.deepEqual(offenders.sort(), [],
     "these directives switch off an unsafe-operation rule that the lint exists to "
       + "enforce; narrow the type or fix the code rather than suppressing the rule");
+
+  // The list above names five rules, so it says nothing about a sixth. Round 4 (Sol,
+  // both seats) suppressed `promise/always-return` inline at one of the two
+  // `observeAsync` continuations, dropped its explicit return, and left the whole suite
+  // green: the rule is still `deny` in the resolved config, and the directive is
+  // genuinely used, so `reportUnusedDisableDirectives` has nothing to say either.
+  //
+  // What is pinned is therefore the set of rules this project suppresses inline at all,
+  // rather than the sites. A twenty-seventh assertion in a test does not churn this;
+  // switching off a newly adopted rule does.
+  const suppressed = new Set(
+    files.flatMap(file => [...readFileSync(file, "utf8").matchAll(directive)]
+      .flatMap(match => ((match[1] ?? "").split("--")[0] ?? "")
+        .split(",")
+        .map(rule => rule.trim())
+        .filter(rule => rule.length > 0))));
+
+  assert.ok(suppressed.size > 0,
+    "this scan found no directive at all, so it is passing without reading anything");
+  assert.deepEqual([...suppressed].sort(), [
+    "typescript/no-unnecessary-type-parameters",
+    "typescript/no-unsafe-type-assertion",
+  ], "an inline directive is stock analysis switched off for the code underneath it, and "
+    + "no severity, category, option or override read elsewhere in this file can see one");
 });
 
 // Every rule above is type-aware, and oxlint runs type-aware rules only when asked. Sol
@@ -1595,15 +1619,26 @@ interface PrintedOxlintConfig {
   readonly categories: Readonly<Record<string, string>>;
   readonly rules: Readonly<Record<string, string | readonly unknown[]>>;
   readonly overrides?: readonly PrintedOxlintOverride[];
+  readonly settings?: unknown;
 }
 
 // `src/dotnet-inspect.ts` rather than an arbitrary file: it is the product source the two
 // `observeAsync` continuations live in, so an override aimed at product code is in scope
 // for this read.
-function printedOxlintConfig(root: string): PrintedOxlintConfig {
+function printedOxlintConfig(
+  root: string,
+  configPath?: string,
+): PrintedOxlintConfig {
   const run = spawnSync(
     "npx",
-    ["--no", "--", "oxlint", "--print-config", "src/dotnet-inspect.ts"],
+    [
+      "--no",
+      "--",
+      "oxlint",
+      ...(configPath === undefined ? [] : ["-c", configPath]),
+      "--print-config",
+      "src/dotnet-inspect.ts",
+    ],
     { cwd: root, encoding: "utf8" },
   );
   const output = run.stdout.trim();
@@ -1758,6 +1793,27 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
     }]],
   }, "an option that exempts code from an enabled rule is the same loss of coverage as "
     + "turning it off, and leaves every severity in this file reading exactly as before");
+
+  // Plugin settings are a third way down, beside severities and options, and they reach
+  // rules wholesale rather than one at a time. Round 4 (Sol, seat A) set
+  // `settings.jsdoc.ignorePrivate`, which exempts every `@private` symbol from the whole
+  // jsdoc family at once while categories, families, severities and options all read
+  // exactly as before.
+  //
+  // Compared against oxlint's own resolution of an empty config rather than a copied
+  // literal: the claim is that this project changes no setting, and stating it
+  // differentially means an oxlint release that adds or renames a plugin's settings block
+  // does not churn this assertion.
+  const stock = join(mkdtempSync(join(tmpdir(), "oxlint-stock-")), "stock.json");
+  writeFileSync(stock, "{}\n");
+  try {
+    assert.deepEqual(printed.settings, printedOxlintConfig(root, stock).settings,
+      "this project configures a plugin setting; settings exempt whole families of rules "
+        + "without changing any severity, option or category read above, so a deliberate "
+        + "one belongs in the README with the other documented relaxations");
+  } finally {
+    rmSync(dirname(stock), { force: true, recursive: true });
+  }
 });
 
 // Documents are the one kind of authored file every gate above is blind to: the compiler
@@ -1974,6 +2030,55 @@ test("authored documents carry only the one suppression this project explains", 
   ], "a directive is stock analysis switched off for the markup underneath it; a second "
     + "one, a different rule, or a wider action than `disable-next` is a rule this "
       + "project stopped running with nothing else here reporting the change");
+});
+
+// Every gate above reasons about where a control file may sit, which extension a glob
+// reaches, and which directory an ignore entry anchors to. Round 4 (Sol, seat B) showed
+// the limit of that approach: html-validate resolves `.htmlvalidateignore` by walking
+// *upward* from each document, so a file at `prototypes/.htmlvalidateignore` -- one
+// directory above this project, still inside the repository -- excluded an authored
+// document and took `npm run lint` from exit 1 to exit 0 with all gates green. `root:
+// true` stops configuration merging; it does not stop ignore discovery, and a walk that
+// only descends can never see an ancestor.
+//
+// So rather than enumerating another placement, this asks html-validate which documents
+// it actually read. `--dump-source` prints one `Source <path>` header per processed file,
+// under the same `--config` and glob the lint uses, which makes the answer authoritative:
+// an ancestor ignore, a descendant ignore, a dotted directory, an uppercase extension and
+// a narrowed glob all show up here as a document the inventory has and the linter does
+// not. The gates above still run, because each names its cause; this one states the
+// property they exist to protect.
+test("html-validate reads exactly the documents this project owns", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  assert.ok(htmlValidateInvocation !== undefined,
+    "the lint script must invoke html-validate with a pinned --config and a quoted glob");
+
+  const run = spawnSync(
+    "npx",
+    [
+      "--no",
+      "--",
+      "html-validate",
+      "--config",
+      htmlValidateInvocation.config,
+      "--dump-source",
+      htmlValidateInvocation.glob,
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+
+  const read = [...run.stdout.matchAll(/^Source (?<path>.+?)@\d+:\d+/gmu)]
+    .map(match => projectRelative(root, match.groups?.path ?? ""))
+    .sort();
+  const owned = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots)
+    .map(file => projectRelative(root, file))
+    .sort();
+
+  assert.ok(owned.length > 0,
+    "this project owns no documents, so this comparison proves nothing");
+  assert.deepEqual(read, owned,
+    "html-validate processed a different set of documents than this project owns, so "
+      + "`npm run lint` is reporting clean over markup nothing checked");
 });
 
 test("the committed html-validate configuration rejects what it is kept for", () => {

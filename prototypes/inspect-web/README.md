@@ -725,10 +725,29 @@ That resolved read pins rule *options* as one set alongside the severities: a
 rule left enabled but given options that exempt the code it was enabled for
 reports nothing while every severity reads exactly as before. The `node:test`
 `test` call is the only option-borne exemption in the project, so any second one
-fails there. `promise/always-return` is enabled and pinned by name: the two
-side-effect continuations handed to `observeAsync` return explicitly, because
-their promises are consumed rather than terminal and so fall outside the
-upstream `ignoreLastCallback` option.
+fails there. Plugin *settings* are pinned the same way and for the same reason,
+except that they reach a whole family at once — `settings.jsdoc.ignorePrivate`
+exempts every `@private` symbol from every jsdoc rule without touching a
+severity. The settings assertion is differential: it compares this project's
+resolved settings against Oxlint's resolution of an empty config, so the claim
+is literally "this project changes no setting" and an Oxlint release that adds a
+plugin's settings block does not churn it.
+
+`promise/always-return` is enabled and pinned by name: the two side-effect
+continuations handed to `observeAsync` return explicitly, because their promises
+are consumed rather than terminal and so fall outside the upstream
+`ignoreLastCallback` option.
+
+Enabling a rule is not the same as running it at its use sites, because an
+inline `oxlint-disable` directive switches it off exactly where it would have
+reported, and a *used* directive is invisible to `reportUnusedDisableDirectives`
+as well as to every severity, category, option and override read above. So the
+directive scan pins the set of rules this project suppresses inline at all —
+today `typescript/no-unsafe-type-assertion` and
+`typescript/no-unnecessary-type-parameters`. Pinning rules rather than sites
+means an additional type-assertion suppression in a test does not churn the
+list, while suppressing a newly adopted rule fails. A directive naming no rule
+switches off everything and is rejected outright.
 
 `npm run lint` also runs [html-validate](https://html-validate.org) over
 `**/*.{html,htm,xhtml}` with `--config .htmlvalidate.json`. Documents are
@@ -744,7 +763,7 @@ carry a digest while same-origin files Vite emits are not asked for one.
 the project inventory prunes: `dist` is generated at the project root only, so
 an unanchored entry would also exclude an authored `src/dist`.
 
-Seven toolchain tests hold that wiring honest. They pin the preset list, the
+Eight toolchain tests hold that wiring honest. They pin the preset list, the
 `root: true` setting, and the *whole* `rules` object — `require-sri` is the only
 entry, so a second rule relaxed beside it fails rather than slipping past an
 assertion aimed at one key. They also pin the file's whole *key set*, because
@@ -757,20 +776,33 @@ rule that must reject it* (`close-order`, `element-required-attributes`,
 `wcag/h37`, `require-sri`, `attribute-allowed-values`); and require every
 document the project owns to sit outside the ignore file.
 
-Two of the seven close the gap between "the linter ran" and "the linter saw this
-file", because html-validate resolves both configuration and exclusions per
-directory. A descendant `.htmlvalidate.json` replaces the committed rules for
-its own subtree and a descendant `.htmlvalidateignore` drops documents from the
-run outright, so a walk requires the tree to hold exactly one of each, at the
-root. Separately, `**` does not descend into dotted directories, so a second
-walk requires no authored document to sit under one. That walk also requires
-document extensions to be lowercase: Node matches glob patterns
-case-insensitively on macOS and Windows and case-sensitively everywhere else, so
-a `probe.HTML` would be linted on a developer's Mac and skipped on the Ubuntu
-runners that gate merges and deploy the site. Together those keep the set the
-glob reaches equal to the set the inventory reports. A linter that stops
-running, loses a preset, or is never handed a document fails there rather than
-going quietly green.
+The rest close the gap between "the linter ran" and "the linter saw this file".
+One states the property directly: it runs html-validate with `--dump-source`
+under the same `--config` and glob the lint uses, reads the `Source` header it
+prints for each processed document, and requires that set to equal the set the
+project inventory reports. That is the authoritative answer to "which documents
+were checked", so a document the linter never saw fails there whatever the cause
+— and the `--formatter=json` output cannot substitute, because it lists only
+files that had problems.
+
+Three more name specific causes, which makes a failure diagnosable rather than
+merely true. html-validate resolves configuration and exclusions per directory:
+a descendant `.htmlvalidate.json` replaces the committed rules for its own
+subtree and a descendant `.htmlvalidateignore` drops documents outright, so a
+walk requires the tree to hold exactly one of each, at the root. `**` does not
+descend into dotted directories, so no authored document may sit under one. And
+document extensions must be lowercase, because Node matches glob patterns
+case-insensitively on macOS and Windows and case-sensitively everywhere else — a
+`probe.HTML` would be linted on a developer's Mac and skipped on the Ubuntu
+runners that gate merges and deploy the site.
+
+Those three walks descend from the project root, so none of them can see an
+ancestor. html-validate looks for `.htmlvalidateignore` by walking *upward* from
+each document, and `root: true` stops configuration merging without stopping
+ignore discovery, so a file one directory above this project can exclude an
+authored document. That is precisely the case the `--dump-source` comparison
+catches and a walk structurally cannot, which is why the property is asserted
+directly rather than by enumerating one more placement.
 
 The `<link rel="preload" id="webassembly">` element in `index.html` carries a
 scoped `html-validate-disable-next` directive for `element-required-attributes`.
