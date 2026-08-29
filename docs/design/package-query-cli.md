@@ -146,6 +146,11 @@ between 1 and..."). `-S` and `--where` are also not yet wired (there is
 currently exactly one section, `Packages`, so `-S` selection is moot until the
 facet layer adds more to select between).
 
+While that legacy spelling remains, numeric `-t` is a package-result clamp and
+is mutually exclusive with `--count`. A bounded prefix and an unwindowed count
+are different requests; accepting both would make the scalar neither the
+selected package count nor an exhaustive corpus count.
+
 **Interaction concern for the next CLI slice:** the Sections migration and the
 `-t`→`-n` flag rename were assumed to be one atomic step; in practice they
 decoupled, and the migration landed first. The CLI facet wiring in

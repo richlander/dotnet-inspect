@@ -1138,6 +1138,31 @@ public class FindCommandIntegrationTests
     }
 
     [Theory]
+    [InlineData("-t")]
+    [InlineData("--type")]
+    public void PackageProfileCountWithPackageLimit_FailsBeforeNetwork(
+        string option)
+    {
+        var (exit, output, error) = RunCli(
+            [
+                "find",
+                "--package-prefix",
+                "Microsoft",
+                option,
+                "2",
+                "--count",
+                "--offline",
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--count cannot be combined with -t for a package-prefix search",
+            error);
+        Assert.DoesNotContain("Attempted:", error);
+    }
+
+    [Theory]
     [InlineData("not-a-number")]
     [InlineData("2147483648")]
     public void PackageProfileInvalidRawLimit_FailsBeforeNetwork(

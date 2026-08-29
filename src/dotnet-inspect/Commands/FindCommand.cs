@@ -186,6 +186,13 @@ public class FindCommand
             return 1;
         }
 
+        if (options.Count && options.Limit is not null)
+        {
+            CommandError.Write(
+                "--count cannot be combined with -t for a package-prefix search.");
+            return 1;
+        }
+
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
                 DotnetInspector.Core.HttpClientFactory
