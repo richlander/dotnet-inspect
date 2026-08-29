@@ -41,9 +41,9 @@ replaced independently. Starting work gives the authority component:
 - an operation-specific input owned by the feature; and
 - feature callbacks for admitted progress and a terminal result.
 
-The authority component synchronously returns an operation handle and gives the
-producer adapter an owner-issued identity plus a producer-event sink. The
-adapter may represent browser `fetch`, a worker transport, or another
+The authority component synchronously returns an `OperationStartResult` and
+gives a preparing producer adapter an owner-issued identity plus an event sink.
+The adapter may represent browser `fetch`, a worker transport, or another
 asynchronous producer. This component does not inspect or distinguish those
 placements.
 
@@ -103,16 +103,86 @@ interface OperationHandle<TValue, TError> {
   cancel(reason?: OperationCancelReason): void;
 }
 
-type OperationStartResult<TValue, TError, TBindError> =
+type OperationStartError<TPrepareError> =
+  | { readonly kind: "session-disposed" }
+  | { readonly kind: "identity-exhausted" }
+  | {
+      readonly kind: "producer-rejected";
+      readonly error: TPrepareError;
+    };
+
+type OperationStartResult<TValue, TError, TPrepareError> =
   | {
       readonly kind: "started";
       readonly handle: OperationHandle<TValue, TError>;
     }
   | {
       readonly kind: "rejected";
-      readonly error: TBindError;
+      readonly reason: OperationStartError<TPrepareError>;
     };
+
+interface OperationProducerSink<TValue, TError, TProgress> {
+  reportProgress(value: TProgress): void;
+  reportTerminal(outcome: OperationOutcome<TValue, TError>): void;
+  reportQuiesced(): void;
+  reportUnexpectedFailure(error: unknown): void;
+}
+
+interface PreparedOperationProducer {
+  requestCancellation(reason: OperationCancelReason): void;
+  activate(): void;
+}
+
+type OperationPreparation<TPrepareError> =
+  | {
+      readonly kind: "prepared";
+      readonly binding: PreparedOperationProducer;
+    }
+  | {
+      readonly kind: "rejected";
+      readonly error: TPrepareError;
+    };
+
+interface OperationProducerAdapter<
+  TInput,
+  TValue,
+  TError,
+  TProgress,
+  TPrepareError,
+> {
+  prepare(
+    identity: OperationIdentity,
+    input: TInput,
+    sink: OperationProducerSink<TValue, TError, TProgress>,
+  ): OperationPreparation<TPrepareError>;
+}
+
+interface OperationSession<
+  TInput,
+  TValue,
+  TError,
+  TProgress,
+  TPrepareError,
+> {
+  start(
+    input: TInput,
+    adapter: OperationProducerAdapter<
+      TInput,
+      TValue,
+      TError,
+      TProgress,
+      TPrepareError
+    >,
+  ): OperationStartResult<TValue, TError, TPrepareError>;
+  cancelCurrent(reason?: OperationCancelReason): void;
+  dispose(): void;
+}
 ```
+
+These interfaces define only the immediate preparation and event handoff; the
+adapter's transport-specific implementation remains producer-owned. Feature
+code controls an immediate callback through `cancelCurrent()` or `dispose()`,
+because the returned handle is not observable until `start()` returns.
 
 `OperationId` is opaque. Feature code cannot construct one from a request,
 package identity, display string, or local counter. The page owner atomically
@@ -140,8 +210,8 @@ meaning.
 Producer binding uses a two-phase handoff. `prepare(identity, input, sink)`
 returns either:
 
-- a typed rejection after releasing any temporary resources, without retaining
-  or invoking the sink; or
+- a typed producer rejection after releasing any temporary resources, without
+  retaining or invoking the sink; or
 - a prepared binding with an already-usable cancellation endpoint and an
   `activate()` operation.
 
@@ -152,21 +222,35 @@ adapter, not definitions of its transport or physical implementation.
 
 Starting an operation follows one owner-controlled synchronous sequence:
 
-1. reject the start if the feature session is disposed;
-2. allocate the next page-wide identity and unpublished candidate record;
-3. ask the adapter to prepare against that identity and candidate sink;
-4. on rejection, return `OperationStartResult.rejected`, leave the prior
-   current operation unchanged, and discard the candidate;
-5. on preparation, install the candidate record and its promises as current
-   while superseding the prior pending operation;
-6. expose `OperationStartResult.started` with the new handle; and
-7. activate the prepared binding.
+1. return `session-disposed` if the feature session is disposed;
+2. return `identity-exhausted` if no safe identity remains, before producer
+   preparation;
+3. allocate the next page-wide identity and unpublished candidate record;
+4. ask the adapter to prepare against that identity and candidate sink;
+5. on producer rejection, return `producer-rejected`, leave the prior current
+   operation unchanged, and discard the candidate;
+6. on preparation, atomically install the candidate as current, complete the
+   prior pending outcome as `canceled("superseded")`, and reserve the prior
+   operation's one cancellation forwarding;
+7. activate the prepared current binding;
+8. invoke the reserved prior cancellation endpoint; and
+9. return `OperationStartResult.started` with the new handle.
 
 The candidate is current before activation, and the cancellation endpoint
-exists before callbacks can reenter. A synchronous activation callback
-therefore observes the same installed record and authority checks as a deferred
-callback. Reentrant cancellation, disposal, or replacement during activation
-can forward through the prepared cancellation endpoint.
+exists before callbacks can reenter. A synchronous activation callback uses
+the session's `cancelCurrent()` or `dispose()` operation and therefore observes
+the same installed record as a deferred callback. It may supersede the
+candidate again; in that case `start()` returns the candidate's already-canceled
+handle without overwriting the reentrant replacement.
+
+The authority commit in step 6 completes before either external callout.
+Cancellation-forwarded state is reserved before invoking its endpoint.
+`activate()` is non-throwing by the prepared-binding contract. A cancellation
+endpoint exception is caught at that exact boundary, reported to the diagnostic
+observer, and cannot roll back logical cancellation, prevent handle return, or
+cause another forwarding attempt. Producer events and reentrant feature
+actions may run during either callout, but the outer start writes no authority
+state afterward.
 
 Each operation is bound to one producer adapter. Retrying creates a new
 operation identity; neither the feature nor the adapter redispatches an old
@@ -215,6 +299,10 @@ publication authority.
 
 A later call changes no reason or state and sends no producer request. A call
 after success, failure, or cancellation is a strict local no-op.
+`cancelCurrent()` applies that same transition through the session. The
+authority state and forwarding flag commit before its external cancellation
+callout; endpoint exceptions are diagnosed and do not escape or undo the
+transition. Reentrant producer events therefore observe the canceled outcome.
 
 Starting a replacement operation applies the same transition to the prior
 current operation with reason `"superseded"`. The replacement becomes current
@@ -344,12 +432,19 @@ exist and must include:
   allocated by the page owner, plus strictly increasing safe-integer sequences;
 - injected ID-reuse collisions after completion, quiescence, disposal, and
   session recreation;
+- reuse of an identity observed by a rejecting producer in the same and a
+  recreated session;
 - visible allocation exhaustion without adapter preparation and without
   changing any existing current operation or cancellation count;
+- typed `session-disposed`, `identity-exhausted`, and `producer-rejected`
+  results;
 - typed resource-free preparation rejection that leaves the prior current
   operation unchanged and produces no handle;
 - prepared cancellation availability before activation, immediate callback
-  reentrancy, and activation failure through terminal plus quiescence events;
+  cancellation through `OperationSession`, and activation failure through
+  terminal plus quiescence events;
+- prior cancellation endpoints that throw, report synchronously, or reenter
+  start/disposal after the replacement authority commit;
 - synchronous and deferred producer completion;
 - one logical outcome and one quiescence resolution;
 - omitted cancellation normalization, reason immutability, and exactly one
