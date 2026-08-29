@@ -442,9 +442,25 @@ failure second. A callback exception propagates without NuGetFetch attempting
 client disposal because no client was returned; resources not returned remain
 the callback's responsibility.
 
-Successful validation returns the original client without wrapping or disposing
-it and transfers ownership to the caller, which disposes it. The callback has
-no issuer accessor and no generic result or outcome construction path.
+Successful source validation transfers the callback client to a
+NuGetFetch-owned `IPackageSourceClient` adapter. The adapter exposes the exact
+bound factory `Source`, forwards capabilities and operations, and owns the
+callback client. `CreateCustom` returns the adapter, not the callback client.
+The caller owns and disposes the adapter, which disposes the callback client
+exactly once. The callback client is not disposed before adapter disposal.
+
+The adapter retains the bound result factory and uses its internal validation
+methods on each non-null operation outcome before returning it. Validation
+requires the factory's exact private issuer and complete source identity. It
+also requires the operation's fixed failure capability, package-versus-symbol
+payload kind, and normalized invocation coordinate where applicable. A
+complete outcome constructed by another factory is rejected even when its
+public producer, association, and transport values are equal and the callback
+client's own `Source` was valid. An invalid or null custom outcome is not
+returned as a source failure; it is a custom-client contract violation surfaced
+as `InvalidOperationException`. The adapter remains caller-owned for disposal.
+The callback has no issuer accessor and no generic result or outcome
+construction path.
 
 The same closed-construction rule applies after publication: every
 issuer-bearing observation, result, outcome, and failure type, including
@@ -748,12 +764,21 @@ Implementation is not complete until Release gates establish:
   LocalFolder descriptor fixture are rejected; invalid and unsupported inputs
   invoke the callback zero times and expose no factory. A disposal-counting
   external client proves source mismatch and a throwing source getter dispose
-  the rejected client exactly once, an accepted client is not disposed before
-  return and becomes caller-owned, and callback failure does not claim ownership
-  of unreturned resources. A two-failure vector pins validation-first
+  the rejected client exactly once, an accepted callback client is not disposed
+  before return and becomes owned by the returned adapter, adapter disposal
+  forwards exactly once, and callback failure does not claim ownership of
+  unreturned resources. A two-failure vector pins validation-first
   `AggregateException` ordering when rejection disposal also fails. The
   external assembly cannot construct the factory, issuer, identity-bearing
   values, or foreign generic outcomes directly;
+- `CustomClientOutcomesRemainFactoryBound` creates two custom registrations
+  whose factories have equal public source identity and proves every search,
+  prefix-search, version, manifest, package, and symbol success and failure
+  from one factory is rejected by the other adapter. Same-factory negative
+  vectors cover null outcomes, wrong failure capability, package-versus-symbol
+  payload substitution, and another normalized invocation coordinate. Valid
+  same-factory outcomes pass unchanged, and adapter `Source` is the exact bound
+  factory reference;
 - `SourceOperationFactoryMatchesClientOperations` derives the complete client
   operation and finite failure-factory surfaces and pins the mapping from
   search and prefix search, version enumeration, manifest, package, and symbol
