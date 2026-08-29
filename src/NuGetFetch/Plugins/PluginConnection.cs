@@ -701,6 +701,8 @@ internal sealed class PluginConnection : IAsyncDisposable
         public Func<Task?>? RequestWriteOverride { get; init; }
 
         public Action<bool>? ConnectionResourcesDisposing { get; init; }
+
+        public Action? ConnectionQuiescenceAwaiting { get; init; }
     }
 
     /// <summary>
@@ -1015,6 +1017,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             }
         }
 
+        _testHooks?.ConnectionQuiescenceAwaiting?.Invoke();
         await Quiesced.ConfigureAwait(false);
         bool resourcesCanDispose;
 

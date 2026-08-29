@@ -1273,6 +1273,8 @@ public sealed class PluginProtocolTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseResponseWrite = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var quiescenceAwaiting = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var resourcesDisposing = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         using var hooksEnabled = new ManualResetEventSlim();
@@ -1285,12 +1287,13 @@ public sealed class PluginProtocolTests : IDisposable
                     responseWriteStarted.TrySetResult();
                     releaseResponseWrite.Task
                         .WaitAsync(
-                            TimeSpan.FromSeconds(2),
+                            TimeSpan.FromSeconds(10),
                             TestContext.Current.CancellationToken)
                         .GetAwaiter()
                         .GetResult();
                 }
             },
+            ConnectionQuiescenceAwaiting = () => quiescenceAwaiting.TrySetResult(),
             ConnectionResourcesDisposing = value => resourcesDisposing.TrySetResult(value),
         };
         FakePlugin plugin = CreatePlugin(
@@ -1320,10 +1323,10 @@ public sealed class PluginProtocolTests : IDisposable
 
         try
         {
-            await Assert.ThrowsAsync<TimeoutException>(async () =>
-                await resourcesDisposing.Task.WaitAsync(
-                    TimeSpan.FromMilliseconds(200),
-                    TestContext.Current.CancellationToken));
+            await quiescenceAwaiting.Task.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+            Assert.False(resourcesDisposing.Task.IsCompleted);
         }
         finally
         {
