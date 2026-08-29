@@ -100,6 +100,10 @@ public sealed partial class AssemblyDependencyResolver :
         AssemblyDescriptorKey,
         Lazy<AssemblyDescriptorResolution>> _descriptors =
             [];
+    readonly ConcurrentDictionary<
+        string,
+        Lazy<SnapshotImageResolution>> _snapshotImages =
+            new(StringComparer.Ordinal);
     IReadOnlyList<ResolvedAssemblyDependency>? _resolved;
     IReadOnlyList<ResolvedAssemblyDependency>? _allCandidates;
     readonly ConcurrentDictionary<
@@ -391,6 +395,7 @@ public sealed partial class AssemblyDependencyResolver :
             return null;
         }
         var entitled = new List<ResolvedAssemblyReference>();
+        CandidateOpenFailureKind? budgetFailure = null;
         foreach (ResolvedAssemblyDependency dependency in candidates)
         {
             bool designated =
@@ -410,6 +415,13 @@ public sealed partial class AssemblyDependencyResolver :
             {
                 entitled.Add(assembly);
             }
+            else if (PathNameMatches(dependency, identity)
+                && descriptor.FailureKind
+                    is CandidateOpenFailureKind.ResourceBudget)
+            {
+                budgetFailure =
+                    CandidateOpenFailureKind.ResourceBudget;
+            }
         }
 
         bool allowPlatformVersionRollForward =
@@ -421,6 +433,12 @@ public sealed partial class AssemblyDependencyResolver :
                 entitled,
                 allowPlatformVersionRollForward,
                 _options.IgnoreAssemblyVersion);
+        if (budgetFailure is not null)
+        {
+            return new AssemblyResolutionAttempt(
+                Assembly: null,
+                budgetFailure);
+        }
         if (selection is null)
             return null;
 
@@ -685,6 +703,35 @@ public sealed partial class AssemblyDependencyResolver :
                         ?? new BadImageFormatException()));
         }
 
+        SnapshotImageResolution snapshot =
+            _snapshotImages.GetOrAdd(
+                path,
+                static (path, resolver) =>
+                    new Lazy<SnapshotImageResolution>(
+                        () => resolver.CreateSnapshotImage(path),
+                        LazyThreadSafetyMode.ExecutionAndPublication),
+                this).Value;
+        if (snapshot.Image is null
+            || snapshot.Identity is null)
+        {
+            return new(
+                Assembly: null,
+                snapshot.FailureKind
+                ?? CandidateOpenFailureKind.Unreadable);
+        }
+
+        byte[] image = snapshot.Image;
+        return new(
+            ResolvedAssemblyReference.Create(
+                snapshot.Identity,
+                Path.GetFullPath(path),
+                () => new MemoryStream(image, writable: false),
+                provenance),
+            FailureKind: null);
+    }
+
+    SnapshotImageResolution CreateSnapshotImage(string path)
+    {
         long reservedBytes = 0;
         try
         {
@@ -708,24 +755,22 @@ public sealed partial class AssemblyDependencyResolver :
             if (!reader.HasMetadata)
             {
                 return new(
-                    Assembly: null,
+                    Identity: null,
+                    Image: null,
                     CandidateOpenFailureKind.InvalidImage);
             }
 
-            ResolvedAssemblyReference result =
-                ResolvedAssemblyReference.Create(
+            AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    reader.GetMetadataReader()),
-                Path.GetFullPath(path),
-                () => new MemoryStream(image, writable: false),
-                provenance);
+                    reader.GetMetadataReader());
             reservedBytes = 0;
-            return new(result, FailureKind: null);
+            return new(identity, image, FailureKind: null);
         }
         catch (AssemblyDependencySnapshotBudgetExceededException)
         {
             return new(
-                Assembly: null,
+                Identity: null,
+                Image: null,
                 CandidateOpenFailureKind.ResourceBudget);
         }
         catch (Exception ex) when (
@@ -738,7 +783,8 @@ public sealed partial class AssemblyDependencyResolver :
                 or OverflowException)
         {
             return new(
-                Assembly: null,
+                Identity: null,
+                Image: null,
                 ClassifyCandidateOpenFailure(ex));
         }
         finally
@@ -817,6 +863,11 @@ public sealed partial class AssemblyDependencyResolver :
 
     sealed record AssemblyDescriptorResolution(
         ResolvedAssemblyReference? Assembly,
+        CandidateOpenFailureKind? FailureKind);
+
+    sealed record SnapshotImageResolution(
+        AssemblyReferenceIdentity? Identity,
+        byte[]? Image,
         CandidateOpenFailureKind? FailureKind);
 
 }

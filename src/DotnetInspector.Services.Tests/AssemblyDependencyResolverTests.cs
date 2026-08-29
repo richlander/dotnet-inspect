@@ -1009,7 +1009,7 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
-    public void Select_DuplicateSamePathRetainsDesignatedAndPlatformRoles()
+    public void Select_DuplicateSamePathSharesSnapshotAcrossProvenance()
     {
         string platformPath = typeof(System.Runtime.GCSettings)
             .Assembly.Location;
@@ -1027,6 +1027,9 @@ public class AssemblyDependencyResolverTests
                 IncludeSiblingAssemblies = false,
                 IncludeAspNetCoreSharedFramework = false,
                 IncludeDepsJsonAssets = false,
+                SnapshotAssemblyImages = true,
+                MaxSnapshotImageBytes =
+                    new FileInfo(platformPath).Length,
             });
         var request = new AssemblyBindingRequest(
             AssemblyBindingTarget.Reference(platformIdentity),
@@ -1045,6 +1048,58 @@ public class AssemblyDependencyResolverTests
         Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
             shadow.Provenance);
         Assert.NotSame(selected.Assembly, shadow);
+    }
+
+    [Fact]
+    public void Select_SnapshotBudgetCannotFallBackFromDesignatedToPlatform()
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-overlay-budget-").FullName;
+        try
+        {
+            string platformPath = typeof(System.Runtime.GCSettings)
+                .Assembly.Location;
+            string designatedPath = Path.Combine(
+                root,
+                Path.GetFileName(platformPath));
+            File.Copy(platformPath, designatedPath);
+            using var stream = File.OpenRead(platformPath);
+            using var peReader = new PEReader(stream);
+            AssemblyReferenceIdentity platformIdentity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    peReader.GetMetadataReader());
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(platformPath)
+                {
+                    PackageRoots = [],
+                    CorpusAssemblyPaths = [designatedPath],
+                    IncludeSiblingAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                    MaxSnapshotImageBytes =
+                        new FileInfo(platformPath).Length,
+                });
+            var request = new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(platformIdentity),
+                AssemblyBindingOrigin.Global(),
+                AssemblyResolutionScope.Platform);
+
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(request));
+
+            Assert.Equal(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                unavailable.Failure.Kind);
+            Assert.Equal(
+                CandidateOpenFailureKind.ResourceBudget,
+                unavailable.Failure.CandidateFailureKind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
