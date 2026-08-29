@@ -309,6 +309,7 @@ Use the SDK selected by repository configuration and CI; inspect the current
 selection (`command -v dotnet`, `dotnet --version`) before installing one or
 changing `PATH`. If `dotnet` is centrally installed, stop and ask before
 replacing or shadowing it. Follow `README.md#repository-development-sdk`.
+
 Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
 
 Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
@@ -334,6 +335,9 @@ contract lives in `docs/decompiler-correctness-pipeline.md`.
 Test-tool activation (`ilasm`/`ildasm`/`mdv`), the IL round-trip commands, and
 the `IsPackable`/`VersionPrefix` release rules live in
 [`docs/dev-environment.md`](docs/dev-environment.md#test-tooling-activation).
+
+### Package acquisition and throwaway probes
+
 If nuget.org is disabled and restore reports `NU1603` for an uncached pin, or
 you need a throwaway probe, see
 [`docs/dev-environment.md`](docs/dev-environment.md) for the source-override
@@ -460,12 +464,6 @@ reviewers as a normal round), and **merge conflict requiring semantic
 resolution** (treat as an author change under
 [Recovery transitions](#recovery-transitions)).
 
-### A quick read is not a round
-
-Use MAI-Code for early feedback on unsettled work. A quick read gets no isolated
-worktree or fixed head and satisfies no review tier. Label its findings as early
-feedback; the settled PR still requires its full round.
-
 ### How many reviewers, and from which models
 
 | Tier | Requirement |
@@ -475,7 +473,10 @@ feedback; the settled PR still requires its full round.
 
 When uncertain, use the standard round. Second-seat selection by prior clean
 count lives in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster).
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster). A MAI-Code
+quick read on unsettled work is neither tier: it gets no isolated worktree or
+fixed head and satisfies no review tier — label its findings as early
+feedback, since the settled PR still requires its full round.
 
 ### Running the round
 
