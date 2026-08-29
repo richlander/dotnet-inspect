@@ -35,9 +35,35 @@ public static class TypeSpecGuard
     public static bool TryEnter(MetadataReader reader, TypeSpecificationHandle handle, out Scope scope)
         => TryEnter(reader, handle, out scope, out _);
 
+    /// <summary>
+    /// Enters a nested TypeSpec that must be structurally safe <i>and</i> fully
+    /// consumed by the single-Type TypeSpec grammar. Unlike
+    /// <see cref="TryEnter(MetadataReader, TypeSpecificationHandle, out Scope)"/>,
+    /// a truncated blob or one carrying unconsumed trailing bytes is rejected,
+    /// so an unrecognized suffix cannot ride along with a decoded type.
+    /// </summary>
+    public static bool TryEnterComplete(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        out Scope scope)
+        => TryEnter(reader, handle, requireComplete: true, out scope, out _);
+
     internal static bool TryEnter(
         MetadataReader reader,
         TypeSpecificationHandle handle,
+        out Scope scope,
+        out SignatureDecodeRejectionKind rejectionKind)
+        => TryEnter(
+            reader,
+            handle,
+            requireComplete: false,
+            out scope,
+            out rejectionKind);
+
+    static bool TryEnter(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        bool requireComplete,
         out Scope scope,
         out SignatureDecodeRejectionKind rejectionKind)
     {
@@ -55,10 +81,16 @@ public static class TypeSpecGuard
             rejectionKind = SignatureDecodeRejectionKind.TypeSpecificationBudget;
             return false;
         }
-        if (!SignatureBlobGuard.IsSafeToDecode(
-            reader,
-            signature,
-            SignatureBlobGuard.Kind.TypeSpecification))
+        bool decodable = requireComplete
+            ? SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                reader,
+                signature,
+                SignatureBlobGuard.Kind.TypeSpecification)
+            : SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                signature,
+                SignatureBlobGuard.Kind.TypeSpecification);
+        if (!decodable)
         {
             rejectionKind = SignatureDecodeRejectionKind.UnsafeStructure;
             return false;

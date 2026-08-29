@@ -134,6 +134,9 @@ public sealed class TypeResolutionCatalog : IDisposable
         _definitionJoinTokens = [];
     readonly Dictionary<BindingKey, UnresolvedBindingKey>
         _unresolvedBindingKeys = [];
+    readonly Dictionary<
+        DefinitionAccessibilityCacheKey,
+        TypeDefinitionAccessibilityOutcome> _definitionAccessibilities = [];
     readonly TypeResolutionContextOptions _options;
     AssemblyCatalogGenerationId? _latestGeneration;
     ImmutableDictionary<AssemblyCandidateId, FrozenCandidate>
@@ -226,6 +229,121 @@ public sealed class TypeResolutionCatalog : IDisposable
                     source.Identity));
         }
         return new ResolutionAwareApiSurfaceOutcome.Read(surface);
+    }
+
+    /// <summary>
+    /// Registers and opens the exact source candidate, validates the supplied
+    /// member coordinates against its retained image, and mints an
+    /// acquisition-bound subject.
+    /// </summary>
+    /// <remarks>
+    /// The minted subject carries the interned candidate itself, so a later
+    /// plan cannot be redirected to a different registration that merely
+    /// publishes the same MVID. Gated by
+    /// <c>SignatureSpellability_BindsSubjectToSourceModule</c> and
+    /// <c>SignatureSpellability_BindsSubjectToExactRegistration</c>.
+    /// </remarks>
+    public SignatureSpellabilitySubjectOutcome
+        CreateSignatureSpellabilitySubject(
+            ResolvedAssemblyReference source,
+            int declaringTypeToken,
+            int memberToken,
+            SignatureSpellabilityMemberKind memberKind,
+            Guid? expectedSourceModuleVersionId = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (!Enum.IsDefined(memberKind))
+            throw new ArgumentOutOfRangeException(nameof(memberKind));
+
+        using IDisposable lease = AcquireExtractionLease();
+        CandidateRegistrationResult registration =
+            _acquisition.RegisterRoot(source);
+        if (registration is CandidateRegistrationResult.Rejected rejected)
+        {
+            return new SignatureSpellabilitySubjectOutcome.Rejected(
+                new SignatureSpellabilityPlanFailure.CandidateRejected(
+                    rejected.Failure));
+        }
+
+        var ready = (CandidateRegistrationResult.Ready)registration;
+        CandidateSessionResult session =
+            _acquisition.OpenSession(ready.Candidate);
+        if (session is CandidateSessionResult.Rejected sessionRejected)
+        {
+            return new SignatureSpellabilitySubjectOutcome.Rejected(
+                new SignatureSpellabilityPlanFailure.CandidateRejected(
+                    sessionRejected.Failure));
+        }
+
+        AssemblyInspectionSession opened =
+            ((CandidateSessionResult.Ready)session).Session;
+        Guid mvid = opened.ModuleVersionId();
+        if (expectedSourceModuleVersionId is { } expected && expected != mvid)
+        {
+            return new SignatureSpellabilitySubjectOutcome.Rejected(
+                new SignatureSpellabilityPlanFailure.SourceModuleMismatch(
+                    expected,
+                    mvid));
+        }
+        if (opened.ValidateSignatureSubject(
+                declaringTypeToken,
+                memberToken,
+                memberKind) is { } invalid)
+        {
+            return new SignatureSpellabilitySubjectOutcome.Rejected(invalid);
+        }
+
+        return new SignatureSpellabilitySubjectOutcome.Created(
+            new SignatureSpellabilitySubject(
+                Id,
+                ready.Candidate,
+                mvid,
+                AssemblyResolutionScopes.Authorized(
+                    ready.Candidate.Assembly,
+                    ready.Inventory),
+                declaringTypeToken,
+                memberToken,
+                memberKind));
+    }
+
+    /// <summary>
+    /// Opens the subject's bound candidate and decodes one immutable signature
+    /// plan under a scope no looser than the subject's authorized baseline.
+    /// </summary>
+    /// <remarks>
+    /// Gated by <c>SignatureSpellability_BindsSubjectToSourceModule</c> and
+    /// <c>SignatureSpellability_RetainsAuthorizedPlatformScope</c>.
+    /// </remarks>
+    public SignatureSpellabilityPlanOutcome PlanSignatureSpellability(
+        SignatureSpellabilitySubject subject,
+        AssemblyResolutionScope requestedScope =
+            AssemblyResolutionScope.Any)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        if (!Enum.IsDefined(requestedScope))
+            throw new ArgumentOutOfRangeException(nameof(requestedScope));
+        if (subject.Catalog != Id)
+        {
+            throw new ArgumentException(
+                "The signature subject belongs to another catalog.",
+                nameof(subject));
+        }
+
+        using IDisposable lease = AcquireExtractionLease();
+        CandidateSessionResult session =
+            _acquisition.OpenSession(subject.SourceCandidate);
+        if (session is CandidateSessionResult.Rejected rejected)
+        {
+            return new SignatureSpellabilityPlanOutcome.Rejected(
+                new SignatureSpellabilityPlanFailure.CandidateRejected(
+                    rejected.Failure));
+        }
+
+        return SignatureSpellabilityPlanner.Plan(
+            Id,
+            subject,
+            ((CandidateSessionResult.Ready)session).Session,
+            requestedScope);
     }
 
     IDisposable AcquireExtractionLease()
@@ -425,6 +543,31 @@ public sealed class TypeResolutionCatalog : IDisposable
             CancellationToken.None);
 
     /// <summary>
+    /// Freezes a context containing a signature plan's exact source and every
+    /// deduplicated request, plus any additional policy candidates.
+    /// </summary>
+    public TypeResolutionContext CreateSignatureSpellabilityContext(
+        IAssemblyBindingPolicy policy,
+        SignatureSpellabilityPlan plan,
+        IEnumerable<ResolvedAssemblyReference> additionalRoots)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(additionalRoots);
+        if (plan.Catalog != Id)
+        {
+            throw new ArgumentException(
+                "The signature plan belongs to another catalog.",
+                nameof(plan));
+        }
+
+        return CreateContext(
+            policy,
+            additionalRoots.Prepend(plan.Source),
+            plan.Requests.Select(request => request.Request));
+    }
+
+    /// <summary>
     /// Discovers and freezes a context for explicit binding and type requests
     /// over the supplied roots.
     /// </summary>
@@ -535,6 +678,70 @@ public sealed class TypeResolutionCatalog : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
+    internal bool IsCurrentGeneration(
+        AssemblyCatalogGenerationId generation)
+    {
+        lock (_gate)
+        {
+            return !_disposed
+                && ReferenceEquals(generation, _latestGeneration);
+        }
+    }
+
+    /// <summary>
+    /// Holds the catalog's generation and lifetime stable for the duration of
+    /// one multi-step evaluation.
+    /// </summary>
+    /// <remarks>
+    /// The lease reuses the single-permit generation gate that already
+    /// serializes context creation and disposal, so a published generation
+    /// cannot replace the leased one part way through an evaluation and mix
+    /// evidence from two generations. The gate is not reentrant, and no
+    /// operation performed under a lease creates a context or disposes the
+    /// catalog, so a lease cannot deadlock against its own holder. Gated by
+    /// <c>SignatureSpellability_HoldsOneGenerationAcrossEvaluation</c>.
+    /// </remarks>
+    internal GenerationLeaseStatus TryAcquireGenerationLease(
+        AssemblyCatalogGenerationId generation,
+        out IDisposable? lease)
+    {
+        ArgumentNullException.ThrowIfNull(generation);
+
+        _generationGate.Enter();
+        lease = null;
+        try
+        {
+            GenerationLeaseStatus status;
+            lock (_gate)
+            {
+                status = _disposed || _disposing
+                    ? GenerationLeaseStatus.Unavailable
+                    : ReferenceEquals(generation, _latestGeneration)
+                        ? GenerationLeaseStatus.Acquired
+                        : GenerationLeaseStatus.Stale;
+            }
+
+            if (status == GenerationLeaseStatus.Acquired)
+                lease = new GenerationLease(this);
+            return status;
+        }
+        finally
+        {
+            if (lease is null)
+                _generationGate.Exit();
+        }
+    }
+
+    void ReleaseGenerationLease() => _generationGate.Exit();
+
+    sealed class GenerationLease(TypeResolutionCatalog owner) : IDisposable
+    {
+        TypeResolutionCatalog? _owner = owner;
+
+        public void Dispose() =>
+            Interlocked.Exchange(ref _owner, null)?.ReleaseGenerationLease();
+    }
+
     internal bool TryGetDeclaration(
         AssemblyCandidateId candidate,
         MetadataTypeDefinitionName type,
@@ -599,6 +806,7 @@ public sealed class TypeResolutionCatalog : IDisposable
             frozen.Add(
                 candidate.Id,
                 new FrozenCandidate(
+                    candidate,
                     candidate.Assembly,
                     inventories[candidate.Id]));
         }
@@ -610,6 +818,7 @@ public sealed class TypeResolutionCatalog : IDisposable
             _latestGeneration = generation;
             _definitionJoinTokens.Clear();
             _unresolvedBindingKeys.Clear();
+            _definitionAccessibilities.Clear();
         }
     }
 
@@ -648,6 +857,7 @@ public sealed class TypeResolutionCatalog : IDisposable
                 _resolutions.Clear();
                 _definitionJoinTokens.Clear();
                 _unresolvedBindingKeys.Clear();
+                _definitionAccessibilities.Clear();
             }
 
             _acquisition.Dispose();
@@ -711,12 +921,100 @@ public sealed class TypeResolutionCatalog : IDisposable
                             definitionClass.Definition)))
                 .ToImmutableArray());
 
+    internal TypeDefinitionAccessibilityOutcome
+        GetTerminalDefinitionAccessibility(
+            ResolvedTypeDefinitionKey definition)
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return new TypeDefinitionAccessibilityOutcome.Rejected(
+                    new TypeDefinitionAccessibilityFailure
+                        .CatalogUnavailable());
+            }
+            if (definition.Catalog != Id)
+            {
+                return new TypeDefinitionAccessibilityOutcome.Rejected(
+                    new TypeDefinitionAccessibilityFailure
+                        .IncomparableCatalog(Id, definition.Catalog));
+            }
+            if (!ReferenceEquals(
+                    definition.Generation,
+                    _latestGeneration))
+            {
+                return new TypeDefinitionAccessibilityOutcome.Rejected(
+                    new TypeDefinitionAccessibilityFailure.StaleGeneration(
+                        definition.Generation,
+                        _latestGeneration));
+            }
+            if (!_latestCandidates.TryGetValue(
+                    definition.Assembly,
+                    out FrozenCandidate? candidate))
+            {
+                return new TypeDefinitionAccessibilityOutcome.Rejected(
+                    new TypeDefinitionAccessibilityFailure
+                        .CandidateUnavailable());
+            }
+
+            var cacheKey = new DefinitionAccessibilityCacheKey(
+                definition.Assembly,
+                definition.Definition);
+            if (_definitionAccessibilities.TryGetValue(
+                    cacheKey,
+                    out TypeDefinitionAccessibilityOutcome? cached))
+            {
+                return cached;
+            }
+
+            CandidateSessionResult session =
+                _acquisition.OpenSession(candidate.Candidate);
+            TypeDefinitionAccessibilityOutcome outcome;
+            if (session is CandidateSessionResult.Rejected rejected)
+            {
+                outcome = new TypeDefinitionAccessibilityOutcome.Rejected(
+                    new TypeDefinitionAccessibilityFailure
+                        .CandidateOpenRejected(rejected.Failure));
+            }
+            else
+            {
+                SessionAccessibilityOutcome accessibility =
+                    ((CandidateSessionResult.Ready)session)
+                        .Session.ClassifyExternalAccessibility(
+                            new MetadataTypeDefinitionAddress(
+                                candidate.Inventory.ModuleVersionId,
+                                definition.Definition));
+                outcome = accessibility switch
+                {
+                    SessionAccessibilityOutcome.Accessible =>
+                        new TypeDefinitionAccessibilityOutcome.Accessible(),
+                    SessionAccessibilityOutcome.Inaccessible =>
+                        new TypeDefinitionAccessibilityOutcome.Inaccessible(),
+                    SessionAccessibilityOutcome.InvalidDefinition =>
+                        new TypeDefinitionAccessibilityOutcome.Rejected(
+                            new TypeDefinitionAccessibilityFailure
+                                .InvalidDefinition()),
+                    SessionAccessibilityOutcome.InvalidDeclaringChain =>
+                        new TypeDefinitionAccessibilityOutcome.Rejected(
+                            new TypeDefinitionAccessibilityFailure
+                                .InvalidDeclaringChain()),
+                    _ => throw new InvalidOperationException(
+                        "Unknown accessibility outcome."),
+                };
+            }
+
+            _definitionAccessibilities.Add(cacheKey, outcome);
+            return outcome;
+        }
+    }
+
     readonly record struct DefinitionClassKey(
         AssemblyReferenceIdentity Identity,
         Guid ModuleVersionId,
         TypeDefinitionToken Definition);
 
     sealed record FrozenCandidate(
+        ResolvedAssemblyCandidate Candidate,
         ResolvedAssemblyReference Assembly,
         AssemblyInventorySnapshot Inventory);
 }
@@ -803,6 +1101,112 @@ public sealed class TypeResolutionContext : IDisposable
                 ObjectDisposedException.ThrowIf(_disposed, this);
                 _catalog.EnsureAlive();
                 return _catalog.ProjectDefinitionJoinToken(definition);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Classifies the terminal TypeDef represented by a key issued by this
+    /// context's own frozen generation.
+    /// </summary>
+    /// <remarks>
+    /// A key from another catalog or from any other generation — including a
+    /// newer generation this context never observed — is rejected rather than
+    /// classified, so accessibility evidence cannot be mixed across
+    /// generations. Gated by
+    /// <c>SignatureSpellability_ResolvesNestedForwarderToAccessibleDefinition</c>,
+    /// <c>SignatureSpellability_AccessibilityReusesResolvedSession</c>,
+    /// <c>SignatureSpellability_RejectsAccessibilityKeyFromAnotherGeneration</c>,
+    /// and
+    /// <c>SignatureSpellability_CachesResolutionPerRequestAndAccessibilityPerDefinition</c>.
+    /// </remarks>
+    public TypeDefinitionAccessibilityOutcome
+        GetTerminalDefinitionAccessibility(
+            ResolvedTypeDefinitionKey definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (definition.Catalog != Catalog)
+            {
+                return new TypeDefinitionAccessibilityOutcome.Rejected(
+                    new TypeDefinitionAccessibilityFailure
+                        .IncomparableCatalog(Catalog, definition.Catalog));
+            }
+            if (!ReferenceEquals(definition.Generation, Generation))
+            {
+                return new TypeDefinitionAccessibilityOutcome.Rejected(
+                    new TypeDefinitionAccessibilityFailure.StaleGeneration(
+                        definition.Generation,
+                        Generation));
+            }
+
+            return _catalog.GetTerminalDefinitionAccessibility(definition);
+        }
+    }
+
+    /// <summary>
+    /// Evaluates an immutable source-bound signature plan without decoding its
+    /// signature again.
+    /// </summary>
+    /// <remarks>
+    /// The whole evaluation runs under one catalog generation lease, so source
+    /// currency, every resolution, and every accessibility classification
+    /// observe the same generation. Gated by
+    /// <c>SignatureSpellability_ExpandsPlanBeforeVerdict</c> and
+    /// <c>SignatureSpellability_HoldsOneGenerationAcrossEvaluation</c>.
+    /// </remarks>
+    public SignatureSpellabilityAggregate EvaluateSignatureSpellability(
+        SignatureSpellabilityPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        lock (_gate)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+        if (plan.Catalog != Catalog)
+        {
+            return new SignatureSpellabilityAggregate.Rejected(
+                new SignatureSpellabilityEvaluationFailure
+                    .IncomparableCatalog(Catalog, plan.Catalog));
+        }
+
+        GenerationLeaseStatus status = _catalog.TryAcquireGenerationLease(
+            Generation,
+            out IDisposable? lease);
+        using (lease)
+        {
+            return status switch
+            {
+                GenerationLeaseStatus.Acquired =>
+                    SignatureSpellabilityEvaluator.Evaluate(this, plan),
+                GenerationLeaseStatus.Stale =>
+                    new SignatureSpellabilityAggregate.Rejected(
+                        new SignatureSpellabilityEvaluationFailure
+                            .StaleSource()),
+                _ => new SignatureSpellabilityAggregate.Rejected(
+                    new SignatureSpellabilityEvaluationFailure
+                        .SourceUnavailable()),
+            };
+        }
+    }
+
+    internal SignaturePlanSourceStatus SourceStatus(
+        ResolvedAssemblyCandidate source)
+    {
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                if (_disposed)
+                    return SignaturePlanSourceStatus.Unavailable;
+                if (!_catalog.IsCurrentGeneration(Generation))
+                    return SignaturePlanSourceStatus.Stale;
+                return _candidates.TryGetValue(
+                        source.Assembly.Registration,
+                        out ResolvedAssemblyCandidate? owned)
+                    && ReferenceEquals(owned, source)
+                    ? SignaturePlanSourceStatus.Current
+                    : SignaturePlanSourceStatus.Unavailable;
             }
         }
     }
@@ -1684,7 +2088,9 @@ public sealed class TypeResolutionContext : IDisposable
                             AssemblyBindingTarget.Reference(target),
                             AssemblyBindingOrigin.FromAssembly(
                                 resolved.Candidate.Assembly),
-                            TightenScope(current.Scope, target)));
+                            AssemblyResolutionScopes.Tighten(
+                                current.Scope,
+                                target)));
                 }
 
             }
@@ -2227,7 +2633,9 @@ public sealed class TypeResolutionContext : IDisposable
                                 hops));
 
                     case TypeDeclarationResult.Forwarded forwarded:
-                        scope = TightenScope(scope, forwarded.Target);
+                        scope = AssemblyResolutionScopes.Tighten(
+                            scope,
+                            forwarded.Target);
                         hops.Add(
                             new TypeForwardingHop(
                                 current,
@@ -2643,14 +3051,6 @@ public sealed class TypeResolutionContext : IDisposable
                     "The binding policy changed version during discovery.");
             }
         }
-
-        static AssemblyResolutionScope TightenScope(
-            AssemblyResolutionScope current,
-            AssemblyReferenceIdentity target) =>
-            current == AssemblyResolutionScope.Platform
-                || PlatformKeys.IsPlatform(target.PublicKeyToken)
-                    ? AssemblyResolutionScope.Platform
-                    : AssemblyResolutionScope.Any;
 
         static TypeResolutionOutcome.Rejected Rejected(
             TypeResolutionFailure failure,

@@ -18,15 +18,14 @@ by `InertString` in
 [#3636](https://github.com/richlander/dotnet-inspect/pull/3636): establish each
 value, its invariants, and its gates before asking consumers to depend on it.
 
-Issue [#4809](https://github.com/richlander/dotnet-inspect/issues/4809) defines
-a focused consumer extension for signature spellability. That extension is
-design-only and unverified until the named gates in this document land. The
-current implementation scans selected assemblies into a non-public type-name
-set; the candidate in
-[#4276](https://github.com/richlander/dotnet-inspect/pull/4276) expands that
-approach to definition and forwarder name sets. Neither satisfies the contract
-because neither resolves a forwarding chain to its terminal definition or
-retains typed non-success evidence.
+Issue [#4885](https://github.com/richlander/dotnet-inspect/issues/4885)
+delivered the focused signature-spellability consumer extension. The catalog
+now owns source-bound signature planning, immutable named-occurrence plans,
+resolution aggregation, and terminal-definition accessibility. The legacy
+`SignatureSpellability`/`IAssemblyReferenceResolver` boolean path remains for
+existing consumers, but the new path does not extend its non-public type-name
+cache or its compatibility retry behavior. The named consumer gates below
+verify the implemented contract.
 
 Browser platform call graphs resolve exact graph-target type identities through
 `AssemblyContextTypeResolutionQuery`. The query retains the cumulative
@@ -2087,11 +2086,13 @@ does not turn `LocalRequirement` into a success verdict. A compatibility
 `CanSpell` projection may be true only when the plan completed, every required
 resolution succeeded, every participating external definition is
 `Accessible`, and the caller supplies typed proof that every local requirement
-is available and nameable in the generated artifact. Issue #4810 owns that
-proof. Without it, the compatibility projection fails closed. `Inaccessible`
-is an authoritative negative when accessibility participates. `NotFound`,
-`UnboundBinding`, `Unavailable`, `Ambiguous`, and `Rejected` resolution arms
-are incomplete and can never produce `CanSpell: true`.
+is available and nameable in the generated artifact. That proof returns the
+exact opaque keys carried by the aggregate's `LocalRequirement` entries;
+consumers neither compare nor project the keys. Issue #4810 owns that proof.
+Without it, the compatibility projection fails closed. `Inaccessible` is an
+authoritative negative when accessibility participates. `NotFound`,
+`UnboundBinding`, `Unavailable`, `Ambiguous`, and `Rejected` resolution arms are
+incomplete and can never produce `CanSpell: true`.
 
 `PlanExpansionRequired` is an orchestration result, not an inaccessible type.
 The coordinator contributes every request from the immutable plan and freezes
@@ -3139,9 +3140,42 @@ generation-scoping gates named in
 
 ### Consumer gates
 
-- `SignatureSpellability_BindsSubjectToSourceModule` creates a subject through
+The `SignatureSpellability_*` gates below are implemented in
+`SignatureSpellabilityAggregateTests`; the compiled consumer fixture supplies
+real field, property, method, pointer, array, generic, and function-pointer
+signatures, while bounded synthetic metadata covers modifier, module, malformed,
+forwarding, TypeSpec, and failure-only shapes. The `TypeSpecGuard` and
+provider-census gates named below live in `SignatureDecoderSafetyTests` and
+`ProviderSignatureDecodeBoundaryTests`.
+
+- `SignatureSpellability_BindsSubjectToSourceModule` mints a subject through
   the catalog session and rejects cross-reader rows, wrong-table tokens,
   declaring-type mismatches, and stale MVIDs before signature decode.
+- `SignatureSpellability_BindsSubjectToExactRegistration` proves that a subject
+  carries its interned acquisition candidate, not a substitutable module
+  identity: two registrations publishing one MVID mint distinct subjects that
+  each decode only their own image, a context holding only the other
+  registration returns `SourceUnavailable`, and a foreign-catalog subject is
+  rejected outright.
+- `SignatureSpellability_RetainsAuthorizedPlatformScope` proves that the
+  authorized baseline derives from the source candidate's provenance and
+  verified `AssemblyDef` identity, that a caller may tighten it to `Platform`
+  but never widen it back to `Any`, and that a confusable local copy offered
+  only to an `Any`-scoped request is never selected.
+- `SignatureSpellability_RejectsNestedTypeSpecTrailingData` proves that a
+  nested `TypeSpec` carrying unconsumed trailing bytes, or truncated after its
+  prefix, is rejected rather than decoded as its safe prefix.
+  `CompleteTypeSpecEntry_RejectsTrailingAndTruncatedBlobs` and
+  `SignatureSpellabilityProvider_EntersCompleteTypeSpecs` are its guard-contract
+  and wiring gates.
+- `SignatureSpellability_RejectsAccessibilityKeyFromAnotherGeneration` proves
+  that a context rejects an accessibility key issued by any generation other
+  than its own, including a newer generation that is current for the catalog.
+- `SignatureSpellability_HoldsOneGenerationAcrossEvaluation` proves that one
+  evaluation holds a catalog generation lease for its whole run: it cannot
+  start while a lease is held elsewhere, it completes once that lease is
+  released, and under a concurrent publisher every result is either wholly
+  current or `StaleSource` — never evidence mixed across generations.
 - `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
   function pointers, generic arguments, and modified types, and proves that a
   rejected decode exposes no partial request set.

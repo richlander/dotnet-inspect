@@ -4,6 +4,7 @@
     <AssemblyName>ILInspector.Metadata.SpellabilityConsumer</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />

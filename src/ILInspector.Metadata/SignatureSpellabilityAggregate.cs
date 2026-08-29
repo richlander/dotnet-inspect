@@ -1,0 +1,1107 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+
+namespace ILInspector.Metadata;
+
+/// <summary>The metadata table that owns a signature-bearing member.</summary>
+public enum SignatureSpellabilityMemberKind
+{
+    Field,
+    Property,
+    Method,
+}
+
+/// <summary>
+/// Catalog-minted coordinates for one signature in one exact registered source
+/// candidate.
+/// </summary>
+/// <remarks>
+/// Only the minting catalog can construct a subject, and the subject carries
+/// the acquisition candidate itself rather than a substitutable module
+/// identity. Two registrations that publish the same MVID remain distinct
+/// subjects, so a subject minted for one registration can never be planned
+/// against another. Gated by
+/// <c>SignatureSpellability_BindsSubjectToSourceModule</c> and
+/// <c>SignatureSpellability_BindsSubjectToExactRegistration</c>.
+/// </remarks>
+public sealed class SignatureSpellabilitySubject
+{
+    internal SignatureSpellabilitySubject(
+        AssemblyCatalogId catalog,
+        ResolvedAssemblyCandidate sourceCandidate,
+        Guid sourceModuleVersionId,
+        AssemblyResolutionScope authorizedScope,
+        int declaringTypeToken,
+        int memberToken,
+        SignatureSpellabilityMemberKind memberKind)
+    {
+        Catalog = catalog;
+        SourceCandidate = sourceCandidate;
+        SourceModuleVersionId = sourceModuleVersionId;
+        AuthorizedScope = authorizedScope;
+        DeclaringTypeToken = declaringTypeToken;
+        MemberToken = memberToken;
+        MemberKind = memberKind;
+    }
+
+    /// <summary>The catalog that minted and owns this subject.</summary>
+    public AssemblyCatalogId Catalog { get; }
+
+    /// <summary>The exact registered source descriptor.</summary>
+    public ResolvedAssemblyReference Source => SourceCandidate.Assembly;
+
+    /// <summary>The MVID observed in the bound candidate's retained image.</summary>
+    public Guid SourceModuleVersionId { get; }
+
+    /// <summary>
+    /// The scope the source candidate is already authorized under. Planning
+    /// may tighten this, never loosen it.
+    /// </summary>
+    public AssemblyResolutionScope AuthorizedScope { get; }
+
+    public int DeclaringTypeToken { get; }
+    public int MemberToken { get; }
+    public SignatureSpellabilityMemberKind MemberKind { get; }
+
+    internal ResolvedAssemblyCandidate SourceCandidate { get; }
+}
+
+/// <summary>The role of one named type occurrence in a signature.</summary>
+public enum SignatureSpellabilityOccurrenceRole
+{
+    Ordinary,
+    RequiredModifier,
+    OptionalModifier,
+}
+
+/// <summary>One named type occurrence retained in stable signature order.</summary>
+public sealed class SignatureSpellabilityOccurrence
+{
+    internal SignatureSpellabilityOccurrence(
+        int index,
+        MetadataNamedTypeReference reference,
+        SignatureSpellabilityOccurrenceRole role,
+        bool accessibilityParticipates,
+        TypeResolutionRequest? request)
+    {
+        Index = index;
+        Reference = reference;
+        Role = role;
+        AccessibilityParticipates = accessibilityParticipates;
+        Request = request;
+    }
+
+    public int Index { get; }
+    public MetadataNamedTypeReference Reference { get; }
+    public SignatureSpellabilityOccurrenceRole Role { get; }
+    public bool AccessibilityParticipates { get; }
+    public TypeResolutionRequest? Request { get; }
+}
+
+/// <summary>One deduplicated request in an immutable signature plan.</summary>
+public sealed class SignatureSpellabilityPlannedRequest
+{
+    internal SignatureSpellabilityPlannedRequest(
+        TypeResolutionRequest request,
+        bool accessibilityParticipates)
+    {
+        Request = request;
+        AccessibilityParticipates = accessibilityParticipates;
+    }
+
+    public TypeResolutionRequest Request { get; }
+    public bool AccessibilityParticipates { get; }
+}
+
+/// <summary>
+/// Reader-independent output of one successful, source-bound signature decode.
+/// </summary>
+/// <remarks>
+/// Gated by <c>SignatureSpellability_CollectsEveryNamedChildOnce</c>.
+/// </remarks>
+public sealed class SignatureSpellabilityPlan
+{
+    internal SignatureSpellabilityPlan(
+        AssemblyCatalogId catalog,
+        SignatureSpellabilitySubject subject,
+        AssemblyResolutionScope sourceScope,
+        ImmutableArray<SignatureSpellabilityOccurrence> occurrences,
+        ImmutableArray<SignatureSpellabilityPlannedRequest> requests)
+    {
+        Catalog = catalog;
+        Subject = subject;
+        SourceScope = sourceScope;
+        Occurrences = occurrences;
+        Requests = requests;
+    }
+
+    public AssemblyCatalogId Catalog { get; }
+    public ResolvedAssemblyReference Source => Subject.Source;
+    public SignatureSpellabilitySubject Subject { get; }
+
+    /// <summary>
+    /// The scope every planned request was derived under. It is never looser
+    /// than <see cref="SignatureSpellabilitySubject.AuthorizedScope"/>.
+    /// </summary>
+    public AssemblyResolutionScope SourceScope { get; }
+    public ImmutableArray<SignatureSpellabilityOccurrence> Occurrences
+        { get; }
+    public ImmutableArray<SignatureSpellabilityPlannedRequest> Requests
+        { get; }
+
+    internal ResolvedAssemblyCandidate SourceCandidate =>
+        Subject.SourceCandidate;
+}
+
+/// <summary>Closed source-binding or signature-decode rejection.</summary>
+public abstract class SignatureSpellabilityPlanFailure
+{
+    private protected SignatureSpellabilityPlanFailure()
+    {
+    }
+
+    public sealed class CandidateRejected : SignatureSpellabilityPlanFailure
+    {
+        internal CandidateRejected(CandidateOpenFailure failure) =>
+            Failure = failure;
+
+        public CandidateOpenFailure Failure { get; }
+    }
+
+    public sealed class SourceModuleMismatch : SignatureSpellabilityPlanFailure
+    {
+        internal SourceModuleMismatch(Guid expected, Guid actual)
+        {
+            Expected = expected;
+            Actual = actual;
+        }
+
+        public Guid Expected { get; }
+        public Guid Actual { get; }
+    }
+
+    public sealed class InvalidDeclaringType : SignatureSpellabilityPlanFailure
+    {
+        internal InvalidDeclaringType(int token) => Token = token;
+        public int Token { get; }
+    }
+
+    public sealed class InvalidMember : SignatureSpellabilityPlanFailure
+    {
+        internal InvalidMember(
+            int token,
+            SignatureSpellabilityMemberKind expectedKind)
+        {
+            Token = token;
+            ExpectedKind = expectedKind;
+        }
+
+        public int Token { get; }
+        public SignatureSpellabilityMemberKind ExpectedKind { get; }
+    }
+
+    public sealed class DeclaringTypeMismatch
+        : SignatureSpellabilityPlanFailure
+    {
+        internal DeclaringTypeMismatch(int declaringTypeToken, int memberToken)
+        {
+            DeclaringTypeToken = declaringTypeToken;
+            MemberToken = memberToken;
+        }
+
+        public int DeclaringTypeToken { get; }
+        public int MemberToken { get; }
+    }
+
+    public sealed class SignatureRejected : SignatureSpellabilityPlanFailure
+    {
+        internal SignatureRejected()
+        {
+        }
+    }
+}
+
+/// <summary>Closed result of catalog-owned signature planning.</summary>
+public abstract class SignatureSpellabilityPlanOutcome
+{
+    private protected SignatureSpellabilityPlanOutcome()
+    {
+    }
+
+    public sealed class Planned : SignatureSpellabilityPlanOutcome
+    {
+        internal Planned(SignatureSpellabilityPlan plan) => Plan = plan;
+        public SignatureSpellabilityPlan Plan { get; }
+    }
+
+    public sealed class Rejected : SignatureSpellabilityPlanOutcome
+    {
+        internal Rejected(SignatureSpellabilityPlanFailure failure) =>
+            Failure = failure;
+
+        public SignatureSpellabilityPlanFailure Failure { get; }
+    }
+}
+
+/// <summary>Closed result of minting one acquisition-bound subject.</summary>
+public abstract class SignatureSpellabilitySubjectOutcome
+{
+    private protected SignatureSpellabilitySubjectOutcome()
+    {
+    }
+
+    public sealed class Created : SignatureSpellabilitySubjectOutcome
+    {
+        internal Created(SignatureSpellabilitySubject subject) =>
+            Subject = subject;
+
+        public SignatureSpellabilitySubject Subject { get; }
+    }
+
+    public sealed class Rejected : SignatureSpellabilitySubjectOutcome
+    {
+        internal Rejected(SignatureSpellabilityPlanFailure failure) =>
+            Failure = failure;
+
+        public SignatureSpellabilityPlanFailure Failure { get; }
+    }
+}
+
+/// <summary>
+/// Closed reason why terminal TypeDef accessibility could not be classified.
+/// </summary>
+public abstract class TypeDefinitionAccessibilityFailure
+{
+    private protected TypeDefinitionAccessibilityFailure()
+    {
+    }
+
+    public sealed class IncomparableCatalog
+        : TypeDefinitionAccessibilityFailure
+    {
+        internal IncomparableCatalog(
+            AssemblyCatalogId expected,
+            AssemblyCatalogId actual)
+        {
+            Expected = expected;
+            Actual = actual;
+        }
+
+        public AssemblyCatalogId Expected { get; }
+        public AssemblyCatalogId Actual { get; }
+    }
+
+    public sealed class StaleGeneration : TypeDefinitionAccessibilityFailure
+    {
+        internal StaleGeneration(
+            AssemblyCatalogGenerationId keyGeneration,
+            AssemblyCatalogGenerationId? currentGeneration)
+        {
+            KeyGeneration = keyGeneration;
+            CurrentGeneration = currentGeneration;
+        }
+
+        public AssemblyCatalogGenerationId KeyGeneration { get; }
+        public AssemblyCatalogGenerationId? CurrentGeneration { get; }
+    }
+
+    public sealed class CandidateUnavailable
+        : TypeDefinitionAccessibilityFailure
+    {
+        internal CandidateUnavailable()
+        {
+        }
+    }
+
+    public sealed class CandidateOpenRejected
+        : TypeDefinitionAccessibilityFailure
+    {
+        internal CandidateOpenRejected(CandidateOpenFailure failure) =>
+            Failure = failure;
+
+        public CandidateOpenFailure Failure { get; }
+    }
+
+    public sealed class InvalidDefinition
+        : TypeDefinitionAccessibilityFailure
+    {
+        internal InvalidDefinition()
+        {
+        }
+    }
+
+    public sealed class InvalidDeclaringChain
+        : TypeDefinitionAccessibilityFailure
+    {
+        internal InvalidDeclaringChain()
+        {
+        }
+    }
+
+    public sealed class CatalogUnavailable
+        : TypeDefinitionAccessibilityFailure
+    {
+        internal CatalogUnavailable()
+        {
+        }
+    }
+}
+
+/// <summary>Closed terminal TypeDef external-accessibility answer.</summary>
+public abstract class TypeDefinitionAccessibilityOutcome
+{
+    private protected TypeDefinitionAccessibilityOutcome()
+    {
+    }
+
+    public sealed class Accessible : TypeDefinitionAccessibilityOutcome
+    {
+        internal Accessible()
+        {
+        }
+    }
+
+    public sealed class Inaccessible : TypeDefinitionAccessibilityOutcome
+    {
+        internal Inaccessible()
+        {
+        }
+    }
+
+    public sealed class Rejected : TypeDefinitionAccessibilityOutcome
+    {
+        internal Rejected(TypeDefinitionAccessibilityFailure failure) =>
+            Failure = failure;
+
+        public TypeDefinitionAccessibilityFailure Failure { get; }
+    }
+}
+
+/// <summary>One complete aggregate evidence entry.</summary>
+public abstract class SignatureSpellabilityEvidence
+{
+    private protected SignatureSpellabilityEvidence()
+    {
+    }
+
+    public sealed class IntrinsicPrimitive : SignatureSpellabilityEvidence
+    {
+        internal IntrinsicPrimitive(SignatureSpellabilityOccurrence occurrence)
+            => Occurrence = occurrence;
+
+        public SignatureSpellabilityOccurrence Occurrence { get; }
+    }
+
+    public sealed class LocalRequirement : SignatureSpellabilityEvidence
+    {
+        internal LocalRequirement(
+            TypeResolutionRequest request,
+            ResolvedTypeDefinition definition,
+            bool accessibilityParticipates)
+        {
+            Request = request;
+            Definition = definition;
+            AccessibilityParticipates = accessibilityParticipates;
+        }
+
+        public TypeResolutionRequest Request { get; }
+        public ResolvedTypeDefinition Definition { get; }
+        public bool AccessibilityParticipates { get; }
+    }
+
+    public sealed class ExternalDefinition : SignatureSpellabilityEvidence
+    {
+        internal ExternalDefinition(
+            TypeResolutionRequest request,
+            ResolvedTypeDefinition definition,
+            bool accessibilityParticipates,
+            TypeDefinitionAccessibilityOutcome accessibility)
+        {
+            Request = request;
+            Definition = definition;
+            AccessibilityParticipates = accessibilityParticipates;
+            Accessibility = accessibility;
+        }
+
+        public TypeResolutionRequest Request { get; }
+        public ResolvedTypeDefinition Definition { get; }
+        public bool AccessibilityParticipates { get; }
+        public TypeDefinitionAccessibilityOutcome Accessibility { get; }
+    }
+
+    public sealed class Unresolved : SignatureSpellabilityEvidence
+    {
+        internal Unresolved(
+            TypeResolutionRequest request,
+            bool accessibilityParticipates,
+            TypeResolutionOutcome outcome)
+        {
+            Request = request;
+            AccessibilityParticipates = accessibilityParticipates;
+            Outcome = outcome;
+        }
+
+        public TypeResolutionRequest Request { get; }
+        public bool AccessibilityParticipates { get; }
+        public TypeResolutionOutcome Outcome { get; }
+    }
+}
+
+/// <summary>
+/// Typed caller attestation that local definitions are included and nameable
+/// in the generated artifact.
+/// </summary>
+/// <remarks>
+/// Supply the exact opaque keys carried by the aggregate's
+/// <see cref="SignatureSpellabilityEvidence.LocalRequirement"/> entries.
+/// Callers do not compare or project these keys.
+/// </remarks>
+public sealed class SignatureLocalRequirementProof
+{
+    readonly HashSet<ResolvedTypeDefinitionKey> _definitions =
+        new(ReferenceEqualityComparer.Instance);
+
+    public SignatureLocalRequirementProof(
+        IEnumerable<ResolvedTypeDefinitionKey> definitions)
+    {
+        ArgumentNullException.ThrowIfNull(definitions);
+        foreach (ResolvedTypeDefinitionKey definition in definitions)
+        {
+            ArgumentNullException.ThrowIfNull(definition);
+            _definitions.Add(definition);
+        }
+    }
+
+    internal bool Contains(ResolvedTypeDefinitionKey definition) =>
+        _definitions.Contains(definition);
+}
+
+/// <summary>Closed evaluation rejection before complete evidence exists.</summary>
+public abstract class SignatureSpellabilityEvaluationFailure
+{
+    private protected SignatureSpellabilityEvaluationFailure()
+    {
+    }
+
+    public sealed class IncomparableCatalog
+        : SignatureSpellabilityEvaluationFailure
+    {
+        internal IncomparableCatalog(
+            AssemblyCatalogId expected,
+            AssemblyCatalogId actual)
+        {
+            Expected = expected;
+            Actual = actual;
+        }
+
+        public AssemblyCatalogId Expected { get; }
+        public AssemblyCatalogId Actual { get; }
+    }
+
+    public sealed class SourceUnavailable
+        : SignatureSpellabilityEvaluationFailure
+    {
+        internal SourceUnavailable()
+        {
+        }
+    }
+
+    public sealed class StaleSource : SignatureSpellabilityEvaluationFailure
+    {
+        internal StaleSource()
+        {
+        }
+    }
+
+    public sealed class PlanExpansionRequired
+        : SignatureSpellabilityEvaluationFailure
+    {
+        internal PlanExpansionRequired(TypeResolutionOutcome.Rejected outcome)
+            => Outcome = outcome;
+
+        public TypeResolutionOutcome.Rejected Outcome { get; }
+    }
+}
+
+/// <summary>Closed result of evaluating one immutable signature plan.</summary>
+public abstract class SignatureSpellabilityAggregate
+{
+    private protected SignatureSpellabilityAggregate()
+    {
+    }
+
+    public sealed class Complete : SignatureSpellabilityAggregate
+    {
+        internal Complete(
+            ImmutableArray<SignatureSpellabilityEvidence> evidence) =>
+            Evidence = evidence;
+
+        public ImmutableArray<SignatureSpellabilityEvidence> Evidence
+            { get; }
+
+        /// <summary>
+        /// Projects complete evidence into the legacy boolean question while
+        /// requiring typed proof for every local definition.
+        /// </summary>
+        /// <remarks>
+        /// Gated by
+        /// <c>SignatureSpellability_RequiresLocalArtifactProof</c> and
+        /// <c>SignatureSpellability_MergesModifierParticipation</c>.
+        /// </remarks>
+        public bool CanSpell(
+            SignatureLocalRequirementProof? localProof = null)
+        {
+            foreach (SignatureSpellabilityEvidence entry in Evidence)
+            {
+                switch (entry)
+                {
+                    case SignatureSpellabilityEvidence.LocalRequirement local
+                        when localProof is null
+                            || !localProof.Contains(local.Definition.Key):
+                        return false;
+                    case SignatureSpellabilityEvidence.ExternalDefinition
+                    {
+                        AccessibilityParticipates: true,
+                        Accessibility:
+                            not TypeDefinitionAccessibilityOutcome.Accessible,
+                    }:
+                        return false;
+                    case SignatureSpellabilityEvidence.Unresolved:
+                        return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    public sealed class Rejected : SignatureSpellabilityAggregate
+    {
+        internal Rejected(SignatureSpellabilityEvaluationFailure failure) =>
+            Failure = failure;
+
+        public SignatureSpellabilityEvaluationFailure Failure { get; }
+    }
+}
+
+internal readonly record struct DefinitionAccessibilityCacheKey(
+    AssemblyCandidateId Candidate,
+    TypeDefinitionToken Definition);
+
+internal abstract class SessionAccessibilityOutcome
+{
+    private protected SessionAccessibilityOutcome()
+    {
+    }
+
+    internal sealed class Accessible : SessionAccessibilityOutcome;
+    internal sealed class Inaccessible : SessionAccessibilityOutcome;
+    internal sealed class InvalidDefinition : SessionAccessibilityOutcome;
+    internal sealed class InvalidDeclaringChain : SessionAccessibilityOutcome;
+}
+
+internal static class SignatureSpellabilityPlanner
+{
+    internal static SignatureSpellabilityPlanOutcome Plan(
+        AssemblyCatalogId catalog,
+        SignatureSpellabilitySubject subject,
+        AssemblyInspectionSession session,
+        AssemblyResolutionScope requestedScope)
+    {
+        Guid actualMvid = session.ModuleVersionId();
+        if (actualMvid != subject.SourceModuleVersionId)
+        {
+            return Rejected(
+                new SignatureSpellabilityPlanFailure.SourceModuleMismatch(
+                    subject.SourceModuleVersionId,
+                    actualMvid));
+        }
+
+        // A caller may only add the platform constraint; the baseline the
+        // source candidate was minted with can never be widened back to Any.
+        AssemblyResolutionScope sourceScope =
+            AssemblyResolutionScopes.Tighten(
+                subject.AuthorizedScope,
+                requestedScope);
+
+        SignaturePlanDecodeOutcome decoded =
+            session.DecodeSignatureSpellability(subject);
+        if (decoded is SignaturePlanDecodeOutcome.Rejected rejected)
+            return Rejected(rejected.Failure);
+
+        ImmutableArray<RawOccurrence> raw =
+            ((SignaturePlanDecodeOutcome.Decoded)decoded).Occurrences;
+        var occurrences =
+            ImmutableArray.CreateBuilder<SignatureSpellabilityOccurrence>(
+                raw.Length);
+        var requestOrder = new List<TypeResolutionRequest>();
+        var participation = new Dictionary<TypeResolutionRequest, bool>(
+            TypeResolutionRequestComparer.Instance);
+        for (int index = 0; index < raw.Length; index++)
+        {
+            RawOccurrence occurrence = raw[index];
+            TypeResolutionRequest? request = Request(
+                subject.Source,
+                sourceScope,
+                occurrence.Reference);
+            bool participates =
+                occurrence.Role
+                    is SignatureSpellabilityOccurrenceRole.Ordinary
+                        or SignatureSpellabilityOccurrenceRole.RequiredModifier;
+            occurrences.Add(
+                new SignatureSpellabilityOccurrence(
+                    index,
+                    occurrence.Reference,
+                    occurrence.Role,
+                    participates,
+                    request));
+            if (request is null)
+                continue;
+
+            if (participation.TryGetValue(request, out bool existing))
+            {
+                participation[request] = existing || participates;
+            }
+            else
+            {
+                participation.Add(request, participates);
+                requestOrder.Add(request);
+            }
+        }
+
+        var requests =
+            ImmutableArray.CreateBuilder<SignatureSpellabilityPlannedRequest>(
+                requestOrder.Count);
+        foreach (TypeResolutionRequest request in requestOrder)
+        {
+            requests.Add(
+                new SignatureSpellabilityPlannedRequest(
+                    request,
+                    participation[request]));
+        }
+
+        return new SignatureSpellabilityPlanOutcome.Planned(
+            new SignatureSpellabilityPlan(
+                catalog,
+                subject,
+                sourceScope,
+                occurrences.ToImmutable(),
+                requests.ToImmutable()));
+    }
+
+    static TypeResolutionRequest? Request(
+        ResolvedAssemblyReference source,
+        AssemblyResolutionScope sourceScope,
+        MetadataNamedTypeReference reference) =>
+        reference.Scope switch
+        {
+            MetadataTypeReferenceScope.CurrentAssembly =>
+                TypeResolutionRequest.FromAssembly(
+                    source,
+                    sourceScope,
+                    reference.Type),
+            MetadataTypeReferenceScope.AssemblyReference assembly =>
+                TypeResolutionRequest.FromReference(
+                    assembly.Assembly,
+                    AssemblyBindingOrigin.FromAssembly(source),
+                    AssemblyResolutionScopes.Tighten(
+                        sourceScope,
+                        assembly.Assembly),
+                    reference.Type),
+            MetadataTypeReferenceScope.IntrinsicCoreLibrary => null,
+            MetadataTypeReferenceScope.ModuleReference module =>
+                TypeResolutionRequest.FromModule(
+                    source,
+                    module.Name,
+                    reference.Type),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata type-reference scope."),
+        };
+
+    static SignatureSpellabilityPlanOutcome.Rejected Rejected(
+        SignatureSpellabilityPlanFailure failure) =>
+        new(failure);
+}
+
+internal static class SignatureSpellabilityEvaluator
+{
+    /// <summary>
+    /// Evaluates one plan while the caller holds a generation lease, so source
+    /// currency, every resolution, and every accessibility classification
+    /// observe one generation.
+    /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>SignatureSpellability_HoldsOneGenerationAcrossEvaluation</c>.
+    /// </remarks>
+    internal static SignatureSpellabilityAggregate Evaluate(
+        TypeResolutionContext context,
+        SignatureSpellabilityPlan plan)
+    {
+        switch (context.SourceStatus(plan.SourceCandidate))
+        {
+            case SignaturePlanSourceStatus.Current:
+                break;
+            case SignaturePlanSourceStatus.Stale:
+                return new SignatureSpellabilityAggregate.Rejected(
+                    new SignatureSpellabilityEvaluationFailure.StaleSource());
+            case SignaturePlanSourceStatus.Unavailable:
+                return new SignatureSpellabilityAggregate.Rejected(
+                    new SignatureSpellabilityEvaluationFailure
+                        .SourceUnavailable());
+            default:
+                throw new InvalidOperationException(
+                    "Unknown signature plan source status.");
+        }
+
+        var outcomes = new Dictionary<
+            TypeResolutionRequest,
+            TypeResolutionOutcome>(
+                TypeResolutionRequestComparer.Instance);
+        foreach (SignatureSpellabilityPlannedRequest planned in plan.Requests)
+        {
+            TypeResolutionOutcome outcome =
+                context.Resolve(planned.Request);
+            if (outcome is TypeResolutionOutcome.Rejected
+                {
+                    Failure:
+                        TypeResolutionFailure.PlanExpansionRequired,
+                } expansion)
+            {
+                return new SignatureSpellabilityAggregate.Rejected(
+                    new SignatureSpellabilityEvaluationFailure
+                        .PlanExpansionRequired(expansion));
+            }
+
+            outcomes.Add(planned.Request, outcome);
+        }
+
+        var evidence =
+            ImmutableArray.CreateBuilder<SignatureSpellabilityEvidence>();
+        var emitted = new HashSet<TypeResolutionRequest>(
+            TypeResolutionRequestComparer.Instance);
+        var participation = plan.Requests.ToDictionary(
+            request => request.Request,
+            request => request.AccessibilityParticipates,
+            TypeResolutionRequestComparer.Instance);
+        foreach (SignatureSpellabilityOccurrence occurrence
+            in plan.Occurrences)
+        {
+            if (occurrence.Request is null)
+            {
+                evidence.Add(
+                    new SignatureSpellabilityEvidence.IntrinsicPrimitive(
+                        occurrence));
+                continue;
+            }
+            if (!emitted.Add(occurrence.Request))
+                continue;
+
+            TypeResolutionOutcome outcome = outcomes[occurrence.Request];
+            bool participates = participation[occurrence.Request];
+            if (outcome is not TypeResolutionOutcome.Resolved resolved)
+            {
+                evidence.Add(
+                    new SignatureSpellabilityEvidence.Unresolved(
+                        occurrence.Request,
+                        participates,
+                        outcome));
+                continue;
+            }
+
+            if (resolved.Definition.Key.Assembly
+                == plan.SourceCandidate.Id)
+            {
+                evidence.Add(
+                    new SignatureSpellabilityEvidence.LocalRequirement(
+                        occurrence.Request,
+                        resolved.Definition,
+                        participates));
+                continue;
+            }
+
+            evidence.Add(
+                new SignatureSpellabilityEvidence.ExternalDefinition(
+                    occurrence.Request,
+                    resolved.Definition,
+                    participates,
+                    context.GetTerminalDefinitionAccessibility(
+                        resolved.Definition.Key)));
+        }
+
+        return new SignatureSpellabilityAggregate.Complete(
+            evidence.ToImmutable());
+    }
+}
+
+internal abstract class SignaturePlanDecodeOutcome
+{
+    private protected SignaturePlanDecodeOutcome()
+    {
+    }
+
+    internal sealed class Decoded(
+        ImmutableArray<RawOccurrence> occurrences)
+        : SignaturePlanDecodeOutcome
+    {
+        internal ImmutableArray<RawOccurrence> Occurrences { get; } =
+            occurrences;
+    }
+
+    internal sealed class Rejected(
+        SignatureSpellabilityPlanFailure failure)
+        : SignaturePlanDecodeOutcome
+    {
+        internal SignatureSpellabilityPlanFailure Failure { get; } = failure;
+    }
+}
+
+internal readonly record struct RawOccurrence(
+    MetadataNamedTypeReference Reference,
+    SignatureSpellabilityOccurrenceRole Role);
+
+internal readonly record struct SignatureTypeOccurrences(
+    ImmutableArray<RawOccurrence> Values)
+{
+    internal static SignatureTypeOccurrences Empty =>
+        new(ImmutableArray<RawOccurrence>.Empty);
+
+    internal SignatureTypeOccurrences WithRole(
+        SignatureSpellabilityOccurrenceRole role) =>
+        new(Values.Select(value => value with { Role = role })
+            .ToImmutableArray());
+
+    internal static SignatureTypeOccurrences Combine(
+        SignatureTypeOccurrences first,
+        IEnumerable<SignatureTypeOccurrences> rest)
+    {
+        var builder = ImmutableArray.CreateBuilder<RawOccurrence>();
+        builder.AddRange(first.Values);
+        foreach (SignatureTypeOccurrences value in rest)
+            builder.AddRange(value.Values);
+        return new SignatureTypeOccurrences(builder.ToImmutable());
+    }
+}
+
+internal sealed class SignatureOccurrenceProvider
+    : ISignatureTypeProvider<SignatureTypeOccurrences, object?>
+{
+    internal static SignatureOccurrenceProvider Instance { get; } = new();
+
+    public SignatureTypeOccurrences GetPrimitiveType(
+        PrimitiveTypeCode typeCode) =>
+        Named(
+            new MetadataTypeReferenceScope.IntrinsicCoreLibrary(),
+            "System",
+            typeCode switch
+            {
+                PrimitiveTypeCode.Boolean => "Boolean",
+                PrimitiveTypeCode.Byte => "Byte",
+                PrimitiveTypeCode.SByte => "SByte",
+                PrimitiveTypeCode.Char => "Char",
+                PrimitiveTypeCode.Int16 => "Int16",
+                PrimitiveTypeCode.UInt16 => "UInt16",
+                PrimitiveTypeCode.Int32 => "Int32",
+                PrimitiveTypeCode.UInt32 => "UInt32",
+                PrimitiveTypeCode.Int64 => "Int64",
+                PrimitiveTypeCode.UInt64 => "UInt64",
+                PrimitiveTypeCode.Single => "Single",
+                PrimitiveTypeCode.Double => "Double",
+                PrimitiveTypeCode.IntPtr => "IntPtr",
+                PrimitiveTypeCode.UIntPtr => "UIntPtr",
+                PrimitiveTypeCode.String => "String",
+                PrimitiveTypeCode.Object => "Object",
+                PrimitiveTypeCode.Void => "Void",
+                PrimitiveTypeCode.TypedReference => "TypedReference",
+                _ => throw new BadImageFormatException(
+                    "The primitive type code is unsupported."),
+            });
+
+    public SignatureTypeOccurrences GetTypeFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        byte rawTypeKind) =>
+        MetadataTypeDefinitionNameReader.Read(reader, handle)
+            is MetadataTypeDefinitionNameReadResult.Read read
+                ? One(
+                    new MetadataNamedTypeReference(
+                        new MetadataTypeReferenceScope.CurrentAssembly(),
+                        read.Name))
+                : throw new BadImageFormatException(
+                    "The signature TypeDef name could not be read.");
+
+    public SignatureTypeOccurrences GetTypeFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        byte rawTypeKind)
+    {
+        if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+            is not MetadataTypeDefinitionNameReadResult.Read read)
+        {
+            throw new BadImageFormatException(
+                "The signature TypeRef name could not be read.");
+        }
+
+        Span<TypeReferenceHandle> chain =
+            stackalloc TypeReferenceHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeReferenceResolutionScope(
+                    reader,
+                    handle,
+                    chain,
+                    out _,
+                    out EntityHandle terminal,
+                    out _))
+        {
+            throw new BadImageFormatException(
+                "The TypeRef resolution-scope chain was rejected.");
+        }
+
+        MetadataTypeReferenceScope scope = terminal.Kind switch
+        {
+            HandleKind.AssemblyReference =>
+                new MetadataTypeReferenceScope.AssemblyReference(
+                    AssemblyReferenceIdentity.From(
+                        reader,
+                        (AssemblyReferenceHandle)terminal)),
+            HandleKind.ModuleReference =>
+                ModuleScope(reader, (ModuleReferenceHandle)terminal),
+            HandleKind.ModuleDefinition =>
+                new MetadataTypeReferenceScope.CurrentAssembly(),
+            _ when terminal.IsNil =>
+                new MetadataTypeReferenceScope.CurrentAssembly(),
+            _ => throw new BadImageFormatException(
+                "The TypeRef has an unsupported resolution scope."),
+        };
+        return One(new MetadataNamedTypeReference(scope, read.Name));
+    }
+
+    public SignatureTypeOccurrences GetTypeFromSpecification(
+        MetadataReader reader,
+        object? context,
+        TypeSpecificationHandle handle,
+        byte rawTypeKind)
+    {
+        // A nested TypeSpec must be fully consumed by the TypeSpec grammar.
+        // SRM decodes one Type and stops, so a safe-prefix-only check would let
+        // unconsumed trailing bytes ride along with the named children this
+        // plan retains.
+        if (!TypeSpecGuard.TryEnterComplete(reader, handle, out var scope))
+        {
+            throw new BadImageFormatException(
+                "The TypeSpec recursion guard rejected the signature.");
+        }
+
+        using (scope)
+        {
+            return reader.GetTypeSpecification(handle)
+                .DecodeSignature(this, context);
+        }
+    }
+
+    public SignatureTypeOccurrences GetSZArrayType(
+        SignatureTypeOccurrences elementType) =>
+        elementType;
+
+    public SignatureTypeOccurrences GetArrayType(
+        SignatureTypeOccurrences elementType,
+        ArrayShape shape) =>
+        elementType;
+
+    public SignatureTypeOccurrences GetByReferenceType(
+        SignatureTypeOccurrences elementType) =>
+        elementType;
+
+    public SignatureTypeOccurrences GetPointerType(
+        SignatureTypeOccurrences elementType) =>
+        elementType;
+
+    public SignatureTypeOccurrences GetPinnedType(
+        SignatureTypeOccurrences elementType) =>
+        elementType;
+
+    public SignatureTypeOccurrences GetGenericInstantiation(
+        SignatureTypeOccurrences genericType,
+        ImmutableArray<SignatureTypeOccurrences> typeArguments) =>
+        SignatureTypeOccurrences.Combine(genericType, typeArguments);
+
+    public SignatureTypeOccurrences GetGenericTypeParameter(
+        object? context,
+        int index) =>
+        SignatureTypeOccurrences.Empty;
+
+    public SignatureTypeOccurrences GetGenericMethodParameter(
+        object? context,
+        int index) =>
+        SignatureTypeOccurrences.Empty;
+
+    public SignatureTypeOccurrences GetFunctionPointerType(
+        MethodSignature<SignatureTypeOccurrences> signature) =>
+        SignatureTypeOccurrences.Combine(
+            signature.ReturnType,
+            signature.ParameterTypes);
+
+    public SignatureTypeOccurrences GetModifiedType(
+        SignatureTypeOccurrences modifier,
+        SignatureTypeOccurrences unmodifiedType,
+        bool isRequired) =>
+        SignatureTypeOccurrences.Combine(
+            modifier.WithRole(
+                isRequired
+                    ? SignatureSpellabilityOccurrenceRole.RequiredModifier
+                    : SignatureSpellabilityOccurrenceRole.OptionalModifier),
+            [unmodifiedType]);
+
+    static SignatureTypeOccurrences One(
+        MetadataNamedTypeReference reference) =>
+        new(
+            ImmutableArray.Create(
+                new RawOccurrence(
+                    reference,
+                    SignatureSpellabilityOccurrenceRole.Ordinary)));
+
+    static SignatureTypeOccurrences Named(
+        MetadataTypeReferenceScope scope,
+        string @namespace,
+        string name) =>
+        MetadataTypeDefinitionName.Create(
+            @namespace,
+            ImmutableArray.Create(name))
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? One(new MetadataNamedTypeReference(scope, valid.Name))
+                : throw new BadImageFormatException(
+                    "A primitive type name could not be represented.");
+
+    static MetadataTypeReferenceScope ModuleScope(
+        MetadataReader reader,
+        ModuleReferenceHandle handle)
+    {
+        string name =
+            reader.GetString(reader.GetModuleReference(handle).Name);
+        return string.IsNullOrWhiteSpace(name)
+            ? throw new BadImageFormatException(
+                "The module reference name is empty.")
+            : new MetadataTypeReferenceScope.ModuleReference(name);
+    }
+}
+
+internal enum SignaturePlanSourceStatus
+{
+    Current,
+    Stale,
+    Unavailable,
+}
+
+/// <summary>
+/// Whether a caller holds the catalog's current generation for the duration of
+/// a multi-step evaluation.
+/// </summary>
+internal enum GenerationLeaseStatus
+{
+    Acquired,
+    Stale,
+    Unavailable,
+}

@@ -105,7 +105,8 @@ public class ProviderSignatureDecodeBoundaryTests
         Assert.True(
             unguarded.Count == 0,
             "Every nested TypeSpec decode invocation must be enclosed by the disposable "
-            + "scope returned from its own TypeSpecGuard.TryEnter call:\n  "
+            + "scope returned from its own TypeSpecGuard.TryEnter or "
+            + "TryEnterComplete call:\n  "
             + string.Join("\n  ", unguarded));
     }
 
@@ -116,6 +117,33 @@ public class ProviderSignatureDecodeBoundaryTests
         var violations = UnsafeDecodeOccurrences(ParseSource(source)).ToArray();
 
         Assert.NotEmpty(violations);
+    }
+
+    /// <summary>
+    /// The signature-spellability planner retains named children from every
+    /// nested TypeSpec, so its provider must enter with the whole-blob form.
+    /// Downgrading it to <c>TryEnter</c> would let a blob the guard cannot
+    /// fully account for reach SRM's native-stack recursion.
+    /// </summary>
+    [Fact]
+    public void SignatureSpellabilityProvider_EntersCompleteTypeSpecs()
+    {
+        string file = Path.Combine(
+            FindRepoRoot(),
+            "src",
+            "ILInspector.Metadata",
+            "SignatureSpellabilityAggregate.cs");
+        Assert.True(File.Exists(file), file);
+
+        string[] entries = ParseRoot(file).DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Select(invocation => invocation.Expression)
+            .OfType<MemberAccessExpressionSyntax>()
+            .Where(member => IsNamedExpression(member.Expression, "TypeSpecGuard"))
+            .Select(member => member.Name.Identifier.ValueText)
+            .ToArray();
+
+        Assert.Equal(["TryEnterComplete"], entries);
     }
 
     public static TheoryData<string, string> ReviewerEvasions => new()
@@ -1415,7 +1443,10 @@ public class ProviderSignatureDecodeBoundaryTests
         operand = StripParentheses(operand);
         if (operand is not InvocationExpressionSyntax tryEnter
             || tryEnter.Expression is not MemberAccessExpressionSyntax member
-            || member.Name.Identifier.ValueText != "TryEnter"
+            // `TryEnterComplete` is `TryEnter` plus a whole-blob consumption
+            // requirement, so it is a strictly stronger sanctioned form.
+            || member.Name.Identifier.ValueText
+                is not ("TryEnter" or "TryEnterComplete")
             || !IsNamedExpression(member.Expression, "TypeSpecGuard"))
         {
             return false;

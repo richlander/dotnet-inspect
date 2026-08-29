@@ -15,3 +15,7 @@ public sealed class VisibleReferenceType
 public class VisibleGeneric<T>
 {
 }
+
+public struct VisibleValueType
+{
+}

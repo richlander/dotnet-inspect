@@ -1,4 +1,8 @@
 using ILInspector.MetadataPrimitives;
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -356,6 +360,335 @@ public sealed class AssemblyInspectionSession : IDisposable
     {
         var reader = _image.GetMetadataReader();
         return reader.GetGuid(reader.GetModuleDefinition().Mvid);
+    }
+
+    /// <summary>
+    /// Validates one member's coordinates against this exact retained image
+    /// before a catalog mints an acquisition-bound subject for it.
+    /// </summary>
+    /// <remarks>
+    /// Gated by <c>SignatureSpellability_BindsSubjectToSourceModule</c>.
+    /// </remarks>
+    internal SignatureSpellabilityPlanFailure? ValidateSignatureSubject(
+        int declaringTypeToken,
+        int memberToken,
+        SignatureSpellabilityMemberKind memberKind)
+    {
+        _image.EnsureAlive();
+        MetadataReader reader = _image.GetMetadataReader();
+        return Validate(
+            reader,
+            declaringTypeToken,
+            memberToken,
+            memberKind,
+            out _,
+            out _);
+    }
+
+    static SignatureSpellabilityPlanFailure? Validate(
+        MetadataReader reader,
+        int declaringTypeToken,
+        int memberToken,
+        SignatureSpellabilityMemberKind memberKind,
+        out TypeDefinitionHandle declaringType,
+        out EntityHandle member)
+    {
+        member = default;
+        if (!TryDefinition(reader, declaringTypeToken, out declaringType))
+        {
+            return new SignatureSpellabilityPlanFailure.InvalidDeclaringType(
+                declaringTypeToken);
+        }
+        if (!TryMember(reader, memberToken, memberKind, out member))
+        {
+            return new SignatureSpellabilityPlanFailure.InvalidMember(
+                memberToken,
+                memberKind);
+        }
+
+        try
+        {
+            bool owned = memberKind switch
+            {
+                SignatureSpellabilityMemberKind.Field =>
+                    reader.GetFieldDefinition(
+                            (FieldDefinitionHandle)member)
+                        .GetDeclaringType() == declaringType,
+                SignatureSpellabilityMemberKind.Property =>
+                    reader.GetTypeDefinition(declaringType)
+                        .GetProperties()
+                        .Contains((PropertyDefinitionHandle)member),
+                SignatureSpellabilityMemberKind.Method =>
+                    reader.GetMethodDefinition(
+                            (MethodDefinitionHandle)member)
+                        .GetDeclaringType() == declaringType,
+                _ => throw new InvalidOperationException(
+                    "Unknown signature member kind."),
+            };
+            return owned
+                ? null
+                : new SignatureSpellabilityPlanFailure.DeclaringTypeMismatch(
+                    declaringTypeToken,
+                    memberToken);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or OverflowException)
+        {
+            return new SignatureSpellabilityPlanFailure.InvalidMember(
+                memberToken,
+                memberKind);
+        }
+    }
+
+    internal SignaturePlanDecodeOutcome DecodeSignatureSpellability(
+        SignatureSpellabilitySubject subject)
+    {
+        _image.EnsureAlive();
+        MetadataReader reader = _image.GetMetadataReader();
+        if (Validate(
+                reader,
+                subject.DeclaringTypeToken,
+                subject.MemberToken,
+                subject.MemberKind,
+                out TypeDefinitionHandle declaringType,
+                out EntityHandle member) is { } invalid)
+        {
+            return Rejected(invalid);
+        }
+
+        try
+        {
+            SignatureTypeOccurrences occurrences;
+            switch (subject.MemberKind)
+            {
+                case SignatureSpellabilityMemberKind.Field:
+                {
+                    var field = reader.GetFieldDefinition(
+                        (FieldDefinitionHandle)member);
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                            reader,
+                            field.Signature,
+                            SignatureBlobGuard.Kind.Field))
+                    {
+                        return SignatureRejected();
+                    }
+                    occurrences = field.DecodeSignature(
+                        SignatureOccurrenceProvider.Instance,
+                        genericContext: null);
+                    break;
+                }
+
+                case SignatureSpellabilityMemberKind.Property:
+                {
+                    var property = reader.GetPropertyDefinition(
+                        (PropertyDefinitionHandle)member);
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                            reader,
+                            property.Signature,
+                            SignatureBlobGuard.Kind.Method))
+                    {
+                        return SignatureRejected();
+                    }
+                    MethodSignature<SignatureTypeOccurrences>
+                        propertySignature = property.DecodeSignature(
+                            SignatureOccurrenceProvider.Instance,
+                            genericContext: null);
+                    occurrences = SignatureTypeOccurrences.Combine(
+                        propertySignature.ReturnType,
+                        propertySignature.ParameterTypes);
+                    break;
+                }
+
+                case SignatureSpellabilityMemberKind.Method:
+                {
+                    var method = reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)member);
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                            reader,
+                            method.Signature,
+                            SignatureBlobGuard.Kind.Method))
+                    {
+                        return SignatureRejected();
+                    }
+                    MethodSignature<SignatureTypeOccurrences>
+                        methodSignature = method.DecodeSignature(
+                            SignatureOccurrenceProvider.Instance,
+                            genericContext: null);
+                    occurrences = SignatureTypeOccurrences.Combine(
+                        methodSignature.ReturnType,
+                        methodSignature.ParameterTypes);
+                    break;
+                }
+
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown signature member kind.");
+            }
+
+            return new SignaturePlanDecodeOutcome.Decoded(
+                occurrences.Values);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException
+                or OverflowException)
+        {
+            return SignatureRejected();
+        }
+
+        static SignaturePlanDecodeOutcome.Rejected Rejected(
+            SignatureSpellabilityPlanFailure failure) =>
+            new(failure);
+
+        static SignaturePlanDecodeOutcome.Rejected SignatureRejected() =>
+            Rejected(
+                new SignatureSpellabilityPlanFailure.SignatureRejected());
+    }
+
+    internal SessionAccessibilityOutcome ClassifyExternalAccessibility(
+        MetadataTypeDefinitionAddress address)
+    {
+        _image.EnsureAlive();
+        MetadataReader reader = _image.GetMetadataReader();
+        if (!address.TryResolve(reader, out TypeDefinitionHandle current))
+            return new SessionAccessibilityOutcome.InvalidDefinition();
+
+        var seen = new HashSet<TypeDefinitionHandle>();
+        bool accessible = true;
+        try
+        {
+            for (int count = 0;
+                count < MetadataSafetyPolicy.MaxRelationshipNodes;
+                count++)
+            {
+                if (!seen.Add(current))
+                {
+                    return new SessionAccessibilityOutcome
+                        .InvalidDeclaringChain();
+                }
+
+                TypeDefinition definition =
+                    reader.GetTypeDefinition(current);
+                TypeDefinitionHandle declaring =
+                    definition.GetDeclaringType();
+                TypeAttributes visibility =
+                    definition.Attributes & TypeAttributes.VisibilityMask;
+                switch (visibility)
+                {
+                    case TypeAttributes.Public:
+                    case TypeAttributes.NotPublic:
+                        if (!declaring.IsNil)
+                        {
+                            return new SessionAccessibilityOutcome
+                                .InvalidDeclaringChain();
+                        }
+                        if (visibility != TypeAttributes.Public)
+                            accessible = false;
+                        return accessible
+                            ? new SessionAccessibilityOutcome.Accessible()
+                            : new SessionAccessibilityOutcome.Inaccessible();
+
+                    case TypeAttributes.NestedPublic:
+                    case TypeAttributes.NestedPrivate:
+                    case TypeAttributes.NestedFamily:
+                    case TypeAttributes.NestedAssembly:
+                    case TypeAttributes.NestedFamANDAssem:
+                    case TypeAttributes.NestedFamORAssem:
+                        if (declaring.IsNil)
+                        {
+                            return new SessionAccessibilityOutcome
+                                .InvalidDeclaringChain();
+                        }
+                        if (visibility != TypeAttributes.NestedPublic)
+                            accessible = false;
+                        current = declaring;
+                        break;
+
+                    default:
+                        return new SessionAccessibilityOutcome
+                            .InvalidDeclaringChain();
+                }
+            }
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException)
+        {
+            return new SessionAccessibilityOutcome.InvalidDeclaringChain();
+        }
+
+        return new SessionAccessibilityOutcome.InvalidDeclaringChain();
+    }
+
+    static bool TryDefinition(
+        MetadataReader reader,
+        int token,
+        out TypeDefinitionHandle handle)
+    {
+        handle = default;
+        try
+        {
+            EntityHandle entity = MetadataTokens.EntityHandle(token);
+            if (entity.Kind != HandleKind.TypeDefinition)
+                return false;
+            handle = (TypeDefinitionHandle)entity;
+            int row = MetadataTokens.GetRowNumber(handle);
+            return row > 0
+                && row <= reader.GetTableRowCount(TableIndex.TypeDef);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    static bool TryMember(
+        MetadataReader reader,
+        int memberToken,
+        SignatureSpellabilityMemberKind memberKind,
+        out EntityHandle member)
+    {
+        member = default;
+        try
+        {
+            EntityHandle entity =
+                MetadataTokens.EntityHandle(memberToken);
+            TableIndex table;
+            HandleKind kind;
+            switch (memberKind)
+            {
+                case SignatureSpellabilityMemberKind.Field:
+                    table = TableIndex.Field;
+                    kind = HandleKind.FieldDefinition;
+                    break;
+                case SignatureSpellabilityMemberKind.Property:
+                    table = TableIndex.Property;
+                    kind = HandleKind.PropertyDefinition;
+                    break;
+                case SignatureSpellabilityMemberKind.Method:
+                    table = TableIndex.MethodDef;
+                    kind = HandleKind.MethodDefinition;
+                    break;
+                default:
+                    return false;
+            }
+            if (entity.Kind != kind)
+                return false;
+
+            int row = memberToken & 0x00FFFFFF;
+            if (row <= 0 || row > reader.GetTableRowCount(table))
+                return false;
+            member = entity;
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

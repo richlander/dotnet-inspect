@@ -116,6 +116,38 @@ public class SignatureDecoderSafetyTests
         }
     }
 
+    /// <summary>
+    /// <c>TryEnterComplete</c> demands that the whole TypeSpec blob be
+    /// consumed by the single-Type grammar. Trailing bytes are rejected by
+    /// both entry points; a blob truncated mid-token is rejected only by the
+    /// complete form, which therefore never hands a partial blob to SRM's
+    /// native-stack recursion.
+    /// </summary>
+    [Fact]
+    public void CompleteTypeSpecEntry_RejectsTrailingAndTruncatedBlobs()
+    {
+        var handle = MetadataTokens.TypeSpecificationHandle(1);
+
+        MetadataReader whole = BuildTypeSpec(
+            signature => signature.WriteByte(0x08));   // I4
+        Assert.True(TypeSpecGuard.TryEnterComplete(whole, handle, out var scope));
+        scope.Dispose();
+
+        MetadataReader trailing = BuildTypeSpec(signature =>
+        {
+            signature.WriteByte(0x08);                 // I4
+            signature.WriteByte(0x00);                 // unconsumed suffix
+        });
+        Assert.False(TypeSpecGuard.TryEnter(trailing, handle, out _));
+        Assert.False(TypeSpecGuard.TryEnterComplete(trailing, handle, out _));
+
+        MetadataReader truncated = BuildTypeSpec(
+            signature => signature.WriteByte(0x1d));   // SZARRAY, no element
+        Assert.True(TypeSpecGuard.TryEnter(truncated, handle, out var accepted));
+        accepted.Dispose();
+        Assert.False(TypeSpecGuard.TryEnterComplete(truncated, handle, out _));
+    }
+
     [Fact]
     public void CopiedTypeSpecScope_CannotExitTwice()
     {
