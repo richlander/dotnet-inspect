@@ -2800,10 +2800,19 @@ introduces a new quantity must extend this table in the same change.
 | Occurrence copies | copying occurrence arrays through aggregate layers | A | materialization budget, `MaxSignatureTypeNodes * 8` |
 | Type name characters | `TypeDef`/`TypeRef` name projection | A | `MaxTypeNameCharacters` per name, enforced by the name reader before materializing; repetition charged to the ledger |
 | Resolution-scope chain length | walking a `TypeRef` parent chain | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
-| `AssemblyRef` name, culture, public key storage | terminal scope projection | **B** | charged from storage length before materializing |
+| `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | A | `TypeSpecGuard.MaxCumulativeBytes` per `TypeSpec`; repetition charged to the ledger |
+| Array shape bounds | array shape materialization | A | the enclosing signature blob, bounded by `SignatureBlobGuard` before decoding begins |
+| `AssemblyRef` public-key **token** | terminal scope projection | A | exactly 8 bytes, enforced before the token is projected |
+| `AssemblyRef` **full public key** | terminal scope projection, when `AssemblyFlags.PublicKey` is set | **B** | charged from storage length before materializing |
+| `AssemblyRef` name and culture storage | terminal scope projection | **B** | charged from storage length before materializing |
 | `ModuleRef` name storage | terminal scope projection | **B** | charged from storage length before materializing |
-| `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | **B** | charged from blob length before scanning |
-| Array shape bounds | array shape materialization | **B** | charged before materializing |
+
+The `AssemblyRef` public key appears twice because one flag decides its class.
+When `AssemblyFlags.PublicKey` is clear the blob is a token and an exact
+8-byte check rejects anything else, so it is Class A. When the flag is set the
+blob is a real key the author sizes, nothing caps it, and it is Class B. A
+classification that named the field without naming the flag would be wrong for
+one of the two paths.
 
 ### Budgets
 
@@ -2822,9 +2831,113 @@ budget substitutes for the ledger.
 
 The ledger ceiling is `MaxTypeNameCharacters * 64`. The rationale is that one
 decode may legitimately examine the equivalent of 64 maximum-length type names.
-Real member signatures reference tens of types with short names, so the ceiling
-leaves large headroom; a change that raises it must state why a legitimate
-signature needed more, not merely that an input was rejected.
+The census below reports the observed maxima this ceiling must clear; a change
+that raises it must state why a legitimate signature needed more, not merely
+that an input was rejected.
+
+### Measured bounds
+
+A ceiling is a claim about real artifacts, so it is set from a census rather
+than from judgement. This one decoded every method, field, and property
+signature in two corpora with all three budgets removed, recording what each
+decode consumed.
+
+| Corpus | Assemblies | Decodes | Ordered SHA-256 of inputs |
+| --- | ---: | ---: | --- |
+| .NET 11 preview 6 runtime and reference packs (`11.0.0-preview.6.26359.118`) | 490 | 363,322 | `4c0c167ce14db91ca046c44aa038a21d411da7d8b95fe5a18cba6248eaee38cc` |
+| Third-party packages from the restored package cache (178 packages, deduplicated by content) | 3,017 | 4,163,048 | `204ea4a1d49a4d772e6941c2bda98c9721b1631cfa8414aa931342753b1f2d71` |
+| Combined | 3,507 | 4,526,370 | |
+
+No decode was rejected by a pre-existing guard, so every observation is of a
+complete decode.
+
+Per-decode consumption against each budget:
+
+| Budget | Ceiling | p50 | p99.99 | Observed max | Headroom |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Node budget | 65,536 | 1 | 63 | 166 | 394x |
+| Materialization budget | 524,288 | 1 | 63 | 144 | 3,640x |
+| Work ledger | 262,144 | 63 | 1,023 | 1,371 | 191x |
+
+Per-quantity consumption, as the largest single charge and the largest total
+within one decode:
+
+| Quantity | Largest single | Largest per decode | Charges | Per-item cap |
+| --- | ---: | ---: | ---: | --- |
+| Type name characters | 193 | 1,301 | 4,242,966 | 4,096 |
+| Resolution-scope chain length | 3 | 17 | 1,830,051 | 256 |
+| `AssemblyRef` name storage | 58 | 292 | 1,521,833 | none |
+| `AssemblyRef` public-key token | 8 | 64 | 1,521,570 | 8 |
+| `AssemblyRef` culture storage | 0 | 0 | 0 | none |
+| `AssemblyRef` full public key | 0 | 0 | 0 | **none** |
+| `ModuleRef` name storage | 0 | 0 | 0 | **none** |
+| `TypeSpec` blob bytes | 0 | 0 | 0 | 4,096 |
+
+Two results set the ceilings. Every Class A quantity stays far below its cap --
+the longest single type name observed is 193 characters against a 4,096
+ceiling, and the longest resolution-scope chain is 3 against 256 -- so the caps
+constrain nothing real. And no decode approached any budget, which is what
+makes the budgets available to bound repetition rather than typical cost.
+
+The last four rows were never exercised. That is a statement about the corpus,
+not about reachability: each is reachable by construction, and the two probes
+below drive them. `GetTypeFromSpecification` in particular is unreachable
+through `ELEMENT_TYPE_CLASS`, which admits only `TypeDef` and `TypeRef`; it is
+reached through a custom modifier, where `TypeDefOrRefOrSpecEncoded` admits a
+`TypeSpec`.
+
+#### What the census cannot show
+
+The census bounds Class A. It cannot bound Class B, because the largest Class B
+value in any corpus is a fact about the authors who happened to produce it.
+
+A single method taking no parameters, whose one `TypeRef` is scoped to an
+`AssemblyRef` carrying a full public key, consumes ledger units equal to that
+key's size:
+
+| Public key bytes | Ledger units charged | Against the 262,144 ceiling |
+| ---: | ---: | ---: |
+| 8 | 17 | 0.0x |
+| 1,024 | 1,033 | 0.0x |
+| 65,536 | 65,545 | 0.3x |
+| 1,048,576 | 1,048,585 | **4.0x** |
+| 16,777,216 | 16,777,225 | **64.0x** |
+
+Every real decode measured stayed under 1,371 units. One author-chosen field
+reaches four orders of magnitude beyond that, from an artifact small enough to
+mail, and it scales linearly with no upper limit. This is the entire reason the
+ledger exists and the reason charging must precede a Class B read: no census,
+however large, would have predicted the fourth row, and no count of callbacks
+would observe it.
+
+The `TypeSpec` probe shows the contrasting Class A shape. Charged units track
+the blob exactly, and the pre-existing guard, not the ledger, rejects the
+oversized case:
+
+| `TypeSpec` bytes | Ledger units charged | Outcome |
+| ---: | ---: | --- |
+| 5 | 16 | decoded |
+| 1,029 | 1,040 | decoded |
+| 8,197 | -- | rejected by `TypeSpecGuard` |
+
+Because that guard caps one `TypeSpec` at `MaxCumulativeBytes`, no single
+`TypeSpec` charge in an accepted decode can approach the ledger ceiling, and
+the ledger's role for this quantity is bounding how many times a shared
+`TypeSpec` is re-entered.
+
+#### Reproducing
+
+The census is a measurement build, not product code: it replaces the three
+budget checks with accumulators, tags each charge site by caller line, and
+decodes every member signature in each input. Rebuild it by instrumenting
+`SignatureOccurrenceWorkBudget` and re-running against the digests above. A
+change that alters what a decode charges must re-run it, because the observed
+maxima are the only evidence that the ceilings clear real artifacts.
+
+A census run also checks the cost model for completeness: charges that no
+classified site accounts for are recorded against an unmapped bucket, which was
+zero across all 4,526,370 decodes. A non-zero unmapped count means the table
+above is missing a quantity.
 
 ### Charging bounds; caching does not
 
@@ -2857,6 +2970,12 @@ satisfy all of the following.
 
 A gate that does not meet these obligations is named and documented for the
 property it actually checks.
+
+The static gate establishes that every site is classified. The census
+establishes that the classification is complete, by recording any charge no
+classified site accounts for. The two are complementary: a gate cannot see a
+quantity the contract never named, and a census cannot see a site the corpus
+never reaches.
 
 ### Failure is visible and attributed
 
