@@ -659,14 +659,13 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         foreach (TypeDefinitionHandle candidate
             in reader.TypeDefinitions)
         {
-            bool leafCouldMatch;
+            int candidateLeafUtf8Length;
             try
             {
                 TypeDefinition definition =
                     reader.GetTypeDefinition(candidate);
-                leafCouldMatch =
-                    reader.GetBlobReader(definition.Name).Length
-                    == leafUtf8Length;
+                candidateLeafUtf8Length =
+                    reader.GetBlobReader(definition.Name).Length;
             }
             catch (Exception ex) when (IsMalformedMetadata(ex))
             {
@@ -677,15 +676,25 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                 continue;
             }
 
-            if (leafCouldMatch)
+            remainingComparisonWork -=
+                Math.Max(candidateLeafUtf8Length, 1);
+            if (remainingComparisonWork < 0)
             {
-                remainingComparisonWork -= comparisonWork;
-                if (remainingComparisonWork < 0)
-                {
-                    throw new BadImageFormatException(
-                        "The exact TypeDef lookup exceeded its "
-                            + "structural-name work budget.");
-                }
+                throw new BadImageFormatException(
+                    "The exact TypeDef lookup exceeded its "
+                        + "structural-name work budget.");
+            }
+            if (candidateLeafUtf8Length != leafUtf8Length)
+            {
+                continue;
+            }
+
+            remainingComparisonWork -= comparisonWork;
+            if (remainingComparisonWork < 0)
+            {
+                throw new BadImageFormatException(
+                    "The exact TypeDef lookup exceeded its "
+                        + "structural-name work budget.");
             }
 
             MetadataTypeDefinitionNameMatchResult result =

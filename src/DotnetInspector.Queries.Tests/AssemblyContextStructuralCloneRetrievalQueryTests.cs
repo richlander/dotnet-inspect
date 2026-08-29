@@ -624,6 +624,49 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget()
+    {
+        const string Namespace = "N";
+        string longLeaf = new('T', 4_000);
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildRepeatedTypeNameAssembly(
+                    Namespace,
+                    longLeaf + "X",
+                    typeCount: 1_100));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(0x06000001),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName(
+                                $"{Namespace}.{longLeaf}")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+        Assert.Contains(
+            "structural-name work budget",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
     public void Execute_NearLimitMemberAnchorsShareOneWorkBudget()
     {
         ImmutableArray<byte> image =
