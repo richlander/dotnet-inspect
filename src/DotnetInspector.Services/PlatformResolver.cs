@@ -579,7 +579,38 @@ public static class PlatformResolver
         string? frameworkSpec = null,
         string? packsDirectory = null,
         bool useRuntimeAssemblies = false,
-        string? platformVersion = null)
+        string? platformVersion = null) =>
+        ResolveAssemblyCore(
+            assemblyName,
+            frameworkSpec,
+            packsDirectory,
+            useRuntimeAssemblies,
+            platformVersion,
+            installedFrameworks: null);
+
+    internal static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveAssemblyFromFrameworks(
+            string assemblyName,
+            IReadOnlyList<FrameworkInfo> installedFrameworks)
+    {
+        ArgumentNullException.ThrowIfNull(installedFrameworks);
+        return ResolveAssemblyCore(
+            assemblyName,
+            frameworkSpec: null,
+            packsDirectory: null,
+            useRuntimeAssemblies: false,
+            platformVersion: null,
+            installedFrameworks);
+    }
+
+    private static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveAssemblyCore(
+            string assemblyName,
+            string? frameworkSpec,
+            string? packsDirectory,
+            bool useRuntimeAssemblies,
+            string? platformVersion,
+            IReadOnlyList<FrameworkInfo>? installedFrameworks)
     {
         // Detect framework names passed as assembly names (e.g., --platform Microsoft.AspNetCore.App)
         // and provide a helpful error message
@@ -648,7 +679,8 @@ public static class PlatformResolver
         // Search all frameworks across all packs dirs and runtime,
         // returning the assembly from whichever source has the newest version.
         // When versions are equal, runtime wins (has debug info for SourceLink).
-        var frameworks = GetInstalledFrameworks(packsDirectory);
+        var frameworks =
+            installedFrameworks ?? GetInstalledFrameworks(packsDirectory);
         var searchOrder = new[] { "runtime", "aspnetcore", "netstandard" };
 
         foreach (var shortName in searchOrder)

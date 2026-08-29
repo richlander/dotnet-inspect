@@ -1076,6 +1076,111 @@ public class PlatformResolverTests
                 StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void AssemblyDependencyResolver_InstalledFallbackUsesOneFrameworkSnapshotPerResolver()
+    {
+        CoreCache.Initialize("dotnet-inspect");
+        var (baselineRefPath, _, baselineError) =
+            PlatformResolver.ResolveFramework("runtime");
+        if (baselineRefPath is null)
+        {
+            Assert.Skip($"Runtime reference pack not available: {baselineError}");
+            return;
+        }
+
+        string runtimeSource = Path.Combine(
+            baselineRefPath,
+            "System.Runtime.dll");
+        string consoleSource = Path.Combine(
+            baselineRefPath,
+            "System.Console.dll");
+        if (!File.Exists(runtimeSource) || !File.Exists(consoleSource))
+        {
+            Assert.Skip(
+                $"Runtime reference pack is incomplete: {baselineRefPath}");
+            return;
+        }
+
+        string temporaryCache = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-platform-snapshot-").FullName;
+        try
+        {
+            CoreCache.Initialize("dotnet-inspect-test", temporaryCache);
+            string packsDirectory =
+                Assert.IsType<string>(PlatformPackService.GetPacksCachePath());
+            string firstRefPath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                "999.0.0",
+                "ref",
+                "net999.0");
+            Directory.CreateDirectory(firstRefPath);
+            File.Copy(
+                runtimeSource,
+                Path.Combine(firstRefPath, "System.Runtime.dll"));
+            File.Copy(
+                consoleSource,
+                Path.Combine(firstRefPath, "System.Console.dll"));
+
+            AssemblyDependencyResolver resolver = CreateResolver();
+            Assert.Equal(
+                Path.Combine(firstRefPath, "System.Runtime.dll"),
+                Select(resolver, "System.Runtime").Assembly.Path);
+
+            string secondRefPath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                "1000.0.0",
+                "ref",
+                "net1000.0");
+            Directory.CreateDirectory(secondRefPath);
+            File.Copy(
+                runtimeSource,
+                Path.Combine(secondRefPath, "System.Runtime.dll"));
+
+            Assert.Equal(
+                Path.Combine(firstRefPath, "System.Console.dll"),
+                Select(resolver, "System.Console").Assembly.Path);
+            Assert.Equal(
+                Path.Combine(secondRefPath, "System.Runtime.dll"),
+                Select(CreateResolver(), "System.Runtime").Assembly.Path);
+        }
+        finally
+        {
+            CoreCache.Initialize("dotnet-inspect");
+            Directory.Delete(temporaryCache, recursive: true);
+        }
+
+        AssemblyDependencyResolver CreateResolver() =>
+            new(
+                new AssemblyDependencyResolutionOptions(
+                    typeof(PlatformResolverTests).Assembly.Location)
+                {
+                    PackageRoots = [],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    IncludeInstalledPlatformFallback = true,
+                    IgnoreAssemblyVersion = true,
+                });
+
+        static AssemblyBindingSelection.Selected Select(
+            AssemblyDependencyResolver resolver,
+            string assemblyName) =>
+            Assert.IsType<AssemblyBindingSelection.Selected>(
+                resolver.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.Reference(
+                            new AssemblyReferenceIdentity(
+                                assemblyName,
+                                Version: null,
+                                Culture: null,
+                                PublicKeyToken: null)),
+                        AssemblyBindingOrigin.Global(),
+                        AssemblyResolutionScope.Any)));
+    }
+
     /// <summary>
     /// Tests that multiple framework versions are detected and sorted correctly.
     /// </summary>

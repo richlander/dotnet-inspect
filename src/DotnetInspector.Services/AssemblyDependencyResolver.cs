@@ -104,6 +104,10 @@ public sealed partial class AssemblyDependencyResolver :
     readonly ConcurrentDictionary<
         AssemblyBindingRequestKey,
         Lazy<AssemblyBindingSelection>> _bindingSelections = [];
+    readonly Lazy<IReadOnlyList<FrameworkInfo>> _installedPlatformFrameworks =
+        new(
+            () => PlatformResolver.GetInstalledFrameworks(),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     readonly object _snapshotBudgetLock = new();
     long _snapshotImageBytes;
 
@@ -320,9 +324,14 @@ public sealed partial class AssemblyDependencyResolver :
         if (useInstalledPlatformFallback
             && PlatformResolver.IsPlatformCandidate(identity.Name))
         {
-            var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
-                identity.Name,
-                useRuntimeAssemblies: _options.PreferImplementationAssemblies);
+            var (path, framework, _, _) =
+                _options.PreferImplementationAssemblies
+                    ? PlatformResolver.ResolveAssembly(
+                        identity.Name,
+                        useRuntimeAssemblies: true)
+                    : PlatformResolver.ResolveAssemblyFromFrameworks(
+                        identity.Name,
+                        _installedPlatformFrameworks.Value);
             if (path is not null)
             {
                 AssemblyDescriptorResolution descriptor = DescriptorResult(
