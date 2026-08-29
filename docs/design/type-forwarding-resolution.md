@@ -3023,14 +3023,15 @@ within one decode:
 | Type name characters | 175 | 1,078 | 2,574,175 | 4,096 |
 | Resolution-scope chain length | 3 | 19 | 1,465,380 | 256 |
 | Declaring-type chain length | *unmeasured* | *unmeasured* | *unmeasured* | 256 |
+| Array shape bounds | *unmeasured* | *unmeasured* | *unmeasured* | guard allowance |
 | `AssemblyRef` name storage | 58 | 292 | 1,232,837 | none |
 | `AssemblyRef` `PublicKeyOrToken` storage | 8 | 64 | 1,232,641 | 8 when a token |
 | `AssemblyRef` culture storage | 0 | 0 | 0 | none |
 | `ModuleRef` name storage | 0 | 0 | 0 | **none** |
 | `TypeSpec` blob bytes | 0 | 0 | 0 | 4,096 |
 
-Two quantities are unmeasured, for different reasons, and neither is measured
-at zero.
+Three quantities are unmeasured, for three different reasons, and none is
+measured at zero.
 
 The declaring-type chain is unmeasured because the census measures what the
 instrumented build charged, and that build charges the chain length only on the
@@ -3040,6 +3041,16 @@ conforming decode, understated by at most one charge per declaring-chain node
 per projected nested name. The per-walk cap still holds unconditionally: the
 walk reads into caller-owned storage of exactly `MaxRelationshipNodes` entries
 and is refused beyond it.
+
+Array shape bounds are unmeasured because of *where* they are enforced.
+`SignatureBlobGuard` charges the declared size and lower-bound counts against
+its own `remainingTypeNodes` allowance before decoding begins, and the census
+accumulators start after the guard returns. That allowance is a separate
+enforcement point from the aggregate's node budget, not the same counter
+reached by another route, so the node figures above are accurate for what they
+measure and simply say nothing about shape bounds. The quantity is bounded --
+the guard refuses a blob whose shape counts exceed its allowance -- but the
+corpus never priced it, so no observed magnitude supports the ceiling.
 
 The `PublicKeyOrToken` class split is unmeasured because the census charges it
 at one site and does not record `AssemblyFlags.PublicKey`, so the split cannot
@@ -3054,10 +3065,20 @@ Two results set the ceilings, for the measured quantities. Every measured
 Class A quantity stays far below its cap -- the longest single type name
 observed is 175 characters against a 4,096 ceiling, and the longest
 resolution-scope chain is 3 against 256 -- so the caps constrain nothing real.
-And no decode approached any budget, which is what makes the budgets available
-to bound repetition rather than typical cost. The unmeasured declaring-type
-chain shares the resolution-scope chain's 256 cap and cannot change that
-conclusion by more than its own bounded contribution.
+And no decode approached any of the three instrumented budgets, which is what
+makes those budgets available to bound repetition rather than typical cost.
+That statement does not extend to the guard's separate shape allowance.
+
+The headroom column divides each ceiling by a measured maximum, so where the
+maximum is understated the ratio is an **upper bound on headroom**, not
+guaranteed headroom. This affects the work ledger, the one budget the
+declaring-type chain would charge. Its guaranteed floor is obtained by assuming
+the worst unmeasured case: every occurrence copy in the largest observed decode
+projects a nested name whose declaring chain runs to the full
+`MaxRelationshipNodes` cap. That is `1,182 + 158 * 256 = 41,630` against a
+262,144 ceiling, or roughly **6.3x** guaranteed, against 222x measured. The
+conclusion that the ledger is not the binding constraint survives, but only the
+6.3x figure is load-bearing until the charge is added and the census re-run.
 
 The last three rows were never exercised, and no probe below drives the culture
 or `ModuleRef` name paths. That is a statement about the corpus, not about
@@ -3125,10 +3146,20 @@ decodes every member signature in each input. Rebuild it by instrumenting
 must re-run it, because the observed maxima are the only evidence that the
 ceilings clear real artifacts.
 
-A census run also checks the cost model for completeness: charges that no
-classified site accounts for are recorded against an unmapped bucket, which was
-zero across all 2,750,623 decodes. A non-zero unmapped count means the table
-above is missing a quantity.
+A census run also checks that every charge the instrumented build *made* was
+accounted for: charges that no classified site accounts for are recorded
+against an unmapped bucket, which was zero across all 2,750,623 decodes. A
+non-zero unmapped count means the table above is missing a quantity.
+
+That check has a blind spot, and two of the three unmeasured quantities above
+fell into it. The unmapped bucket sees only charges that execute. The
+declaring-type chain is never charged on one path, and array shape bounds are
+charged by the guard before the accumulators start; neither produces an
+unmapped entry, because neither produces an entry at all. A zero unmapped count
+therefore does not establish that the closed set is complete; it establishes
+only that the charges the build made were classified. The `PublicKeyOrToken`
+split is unmeasured for an unrelated reason -- that charge executed and was
+mapped, but the census did not record the flag that separates the classes.
 
 The pricing costs in *The two classes of cost* are measured separately and need
 no product code. Emit an assembly whose single `AssemblyRef` carries a name and
@@ -3175,10 +3206,14 @@ No gate meeting these obligations exists yet, so this property is currently
 **unverified**; building one is implementation work, not part of this contract.
 
 The obligations describe a division of labor that gate would complete. A gate
-establishes that every site is classified. The census establishes that the
-classification is complete, by recording any charge no classified site accounts
-for. The two are complementary: a gate cannot see a quantity the contract never
-named, and a census cannot see a site the corpus never reaches.
+establishes that every site is classified. The census records any charge no
+classified site accounts for. Neither closes the set: a gate cannot see a
+quantity the contract never named, and a census cannot see work the
+implementation never charges -- including work the corpus reaches constantly,
+and work a separate enforcement point charges before the accumulators start.
+Completeness of the closed set is therefore **unverified**, and establishing it
+requires deriving the inventory from the source rather than from what a run
+happened to charge.
 
 ### Failure is visible and attributed
 
