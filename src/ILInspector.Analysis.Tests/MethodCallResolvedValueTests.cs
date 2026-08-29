@@ -158,6 +158,36 @@ public sealed class MethodCallResolvedValueTests
     }
 
     [Fact]
+    public void ResolvesFieldAddressValueSources()
+    {
+        byte[] il =
+        [
+            0x7F, 0x01, 0x00, 0x00, 0x04,       // IL_0000 ldsflda Static
+            0x28, 0x01, 0x00, 0x00, 0x0A,       // IL_0005 call Sink
+            0x02,                               // IL_000A ldarg.0
+            0x7C, 0x02, 0x00, 0x00, 0x04,       // IL_000B ldflda Instance
+            0x28, 0x01, 0x00, 0x00, 0x0A,       // IL_0010 call Sink
+            0x2A,                               // IL_0015 ret
+        ];
+
+        ImmutableArray<DirectCall> calls = Analyze(il, ObjectParameter());
+
+        ResolvedValueSource staticField = SingleArgument(calls, 0x0005);
+        Assert.Equal(
+            ResolvedValueSourceKind.StaticFieldAddress,
+            staticField.Kind);
+        Assert.Equal("Static", staticField.Name);
+
+        ResolvedValueSource instanceField =
+            SingleArgument(calls, 0x0010);
+        Assert.Equal(
+            ResolvedValueSourceKind.InstanceFieldAddress,
+            instanceField.Kind);
+        Assert.Equal("Instance", instanceField.Name);
+        Assert.Equal(0, instanceField.ArgumentIndex);
+    }
+
+    [Fact]
     public void LeavesAddressedLocalValuesUnresolved()
     {
         byte[] il =
@@ -751,7 +781,12 @@ public sealed class MethodCallResolvedValueTests
             0x28, 0x04, 0x00, 0x00, 0x0A,       // IL_000D call Producer
             0x7B, 0x02, 0x00, 0x00, 0x04,       // IL_0012 ldfld Instance
             0x26,                               // IL_0017 pop
-            0x2A,                               // IL_0018 ret
+            0x7F, 0x01, 0x00, 0x00, 0x04,       // IL_0018 ldsflda Static
+            0x26,                               // IL_001D pop
+            0x02,                               // IL_001E ldarg.0
+            0x7C, 0x02, 0x00, 0x00, 0x04,       // IL_001F ldflda Instance
+            0x26,                               // IL_0024 pop
+            0x2A,                               // IL_0025 ret
         ];
 
         ImmutableArray<FieldLoadFact> loads =
@@ -762,6 +797,7 @@ public sealed class MethodCallResolvedValueTests
             load =>
             {
                 Assert.True(load.IsStatic);
+                Assert.False(load.IsAddress);
                 Assert.Equal("Static", load.FieldName);
                 Assert.Equal(s_widget, load.DeclaringType);
                 Assert.Equal(-1, load.ReceiverArgumentIndex);
@@ -770,6 +806,7 @@ public sealed class MethodCallResolvedValueTests
             load =>
             {
                 Assert.False(load.IsStatic);
+                Assert.False(load.IsAddress);
                 Assert.Equal("Instance", load.FieldName);
                 Assert.Equal(0, load.ReceiverArgumentIndex);
             },
@@ -779,6 +816,20 @@ public sealed class MethodCallResolvedValueTests
                 // receiver stays unattributed rather than being guessed.
                 Assert.Equal("Instance", load.FieldName);
                 Assert.Equal(-1, load.ReceiverArgumentIndex);
+                Assert.False(load.IsAddress);
+            },
+            load =>
+            {
+                Assert.True(load.IsStatic);
+                Assert.True(load.IsAddress);
+                Assert.Equal("Static", load.FieldName);
+            },
+            load =>
+            {
+                Assert.False(load.IsStatic);
+                Assert.True(load.IsAddress);
+                Assert.Equal("Instance", load.FieldName);
+                Assert.Equal(0, load.ReceiverArgumentIndex);
             });
     }
 

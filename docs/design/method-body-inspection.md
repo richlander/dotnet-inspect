@@ -376,12 +376,15 @@ After that authentication, Analysis may compose the existing result-sink,
 resolved-value, field-access, and suspension facts into
 `AsyncStateMachineFieldResultSource`. This preserves direct-call provenance
 across one exact compiler state-machine field without relying on generated
-field names. It is limited to trusted framework async-builder completion;
-custom builders and every ambiguous identity, store, or reachability case
-remain unresolved.
+field names. The source store must dominate every suspension, the result field
+must not escape by address, and every suspension and completion must use the
+same exact local framework builder field. Custom builders and every ambiguous
+identity, store, or reachability case remain unresolved.
 `ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField` and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
-`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` gate that composition.
+`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
+`ResultSinks_AuthenticateStateMachineCompletionBuilderField` gate that
+composition.
 `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
 `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
 `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and

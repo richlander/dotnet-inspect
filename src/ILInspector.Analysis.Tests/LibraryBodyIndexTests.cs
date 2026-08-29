@@ -1620,6 +1620,12 @@ public class LibraryBodyIndexTests
                     .HasMultipleStoresBeforeAwait),
             nameof(
                 ClassicAsyncSiblingFixture
+                    .ConditionallyOverwritesParameterBeforeAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .MutatesFieldByReferenceAfterAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
                     .StoresAfterDifferentSuspension),
         ];
 
@@ -1636,6 +1642,62 @@ public class LibraryBodyIndexTests
                     && sink.StateMachineFieldSource is not null);
         }
 
+        MethodIdentity multipleStores = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .HasMultipleStoresBeforeAwait));
+        MethodResultSink multipleStoreSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == multipleStores
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                    FieldIdentity: not null,
+                });
+        ResolvedValueSource multipleStoreLoad =
+            multipleStoreSink.ResolvedValue!.Single!;
+        Assert.Equal(
+            2,
+            index.FieldStores.Count(store =>
+                store.EvidenceMethod
+                    == multipleStoreSink.EvidenceMethod
+                && store.ILOffset < multipleStoreLoad.ILOffset
+                && multipleStoreLoad.FieldIdentity!.Equals(
+                    store.Identity)
+                && store.Value.Single?.Kind
+                    == ResolvedValueSourceKind.CallResult));
+
+        MethodIdentity byReference = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .MutatesFieldByReferenceAfterAwait));
+        DirectCall byReferenceCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == byReference
+                && call.Callee.Name == "SetResult");
+        MethodResultSink byReferenceSink = Assert.Single(
+            index.ResultSinks,
+            sink =>
+                sink.EvidenceMethod
+                    == byReferenceCompletion.EvidenceMethod
+                && sink.ILOffset
+                    == byReferenceCompletion.ILOffset);
+        FieldIdentity byReferenceField =
+            byReferenceSink.ResolvedValue!.Single!.FieldIdentity!;
+        Assert.Contains(
+            index.FieldLoads,
+            load => load.EvidenceMethod
+                    == byReferenceSink.EvidenceMethod
+                && load.IsAddress
+                && byReferenceField.Equals(load.Identity));
+
         MethodIdentity lookalike = Assert.Single(
             index.DeclaredMethods,
             method => method.Name == nameof(
@@ -1646,6 +1708,47 @@ public class LibraryBodyIndexTests
             index.ResultSinks,
             sink => sink.Caller == lookalike
                 && sink.StateMachineFieldSource is not null);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_AuthenticateStateMachineCompletionBuilderField()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .UsesSecondaryBuilderAfterAwait));
+        DirectCall[] completions =
+        [
+            .. index.DirectCalls.Where(call =>
+                call.Caller == source
+                && call.EvidenceMethod != source
+                && call.Callee.Name == "SetResult"),
+        ];
+        Assert.Equal(2, completions.Length);
+
+        MethodResultSink[] completionSinks =
+        [
+            .. completions.Select(completion => Assert.Single(
+                index.ResultSinks,
+                sink =>
+                    sink.EvidenceMethod
+                        == completion.EvidenceMethod
+                    && sink.ILOffset == completion.ILOffset)),
+        ];
+        Assert.Single(
+            completionSinks,
+            sink => sink.StateMachineFieldSource is not null);
+        Assert.Single(
+            completionSinks,
+            sink => sink.StateMachineFieldSource is null);
     }
 
     [Fact]

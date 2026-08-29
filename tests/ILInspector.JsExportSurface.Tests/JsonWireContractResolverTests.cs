@@ -651,6 +651,49 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void
+        Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings()
+    {
+        var (compilerSurface, compilerBodyIndex) =
+            BuildFixtureSurfaceWithWireContracts(
+                typeof(FixtureExports).Assembly.Location);
+        var (runtimeSurface, _) =
+            BuildFixtureSurfaceWithWireContracts(
+                s_runtimeAsyncFixturePath);
+
+        const string exportName =
+            "GetWidgetConditionallySerializedBeforeAwait";
+        MethodIdentity compilerExport = Assert.Single(
+            compilerBodyIndex.DeclaredMethods,
+            method => method.Name == exportName);
+        DirectCall compilerSerializer = Assert.Single(
+            compilerBodyIndex.DirectCalls,
+            call => call.Caller == compilerExport
+                && call.Callee.Name == "Serialize");
+        Assert.Contains(
+            compilerBodyIndex.FieldStores,
+            store => store.Caller == compilerExport
+                && store.Value.Sources.Any(source =>
+                    source.Kind
+                        == ResolvedValueSourceKind.CallResult
+                    && source.ILOffset
+                        == compilerSerializer.ILOffset));
+        Assert.DoesNotContain(
+            compilerBodyIndex.ResultSinks,
+            sink => sink.Caller == compilerExport
+                && sink.StateMachineFieldSource is not null);
+
+        JsExportFunction compilerFunction = Assert.Single(
+            compilerSurface.Functions,
+            function => function.Name == exportName);
+        JsExportFunction runtimeFunction = Assert.Single(
+            runtimeSurface.Functions,
+            function => function.Name == exportName);
+        Assert.Null(compilerFunction.ReturnWireType);
+        Assert.Null(runtimeFunction.ReturnWireType);
+    }
+
+    [Fact]
     public void RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata()
     {
         MethodIdentity export = RuntimeAsyncMethod(

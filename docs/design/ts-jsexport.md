@@ -353,6 +353,8 @@ serializer result reaches completion with direct call provenance.
 proves the same equivalence when Analysis carries the result through one
 authenticated compiler state-machine field. The target supports both lowerings
 by consuming owner-issued facts, not by reconstructing field flow.
+`Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings` proves that a
+branch-local serializer overwrite does not hide the raw kickoff-supplied value.
 
 Inspect-web's paired deployment canary is a separate consumer responsibility.
 [#4792](https://github.com/richlander/dotnet-inspect/issues/4792) owns its

@@ -125,17 +125,20 @@ The historical `MethodResultSink.SourceCallOffsets` and `IsComplete` pair keeps
 that direct evaluation-stack meaning. For an authenticated compiler async
 state machine, Analysis can additionally issue
 `AsyncStateMachineFieldResultSource` when one exact local instance field carries
-only direct call results from one pre-suspension store to the post-suspension
-framework builder completion. The fact retains the field identity and physical
-store, load, and source-call offsets; null cleanup stores emitted after the load
-are allowed. Unknown reachability, an unresolved or foreign field, another
-non-null write, a looped source store, an authored lookalike, or a custom async
-builder remains unresolved.
+only direct call results from one store that dominates every suspension to the
+post-suspension framework builder completion. Suspension and completion must
+use the same exact local builder field. The fact retains the result field
+identity and physical store, load, and source-call offsets; null cleanup stores
+emitted after the load are allowed. Unknown reachability, an unresolved or
+foreign field, another non-null write, a field-address escape, a looped or
+non-dominating source store, another builder field, an authored lookalike, or a
+custom async builder remains unresolved.
 `LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
 and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
-`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` gate the positive and
-fail-closed boundaries.
+`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
+`ResultSinks_AuthenticateStateMachineCompletionBuilderField` gate the positive
+and fail-closed boundaries.
 
 The same opt-in call-value flow separately projects an instance call's receiver
 sources. A receiver is complete only when every path comes from directly proven

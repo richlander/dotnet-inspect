@@ -690,9 +690,10 @@ public sealed record MethodResultSink(
     /// <summary>
     /// Exact direct-call sources recovered through one authenticated compiler
     /// async state-machine field. Null unless Analysis proves one unambiguous
-    /// store before every suspension and the corresponding load after every
-    /// suspension in the physical body, into a trusted framework async-builder
-    /// completion sink.
+    /// store that dominates every suspension and the corresponding load after
+    /// every suspension in the physical body, with no field-address escape,
+    /// into the same exact trusted framework async-builder field used by every
+    /// suspension.
     /// </summary>
     /// <remarks>
     /// This augments rather than reinterprets
@@ -703,6 +704,8 @@ public sealed record MethodResultSink(
     /// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>
     /// and
     /// <c>LibraryBodyIndexTests.ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_AuthenticateStateMachineCompletionBuilderField</c>
     /// gate this contract.
     /// </remarks>
     public AsyncStateMachineFieldResultSource? StateMachineFieldSource

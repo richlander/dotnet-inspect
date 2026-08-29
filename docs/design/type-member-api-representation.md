@@ -199,11 +199,11 @@ the unpatched control still publishes.
 | `TypeReferenceOrigin`, `ResolvableTypeReference` | One decoded named type | Exact metadata lookup name and the assembly/current-assembly/core-library/module origin that supplied it | Resolution without the source candidate or structural `TypeRef` equality |
 | `CallerScopeReachabilityPlan`, `CallerResolutionPlan` | One direct-caller query | Which scope candidates can reach the target and how decoded call-site types correspond to its definition | Transitive graph identity or cross-query persistence |
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
-| `ResolvedValueSource`, `ResolvedValueSet` | One evaluation-stack value | Which proven producers — call/`newobj` result, `int32`/string literal, `ldnull`, static/instance field load, argument, or `ldtoken` — can reach that value | Anything about a value whose producers Analysis could not prove; `IsResolved` is false and `Sources` is empty |
-| `FieldStoreFact`, `FieldLoadFact` | One `stsfld`/`stfld` or `ldsfld`/`ldfld` instruction | Which field the instruction touches, whether its receiver is an argument, whether the block is reachable, and (for stores) the resolved stored value | Whether some other body also writes the field, or aliased/indirect access |
+| `ResolvedValueSource`, `ResolvedValueSet` | One evaluation-stack value | Which proven producers — call/`newobj` result, `int32`/string literal, `ldnull`, static/instance field load or address, argument, or `ldtoken` — can reach that value | Anything about a value whose producers Analysis could not prove; `IsResolved` is false and `Sources` is empty |
+| `FieldStoreFact`, `FieldLoadFact` | One direct field store, load, or address instruction | Which field the instruction touches, whether its receiver is an argument, whether an access takes its address, whether the block is reachable, and (for stores) the resolved stored value | Whether an escaped address is later written; consumers requiring stable value provenance must reject the escape |
 | `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef` whatever its parent encoding; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
 | `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
-| `AsyncStateMachineFieldResultSource` | One authenticated compiler async `MethodResultSink` | Which exact local state-machine field carried direct call results from one store before every suspension to the corresponding load after every suspension | Custom async builders, authored lookalikes, ambiguous or non-call stores, loops, foreign or unresolved fields, and unknown reachability |
+| `AsyncStateMachineFieldResultSource` | One authenticated compiler async `MethodResultSink` | Which exact local state-machine field carried direct call results from one store dominating every suspension to the corresponding load after every suspension, with one exact framework builder field across suspension and completion | Custom async builders, authored lookalikes, ambiguous or non-call stores, loops, non-dominating paths, address escapes, wrong builder fields, foreign or unresolved fields, and unknown reachability |
 | `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
 
 `ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
@@ -222,13 +222,18 @@ empty `SourceCallOffsets`, while the typed field fact preserves the exact
 physical field, store, load, and direct-call coordinates. Analysis issues it
 only after `AsyncBodyAttribution` authenticates a distinct state-machine body
 and kickoff source, and only for trusted framework `Task`/`ValueTask` builder
-completion. Compiler-emitted null cleanup after the load does not erase the
+completion whose receiver is the same exact local builder field used by every
+suspension. The call-valued store must dominate every suspension; this rejects
+a conditional overwrite of a kickoff-initialized parameter field. Taking the
+result field's address also rejects the proof because an indirect write cannot
+be inventoried. Compiler-emitted null cleanup after the load does not erase the
 already-proven transfer; every other possible same-field write fails closed.
 `LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
 and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
-`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` gate the positive and
-negative contract.
+`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
+`ResultSinks_AuthenticateStateMachineCompletionBuilderField` gate the positive
+and negative contract.
 
 `MethodReturnFlow` is a **whole-body** fact, not a per-sink one, and it is
 likewise separate from `MethodResultSink`, which keeps its historical call-only

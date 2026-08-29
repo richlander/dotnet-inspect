@@ -76,7 +76,8 @@ internal static partial class MethodCallAnalysis
     /// <summary>
     /// Records one <see cref="FieldStoreFact"/> per physical <c>stsfld</c> or
     /// <c>stfld</c>, including stores whose value stays unresolved, and one
-    /// <see cref="FieldLoadFact"/> per physical <c>ldsfld</c> or <c>ldfld</c>.
+    /// <see cref="FieldLoadFact"/> per physical <c>ldsfld</c>, <c>ldfld</c>,
+    /// <c>ldsflda</c>, or <c>ldflda</c>.
     /// </summary>
     static void CollectFieldAccesses(
         MethodBodyAnalysisContext context,
@@ -97,6 +98,8 @@ internal static partial class MethodCallAnalysis
                     break;
                 case ILOpCode.Ldsfld:
                 case ILOpCode.Ldfld:
+                case ILOpCode.Ldsflda:
+                case ILOpCode.Ldflda:
                     CollectFieldLoad(instruction);
                     break;
                 default:
@@ -133,7 +136,10 @@ internal static partial class MethodCallAnalysis
 
         void CollectFieldLoad(DecodedInstruction instruction)
         {
-            bool isStatic = instruction.OpCode == ILOpCode.Ldsfld;
+            bool isStatic = instruction.OpCode is
+                ILOpCode.Ldsfld or ILOpCode.Ldsflda;
+            bool isAddress = instruction.OpCode is
+                ILOpCode.Ldsflda or ILOpCode.Ldflda;
             int token = MethodInstructionFacts.OperandInt32(instruction);
             (TypeRef? declaringType, string? name) =
                 resolver.ResolveFieldOwner(token);
@@ -151,7 +157,10 @@ internal static partial class MethodCallAnalysis
                 isStatic
                     ? -1
                     : ReceiverArgument(instruction.Offset, depthFromTop: 0),
-                IsReachableAt(context, reachability, instruction.Offset)));
+                IsReachableAt(context, reachability, instruction.Offset))
+            {
+                IsAddress = isAddress,
+            });
         }
 
         int ReceiverArgument(int offset, int depthFromTop)
@@ -175,18 +184,36 @@ internal static partial class MethodCallAnalysis
             return;
         }
 
-        int[] suspensionOffsets =
+        DirectCall[] suspensions =
         [
             .. calls
                 .Where(call =>
                     call.Caller == context.Method
                     && call.IsReachable == true
                     && IsAsyncBuilderSuspension(call.Callee))
-                .Select(call => call.ILOffset)
-                .Order(),
+                .OrderBy(call => call.ILOffset),
         ];
-        if (suspensionOffsets.Length == 0)
+        if (suspensions.Length == 0
+            || !TryGetBuilderField(
+                context.Method,
+                suspensions[0],
+                out FieldIdentity? builderField)
+            || suspensions.Any(call =>
+                !TryGetBuilderField(
+                    context.Method,
+                    call,
+                    out FieldIdentity? candidate)
+                || !builderField.Equals(candidate)))
+        {
             return;
+        }
+
+        int[] suspensionOffsets =
+            [.. suspensions.Select(call => call.ILOffset)];
+        Dominators dominators = Dominators.Of(
+            context.Blocks.Blocks
+                .Select(static block => block.Edges)
+                .ToArray());
 
         for (int index = 0; index < resultSinks.Count; index++)
         {
@@ -200,6 +227,11 @@ internal static partial class MethodCallAnalysis
                     != MethodResultSinkKind.SingleArgumentCall
                 || sinkCall is null
                 || !IsAsyncBuilderResult(sinkCall.Callee)
+                || !TryGetBuilderField(
+                    context.Method,
+                    sinkCall,
+                    out FieldIdentity? sinkBuilderField)
+                || !builderField.Equals(sinkBuilderField)
                 || sink.ResolvedValue?.Single is not
                     {
                         Kind: ResolvedValueSourceKind.InstanceFieldLoad,
@@ -219,12 +251,22 @@ internal static partial class MethodCallAnalysis
                     && load.EvidenceMethod == context.Method
                     && load.ILOffset == loadSource.ILOffset
                     && !load.IsStatic
+                    && !load.IsAddress
                     && load.ReceiverArgumentIndex == 0
                     && load.IsReachable == true
                     && field.Equals(load.Identity)),
             ];
             if (matchingLoads.Length != 1)
                 continue;
+            if (fieldLoads.Any(load =>
+                load.Caller == context.Method
+                && load.EvidenceMethod == context.Method
+                && load.IsAddress
+                && load.IsReachable != false
+                && field.MightBeSameFieldAs(load.Identity)))
+            {
+                continue;
+            }
 
             if (!TryFindAsyncStateMachineFieldSourceStore(
                     context.Method,
@@ -234,6 +276,11 @@ internal static partial class MethodCallAnalysis
                     out FieldStoreFact? sourceStore)
                 || context.IsInLoopRegion(sourceStore.ILOffset)
                 || sourceStore.ILOffset >= suspensionOffsets[0]
+                || !DominatesEveryOffset(
+                    context,
+                    dominators,
+                    sourceStore.ILOffset,
+                    suspensionOffsets)
                 || loadSource.ILOffset
                     <= suspensionOffsets[^1]
                 || !TryCallResultOffsets(
@@ -253,6 +300,50 @@ internal static partial class MethodCallAnalysis
                         sourceCallOffsets),
             };
         }
+    }
+
+    static bool TryGetBuilderField(
+        MethodIdentity method,
+        DirectCall call,
+        [NotNullWhen(true)]
+        out FieldIdentity? field)
+    {
+        if (call.Caller == method
+            && call.EvidenceMethod == method
+            && call.ResolvedReceiverValue?.Single is
+            {
+                Kind: ResolvedValueSourceKind.InstanceFieldAddress,
+                ArgumentIndex: 0,
+                FieldIdentity: { LocalDefinitionToken: not 0 } candidate,
+            }
+            && candidate.DeclaringType.Equals(method.DeclaringType))
+        {
+            field = candidate;
+            return true;
+        }
+
+        field = null;
+        return false;
+    }
+
+    static bool DominatesEveryOffset(
+        MethodBodyAnalysisContext context,
+        Dominators dominators,
+        int sourceOffset,
+        IEnumerable<int> targetOffsets)
+    {
+        int sourceBlock =
+            context.Blocks.BlockIndexAt(sourceOffset);
+        return sourceBlock >= 0
+            && targetOffsets.All(targetOffset =>
+            {
+                int targetBlock =
+                    context.Blocks.BlockIndexAt(targetOffset);
+                return targetBlock >= 0
+                    && dominators.Dominates(
+                        sourceBlock,
+                        targetBlock);
+            });
     }
 
     internal static bool TryFindAsyncStateMachineFieldSourceStore(
@@ -886,6 +977,7 @@ internal static partial class MethodCallAnalysis
                             });
                     }
                     case ILOpCode.Ldsfld:
+                    case ILOpCode.Ldsflda:
                     {
                         int token = MethodInstructionFacts.OperandInt32(
                             instruction);
@@ -894,7 +986,9 @@ internal static partial class MethodCallAnalysis
                         return field is null
                             ? ResolvedValueSet.Unresolved
                             : Single(new ResolvedValueSource(
-                                ResolvedValueSourceKind.StaticFieldLoad,
+                                instruction.OpCode == ILOpCode.Ldsfld
+                                    ? ResolvedValueSourceKind.StaticFieldLoad
+                                    : ResolvedValueSourceKind.StaticFieldAddress,
                                 producerOffset)
                             {
                                 Token = token,
@@ -904,6 +998,7 @@ internal static partial class MethodCallAnalysis
                             });
                     }
                     case ILOpCode.Ldfld:
+                    case ILOpCode.Ldflda:
                     {
                         int token = MethodInstructionFacts.OperandInt32(
                             instruction);
@@ -921,7 +1016,9 @@ internal static partial class MethodCallAnalysis
                             return ResolvedValueSet.Unresolved;
                         }
                         return Single(new ResolvedValueSource(
-                            ResolvedValueSourceKind.InstanceFieldLoad,
+                            instruction.OpCode == ILOpCode.Ldfld
+                                ? ResolvedValueSourceKind.InstanceFieldLoad
+                                : ResolvedValueSourceKind.InstanceFieldAddress,
                             producerOffset)
                         {
                             Token = token,

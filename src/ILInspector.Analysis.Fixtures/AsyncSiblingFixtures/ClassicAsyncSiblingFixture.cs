@@ -58,10 +58,41 @@ public static class ClassicAsyncSiblingFixture
     public static async Task<string>
         HasMultipleStoresBeforeAwait(bool first)
     {
-        string payload = first
-            ? ProducePayload()
-            : ProduceOtherPayload();
+        string payload;
+        if (first)
+            payload = ProducePayload();
+        else
+            payload = ProduceOtherPayload();
         await Task.Yield();
+        return payload;
+    }
+
+    public static async Task<string>
+        ConditionallyOverwritesParameterBeforeAwait(string payload)
+    {
+        if (payload.Length > 3)
+            payload = ProducePayload();
+        await Task.Yield();
+        return payload;
+    }
+
+    public static async Task<string>
+        MutatesFieldByReferenceAfterAwait()
+    {
+        string payload = ProducePayload();
+        await Task.Yield();
+        ReplacePayload(ref payload);
+        return payload;
+    }
+
+    public static async Task<string>
+        UsesSecondaryBuilderAfterAwait()
+    {
+        string payload = ProducePayload();
+        await Task.Yield();
+        AsyncTaskMethodBuilder<string> other =
+            AsyncTaskMethodBuilder<string>.Create();
+        other.SetResult(payload);
         return payload;
     }
 
@@ -88,6 +119,9 @@ public static class ClassicAsyncSiblingFixture
     static string ProducePayload() => "payload";
 
     static string ProduceOtherPayload() => "other";
+
+    static void ReplacePayload(ref string payload) =>
+        payload = "replacement";
 
     public static async Task<bool> AsyncGenBoxed<T>(
         T left,

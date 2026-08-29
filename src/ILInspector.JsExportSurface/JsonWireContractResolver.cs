@@ -59,6 +59,7 @@ namespace ILInspector.JsExportSurface;
 /// requires complete argument provenance to a registered context property's getter.
 /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>,
 /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension</c>,
+/// <c>JsonWireContractResolverTests.Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings</c>,
 /// <c>JsonWireContractResolverTests.RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata</c>,
 /// <c>JsonWireContractResolverTests.Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns</c>,
 /// <c>JsonWireContractResolverTests.Build_RuntimeAsyncRejectsIncompleteReturnCoverage</c>, and

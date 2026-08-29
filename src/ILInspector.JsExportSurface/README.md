@@ -146,6 +146,9 @@ and
 `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension`
 gate equal owner-issued facts from paired compilations of genuinely awaited
 direct and field-carried exports.
+`Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings` gates the close
+negative where only one branch overwrites a kickoff-initialized parameter field
+with a serializer result.
 `RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata`,
 `Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns`,
 `Build_RuntimeAsyncRejectsIncompleteReturnCoverage`, and
