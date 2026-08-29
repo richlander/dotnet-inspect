@@ -202,9 +202,26 @@ enforce against.
 `EnsurePathInCacheContext`/`IsPathInCacheContext` are a public guard that
 confines a path to the cache root: a path is in context when it equals or is
 a descendant of the active base path (`GetBasePath()`) or the legacy
-pre-XDG path (`GetLegacyBasePath()`). `IsPathInCacheContext` fails closed —
-any exception while resolving the full path (malformed path, denied access)
-returns `false`, never `true`. `Clear` calls it internally before deleting;
+pre-XDG path (`GetLegacyBasePath()`). This is a purely lexical check —
+`IsPathInCacheContext` calls `Path.GetFullPath` and does string comparisons
+only; it never opens, enumerates, or otherwise accesses the candidate path
+on disk, so a lexically-contained path beneath a directory the process
+cannot actually read or write is still reported as in-context, and
+accessibility failures surface later, from whatever filesystem operation
+the caller performs next. `IsPathInCacheContext` fails closed for a
+different reason — an exception while resolving the full path itself
+(a malformed path, or one exceeding platform path-length limits) is caught
+and returns `false`, never `true`; so is a null, empty, or all-whitespace
+*candidate* path, rejected before any resolution is attempted. That last
+check has a consequence worth naming explicitly: an accepted, blank
+`basePath` override (see the trust-boundary section above) is a valid
+*root*, but `GetBasePath()`'s blank result is also *itself* rejected the
+moment it (or a path derived from it) is passed as the *candidate* to
+`IsPathInCacheContext` — so `Clear()` with a blank `basePath` override does
+not silently no-op or contain some unexpected path; it fails
+`EnsurePathInCacheContext`'s guard and throws, because the guard cannot
+distinguish "root not supplied" from "candidate not supplied" once both
+happen to be the same blank string. `Clear` calls it internally before deleting;
 other owners call it directly, but not exclusively before deletion. The
 following description of `NuGetCache`'s and `PlatformPackService`'s call
 sites is cited only as evidence for a `CoreCache`-owned claim — that this
@@ -285,10 +302,22 @@ narrow-but-reachable edge case, not a provably unreachable one.
 `TryGetBytes`, `Set`, `SetBytes`, `GetFilePath`, `GetCacheInfo`) never call
 the guard themselves — only `Clear` and the external callers above do.
 `GetCacheInfo(category)` in particular recursively measures and enumerates
-every file under `GetCategoryPath(category)` with no containment check and
-no exception handling of its own, so a category contract violation reaching
+every file under `GetCategoryPath(category)` with no containment check, and
+its own exception handling is mixed rather than absent: it returns an empty
+`CacheInfo(targetPath, 0, 0)` when its own `Directory.Exists(targetPath)`
+check reports `false` (ambiguous, as elsewhere, between "does not exist" and
+"error determining existence"); the size measurement it delegates to
+(`GetDirectorySize`) performs a *second*, independent `Directory.Exists`
+check with the same ambiguity and returns `0` rather than propagating; but
+the file-count enumeration, `Directory.GetFiles(targetPath, "*",
+SearchOption.AllDirectories)`, has no guard at all and propagates any
+enumeration failure that occurs after both existence checks have already
+passed. So a category contract violation reaching
 it is also an out-of-root enumeration read, not just a write/delete
-primitive. Because `category` is contract-restricted to literals (see
+primitive, and separately, a filesystem error partway through can surface as
+a zero/empty result at either existence check or as a propagated exception
+from the unguarded file count, depending on exactly where the failure
+occurs. Because `category` is contract-restricted to literals (see
 above), a conforming caller never needs the guard on the read/write/stats
 path today — but the guard's absence there means a
 `category`/`extension`/`appName` contract violation reaching `TryGet`/`Set`/
@@ -345,8 +374,25 @@ the case-sensitivity gap in
 [Path-context containment](#path-context-containment)); otherwise they reset,
 because the counters describe one cache root's history and a root change
 starts a new one. Both sides of that comparison are *recomputed live*, not
-the location actually recorded against by the earlier maintenance — but not
-at the *same instant*, either: the "old" root (`GetBasePath()` evaluated
+the location actually recorded against by the earlier maintenance — and
+that "recomputed" property has a sharper edge when `basePath` is a
+*relative* path (see the trust-boundary and containment-guard notes above
+on `basePath` not being guaranteed absolute): `IsSamePath` resolves each raw
+override string via `Path.GetFullPath` only at comparison time, against
+whatever the process's current directory is *then* — not the directory that
+was current while the earlier maintenance generation actually ran. If the
+same relative `basePath` string (for example `"cache"`) is passed to two
+`Initialize` calls, but the process's current directory differs between
+when the first generation's maintenance ran and when the second
+`Initialize` call runs `IsSamePath`, the two calls can resolve to two
+genuinely different absolute directories on disk while still comparing
+equal — carrying counters from one physical root's history into a
+different physical root's tally, not merely "carrying forward across a
+root change neither call intended" as in the ambient-environment scenario
+below, but across two locations that were never the same directory at any
+point in time. Separately, and regardless of whether `basePath` is relative
+or absolute, the "old" and "new" reads are not simultaneous either: the
+"old" root (`GetBasePath()` evaluated
 with the previous `appName`/`basePath`) is read first, before the
 cancellation and best-effort drain of in-flight maintenance tasks; the
 "new" root (`GetBasePath()` evaluated with the new values) is read only
@@ -484,7 +530,30 @@ exception is caught by their own blanket `try`/`catch` (see
 propagating, so `EnsurePathInCacheContext` throws its own refusal exception
 instead of the pre-initialization one; and `GetLegacyBasePath` reads `AppName`
 only on non-Windows platforms, so it throws there but returns `null` on
-Windows without touching `AppName` at all. There is no single
+Windows without touching `AppName` at all. The methods above are not the
+complete lock-free surface, though: `GetCategoryPath`, `GetFilePath`, and
+`GetCacheInfo` all reach `AppName` transitively through `GetBasePath` →
+`GetDefaultBasePath` and so throw the same pre-initialization exception —
+except that `GetBasePath` itself has a bypass the others do not: when
+`_basePathOverride` is non-null, `GetBasePath` returns it directly without
+ever calling `GetDefaultBasePath` or touching `AppName`, so a process that
+called `Initialize` with an explicit `basePath` override and then somehow
+reached these methods before `_appName` was set (not reachable through
+`Initialize` itself, which sets both fields together, but relevant to any
+future caller that manipulates the fields independently) would not throw
+from `GetBasePath` at all, only from whichever of `GetCategoryPath`/
+`GetFilePath`/`GetCacheInfo` still needs `category`/`key` hashing or
+enumeration — none of which touch `AppName` a second time once `GetBasePath`
+has already returned. `Clear` reaches the same exception while deriving its
+`targetPath` (after its own maintenance wait, which does not depend on
+`AppName` — see below). `CancelAndWaitForMaintenance` is the one public
+method that does *not* propagate this exception pre-initialization: it calls
+`WaitForMaintenance`, which calls `RequestVersionedCategoryCleanupAsync`,
+which checks `_appName is null` explicitly and returns a completed
+`default(CacheMaintenanceResult)` task rather than touching the throwing
+`AppName` property — so `CancelAndWaitForMaintenance(timeout)` called before
+`Initialize` returns a zeroed result instead of throwing, unlike every other
+lock-free method discussed here. There is no single
 "every lock-free method does X" pre-initialization rule; each method's
 documented behavior above already states its own case.
 
@@ -539,7 +608,24 @@ file, a permissions error partway through), the directory is left
 directory count, and no indication that the directory was touched at all;
 the next `Initialize`/registration cycle will reattempt it (the surviving
 directory still matches the retirement rule), but until then the on-disk
-state is neither the pre-cleanup directory nor a cleanly retired one.
+state is neither the pre-cleanup directory nor a cleanly retired one. That
+retry claim needs a precise qualifier, though: a repeated
+`RegisterVersionedCategory` call for the *same* prefix within the *same*
+maintenance generation does not itself trigger a retry —
+`ScheduleVersionedCategoryCleanup` keys each scheduled task by
+`(root, prefix, currentVersion)` and returns immediately, without scheduling
+anything, when that key is already present in `s_maintenanceTasks`
+(regardless of whether the previously-scheduled task's *own* cleanup
+attempt succeeded, partially failed, or fully failed — the task itself
+still completed, since `CleanupVersionedCategory`'s blanket `catch` prevents
+it from ever faulting). The key is only removed — and a fresh attempt
+scheduled — by a subsequent `Initialize` call (which replaces
+`s_maintenanceTasks` with a new, empty dictionary) or by
+`StartNewMaintenanceGenerationIfCanceled` replacing a canceled generation; a
+changed root (via a different `basePath`/`appName`, or the ambient-input
+change discussed above) also produces a different key and so schedules a
+fresh attempt against that new root, but this is really "different key
+scheduled," not "same failed attempt retried."
 `Clear`'s own `Directory.Delete(targetPath, recursive: true)` (see
 [Clear and concurrent writers](#clear-and-concurrent-writers)) has the
 equivalent exposure in the opposite direction: it catches only
@@ -588,9 +674,25 @@ enforce and today's callers satisfy only by using prefixes that do not
 overlap in practice.
 
 `CancelAndWaitForMaintenance`/`Clear` are the only **public** ways a caller
-observes completed maintenance (the internal `RequestVersionedCategoryCleanupAsync`
-is a third, assembly-internal path that test code uses directly to await the
-real aggregate task). `CancelAndWaitForMaintenance(timeout)` can return
+observes completed maintenance. The internal `RequestVersionedCategoryCleanupAsync`
+is a third, assembly-internal path that test code uses directly to await
+maintenance — but calling what it returns "the real aggregate task"
+overstates what it actually returns: the
+task it returns is only an aggregate of whatever was in `s_maintenanceTasks`
+*at the moment that call constructed it* (`AwaitMaintenanceAsync([..
+s_maintenanceTasks.Values], ...)` is a one-time array snapshot, not a live
+view), memoized in `s_maintenanceTask` so repeated calls return the same
+task instance. A later `RegisterVersionedCategory` call, after this method
+has released `s_maintenanceLock` and returned, can schedule a new cleanup
+task and reset `s_maintenanceTask` to `null` — but that clears the memoized
+field for the *next* caller of `RequestVersionedCategoryCleanupAsync`; it
+does not, and cannot, add the new task into the array a previously returned
+task already captured. Whoever is still awaiting that earlier task
+therefore never learns about maintenance scheduled after they obtained it.
+The public `WaitForMaintenance` path does not have this exposure: it holds
+`s_maintenanceLock` for its entire wait, so no `RegisterVersionedCategory`
+call can interleave and schedule additional work while it is in progress.
+`CancelAndWaitForMaintenance(timeout)` can return
 *partial* progress rather than confirmation that maintenance fully drained:
 `WaitForMaintenance` waits for the timeout given, then — if the task has not
 completed — cancels it and waits only another 25ms before returning whatever
@@ -722,7 +824,20 @@ the writer's still-open temporary file) that is not the narrow
 already-deleted case `Clear` catches, and so propagates to `Clear`'s caller.
 A caller relying on "the value I just set survives" immediately after a
 concurrent `Clear`, or relying on `Clear` never throwing because reads and
-writes elsewhere are best-effort, has no contract to rely on. No caller
+writes elsewhere are best-effort, has no contract to rely on. There is a
+fourth outcome the three above do not cover, and it is the one that leaves
+`Clear` looking most misleadingly successful: a `Set`/`SetBytes` call whose
+`Directory.CreateDirectory` and `WriteAtomically`/file-move both complete
+*after* `Clear`'s `Directory.Delete` call has already finished (still inside
+`Clear`'s `lock (s_maintenanceLock)`, since that lock never excludes
+`Set`/`SetBytes`, which take no lock at all) recreates part of the tree
+`Clear` just removed, and does so without raising any exception on either
+side. `Clear` still returns its pre-deletion measurement successfully in
+this case; nothing about that successful, non-throwing return means the
+cache root was empty at the moment `Clear` returned, or even that it is
+still empty by the time the caller next inspects it — `Clear`'s success is
+not a quiescence barrier and does not guarantee an empty cache at return,
+only that the deletion `Clear` itself performed did not fail. No caller
 within a single process clears a category while concurrently writing to it
 today, but two separate `dotnet-inspect` invocations racing this way is
 already possible; closing this gap (a future caller, in-process or

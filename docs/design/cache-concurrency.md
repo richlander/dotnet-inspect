@@ -202,10 +202,17 @@ noncanonical NuGet.org URL shortcut.
 The [CoreCache mechanism](corecache-mechanism.md#versioned-category-retirement)
 owns the scheduling, scanning, draining, suffix-selection, and accounting
 mechanics — see that document for the exact rule. This section states only
-the cross-process rationale those mechanics exist to satisfy: an older
-`dotnet-inspect` process must never destroy a cache contract written by a
-newer one, and a newer process must tolerate an older one still running
-concurrently and recreating a contract the newer process just retired.
+the cross-process rationale those mechanics exist to satisfy: **automatic
+versioned retirement** must never destroy a cache contract written by a
+newer process,
+and a newer process must tolerate an older one still running
+concurrently and recreating a contract the newer process just retired. This
+rationale governs only the automatic retirement path; it does not extend to
+an operator-requested `dotnet-inspect cache clear`, which deletes the entire
+active cache root unconditionally (`CoreCache.Clear()`, with no
+version-aware filtering) — an older process can still destroy a newer
+contract that way, by explicit operator request rather than by the
+versioned-retirement mechanism this section describes.
 
 ## Filesystem coordination
 
