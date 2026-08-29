@@ -43,6 +43,7 @@ internal sealed class PluginConnection : IAsyncDisposable
     private Task? _readLoop;
     private long _pendingGateEntry;
     private bool _acceptingRequests = true;
+    private bool _terminated;
     private bool _disposed;
 
     private PluginConnection(
@@ -237,7 +238,7 @@ internal sealed class PluginConnection : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
 
         string requestId = Guid.NewGuid().ToString();
-        var pending = new PendingRequest(_requestTimeout);
+        var pending = new PendingRequest(_requestTimeout, cancellationToken);
 
         try
         {
@@ -258,14 +259,12 @@ internal sealed class PluginConnection : IAsyncDisposable
                     (gate.Entry, Monitor.IsEntered(_pendingGate)));
             }
 
-            await WriteAsync(
+            await WriteRequestAsync(
                 new Envelope<TRequest>(requestId, MessageTypes.Request, method, payload),
                 requestType,
-                cancellationToken).ConfigureAwait(false);
+                pending).ConfigureAwait(false);
 
-            JsonElement? responsePayload = await pending.Completion.Task
-                .WaitAsync(cancellationToken)
-                .ConfigureAwait(false);
+            JsonElement? responsePayload = await pending.Completion.ConfigureAwait(false);
 
             return responsePayload?.Deserialize(responseType);
         }
@@ -292,21 +291,161 @@ internal sealed class PluginConnection : IAsyncDisposable
             _ => false,
         };
 
-    private async Task WriteAsync<T>(Envelope<T> envelope, JsonTypeInfo<Envelope<T>> type, CancellationToken cancellationToken)
+    private async Task WriteRequestAsync<T>(
+        Envelope<T> envelope,
+        JsonTypeInfo<Envelope<T>> type,
+        PendingRequest pending)
     {
         string json = JsonSerializer.Serialize(envelope, type);
-
-        // Writes are serialized so two concurrent requests cannot interleave halves of a line.
-        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        bool lockTaken = false;
+        bool releaseWriteLock = true;
+        bool preempted = false;
 
         try
         {
-            await _process.StandardInput.WriteLineAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
-            await _process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await _writeLock.WaitAsync(pending.WriteCancellation).ConfigureAwait(false);
+            lockTaken = true;
+
+            lock (_pendingGate)
+            {
+                if (!_acceptingRequests)
+                {
+                    throw new IOException("Credential plugin closed the connection.");
+                }
+            }
+
+            Task write = WriteLineAndFlushAsync(json, pending.WriteCancellation);
+            Task completed = await Task.WhenAny(write, pending.Preemption).ConfigureAwait(false);
+
+            if (!ReferenceEquals(completed, write))
+            {
+                preempted = true;
+                TerminateConnection();
+                releaseWriteLock = await ObserveTerminatedWriteAsync(write).ConfigureAwait(false);
+            }
+            else
+            {
+                await write.ConfigureAwait(false);
+            }
+        }
+        catch (Exception) when (pending.IsPreempted)
+        {
+            preempted = true;
+
+            if (lockTaken)
+            {
+                TerminateConnection();
+            }
+        }
+        catch
+        {
+            if (lockTaken)
+            {
+                TerminateConnection();
+            }
+
+            throw;
         }
         finally
         {
-            _writeLock.Release();
+            if (lockTaken && releaseWriteLock)
+            {
+                _writeLock.Release();
+            }
+        }
+
+        if (preempted)
+        {
+            await pending.ThrowCompletionAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task WriteAsync<T>(
+        Envelope<T> envelope,
+        JsonTypeInfo<Envelope<T>> type,
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null,
+        bool allowClosedConnection = false)
+    {
+        string json = JsonSerializer.Serialize(envelope, type);
+        using CancellationTokenSource? timeoutCancellation = timeout is null
+            ? null
+            : new CancellationTokenSource(timeout.Value);
+        using CancellationTokenSource? linkedCancellation = timeoutCancellation is null
+            ? null
+            : CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                timeoutCancellation.Token);
+        CancellationToken writeCancellation = linkedCancellation?.Token ?? cancellationToken;
+        bool lockTaken = false;
+        bool releaseWriteLock = true;
+
+        // Writes are serialized so two concurrent requests cannot interleave halves of a line.
+        try
+        {
+            await _writeLock.WaitAsync(writeCancellation).ConfigureAwait(false);
+            lockTaken = true;
+
+            lock (_pendingGate)
+            {
+                if (_terminated || (!_acceptingRequests && !allowClosedConnection))
+                {
+                    throw new IOException("Credential plugin closed the connection.");
+                }
+            }
+
+            Task write = WriteLineAndFlushAsync(json, writeCancellation);
+            Task cancellation = Task.Delay(Timeout.InfiniteTimeSpan, writeCancellation);
+            Task completed = await Task.WhenAny(write, cancellation).ConfigureAwait(false);
+
+            if (!ReferenceEquals(completed, write))
+            {
+                TerminateConnection();
+                releaseWriteLock = await ObserveTerminatedWriteAsync(write).ConfigureAwait(false);
+                writeCancellation.ThrowIfCancellationRequested();
+            }
+
+            await write.ConfigureAwait(false);
+        }
+        catch
+        {
+            if (lockTaken || timeoutCancellation?.IsCancellationRequested is true)
+            {
+                TerminateConnection();
+            }
+
+            throw;
+        }
+        finally
+        {
+            if (lockTaken && releaseWriteLock)
+            {
+                _writeLock.Release();
+            }
+        }
+    }
+
+    private async Task WriteLineAndFlushAsync(string json, CancellationToken cancellationToken)
+    {
+        await _process.StandardInput.WriteLineAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
+        await _process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<bool> ObserveTerminatedWriteAsync(Task write)
+    {
+        try
+        {
+            await write.WaitAsync(ExitWaitAfterClose).ConfigureAwait(false);
+            return true;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+        catch (Exception ex) when (IsRecoverableRequestFailure(ex)
+            || ex is OperationCanceledException)
+        {
+            return true;
         }
     }
 
@@ -341,19 +480,22 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
         finally
         {
-            SettleClosedConnection();
+            _ = SettleClosedConnection();
         }
     }
 
-    private void SettleClosedConnection()
+    private bool SettleClosedConnection(bool terminated = false)
     {
         PendingRequest[] pending;
+        bool canSendClose;
 
         _testHooks?.TerminalSettlementAttempted?.Invoke();
 
         using (EnterPendingGate())
         {
+            canSendClose = _acceptingRequests && _pending.IsEmpty;
             _acceptingRequests = false;
+            _terminated |= terminated;
             pending = [.. _pending.Values];
             _testHooks?.PendingSnapshotCaptured?.Invoke(Monitor.IsEntered(_pendingGate));
             _pending.Clear();
@@ -363,8 +505,38 @@ internal sealed class PluginConnection : IAsyncDisposable
 
         foreach (PendingRequest request in pending)
         {
-            request.Completion.TrySetException(
-                new IOException("Credential plugin closed the connection."));
+            request.TrySetConnectionClosed();
+        }
+
+        return canSendClose;
+    }
+
+    private void TerminateConnection()
+    {
+        _ = SettleClosedConnection(terminated: true);
+
+        try
+        {
+            _shutdown.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Disposal already completed the same terminal transition.
+        }
+
+        try
+        {
+            if (!_process.HasExited)
+            {
+                _process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException
+            or NotSupportedException
+            or AggregateException
+            or System.ComponentModel.Win32Exception)
+        {
+            // The process exited concurrently or does not support tree termination.
         }
     }
 
@@ -459,7 +631,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             case MessageTypes.Response:
                 if (_pending.TryGetValue(requestId, out PendingRequest? completed))
                 {
-                    completed.Completion.TrySetResult(payload);
+                    completed.TrySetResult(payload);
                 }
 
                 break;
@@ -477,7 +649,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             case MessageTypes.Fault:
                 if (_pending.TryGetValue(requestId, out PendingRequest? faulted))
                 {
-                    faulted.Completion.TrySetException(
+                    faulted.TrySetException(
                         new IOException($"Credential plugin faulted on '{method}'."));
                 }
 
@@ -504,7 +676,8 @@ internal sealed class PluginConnection : IAsyncDisposable
                             MessageMethods.Handshake,
                             NegotiateHandshake(payload)),
                         PluginJsonContext.Default.EnvelopeHandshakeResponse,
-                        _shutdown.Token).ConfigureAwait(false);
+                        _shutdown.Token,
+                        _requestTimeout).ConfigureAwait(false);
                     break;
 
                 case MessageMethods.Log:
@@ -532,7 +705,8 @@ internal sealed class PluginConnection : IAsyncDisposable
                                     ? ResponseCodes.Error
                                     : ResponseCodes.Success)),
                         PluginJsonContext.Default.EnvelopeLogResponse,
-                        _shutdown.Token).ConfigureAwait(false);
+                        _shutdown.Token,
+                        _requestTimeout).ConfigureAwait(false);
                     break;
             }
         }
@@ -616,17 +790,21 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
 
         _disposed = true;
-        SettleClosedConnection();
+        bool canSendClose = SettleClosedConnection();
 
         try
         {
             // Close carries no payload and expects no response; NuGet sends it, waits briefly,
             // then kills the process regardless.
-            using var closeTimeout = new CancellationTokenSource(CloseTimeout);
-            await WriteAsync(
-                new Envelope<object>(Guid.NewGuid().ToString(), MessageTypes.Request, MessageMethods.Close, null),
-                PluginJsonContext.Default.EnvelopeObject,
-                closeTimeout.Token).ConfigureAwait(false);
+            if (canSendClose)
+            {
+                using var closeTimeout = new CancellationTokenSource(CloseTimeout);
+                await WriteAsync(
+                    new Envelope<object>(Guid.NewGuid().ToString(), MessageTypes.Request, MessageMethods.Close, null),
+                    PluginJsonContext.Default.EnvelopeObject,
+                    closeTimeout.Token,
+                    allowClosedConnection: true).ConfigureAwait(false);
+            }
         }
         catch
         {
@@ -666,25 +844,52 @@ internal sealed class PluginConnection : IAsyncDisposable
 
     private sealed class PendingRequest : IDisposable
     {
+        private const int Active = 0;
+        private const int Completed = 1;
+        private const int TimedOut = 2;
+        private const int CallerCanceled = 3;
+        private const int ConnectionClosed = 4;
+
         private readonly TimeSpan _timeout;
         private readonly Timer _timer;
+        private readonly CancellationToken _callerCancellation;
+        private readonly CancellationTokenRegistration _callerRegistration;
+        private readonly CancellationTokenSource _writeCancellation = new();
+        private readonly TaskCompletionSource<JsonElement?> _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _preemption =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _state;
 
-        public PendingRequest(TimeSpan timeout)
+        public PendingRequest(TimeSpan timeout, CancellationToken callerCancellation)
         {
             _timeout = timeout;
-            Completion = new TaskCompletionSource<JsonElement?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _callerCancellation = callerCancellation;
             _timer = new Timer(
-                static state => ((PendingRequest)state!).Completion.TrySetException(
-                    new TimeoutException("Credential plugin did not respond in time.")),
+                static state => ((PendingRequest)state!).OnTimeout(),
                 this,
                 timeout,
                 Timeout.InfiniteTimeSpan);
+            _callerRegistration = callerCancellation.Register(
+                static state => ((PendingRequest)state!).CancelByCaller(),
+                this);
         }
 
-        public TaskCompletionSource<JsonElement?> Completion { get; }
+        public Task<JsonElement?> Completion => _completion.Task;
+
+        public bool IsPreempted => Volatile.Read(ref _state) is TimedOut or CallerCanceled or ConnectionClosed;
+
+        public Task Preemption => _preemption.Task;
+
+        public CancellationToken WriteCancellation => _writeCancellation.Token;
 
         public void Extend()
         {
+            if (Volatile.Read(ref _state) != Active)
+            {
+                return;
+            }
+
             try
             {
                 _timer.Change(_timeout, Timeout.InfiniteTimeSpan);
@@ -695,6 +900,79 @@ internal sealed class PluginConnection : IAsyncDisposable
             }
         }
 
-        public void Dispose() => _timer.Dispose();
+        public void TrySetResult(JsonElement? payload)
+        {
+            if (TryTransition(Completed))
+            {
+                _completion.TrySetResult(payload);
+            }
+        }
+
+        public void TrySetException(Exception exception)
+        {
+            if (TryTransition(Completed))
+            {
+                _completion.TrySetException(exception);
+            }
+        }
+
+        public void TrySetConnectionClosed()
+        {
+            if (TryTransition(ConnectionClosed))
+            {
+                SignalPreemption();
+                _completion.TrySetException(
+                    new IOException("Credential plugin closed the connection."));
+            }
+        }
+
+        public async Task ThrowCompletionAsync()
+        {
+            _ = await _completion.Task.ConfigureAwait(false);
+            throw new InvalidOperationException("A preempted plugin request completed successfully.");
+        }
+
+        private bool TryTransition(int state) =>
+            Interlocked.CompareExchange(ref _state, state, Active) == Active;
+
+        private void OnTimeout()
+        {
+            if (TryTransition(TimedOut))
+            {
+                SignalPreemption();
+                _completion.TrySetException(
+                    new TimeoutException("Credential plugin did not respond in time."));
+            }
+        }
+
+        private void CancelByCaller()
+        {
+            if (TryTransition(CallerCanceled))
+            {
+                SignalPreemption();
+                _completion.TrySetCanceled(_callerCancellation);
+            }
+        }
+
+        private void SignalPreemption()
+        {
+            _preemption.TrySetResult();
+
+            try
+            {
+                _writeCancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The request finished while preemption was being delivered.
+            }
+        }
+
+        public void Dispose()
+        {
+            _callerRegistration.Dispose();
+            _timer.Dispose();
+            _writeCancellation.Dispose();
+        }
     }
 }

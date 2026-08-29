@@ -11,7 +11,8 @@ namespace NuGetFetch.Plugins;
 /// environment macros, and clear text.
 /// </para>
 /// <para>
-/// Plugins are discovered and started lazily, then kept for the lifetime of this object.
+/// Plugins are discovered and started lazily, then kept until the connection closes or this
+/// object is disposed. A later request restarts a plugin whose prior connection terminated.
 /// Discovery scans the NuGet convention directory and <c>PATH</c>, while starting one costs a
 /// process launch plus a five-message initialization handshake. Deferring both means commands
 /// that never receive an authentication challenge pay neither cost.
@@ -160,7 +161,13 @@ public sealed class PluginCredentialProvider : ICredentialSource, IAsyncDisposab
             // not claim Authentication. Either way there is no point paying to launch it again.
             if (_connections.TryGetValue(executable.Path, out PluginConnection? existing))
             {
-                return existing;
+                if (existing is null || !existing.Closed.IsCompleted)
+                {
+                    return existing;
+                }
+
+                await existing.DisposeAsync().ConfigureAwait(false);
+                _connections.Remove(executable.Path);
             }
 
             PluginConnection? connection = await PluginConnection

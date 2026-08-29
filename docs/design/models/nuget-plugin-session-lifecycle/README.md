@@ -135,7 +135,7 @@ product behavior:
 | Concurrent request-ID correlation and out-of-order replies | Unverified. |
 | Progress renews the matching implementation timer | Unverified; the design previously described this as tested, but no matching test exists. |
 | Pipe loss closes admission before pending requests are collected | `PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout`, `PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, and `PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot` |
-| A stalled in-progress write is bounded by terminating the connection | Not implemented; `CurrentStalledWrite.cfg` abstracts the current control flow. |
+| A stalled in-progress write is bounded by terminating the connection | `PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests` and `PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation` |
 | Malformed plugin-originated payloads settle inbound work | `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse` |
 
 Formal model-to-implementation correspondence is unverified. In particular,

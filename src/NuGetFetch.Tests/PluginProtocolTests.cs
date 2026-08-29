@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using NuGetFetch;
 using NuGetFetch.Plugins;
@@ -18,6 +19,7 @@ namespace NuGetFetch.Tests;
 /// The contract is defined by NuGet/NuGet.Client, src/NuGet.Core/NuGet.Protocol/Plugins/.
 /// </para>
 /// </remarks>
+[Collection(ThreadPoolDeadlineCollection.Name)]
 public sealed class PluginProtocolTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("plugin-protocol").FullName;
@@ -193,6 +195,31 @@ public sealed class PluginProtocolTests : IDisposable
 
         Assert.NotNull(credential);
         Assert.Equal("right", credential.Username);
+    }
+
+    [Fact]
+    public async Task AClosedCachedPluginConnectionIsRestartedOnTheNextRequest()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "restarts-after-death",
+            username: "right",
+            password: "token",
+            exitOnFirstCredentialRequest: true);
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
+
+        PackageSourceCredential? first = await provider.GetCredentialsAsync(
+            new Uri("https://first.example/v3/index.json"),
+            false,
+            TestContext.Current.CancellationToken);
+        PackageSourceCredential? second = await provider.GetCredentialsAsync(
+            new Uri("https://second.example/v3/index.json"),
+            false,
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(first);
+        Assert.NotNull(second);
+        Assert.Equal("right", second.Username);
     }
 
     [Fact]
@@ -790,6 +817,129 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
+    public async Task AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests()
+    {
+        using var timeout = new EnvironmentVariable(
+            "NUGET_PLUGIN_REQUEST_TIMEOUT_IN_SECONDS",
+            "2");
+        var log = new ConcurrentQueue<string>();
+        FakePlugin plugin = CreatePlugin(
+            "stalled-writer-timeout",
+            username: "u",
+            password: "p",
+            afterSetLogLevel: "sleep 30");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log.Enqueue,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            Task<GetAuthenticationCredentialsResponse?> active = connection.GetCredentialsAsync(
+                CreateLargeFeedUri(),
+                isRetry: false,
+                isNonInteractive: true,
+                canShowDialog: false,
+                TestContext.Current.CancellationToken);
+
+            await Task.Delay(
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
+
+            Task<GetAuthenticationCredentialsResponse?> queued = connection.GetCredentialsAsync(
+                new Uri("https://queued.example/v3/index.json"),
+                isRetry: false,
+                isNonInteractive: true,
+                canShowDialog: false,
+                TestContext.Current.CancellationToken);
+
+            GetAuthenticationCredentialsResponse?[] responses = await Task
+                .WhenAll(active, queued)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(6),
+                    TestContext.Current.CancellationToken);
+
+            Assert.All(responses, Assert.Null);
+            Assert.Contains(log, message => message.Contains(
+                "did not respond in time",
+                StringComparison.Ordinal));
+            Assert.Contains(log, message => message.Contains(
+                "closed the connection",
+                StringComparison.Ordinal));
+
+            GetAuthenticationCredentialsResponse? later = await connection
+                .GetCredentialsAsync(
+                    new Uri("https://later.example/v3/index.json"),
+                    isRetry: false,
+                    isNonInteractive: true,
+                    canShowDialog: false,
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(1),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(later);
+        }
+    }
+
+    [Fact]
+    public async Task CallerCancellationOfAStalledWriterRemainsCancellation()
+    {
+        using var timeout = new EnvironmentVariable(
+            "NUGET_PLUGIN_REQUEST_TIMEOUT_IN_SECONDS",
+            "10");
+        var log = new ConcurrentQueue<string>();
+        FakePlugin plugin = CreatePlugin(
+            "stalled-writer-cancellation",
+            username: "u",
+            password: "p",
+            afterSetLogLevel: "sleep 30");
+        PluginConnection connection = Assert.IsType<PluginConnection>(
+            await PluginConnection.StartAsync(
+                plugin.Executable,
+                log.Enqueue,
+                TestContext.Current.CancellationToken));
+        await using (connection)
+        {
+            using var cancellation = new CancellationTokenSource();
+            Task<GetAuthenticationCredentialsResponse?> active = connection.GetCredentialsAsync(
+                CreateLargeFeedUri(),
+                isRetry: false,
+                isNonInteractive: true,
+                canShowDialog: false,
+                cancellation.Token);
+
+            await Task.Delay(100, TestContext.Current.CancellationToken);
+
+            Task<GetAuthenticationCredentialsResponse?> queued = connection.GetCredentialsAsync(
+                new Uri("https://queued.example/v3/index.json"),
+                isRetry: false,
+                isNonInteractive: true,
+                canShowDialog: false,
+                TestContext.Current.CancellationToken);
+
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await active.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+            GetAuthenticationCredentialsResponse? peer = await queued.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+            Assert.Null(peer);
+            Assert.DoesNotContain(log, message => message.Contains(
+                "did not respond in time",
+                StringComparison.Ordinal));
+            Assert.Contains(log, message => message.Contains(
+                "closed the connection",
+                StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public async Task CallerCancellationContinuesToPropagate()
     {
         FakePlugin plugin = CreatePlugin("cancelled-request", username: "u", password: "p");
@@ -833,6 +983,9 @@ public sealed class PluginProtocolTests : IDisposable
             new ArgumentException()));
     }
 
+    private static Uri CreateLargeFeedUri() =>
+        new("https://feed.example/" + new string('a', 4 * 1024 * 1024));
+
     private FakePlugin CreatePlugin(
         string name,
         string username,
@@ -845,6 +998,7 @@ public sealed class PluginProtocolTests : IDisposable
         string? outboundHandshakePayload = null,
         string? afterSetLogLevel = null,
         bool closeOutputOnCredentialRequest = false,
+        bool exitOnFirstCredentialRequest = false,
         bool exitOnCredentialRequest = false)
     {
         // Values are embedded in a double-quoted bash string, so every JSON quote needs a
@@ -859,13 +1013,26 @@ public sealed class PluginProtocolTests : IDisposable
                 + "," + Quoted("AuthenticationTypes") + ":" + types
                 + "," + Quoted("ResponseCode") + ":" + Quoted("Success") + "}"
             : "{" + Quoted("ResponseCode") + ":" + Quoted(responseCode) + "}";
+        string credentialResponse = """
+            emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
+            """;
         string credentialAction = closeOutputOnCredentialRequest
             ? "exec 1>&-"
+            : exitOnFirstCredentialRequest
+                ? """
+                  starts_file="$RECORD.starts"
+                  starts=0
+                  [ -f "$starts_file" ] && starts=$(cat "$starts_file")
+                  starts=$((starts + 1))
+                  printf '%s' "$starts" > "$starts_file"
+                  if [ "$starts" -eq 1 ]; then
+                    exit 0
+                  fi
+                  __CREDENTIAL_RESPONSE__
+                  """
             : exitOnCredentialRequest
                 ? "exit 0"
-                : """
-                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
-                  """;
+                : credentialResponse;
 
         // A non-interpolated raw string with tokens: the script is dense with braces, and
         // interpolation holes would be indistinguishable from JSON.
@@ -899,6 +1066,7 @@ public sealed class PluginProtocolTests : IDisposable
             """
             .Replace("__CLAIMS__", Quoted(claims))
             .Replace("__AUTH_ACTION__", credentialAction)
+            .Replace("__CREDENTIAL_RESPONSE__", credentialResponse)
             .Replace("__CREDENTIAL__", credentialPayload)
             .Replace(
                 "__INBOUND_HANDSHAKE__",
@@ -1036,4 +1204,19 @@ public sealed class PluginProtocolTests : IDisposable
         string Type,
         string Method,
         JsonElement Payload);
+
+    private sealed class EnvironmentVariable : IDisposable
+    {
+        private readonly string _name;
+        private readonly string? _original;
+
+        public EnvironmentVariable(string name, string? value)
+        {
+            _name = name;
+            _original = Environment.GetEnvironmentVariable(name);
+            Environment.SetEnvironmentVariable(name, value);
+        }
+
+        public void Dispose() => Environment.SetEnvironmentVariable(_name, _original);
+    }
 }
