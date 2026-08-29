@@ -16,14 +16,14 @@ documentation.
 
 ### How work runs on this repo
 
-- **Design first.** Work must be covered by a design or reasonably extend one;
-  ask the user when it is unclear whether a new design is needed. Finding
-  defects in a design is always cheaper than finding them in code.
-- **Requested work hot-starts through PR and review.** Agents may branch,
-  commit, push, and open its PR without separate approval. Once eligible, round
-  1 and every replacement inside the current six-round block dispatch
-  automatically; only a new block (rounds 7, 13, 19, ...) requires approval.
-  Merge remains separately authorized.
+- **Design first and state the basis.** Before starting new work, visibly name
+  one normative owner and exact owned claim, then supporting designs and models
+  by role. If ownership is unclear or multiple, apply the design-scope rules or
+  ask the user; finding design defects is cheaper than finding them in code.
+- **Requested work hot-starts through PR and review.** Agents may branch, commit,
+  push, and open its PR without separate approval. Once eligible, round 1 and
+  replacements inside the current six-round block dispatch automatically; only
+  a new block requires approval. Merge remains separately authorized.
 - **Markdown-only PRs hot-start immediately at non-boundary rounds.** When every
   changed file is `*.md`, `markdownlint` is the pre-review and per-round gate.
   Open the PR and dispatch review without asking or waiting for `ci-required`.
