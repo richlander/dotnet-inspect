@@ -1077,6 +1077,73 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildFindingTransitions_AttributeFailureRendersFailedTopology()
+    {
+        var oldSurface = DiffSurface(DiffType("Sample", "Widget"));
+        oldSurface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "enum attribute type index",
+            0x02000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "BadImageFormatException",
+            "malformed enum attribute"));
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            oldSurface,
+            DiffSurface(DiffType("Sample", "Widget")),
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = "api.attribute",
+                TypeFilter = ["Sample.Widget"],
+            }));
+
+        Assert.Equal("FindingComparison.Failed", row.Transition);
+        Assert.Equal("failed", row.OldInspection);
+        Assert.Equal("complete", row.NewInspection);
+        Assert.Contains("malformed enum attribute", row.Detail);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberTopologyOnlyTransitionProducesRow()
+    {
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            new ApiSurface(),
+            DiffSurface(DiffType("Sample", "Widget")),
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = "api.member",
+                TypeFilter = ["Sample.Widget"],
+            }));
+
+        Assert.Equal("FindingComparison.Complete", row.Transition);
+        Assert.Equal("subject-absent", row.OldInspection);
+        Assert.Equal("complete", row.NewInspection);
+        Assert.Null(row.Detail);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_RemovedMemberRetainsEndpointTopology()
+    {
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            DiffSurface(DiffMember("Run")),
+            new ApiSurface(),
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = "api.member",
+                TypeFilter = ["Sample.Widget"],
+            }));
+
+        Assert.Equal("PairFinding.Removed", row.Transition);
+        Assert.Equal("complete", row.OldInspection);
+        Assert.Equal("subject-absent", row.NewInspection);
+    }
+
+    [Fact]
     public void RenderFindingTransitionsMarkdown_LabelsPairBoundary()
     {
         var view = DiffOutputFormatter.BuildFindingTransitionsView(

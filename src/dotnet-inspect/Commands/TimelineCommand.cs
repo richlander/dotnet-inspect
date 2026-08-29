@@ -606,12 +606,10 @@ public static class TimelineCommand
             or MemberTargetKind.ExplicitInterfaceImplementation
             or MemberTargetKind.ExtensionMethod))
         {
-            return new FindingInspection<T>.Failed(
-                new InspectionError(
-                    subject,
-                    descriptor,
-                    $"Finding '{descriptor.Id}' requires a method-like target; "
-                    + $"'{memberName}' resolved to {target.Kind}."));
+            return new FindingInspection<T>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                $"Member '{memberName}' resolved to {target.Kind} and has no "
+                + $"method-body input for finding '{descriptor.Id}'.");
         }
         if (target.ApiMember.Member.HasMethodBody is false)
         {
@@ -739,12 +737,12 @@ public static class TimelineCommand
                 "Complete",
                 ((FindingInspection<T>.Complete)evaluation.Inspection.Value!).Findings.Length,
                 null),
-            FindingInspection<T>.Absent => new TimelineEvaluationRow(
+            FindingInspection<T>.Absent absent => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
-                "SubjectAbsent",
+                InspectionStateName(absent.Kind),
                 0,
-                ((FindingInspection<T>.Absent)evaluation.Inspection.Value!).Detail),
+                absent.Detail),
             FindingInspection<T>.Failed => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
@@ -779,7 +777,7 @@ public static class TimelineCommand
             FindingCorrelationPoint<T>.NoApplicableInput absent => new TimelineEvaluationRow(
                 absent.Version.Key,
                 absent.Version.Display,
-                "SubjectAbsent",
+                "NoApplicableInput",
                 0,
                 absent.Detail),
             FindingCorrelationPoint<T>.Failed failed => new TimelineEvaluationRow(
@@ -805,7 +803,7 @@ public static class TimelineCommand
                 "Finding correlation returned an unknown point."),
         };
 
-    static List<TimelineTransitionRow> BuildTransitionRows<T>(
+    internal static List<TimelineTransitionRow> BuildTransitionRows<T>(
         FindingCensusCorrelation<T> correlation,
         string descriptor,
         string typeFullName,
@@ -871,22 +869,24 @@ public static class TimelineCommand
                 ?? throw new InvalidOperationException(
                     $"Producer comparison for {descriptor} returned an unknown outcome at "
                     + $"{oldInspection.Version.Key}..{newInspection.Version.Key}.");
-            string? subjectTransition = (oldInspection.Inspection, newInspection.Inspection) switch
+            FindingInspectionTransition topology =
+                completeComparison.Transition;
+            string? topologyTransition = topology.IsSameTopology
+                ? null
+                : $"{InspectionStateName(topology.Old)}To"
+                    + InspectionStateName(topology.New);
+            if (topologyTransition is not null)
             {
-                (FindingInspection<T>.Absent, FindingInspection<T>.Complete) => "SubjectAvailable",
-                (FindingInspection<T>.Complete, FindingInspection<T>.Absent) => "SubjectUnavailable",
-                _ => null,
-            };
-            if (subjectTransition is not null)
-            {
-                string detail = subjectTransition == "SubjectAvailable"
-                    ? $"The focused {(memberName is null ? "type" : "member")} became available to this census."
-                    : $"The focused {(memberName is null ? "type" : "member")} ceased to be available to this census.";
+                string detail =
+                    $"The focused {(memberName is null ? "type" : "member")} "
+                    + $"inspection changed from "
+                    + $"{InspectionStateName(topology.Old)} to "
+                    + $"{InspectionStateName(topology.New)}.";
                 rows.Add(new TimelineTransitionRow(
                     oldInspection.Version.Key,
                     newInspection.Version.Key,
                     span,
-                    subjectTransition,
+                    topologyTransition,
                     descriptor,
                     focusTarget,
                     exact ? detail : AppendGapQualification(detail)));
@@ -899,7 +899,7 @@ public static class TimelineCommand
                     || ((pair.Old ?? pair.New) is Finding<T> finding
                         && Matches(identityKey, finding)))
                 .ToArray();
-            if (changes.Length == 0 && subjectTransition is null)
+            if (changes.Length == 0 && topologyTransition is null)
             {
                 rows.Add(new TimelineTransitionRow(
                     oldInspection.Version.Key,
@@ -924,6 +924,26 @@ public static class TimelineCommand
 
         return rows;
     }
+
+    static string InspectionStateName(FindingInspectionAbsenceKind kind)
+        => kind switch
+        {
+            FindingInspectionAbsenceKind.SubjectAbsent => "SubjectAbsent",
+            FindingInspectionAbsenceKind.NoApplicableInput =>
+                "NoApplicableInput",
+            _ => throw new InvalidOperationException(
+                $"Unsupported Finding inspection absence kind '{kind}'."),
+        };
+
+    static string InspectionStateName(FindingInspectionState state)
+        => state switch
+        {
+            FindingInspectionState.Complete => "Complete",
+            FindingInspectionState.SubjectAbsent => "SubjectAbsent",
+            FindingInspectionState.NoApplicableInput => "NoApplicableInput",
+            _ => throw new InvalidOperationException(
+                $"Unsupported Finding inspection state '{state}'."),
+        };
 
     static bool Matches<T>(FindingCorrelationKey key, Finding<T> finding)
         where T : notnull

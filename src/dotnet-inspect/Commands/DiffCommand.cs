@@ -1549,78 +1549,90 @@ public class DiffCommand
         var diffOptions = new ApiDiffOptions(
             options.IncludeAll ? ApiDiffScope.All : ApiDiffScope.Signature);
         string descriptor = ResolveFindingDescriptor(options);
+        IEnumerable<string> typeNames = ResolveFindingTypeNames(
+            fromSurface,
+            toSurface,
+            options.TypeFilter);
         if (descriptor == MetadataFindings.TypeDescriptor.Id)
         {
-            var typeComparison = MetadataFindings.CompareApiTypes(
-                fromSurface,
-                toSurface,
-                subject,
-                diffOptions);
-            return CompletePairs(typeComparison)
-                .Where(pair => options.TypeFilter.Any(filter =>
-                    MatchesDiffTypeFilter(TypeTarget(pair), filter)))
-                .Select(pair => ToTypeTransitionRow(pair, fromVersion, toVersion)
-                    .WithInspectionStates("complete", "complete"))
+            return typeNames
+                .SelectMany(typeName => ComparisonRows(
+                    MetadataFindings.CompareApiType(
+                        fromSurface,
+                        toSurface,
+                        subject,
+                        typeName,
+                        diffOptions),
+                    MetadataFindings.TypeDescriptor,
+                    typeName,
+                    fromVersion,
+                    toVersion,
+                    emitEmptyComparison: false,
+                    pair => ToTypeTransitionRow(
+                        pair,
+                        fromVersion,
+                        toVersion)))
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ToList();
         }
 
         if (descriptor == MetadataFindings.AttributeDescriptor.Id)
         {
-            var typeNames = ResolveFindingTypeNames(fromSurface, toSurface, options.TypeFilter);
             return typeNames
-                .SelectMany(typeName =>
-                {
-                    var comparison = MetadataFindings.CompareApiAttributes(
+                .SelectMany(typeName => ComparisonRows(
+                    MetadataFindings.CompareApiAttributes(
                         fromSurface,
                         toSurface,
                         subject,
-                        typeName);
-                    var complete =
-                        (FindingComparison<ApiAttributeHandle>.Complete)
-                            comparison.Value;
-                    string oldInspection =
-                        InspectionState(complete.OldInspection);
-                    string newInspection =
-                        InspectionState(complete.NewInspection);
-                    return complete.Pairs.Select(pair =>
-                        ToAttributeTransitionRow(
-                            pair,
-                            fromVersion,
-                            toVersion)
-                        .WithInspectionStates(
-                            oldInspection,
-                            newInspection));
-                })
+                        typeName),
+                    MetadataFindings.AttributeDescriptor,
+                    typeName,
+                    fromVersion,
+                    toVersion,
+                    emitEmptyComparison: false,
+                    pair => ToAttributeTransitionRow(
+                        pair,
+                        fromVersion,
+                        toVersion)))
                 .OrderBy(row => row.Target, StringComparer.Ordinal)
                 .ToList();
         }
 
-        var memberComparison = MetadataFindings.CompareApiMembers(
-            fromSurface,
-            toSurface,
-            subject,
-            diffOptions);
+        ResolvedDiffMemberTargets? targets = null;
         if (options.MemberFilter.Count == 0)
         {
-            return CompletePairs(memberComparison)
-                .Where(pair => options.TypeFilter.Any(filter =>
-                    MatchesDiffTypeFilter(MemberTypeTarget(pair), filter)))
-                .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion)
-                    .WithInspectionStates("complete", "complete"))
-                .OrderBy(row => row.Target, StringComparer.Ordinal)
-                .ToList();
+            targets = null;
+        }
+        else
+        {
+            targets = ResolveMemberTargetIdentities(
+                fromSurface,
+                toSurface,
+                options.MemberFilter,
+                options.TypeFilter);
+            typeNames = targets.TypeNames;
         }
 
-        var targets = ResolveMemberTargetIdentities(
-            fromSurface,
-            toSurface,
-            options.MemberFilter,
-            options.TypeFilter);
-        return CompletePairs(memberComparison)
-            .Where(pair => MatchesMemberPair(pair, targets))
-            .Select(pair => ToMemberTransitionRow(pair, fromVersion, toVersion)
-                .WithInspectionStates("complete", "complete"))
+        return typeNames
+            .SelectMany(typeName => ComparisonRows(
+                MetadataFindings.CompareApiMembers(
+                    fromSurface,
+                    toSurface,
+                    subject,
+                    typeName,
+                    diffOptions),
+                MetadataFindings.MemberDescriptor,
+                typeName,
+                fromVersion,
+                toVersion,
+                emitEmptyComparison: false,
+                pair => ToMemberTransitionRow(
+                    pair,
+                    fromVersion,
+                    toVersion),
+                targets is null
+                    ? null
+                    : pair => MatchesMemberPair(pair, targets)))
             .OrderBy(row => row.Target, StringComparer.Ordinal)
             .ToList();
     }
@@ -1789,13 +1801,36 @@ public class DiffCommand
         Func<ResearchSubjectKey, PairFinding<T>, string, string, FindingTransitionRow>
             toTransitionRow)
         where T : notnull
+        => ComparisonRows(
+            retained.Comparison,
+            retained.Descriptor,
+            retained.Subject.Display,
+            fromVersion,
+            toVersion,
+            emitEmptyComparison,
+            pair => toTransitionRow(
+                retained.Subject,
+                pair,
+                fromVersion,
+                toVersion));
+
+    internal static IEnumerable<FindingTransitionRow> ComparisonRows<T>(
+        FindingComparison<T> comparison,
+        FindingDescriptor descriptor,
+        string target,
+        string fromVersion,
+        string toVersion,
+        bool emitEmptyComparison,
+        Func<PairFinding<T>, FindingTransitionRow> toTransitionRow,
+        Func<PairFinding<T>, bool>? includePair = null)
+        where T : notnull
     {
-        if (retained.Comparison.Value is FindingComparison<T>.Failed failed)
+        if (comparison.Value is FindingComparison<T>.Failed failed)
         {
             yield return new FindingTransitionRow(
                 "FindingComparison.Failed",
-                retained.Descriptor.Id,
-                retained.Subject.Display,
+                descriptor.Id,
+                target,
                 fromVersion,
                 toVersion,
                 InspectionState(failed.OldInspection),
@@ -1807,22 +1842,22 @@ public class DiffCommand
             yield break;
         }
 
-        var complete = retained.Comparison switch
+        var complete = (FindingComparison<T>.Complete)comparison.Value;
+        PairFinding<T>[] pairs = includePair is null
+            ? [.. complete.Pairs]
+            : [.. complete.Pairs.Where(includePair)];
+        if (pairs.Length == 0)
         {
-            FindingComparison<T>.Complete
-                => (FindingComparison<T>.Complete)retained.Comparison.Value,
-            FindingComparison<T>.Failed => throw new InvalidOperationException(
-                "Failed comparisons are handled before completed comparisons."),
-        };
-        if (complete.Pairs.IsEmpty)
-        {
-            if (!emitEmptyComparison)
+            if (!emitEmptyComparison
+                && complete.Transition.IsSameTopology)
+            {
                 yield break;
+            }
 
             yield return new FindingTransitionRow(
                 "FindingComparison.Complete",
-                retained.Descriptor.Id,
-                retained.Subject.Display,
+                descriptor.Id,
+                target,
                 fromVersion,
                 toVersion,
                 InspectionState(complete.OldInspection),
@@ -1834,13 +1869,9 @@ public class DiffCommand
             yield break;
         }
 
-        foreach (var pair in complete.Pairs)
+        foreach (PairFinding<T> pair in pairs)
         {
-            yield return toTransitionRow(
-                retained.Subject,
-                pair,
-                fromVersion,
-                toVersion)
+            yield return toTransitionRow(pair)
                 .WithInspectionStates(
                     InspectionState(complete.OldInspection),
                     InspectionState(complete.NewInspection));

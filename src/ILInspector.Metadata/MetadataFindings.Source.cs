@@ -18,6 +18,14 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         if (!context.HasPdb)
         {
+            if (context.NeedsPdb
+                && !context.WindowsPdbDetected)
+            {
+                return PdbUnresolved<CompilationOptionInfo>(
+                    subject,
+                    CompilationOptionDescriptor);
+            }
+
             return new FindingInspection<CompilationOptionInfo>.Absent(
                 FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
@@ -72,6 +80,14 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         if (!context.HasPdb)
         {
+            if (context.NeedsPdb
+                && !context.WindowsPdbDetected)
+            {
+                return PdbUnresolved<CompilationReferenceInfo>(
+                    subject,
+                    CompilationReferenceDescriptor);
+            }
+
             return new FindingInspection<CompilationReferenceInfo>.Absent(
                 FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
@@ -158,6 +174,16 @@ public static partial class MetadataFindings
         => exception is BadImageFormatException
             or InvalidOperationException
             or ArgumentOutOfRangeException;
+
+    static FindingInspection<T> PdbUnresolved<T>(
+        FindingSubject subject,
+        FindingDescriptor descriptor)
+        where T : notnull
+        => new FindingInspection<T>.Failed(
+            new InspectionError(
+                subject,
+                descriptor,
+                "A matching portable PDB remains unresolved after acquisition."));
 
     static FindingInspection<T> Failed<T>(
         FindingSubject subject,

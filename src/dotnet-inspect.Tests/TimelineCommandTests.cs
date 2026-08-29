@@ -503,7 +503,7 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
-    public void AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation()
+    public void AnalysisTimeline_NoApplicableInputHasDistinctPresentation()
     {
         string path = typeof(ISampleInterface).Assembly.Location;
         string typeFullName = typeof(ISampleInterface).FullName!;
@@ -546,8 +546,101 @@ public sealed class TimelineCommandTests
             memberName: nameof(ISampleInterface.Execute));
 
         var evaluation = Assert.Single(view.Evaluations!);
-        Assert.Equal("SubjectAbsent", evaluation.State);
+        Assert.Equal("NoApplicableInput", evaluation.State);
         Assert.Contains("no method-body target", evaluation.Detail);
+    }
+
+    [Fact]
+    public void InspectAnalysisAssemblies_ResolvedNonMethodIsNoApplicableInput()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Signature = "int Value",
+        };
+
+        var inspection = TimelineCommand.InspectAnalysisAssemblies<UnsafetyOccurrence>(
+            [("unused.dll", Surface(Type("Widget", members: [property])))],
+            "Sample.Widget",
+            "Value",
+            AnalysisFindings.UnsafetyDescriptor,
+            AnalysisSubject(),
+            static (_, _, _) =>
+                throw new InvalidOperationException(
+                    "Non-method subjects have no body inspection."));
+
+        var absent = Assert.IsType<FindingInspection<UnsafetyOccurrence>.Absent>(
+            inspection.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            absent.Kind);
+    }
+
+    [Fact]
+    public void BuildTransitionRows_PreservesNineCompletedTopologyCells()
+    {
+        FindingInspection<string>[] inspections =
+        [
+            new FindingInspection<string>.Complete([]),
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent),
+            new FindingInspection<string>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput),
+        ];
+
+        foreach (FindingInspection<string> oldInspection in inspections)
+        {
+            foreach (FindingInspection<string> newInspection in inspections)
+            {
+                var correlation = FindingCensusCorrelation<string>.Create(
+                [
+                    new(
+                        new FindingVersion("v1", "1.0.0", 0),
+                        oldInspection),
+                    new(
+                        new FindingVersion("v2", "2.0.0", 1),
+                        newInspection),
+                ]);
+
+                var row = Assert.Single(TimelineCommand.BuildTransitionRows(
+                    correlation,
+                    "test",
+                    "Sample.Widget",
+                    memberName: null,
+                    identityKey: null,
+                    static (_, _, oldSide, newSide) =>
+                        FindingComparison.Compare(oldSide, newSide)));
+                string oldState = InspectionState(oldInspection);
+                string newState = InspectionState(newInspection);
+
+                Assert.Equal(
+                    oldState == newState
+                        ? "None"
+                        : $"{oldState}To{newState}",
+                    row.Transition);
+                if (oldState != newState)
+                {
+                    Assert.Contains(oldState, row.Detail);
+                    Assert.Contains(newState, row.Detail);
+                }
+            }
+        }
+
+        static string InspectionState(FindingInspection<string> inspection)
+            => inspection switch
+            {
+                FindingInspection<string>.Complete => "Complete",
+                FindingInspection<string>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.SubjectAbsent,
+                } => "SubjectAbsent",
+                FindingInspection<string>.Absent
+                {
+                    Kind: FindingInspectionAbsenceKind.NoApplicableInput,
+                } => "NoApplicableInput",
+                _ => throw new ArgumentOutOfRangeException(nameof(inspection)),
+            };
     }
 
     [Fact]
@@ -712,12 +805,12 @@ public sealed class TimelineCommandTests
             view.Transitions!,
             row =>
             {
-                Assert.Equal("SubjectAvailable", row.Transition);
+                Assert.Equal("SubjectAbsentToComplete", row.Transition);
                 Assert.Equal("Adjacent", row.Span);
             },
             row =>
             {
-                Assert.Equal("SubjectUnavailable", row.Transition);
+                Assert.Equal("CompleteToSubjectAbsent", row.Transition);
                 Assert.Equal("Adjacent", row.Span);
             });
     }
