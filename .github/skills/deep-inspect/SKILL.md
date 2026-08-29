@@ -9,10 +9,10 @@ This is a repo-local maintainer skill (CI/certification harness), not a
 shipped end-user capability; it is not embedded in the dotnet-inspect binary.
 
 Use this skill when a change needs expensive evidence outside normal PR CI.
-Deep Inspect is opt-in for risky PRs. Its `test`, `platform-test`, and
-decompiler-corpus jobs run daily to certify a commit for release, and can be
-dispatched on demand during the day. Publish consumes that evidence rather than
-rerunning the slow suites.
+Deep Inspect is opt-in for risky PRs. Its `test`, `platform-test`,
+decompiler-corpus, and `authored-corpus` jobs run daily to certify a commit for
+release, and can be dispatched on demand during the day. Publish consumes that
+evidence rather than rerunning the slow suites.
 
 ## Lanes
 
@@ -22,7 +22,7 @@ rerunning the slow suites.
 | `platform-test` | Daily/on-demand release certification across Windows, macOS, and Ubuntu | Reduced cross-platform suite: CLI, CSharpText, artifact, fast decompiler, NuGetFetch offline, metadata, services, query, and Research tests, plus `ilasm`/`ildasm`/`mdv` setup. |
 | `census` | Observational broad signal and triage | Real-world corpus sensor, validity predicate scan, uncapped validity sweep, assertion scan, analysis corpus sensor, paydirt recall. |
 | `package-sweep` | Weekly/on-demand discovery over current top NuGet packages | Product-backed package acquisition plus bounded per-library fully-raised, validity, defect-class, and promotion-candidate reporting. |
-| `authored-corpus` | Regression ratchet against checksum-verified authored source | Restores the pinned authored-source corpus and fails on quality regression or measurement-integrity loss. |
+| `authored-corpus` | Daily/on-demand regression ratchet against checksum-verified authored source | Restores the pinned authored-source corpus and fails on quality regression or measurement-integrity loss. |
 | `nightly` | Opt-in next-SDK/compiler validation | Builds with the .NET daily SDK and checks opt-in compiler lowering drift; intentionally excluded from `all`. |
 | `all` | Release-candidate deep read | The `test`, `platform-test`, decompiler-corpus, `census`, and `authored-corpus` lanes. |
 

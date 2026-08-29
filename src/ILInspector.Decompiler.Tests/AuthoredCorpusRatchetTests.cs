@@ -21,6 +21,9 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class AuthoredCorpusRatchetTests
 {
+    const string AcceptedAugust29BaselineCommit =
+        "96be1b3d695cb5d1286938c6df95cc38ec5f3a30";
+
     /// <summary>
     /// Expands a short readable label into a digest of the shape a real run records:
     /// 64 lowercase hex characters. The rule under test refuses a malformed identity,
@@ -1146,9 +1149,9 @@ public class AuthoredCorpusRatchetTests
     /// #3245 removes, rebuilt one level up. Passing <c>--ratchet-baseline</c> demands a
     /// verdict; "none available" fails that demand.
     ///
-    /// <para>The weekly caller is why this is not pedantry: its pool is resolved from
-    /// current package versions and will drift off the recorded manifest, so a green
-    /// skip would leave the job passing forever while measuring nothing.</para>
+    /// <para>The scheduled caller is why this is not pedantry: its pool and corpus
+    /// identities are explicit, and an unrecorded pin or methodology refresh would
+    /// otherwise leave the job passing forever while measuring nothing.</para>
     /// </summary>
     [Fact]
     public void ExitContract_SkipFails_BecauseAGateThatComparedNothingIsNotAPass()
@@ -1214,10 +1217,10 @@ public class AuthoredCorpusRatchetTests
 
     /// <summary>
     /// The three quality contracts are selected in one place, and "no baseline" is not
-    /// a way to spell "do not judge quality". A reviewer found the weekly lane had been
+    /// a way to spell "do not judge quality". A reviewer found the scheduled lane had been
     /// wired by simply dropping <c>--ratchet-baseline</c>, which silently selected
     /// <see cref="AuthoredCorpusExitContract.QualityContract.Perfection"/> — a contract
-    /// this ~5,200-invalid corpus cannot meet — so the job would have failed every week
+    /// this ~5,200-invalid corpus cannot meet — so every scheduled run would have failed
     /// forever and filed a scheduled-failure issue each time.
     /// </summary>
     [Fact]
@@ -1237,9 +1240,10 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// What the weekly lane actually asks for: a sound measurement of a corpus with
-    /// thousands of invalid rows exits 0, because the lane makes no quality claim at
-    /// all. This is the case that is red by construction under every other contract.
+    /// What the integrity-only bootstrap contract asks for: a sound measurement of a
+    /// corpus with thousands of invalid rows exits 0, because the contract makes no
+    /// quality claim at all. This is the case that is red by construction under every
+    /// other contract.
     /// </summary>
     [Fact]
     public void ExitContract_IntegrityOnlyPassesOnASoundRunOfAnImperfectCorpus()
@@ -1280,14 +1284,13 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The tracked trend store's own append gate: the newest recorded row must not regress
-    /// against the newest earlier row it is comparable with. Rows before it were
-    /// recorded without a ratchet and are data, not a contract, so only the new row is
-    /// judged — which is why this passes today even though the store contains an
-    /// earlier step where raw invalid rose. The store crossed the identity bootstrap
-    /// when the first two pinned-pool rows landed together (#3353): before them no row
-    /// recorded <c>poolSha256</c>, so a live run — which always records one — was
-    /// comparable to nothing and this gate skipped.
+    /// The tracked trend store's own append gate: the newest recorded row must not contain
+    /// an unaccepted regression against the newest earlier row it is comparable with.
+    /// Rows before it were recorded without a ratchet and are data, not a contract, so
+    /// only the new row is judged. The store crossed the identity bootstrap when the
+    /// first two pinned-pool rows landed together (#3353): before them no row recorded
+    /// <c>poolSha256</c>, so a live run — which always records one — was comparable to
+    /// nothing and this gate skipped.
     ///
     /// <para><see cref="Assert.False(bool)"/> on <c>Skipped</c> is the load-bearing
     /// half. <c>Assert.Empty(Regressions)</c> alone passes for a skip, so this gate was
@@ -1295,9 +1298,16 @@ public class AuthoredCorpusRatchetTests
     /// only v2 row, nothing was comparable, and a hand-appended regression that also
     /// nudged <c>poolMatched</c> landed green. Asserting the comparison actually
     /// happened is what makes the emptiness mean something.</para>
+    ///
+    /// <para>The exact 2026-08-29 main commit is the one reviewed exception: #4631
+    /// established that its two fewer source matches are compile-back-exact
+    /// <c>ValidDifferent</c> outcomes, alongside 21 repaired invalid outcomes and no
+    /// new invalid outcome. Pinning the commit, metric, and endpoints keeps that
+    /// acceptance from becoming a tolerance band. The next appended row is judged
+    /// normally against this accepted baseline.</para>
     /// </summary>
     [Fact]
-    public void TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline()
+    public void TrackedHistory_NewestRowHasNoUnacceptedRegressionAgainstItsBaseline()
     {
         var tracked = AuthoredCorpusHistoryCardTests.TrackedHistory();
         var comparison = AuthoredCorpusRatchet.CompareNewestRow(tracked);
@@ -1305,7 +1315,16 @@ public class AuthoredCorpusRatchetTests
         var baseline = tracked[^2];
 
         Assert.False(comparison.Skipped, comparison.SkipReason);
-        Assert.Empty(comparison.Regressions);
+        if (newest.Commit == AcceptedAugust29BaselineCommit)
+        {
+            Assert.Equal(["correct"], comparison.Regressions.Select(metric => metric.Name));
+            Assert.Equal(1564, baseline.Correct);
+            Assert.Equal(1562, newest.Correct);
+        }
+        else
+        {
+            Assert.Empty(comparison.Regressions);
+        }
 
         // Naming the metrics, rather than asserting the list is merely non-empty, is
         // what keeps this gate honest: a metric is compared only when both rows state
@@ -1424,6 +1443,36 @@ public class AuthoredCorpusRatchetTests
             "mapfile -t assemblies < \"$RUNNER_TEMP/evil-pool/assemblies.txt\"",
             workflow,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeepInspect_RunsAuthoredCorpusDailyAndKeepsPackageDiscoveryWeekly()
+    {
+        string workflow = File.ReadAllText(
+            Path.Combine(
+                FindRepositoryRoot(),
+                ".github",
+                "workflows",
+                "deep-inspect.yml"));
+        int packageSweepStart = workflow.IndexOf("  package-sweep:", StringComparison.Ordinal);
+        int authoredCorpusStart = workflow.IndexOf("  authored-corpus-ratchet:", StringComparison.Ordinal);
+        string packageSweep = workflow[
+            packageSweepStart..
+            workflow.IndexOf("  test:", packageSweepStart, StringComparison.Ordinal)];
+        string authoredCorpus = workflow[
+            authoredCorpusStart..
+            workflow.IndexOf("  report-scheduled-failure:", authoredCorpusStart, StringComparison.Ordinal)];
+        const string dailySchedule =
+            "(github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')";
+        const string weeklySchedule =
+            "(github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1')";
+
+        Assert.Contains("- cron: '0 6 * * *'", workflow, StringComparison.Ordinal);
+        Assert.Contains("- cron: '0 9 * * 1'", workflow, StringComparison.Ordinal);
+        Assert.Contains(dailySchedule, authoredCorpus, StringComparison.Ordinal);
+        Assert.DoesNotContain(weeklySchedule, authoredCorpus, StringComparison.Ordinal);
+        Assert.Contains(weeklySchedule, packageSweep, StringComparison.Ordinal);
+        Assert.DoesNotContain(dailySchedule, packageSweep, StringComparison.Ordinal);
     }
 
     [Fact]
