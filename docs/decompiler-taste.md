@@ -627,6 +627,29 @@ exceed that width:
       JsonDocumentOptions options = default) => JsonDocument.ParseValue(utf8Json, options).RootElement;
   ```
 
+Generic method constraints use a continuation layout independently of width:
+each top-level `where` clause occupies its own line, indented four spaces from
+the declaration. The declared oracle is silent: `dotnet/runtime` has no
+`dotnet_style_*` or `csharp_style_*` key for constraint placement, and
+`eng/CodeAnalysis.src.globalconfig:1312` explicitly disables SA1127. The revealed
+facet favors the multiline form; examples at runtime commit `795badfa03d`
+include
+`src/libraries/System.Text.Json/src/System/Text/Json/Nodes/JsonValueOfJsonPrimitive.cs:66`
+and
+`src/libraries/Microsoft.Bcl.AsyncInterfaces/src/System/Runtime/CompilerServices/AsyncIteratorMethodBuilder.cs:40`.
+That form is therefore the shipped default:
+
+```csharp
+public override T? Pick<T, U>(T? value)
+    where T : U
+    where U : class => value;
+```
+
+Constraint layout is comment-aware. Text that resembles a `where` clause inside
+a block comment is ignored while locating real clauses. A declaration head that
+contains a line comment stays unchanged because inserting a line break after
+`//` can promote commented text into live C#.
+
 - **Short-circuit `&&` / `||` chains — opt-in.** The boolean analog breaks each
   operand onto its own line with the operator trailing each broken line. It
   carries the same whitespace-only guarantee — it re-renders each flattened
@@ -657,13 +680,14 @@ signature wrappers reproduce the corpus and stay on.
 
 **General one-liner opt-out.** A single knob,
 `PrinterOptions.DisableOneLinerWrapping` (catalog id `disable-one-liner-wrapping`,
-off by default), suppresses *all* always-on width wrapping — both the fluent-chain
-and the member-signature wrappers — so a caller who wants wide constructs to stay
-on one physical line gets true one-liners. It deliberately does **not** touch the
-opt-in `WrapSplittableExpressions` wrappers, which are already off unless
-explicitly enabled. Keeping a wide construct inline diverges from the corpus
-(which wraps), so this knob is a user compactness preference endorsed by neither
-the oracle nor the corpus — classified like the branchless-boolean lens.
+off by default), suppresses all always-on layout wrapping — the fluent-chain and
+member-signature width wrappers plus generic-constraint continuation lines — so
+a caller who wants constructs to stay on one physical line gets true one-liners.
+It deliberately does **not** touch the opt-in `WrapSplittableExpressions`
+wrappers, which are already off unless explicitly enabled. Keeping either a wide
+construct or generic constraints inline diverges from the revealed corpus, while
+the declared facet is silent, so this knob remains a user compactness preference
+endorsed by neither facet — classified like the branchless-boolean lens.
 
 ### Range indexer
 
@@ -1071,8 +1095,9 @@ runtime code wraps long boolean chains in line with its 120-column practice. The
 other formatting/synthesis knobs are left un-endorsed on both axes: wrapping the
 expression-body arrow actually *diverges* from the corpus (the runtime keeps `=>`
 on the same line, which the shipped default already does), suppressing the
-always-on width wrappers (`disable-one-liner-wrapping`) diverges too (the runtime
-wraps wide constructs, which the shipped default also does), and a synthesized
+always-on layout wrappers (`disable-one-liner-wrapping`) diverges too (the
+runtime wraps wide constructs and normally places generic constraints on
+continuation lines, which the shipped default also does), and a synthesized
 local name is our own invention, not a corpus spelling. The catalog exposes the
 revealed subset as `CorpusEndorsedOptions`; a future "house style" aggregate would
 fold declared ∪ revealed while "full taste" stays declared-only

@@ -2925,6 +2925,9 @@ public static class ApiOutputFormatter
         {
             declaration = $"{declaration} : {constructorChain}";
         }
+        declaration = CSharpText.CSharpMemberLayout.LayOutDeclarationHead(
+            declaration,
+            result.Metadata.EffectiveOptions.DisableOneLinerWrapping);
         var body = lowered.TrimEnd();
 
         // The trailing side comment rides the signature line, so it has to be
