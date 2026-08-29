@@ -166,6 +166,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
+- [View Facet Registry](design/view-facet-registry.md): stable product-owned
+  inspection-facet identities, labels, order, structural applicability,
+  discovery, and typed resolution outcomes.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral root, Library, Type, and Member descriptors, availability,
   initial recommendations, transitions, reconciliation, and model-checked
