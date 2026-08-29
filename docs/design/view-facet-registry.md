@@ -196,14 +196,13 @@ The descriptor does not expose implementation types, delegates, CLI spellings,
 browser data, target counts, target availability, selection, acquisition,
 network, cost, output-shape, or rendering policy.
 
-A registration is an explicit active-or-tombstone sum type. An active
-registration contains the descriptor, stable purpose, pure applicability
-classifier, and availability evaluator; its ID has exactly one private
-execution binding. A tombstone contains the descriptor, stable purpose, and
-fixed `Retired` result but no evaluator or execution binding. The type shape
-makes one registration being both active and tombstoned unrepresentable.
-Applicability consumes typed structural-subject facts, not display text, and
-runs before availability.
+A registration has a shared descriptor, stable purpose, and pure applicability
+classifier, plus an explicit active-or-tombstone arm. The active arm contains
+the availability evaluator, and its ID has exactly one private execution
+binding. The tombstone arm contains the fixed `Retired` result but no evaluator
+or execution binding. The type shape makes one registration being both active
+and tombstoned unrepresentable. Applicability consumes typed
+structural-subject facts, not display text, and runs before either arm.
 
 ## Discovery and exact resolution
 
@@ -339,8 +338,11 @@ network access.
   the disjoint union of active- and tombstone-registration IDs;
   active-registration IDs equal the independently declared active-binding IDs;
   every tombstone has no binding and the fixed `Retired` shape; and a synthetic
-  tombstone fixture exercises those assertions before the product has a
-  retired facet;
+  tombstone exercises those assertions before the product has a retired facet;
+- `ViewFacetRegistryTests.Tombstone_PreservesApplicabilityAndReturnsRetired`:
+  a synthetic package-capable-Root-only tombstone returns `Retired` for a
+  package-capable Root and remains omitted or exact `Inapplicable` for a
+  non-package Root;
 - `ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire`: throwing
   execution, artifact-open/acquisition, cache, alias, dynamic-provider,
   filesystem, and network sentinels all remain untouched;
@@ -364,8 +366,11 @@ the independent expected set in
 observable; after issuance, the compatibility manifest makes removal or
 repurposing observable. `RegistrationsAndBindingsAgree` is the execution-wiring
 non-vacuity gate: removing an active binding or attaching one to its synthetic
-tombstone must fail it. The registration sum type makes active/tombstone overlap
-unrepresentable, so this contract does not claim a runtime overlap mutation.
+tombstone must fail it.
+`Tombstone_PreservesApplicabilityAndReturnsRetired` makes retained
+applicability observable. The registration sum type makes active/tombstone
+overlap unrepresentable, so this contract does not claim a runtime overlap
+mutation.
 
 No TLA+ model accompanies this owner. It is an immutable catalog plus pure
 lookup and classification over one explicit snapshot, with no retained,
