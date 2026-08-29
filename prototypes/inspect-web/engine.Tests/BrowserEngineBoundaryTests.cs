@@ -60,6 +60,27 @@ public sealed class BrowserEngineBoundaryTests
                 Assert.Single(facts.DependencyGroups).Dependencies).Id);
     }
 
+    [Fact]
+    public void PackageQueryPlanner_IsReachableFromBrowserConsumer()
+    {
+        PackageQueryPlan plan = Assert.IsType<PackageQueryPlanResult.Accepted>(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Example.",
+                    [
+                        PackageQuery.ToolFacetId,
+                        PackageQuery.NoDependenciesFacetId,
+                    ]))).Plan;
+
+        Assert.Equal(PackageQueryFacetTier.Nuspec, plan.Facets[0].Tier);
+        Assert.Equal(
+            [
+                PackageQuery.ToolFacetId,
+                PackageQuery.NoDependenciesFacetId,
+            ],
+            plan.Facets.Select(facet => facet.Id));
+    }
+
     public static object PerformanceBoxingProbe(int value) => value;
 
     public static int PerformanceNoAllocationProbe(int value) => value;
