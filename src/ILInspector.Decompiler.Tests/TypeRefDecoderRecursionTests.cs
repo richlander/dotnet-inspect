@@ -3,7 +3,6 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Decompiler.Pipeline;
-using ILInspector.Decompiler.Pipeline.Ir;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -754,7 +753,7 @@ public class TypeRefDecoderRecursionTests
         var block = new Block();
         block.Add(new Return(new NewArray(
             elementType,
-            new Constant(1, intType))));
+            new ILInspector.Decompiler.Pipeline.Constant(1, intType))));
         body.Add(block);
         var function = new IrFunction(
             "M",
