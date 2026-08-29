@@ -425,11 +425,20 @@ Until that gate exists, any statement in this document that any invariant
 gate](../../AGENTS.md#asserted-properties-name-their-gate). Statements about
 what the invariants *require* are normative regardless.
 
-A TLA+ model is not the right instrument here. The property is not a stateful,
-concurrent, or scheduling interaction; it is a differential property of two
-sequential parsers over one grammar, where the second parser is an external
-binary we cannot model faithfully. Generating real blobs and running the real
-decoder is both cheaper and more honest.
+A TLA+ model is not the right instrument here, and the repository's existing
+model is the useful contrast.
+[`docs/models/package-realization-admission/`](../models/package-realization-admission/README.md)
+models coordinate-keyed admission and lease-scoped lifetime: genuinely
+stateful, concurrent, and full of interleavings a test cannot enumerate. That
+is what TLA+ is for.
+
+This property is the opposite shape. It is a differential property of two
+*sequential* parsers over one grammar, with no concurrency and no scheduling,
+where the second parser is an external binary whose parse we cannot model
+faithfully — and a model of SRM that we wrote ourselves would re-introduce
+exactly the "two implementations believed to be equivalent" error this design
+forbids. Generating real blobs and running the real decoder is both cheaper and
+more honest.
 
 ## Shape: a paired walker, and what that costs
 
