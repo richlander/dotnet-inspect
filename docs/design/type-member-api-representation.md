@@ -67,8 +67,11 @@ single-anchor overload keeps the same identity without adopting an
 operation-wide policy.
 `CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget`,
 `CreateMethodAnchorInfo_HighGenericArityExhaustsBeforeContextAllocation`, and
-`CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity` gate the bound and
-identity parity.
+`CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity` gate the aggregate
+bound and identity parity. The selector, fingerprint, and stable-selector
+`CreateMethodAnchorInfo_*ProjectionHasANonVacuousBudgetGate` tests each exhaust
+at its named projection stage, so removing one charge cannot leave the safety
+claim green.
 
 The target [assembly image lifetime](assembly-image-lifetime.md) contract adds
 owner-authorized image binding before current MVID and row validation. That

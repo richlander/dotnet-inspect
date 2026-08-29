@@ -347,7 +347,9 @@ public static class ApiMemberIdentity
     /// <c>CreateMethodAnchor_RepeatedTypeNamesFailBeforeLargeAllocation</c>
     /// <c>CreateMethodAnchor_NestedArrayModoptsFailBeforeLargeAllocation</c>,
     /// <c>CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget</c>,
-    /// and <c>CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity</c>.
+    /// <c>CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity</c>, and the
+    /// three <c>CreateMethodAnchorInfo_*ProjectionHasANonVacuousBudgetGate</c>
+    /// tests.
     /// </summary>
     sealed class AnchorSignatureWorkBudget
     {
@@ -377,19 +379,25 @@ public static class ApiMemberIdentity
         internal void ChargeProjectionNodes(long count)
             => ChargeProjection(count * MinimumProjectionNodeWork);
 
-        internal void ChargeProjection(long work)
+        internal void ChargeProjection(
+            long work,
+            string? stage = null)
         {
             if (_chargeProjectionWork)
-                Charge(work);
+                Charge(work, stage);
         }
 
-        internal void Charge(long characters)
+        internal void Charge(
+            long characters,
+            string? stage = null)
         {
             if (_exhausted || characters < 0 || characters > _remaining)
             {
                 _exhausted = true;
                 throw new BadImageFormatException(
-                    "The member anchor signature exceeds the cumulative work budget.");
+                    stage is null
+                        ? "The member anchor signature exceeds the cumulative work budget."
+                        : $"The member anchor {stage} exceeds the cumulative work budget.");
             }
             _remaining -= (int)characters;
         }
@@ -1279,7 +1287,8 @@ public static class ApiMemberIdentity
         string methodName)
     {
         workBudget.ChargeProjection(
-            "extension:".Length + (long)methodName.Length);
+            "extension:".Length + (long)methodName.Length,
+            "selector projection");
     }
 
     static void EnsureAnchorSignatureBudget(
@@ -1339,10 +1348,12 @@ public static class ApiMemberIdentity
                 + 32
                 + 64
                 + 64
-                + 10);
+                + 10,
+            "fingerprint projection");
         var fingerprint = MemberAnchor.ComputeFingerprint(canonicalSignature);
         workBudget?.ChargeProjection(
-            selectorName.Length + 1L + fingerprint.Length);
+            selectorName.Length + 1L + fingerprint.Length,
+            "stable selector projection");
         return new MemberAnchor(
             $"{selectorName}~{fingerprint}",
             canonicalSignature,

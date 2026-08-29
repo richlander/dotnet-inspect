@@ -178,6 +178,24 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void CreateMethodAnchorInfo_SelectorProjectionHasANonVacuousBudgetGate()
+        => AssertProjectionStageExhaustion(
+            workRemaining: 166,
+            expectedStage: "selector projection");
+
+    [Fact]
+    public void CreateMethodAnchorInfo_FingerprintProjectionHasANonVacuousBudgetGate()
+        => AssertProjectionStageExhaustion(
+            workRemaining: 208,
+            expectedStage: "fingerprint projection");
+
+    [Fact]
+    public void CreateMethodAnchorInfo_StableSelectorProjectionHasANonVacuousBudgetGate()
+        => AssertProjectionStageExhaustion(
+            workRemaining: 520,
+            expectedStage: "stable selector projection");
+
+    [Fact]
     public void GetMemberAnchor_DisambiguatesConversionOperatorsByReturnType()
     {
         using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
@@ -696,6 +714,37 @@ public class ApiMemberIdentityTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static void AssertProjectionStageExhaustion(
+        int workRemaining,
+        string expectedStage)
+    {
+        byte[] image = BuildRepeatedLongMethodNameImage(
+            methodCount: 1,
+            methodNameLength: 32);
+        using var peReader = new PEReader(new MemoryStream(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle =
+            reader.TypeDefinitions.Last();
+        MethodDefinition method =
+            reader.GetMethodDefinition(
+                reader.GetTypeDefinition(typeHandle).GetMethods().Single());
+
+        BadImageFormatException ex =
+            Assert.Throws<BadImageFormatException>(
+                () => ApiMemberIdentity.CreateMethodAnchorInfo(
+                    reader,
+                    typeHandle,
+                    method,
+                    ref workRemaining,
+                    isExtensionMethod: true));
+
+        Assert.Contains(
+            $"member anchor {expectedStage} exceeds",
+            ex.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(0, workRemaining);
     }
 
     static List<(TypeDefinitionHandle TypeHandle, MethodDefinition Method)> FindConversionOperatorMethods(MetadataReader reader)
