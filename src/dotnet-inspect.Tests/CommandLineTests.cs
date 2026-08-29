@@ -840,6 +840,37 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--library=-1")]
+    [InlineData("--library:-1")]
+    public void PreprocessArgs_InlineRequiredValueDoesNotShiftLaterShorthand(
+        string libraryOption)
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["member", "System.String.ToString", libraryOption, "-1"]);
+
+        Assert.Equal(
+            [
+                "member",
+                "System.String.ToString",
+                libraryOption,
+                "-n",
+                "1",
+            ],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RewritesEveryShorthandOccurrence()
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "-1", "-1"]);
+
+        Assert.Equal(
+            ["package", "Foo", "-n", "1", "-n", "1"],
+            result);
+    }
+
+    [Theory]
     [InlineData("--out", "-n1")]
     [InlineData("--output", "-n1")]
     [InlineData("-o", "-n1")]

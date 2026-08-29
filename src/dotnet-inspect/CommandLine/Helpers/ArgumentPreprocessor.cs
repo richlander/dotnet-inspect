@@ -194,11 +194,16 @@ public static class ArgumentPreprocessor
         ParseResult parseResult,
         string[] args)
     {
+        var rewritten = new List<string>(args.Length);
+        bool changed = false;
         for (var i = 0; i < args.Length; i++)
         {
             string token = args[i];
             if (token == "--")
+            {
+                rewritten.AddRange(args[i..]);
                 break;
+            }
 
             if (token.Length >= 2
                 && token[0] == '-'
@@ -206,11 +211,16 @@ public static class ArgumentPreprocessor
                 && int.TryParse(token.AsSpan(1), out _)
                 && !IsClaimedByRequiredOption(parseResult, args, i))
             {
-                return [.. args[..i], "-n", token[1..], .. args[(i + 1)..]];
+                rewritten.Add("-n");
+                rewritten.Add(token[1..]);
+                changed = true;
+                continue;
             }
+
+            rewritten.Add(token);
         }
 
-        return args;
+        return changed ? [.. rewritten] : args;
     }
 
     public static void ApplyParsedLineWindow(
@@ -370,9 +380,27 @@ public static class ArgumentPreprocessor
         int index)
     {
         string value = args[index];
-        int occurrence = args
-            .Take(index + 1)
-            .Count(arg => arg.Equals(value, StringComparison.Ordinal));
+        int occurrence = 0;
+        for (var i = 0; i <= index; i++)
+        {
+            string token = args[i];
+            if (token.Equals(value, StringComparison.Ordinal))
+            {
+                occurrence++;
+                continue;
+            }
+
+            int separator = token.IndexOfAny(['=', ':']);
+            if (token.StartsWith('-', StringComparison.Ordinal)
+                && separator >= 0
+                && token.AsSpan(separator + 1).Equals(
+                    value,
+                    StringComparison.Ordinal))
+            {
+                occurrence++;
+            }
+        }
+
         Token? candidate = parseResult.Tokens
             .Where(token => token.Value.Equals(value, StringComparison.Ordinal))
             .Skip(occurrence - 1)
@@ -380,7 +408,7 @@ public static class ArgumentPreprocessor
         return candidate is not null
             && GetOptionResults(parseResult).Any(
                 option => option.Option.Arity.MinimumNumberOfValues > 0
-                    && option.Tokens.Any(token => Equals(token, candidate)));
+                    && option.Tokens.Any(token => ReferenceEquals(token, candidate)));
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];

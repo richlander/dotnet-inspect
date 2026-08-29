@@ -7782,6 +7782,50 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries));
     }
 
+    [Fact]
+    public async Task Router_ShorthandAfterInlineRequiredValueUsesRawOccurrence()
+    {
+        var direct = await RunAppInDirectoryAsync(
+            Path.GetTempPath(),
+            "member",
+            "System.String.ToString",
+            "--library=-1",
+            "-1",
+            "--help");
+        var routed = await RunAppInDirectoryAsync(
+            Path.GetTempPath(),
+            "System.String.ToString",
+            "--library=-1",
+            "-1",
+            "--help");
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, routed.Exit);
+        Assert.Single(
+            direct.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Equal(direct.Output, routed.Output);
+    }
+
+    [Fact]
+    public async Task RepeatedShorthandUsesNormalDuplicateOptionValidation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Foo",
+            "-1",
+            "-1",
+            "--help");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Option '-n' expects a single argument but 2 were provided",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("--library=-missing.dll")]
     [InlineData("--library:-missing.dll")]
