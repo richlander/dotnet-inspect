@@ -12,23 +12,35 @@ supersession rules, and facet membership remain abstract. The model owns only
 the consumer sequence:
 
 1. receive a typed result and its authority;
-2. install a replacement snapshot when the result supplies one;
+2. install a replacement snapshot and its UI location/history commit when the
+   result supplies one;
 3. run deferred focus and status-announcement effects;
 4. revalidate authority before every visible effect;
 5. acknowledge authority after all required effects complete; or
-6. abandon returned authority when it becomes stale or its surface is
-   destroyed.
+6. abandon returned authority when it becomes stale, is superseded, returns
+   after destruction, or belongs to a destroyed surface lifetime.
 
 `UiEffectLifecycle.tla` models two explicit intents and two mounted-surface
-lifetimes. Applied and unavailable outcomes require installation, focus, and
-announcement. Rejected and failed outcomes retain the current snapshot and
-require only focus and announcement. Every effect is a separate transition, so
-a newer intent or surface destruction may intervene between installation and a
-later callback.
+lifetimes. Applied outcomes and unavailable outcomes carrying a changed
+snapshot require installation, focus, and announcement. Unavailable outcomes
+without a replacement snapshot, rejected outcomes, and failed outcomes require
+only focus and announcement. Every effect is a separate transition, so a newer
+intent or surface destruction may intervene between installation and a later
+callback. Superseded outcomes have no required effects and settle only through
+abandonment. The model consumes Inspection Subject Navigation's guarantee that
+a superseded result belongs to an older intent than the session's current
+intent; superseded authority is therefore stale by construction and uses the
+ordinary stale-abandonment path.
+
+The model collapses the UI into one logical navigation-authority holder and one
+current destination-surface lifetime. Actual modals and routed components may
+coexist, but they do not independently consume the same returned navigation
+authority. The session-scoped consumer applies the modeled rule to the
+destination lifetime associated with each result.
 
 ## Checked properties
 
-The primary configuration checks:
+The model states these required properties:
 
 - every visible effect uses current authority for the current mounted surface;
 - focus and announcement never precede a required snapshot installation;
@@ -38,8 +50,12 @@ The primary configuration checks:
 - every submitted intent eventually returns and reaches a terminal consumer
   state.
 
-These properties are model claims, not implementation-conformance claims.
-Implementation gates are named in the owning UI document.
+The primary configuration exhaustively checks state shape and the two
+settlement properties while the required guards are enabled. The four mutation
+configurations disable one safety guard at a time and retain an independent
+witness invariant, demonstrating that each safety rule is non-vacuous. These
+are model claims, not implementation-conformance claims. Required
+implementation gates are named in the owning UI document.
 
 ## Model checking
 
@@ -58,19 +74,28 @@ Run the primary model from this directory:
   -config UiEffectLifecycle.cfg UiEffectLifecycle.tla
 ```
 
-The complete breadth-first check generated 10,418 states, found 6,310 distinct
+The complete breadth-first check generated 16,661 states, found 9,859 distinct
 states, reached depth 16, and reported no errors. Action coverage was nonzero
 for every modeled transition:
 
 | Action | Distinct | Invocations |
 | ------ | -------: | ----------: |
-| `BeginIntent` | 67 | 85 |
-| `ReturnResult` | 1,120 | 2,256 |
-| `RunEffect` | 1,050 | 2,376 |
-| `Acknowledge` | 300 | 444 |
-| `AbandonStale` | 828 | 2,904 |
-| `DestroySurface` | 2,187 | 3,626 |
-| `MountSurface` | 757 | 945 |
+| `BeginIntent` | 81 | 103 |
+| `ReturnResult` | 1,870 | 3,837 |
+| `RunEffect` | 1,598 | 3,710 |
+| `Acknowledge` | 470 | 705 |
+| `AbandonStale` | 1,316 | 4,815 |
+| `DestroySurface` | 3,334 | 5,597 |
+| `MountSurface` | 1,189 | 1,507 |
+
+The coverage figures use one worker so action counters are deterministic:
+
+```bash
+/opt/homebrew/opt/openjdk@25/bin/java \
+  -cp "$HOME/.local/share/tlaplus/tla2tools.jar" \
+  tlc2.TLC -workers 1 -coverage 1 \
+  -config UiEffectLifecycle.cfg UiEffectLifecycle.tla
+```
 
 ## Mutation probes
 
@@ -84,8 +109,9 @@ witness invariant:
 | `DestroyWithoutAbandonMutation.cfg` | abandonment during destruction | `DestroyAbandonsReturnedAuthority` |
 | `FocusBeforeInstallMutation.cfg` | installation before dependent effects | `SnapshotInstallsBeforeDependentEffects` |
 
-TLC finds a counterexample for every mutation. The first violations appear
-after 89, 78, 86, and 120 distinct states respectively.
+TLC finds a counterexample for every mutation. Exact partial-state counts are
+not recorded because parallel workers may discover the first counterexample in
+a different order.
 
 ## Deliberate omissions
 
@@ -97,6 +123,11 @@ The model does not encode:
 - exact ARIA roles, keyboard keys, or focus-target identities;
 - modal layout and responsive rendering; or
 - product work, maintenance ordering, or snapshot retention.
+
+Product-initiated maintenance uses the same UI effect lifecycle in the owning
+prose, but this model does not reproduce the product scheduler that admits or
+orders maintenance. Its implementation conformance is covered by the named
+maintenance consumer gate.
 
 Those contracts remain in their owning product documents or in readable UI
 prose. The model checks only the stateful consumer lifecycle for visible

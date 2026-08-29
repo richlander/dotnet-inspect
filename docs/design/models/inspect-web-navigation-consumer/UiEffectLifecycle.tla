@@ -22,13 +22,22 @@ ASSUME EnforceInstallFirst \in BOOLEAN
 
 Tokens == 1..MaxIntents
 Statuses == {"unused", "inFlight", "returned", "acknowledged", "abandoned"}
-Outcomes == {"none", "applied", "unavailable", "rejected", "failed"}
+Outcomes ==
+  {"none",
+   "applied",
+   "unavailableWithSnapshot",
+   "unavailableWithoutSnapshot",
+   "rejected",
+   "failed",
+   "superseded"}
 Effects == {"install", "focus", "announce"}
-SnapshotOutcomes == {"applied", "unavailable"}
+SnapshotOutcomes == {"applied", "unavailableWithSnapshot"}
 TerminalStatuses == {"acknowledged", "abandoned"}
 
 RequiredEffects(result) ==
-  IF result \in SnapshotOutcomes
+  IF result = "superseded"
+  THEN {}
+  ELSE IF result \in SnapshotOutcomes
   THEN Effects
   ELSE {"focus", "announce"}
 
@@ -42,9 +51,6 @@ VARIABLES
   outcome,
   required,
   completed,
-  installedBy,
-  focusedBy,
-  announcedBy,
   effectWitness,
   acknowledgeWitness,
   destructionWitness,
@@ -60,9 +66,6 @@ vars ==
      outcome,
      required,
      completed,
-     installedBy,
-     focusedBy,
-     announcedBy,
      effectWitness,
      acknowledgeWitness,
      destructionWitness,
@@ -78,9 +81,6 @@ Init ==
   /\ outcome = [i \in Tokens |-> "none"]
   /\ required = [i \in Tokens |-> {}]
   /\ completed = [i \in Tokens |-> {}]
-  /\ installedBy = 0
-  /\ focusedBy = 0
-  /\ announcedBy = 0
   /\ effectWitness = TRUE
   /\ acknowledgeWitness = TRUE
   /\ destructionWitness = TRUE
@@ -105,9 +105,6 @@ BeginIntent ==
                   outcome,
                   required,
                   completed,
-                  installedBy,
-                  focusedBy,
-                  announcedBy,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -117,6 +114,7 @@ ReturnResult(i, result) ==
   /\ i \in Tokens
   /\ result \in Outcomes \ {"none"}
   /\ status[i] = "inFlight"
+  /\ (result = "superseded" => i < currentIntent)
   /\ status' = [status EXCEPT ![i] = "returned"]
   /\ outcome' = [outcome EXCEPT ![i] = result]
   /\ required' = [required EXCEPT ![i] = RequiredEffects(result)]
@@ -126,9 +124,6 @@ ReturnResult(i, result) ==
                   mounted,
                   surfaceEpoch,
                   operationSurface,
-                  installedBy,
-                  focusedBy,
-                  announcedBy,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -148,9 +143,6 @@ RunEffect(i, effect) ==
        \/ "install" \in completed[i]
      ELSE TRUE
   /\ completed' = [completed EXCEPT ![i] = @ \cup {effect}]
-  /\ installedBy' = IF effect = "install" THEN i ELSE installedBy
-  /\ focusedBy' = IF effect = "focus" THEN i ELSE focusedBy
-  /\ announcedBy' = IF effect = "announce" THEN i ELSE announcedBy
   /\ effectWitness' =
        (effectWitness
         /\ CurrentAuthority(i)
@@ -190,9 +182,6 @@ Acknowledge(i) ==
                   outcome,
                   required,
                   completed,
-                  installedBy,
-                  focusedBy,
-                  announcedBy,
                   effectWitness,
                   destructionWitness,
                   orderingWitness >>
@@ -210,9 +199,6 @@ AbandonStale(i) ==
                   outcome,
                   required,
                   completed,
-                  installedBy,
-                  focusedBy,
-                  announcedBy,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -237,9 +223,6 @@ DestroySurface ==
                   outcome,
                   required,
                   completed,
-                  installedBy,
-                  focusedBy,
-                  announcedBy,
                   effectWitness,
                   acknowledgeWitness,
                   orderingWitness >>
@@ -256,9 +239,6 @@ MountSurface ==
                   outcome,
                   required,
                   completed,
-                  installedBy,
-                  focusedBy,
-                  announcedBy,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -284,9 +264,6 @@ TypeOK ==
   /\ outcome \in [Tokens -> Outcomes]
   /\ required \in [Tokens -> SUBSET Effects]
   /\ completed \in [Tokens -> SUBSET Effects]
-  /\ installedBy \in 0..MaxIntents
-  /\ focusedBy \in 0..MaxIntents
-  /\ announcedBy \in 0..MaxIntents
   /\ effectWitness \in BOOLEAN
   /\ acknowledgeWitness \in BOOLEAN
   /\ destructionWitness \in BOOLEAN
