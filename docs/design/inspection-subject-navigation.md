@@ -194,11 +194,27 @@ One navigation snapshot contains:
 | Library descriptors | Aggregate, primary, then declaration order |
 | Type and Member rows | Producer rows plus product activation state |
 | Lens descriptors | Registry order, subject-scoped identity, and availability |
-| Lens outcome | Effective, unavailable, or failed |
+| Lens outcome | Effective identity or non-effective outcome, evaluation basis, and exact Registry evidence |
 | Diagnostics | Partial evidence and scoped failures |
 
 The snapshot is the retained session's only committed subject and lens state.
 A host cannot supply a second retained-state value.
+
+A lens outcome retains one evaluation basis:
+
+| Basis | Retained input |
+| --- | --- |
+| Recommendation | Exact subject, preferred role, and complete target-aware Registry options |
+| Exact request | Exact subject-bound navigation lens identity and exact Registry result |
+
+An effective outcome carries the selected exact navigation lens. A
+non-effective recommendation outcome carries no invented lens identity; a
+non-effective exact-request outcome retains the requested identity without
+making it effective. This basis is product state used by reconciliation, not a
+host hint. Recommendation installs a recommendation basis whether it selects a
+lens or not. An explicit lens command installs an exact-request basis even when
+it selects the same lens, recording that subsequent refresh must preserve the
+exact request rather than resume automatic fallback.
 
 ### Descriptor states
 
@@ -344,7 +360,14 @@ Subject and lens activation return one of these semantic outcomes:
 | Failed | Retains state because navigation evaluation failed |
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
 
-Exact lens activation maps the View Facet Registry result without fallback:
+Standalone lens activation first requires the request's exact subject to equal
+the snapshot's active subject. A mismatch is `Rejected` with the complete
+request identity retained, before Registry resolution or fallback. It cannot
+change the active subject. Canonical restoration's separately validated atomic
+subject+lens pair remains governed by the restoration participant contract.
+
+After that precondition succeeds, exact lens activation maps the View Facet
+Registry result without fallback:
 
 | Registry result | Navigation outcome |
 | --- | --- |
@@ -390,13 +413,22 @@ subject merely because its registry facet ID or structural kind matches.
 No arbitrary Member replaces a missing Member. Inventory refresh never promotes
 an explicitly selected Root or Library to Type.
 
-Lens reconciliation evaluates the exact subject-bound lens identity. When the
-active subject is unchanged, an available exact lens is retained; an
-unavailable or failed exact result preserves that outcome and evidence without
-recommendation fallback. When subject reconciliation changes the exact
-subject, the prior lens identity no longer matches and Navigation runs
-recommendation for the replacement subject unless the operation supplied an
-explicit lens request.
+Lens reconciliation follows the retained evaluation basis:
+
+- a recommendation-basis outcome, effective or non-effective, reruns
+  recommendation for its retained exact subject against the refreshed complete
+  Registry options;
+- an exact-request-basis outcome, effective or non-effective, re-resolves its
+  exact subject-bound lens identity and never applies recommendation fallback;
+  and
+- when subject reconciliation changes the exact subject, the prior basis no
+  longer matches and Navigation runs recommendation for the replacement
+  subject unless canonical restoration supplied an atomic exact pair.
+
+This lets a recommendation recover when refreshed facts make a facet available
+or replace a fallback with the now-available preferred role, without turning an
+explicit request into a different lens. Every replacement outcome retains its
+new basis and complete evidence.
 
 ### Coordinate variation
 
@@ -462,10 +494,12 @@ resolution, the canonical-state owner supplies one realized coordinate and the
 optional exact subject and navigation lens requested for it.
 
 Inspection Subject Navigation independently retains that requested payload,
+requires the lens identity's exact subject to equal the requested subject,
 resolves its subject and lens halves, and publishes one complete prepared
-snapshot only when both halves succeed. A half-failure aborts the preparation,
-and supersession prevents an older preparation from being published. The
-focused participant state machine is
+snapshot only when both halves succeed. A mismatched pair fails before Registry
+resolution and aborts preparation. Any half-failure likewise aborts, and
+supersession prevents an older preparation from being published. The focused
+participant state machine is
 [`AtomicRestoration.tla`](models/inspection-subject-navigation/AtomicRestoration.tla).
 
 This owner does not install the prepared snapshot or coordinate other
@@ -511,10 +545,11 @@ retaining a navigation session.
 The model README records the TLC commands and scope. Model checking validates
 these finite specifications, not the implementation.
 
-Lens ranking and Registry-result classification are intentionally absent from
-the models: lenses remain opaque values there. The pure recommendation and
-mapping rules above are enforced by the implementation gates below rather than
-claimed as model-checked behavior.
+Lens ranking, Registry-result classification, and the exact subject-plus-facet
+identity structure are intentionally absent from the models: lenses remain
+opaque values there. The pure recommendation, mapping, and identity-binding
+rules above are enforced by the implementation gates below rather than claimed
+as model-checked behavior.
 
 ### Required implementation gates
 
@@ -524,17 +559,22 @@ The eventual subject-navigation implementation must include named gates for:
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
 - `InitialRecommendation_NeverChoosesMember`
 - `LensIdentity_BindsExactStructuralSubjectAndFacet`
+- `LensOutcome_RetainsRecommendationOrExactRequestBasis`
 - `LensRecommendation_UsesPreferredRoleBeforeRegistryOrder`
 - `LensRecommendation_FallsBackToFirstAvailableInRegistryOrder`
 - `LensRecommendation_ConsumesRegistryOrderWithoutResorting`
+- `LensRecommendation_RetainsAllRegistryOptionsAndEvidence`
 - `LensRecommendation_MissingPreferredRoleFails`
 - `LensRecommendation_EmptyOptionsFails`
 - `LensRecommendation_FailedDominatesUnavailableWhenNoOptionIsAvailable`
 - `LensRecommendation_AllUnavailableReturnsUnavailable`
 - `MemberRecommendation_UsesMemberOverviewRole`
+- `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`
 - `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`
 - `ExplicitLensResolution_RetainsExactRegistryEvidence`
 - `NavigationPreparationFailure_RemainsDistinctFromRegistryFailure`
+- `RecommendationBasis_RefreshRerunsRecommendation`
+- `ExactNonSuccessLens_RefreshReresolvesExactIdentityWithoutFallback`
 - `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ExplicitUnavailableTransition_DoesNotApplyFallback`
@@ -556,14 +596,20 @@ The eventual subject-navigation implementation must include named gates for:
 - `EffectAuthority_RequiresExactCurrentSessionRevisionIntentAndEpoch`
 - `ExternalIntentAbort_ReleasesMaintenanceAfterAcknowledgement`
 - `CanonicalRestoration_PreparedPairEqualsExactRequest`
+- `CanonicalRestoration_RejectsMismatchedSubjectBoundLens`
 - `CanonicalRestoration_FailedPreparationSettlesAsAbort`
 
 `LensRecommendation_UsesPreferredRoleBeforeRegistryOrder` is the role-policy
 non-vacuity gate: its preferred available descriptor is deliberately not first
 in Registry order, and replacing role selection with first-available selection
-must fail it. The mapping gate covers all five exact Registry results, and the
-evidence gate compares each returned result with independently retained input
+must fail it. `LensRecommendation_RetainsAllRegistryOptionsAndEvidence`
+compares the complete result with independently retained input options,
+including non-selected unavailable and failed peers that cannot affect the
+chosen lens. The exact mapping gate covers all five Registry results, and its
+evidence gate likewise compares each result with independently retained input
 evidence rather than reconstructing expected evidence from Navigation output.
+The cross-subject activation gate uses the same facet ID on two exact subjects
+and requires rejection before a throwing Registry-resolution sentinel.
 
 ## Acceptance cases
 
@@ -576,7 +622,11 @@ evidence rather than reconstructing expected evidence from Navigation output.
 | Preferred role missing or options empty | Typed Navigation policy failure, never implicit first-option selection |
 | Direct Member activation without a lens | Exact Member with Member Overview recommendation |
 | Same facet on two exact Types | Two distinct subject-bound navigation lens identities |
+| Lens request bound to another exact Type | Rejected before Registry resolution with active subject unchanged |
 | Explicit inapplicable or unknown lens | Rejected with exact Registry evidence and no fallback |
+| Failed recommendation becomes available on refresh | Recommendation reruns and installs the newly effective exact lens |
+| Recommended fallback then preferred role becomes available | Recommendation replaces the fallback with the preferred exact lens |
+| Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
 | Multi-library package | Aggregate then primary then declaration-order Library descriptors |
 | Libraries with no Types | Library with References; Type is validly unavailable |
 | Tools-v2 pointer package | Root with Package Overview; lower subjects unavailable |
@@ -589,6 +639,7 @@ evidence rather than reconstructing expected evidence from Navigation output.
 | Refresh and reconciliation complete out of order | Maintenance request order determines final snapshot |
 | Coordinate acquisition fails | Prior snapshot retained; abort effect visible; maintenance eventually resumes |
 | Canonical subject plus non-default lens | One prepared snapshot returns the exact requested pair with no partial result |
+| Canonical subject plus lens bound to another subject | Preparation aborts before Registry resolution |
 
 ## Non-goals
 
