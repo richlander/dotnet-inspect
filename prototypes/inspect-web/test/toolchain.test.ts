@@ -55,6 +55,7 @@ interface PackageJson {
 
 interface OxlintOverride {
   readonly files: readonly string[];
+  readonly plugins?: readonly string[] | null;
   readonly rules?: Readonly<Record<string, unknown>>;
 }
 
@@ -1575,13 +1576,33 @@ const requiredOxlintRuleFamilies
   = ["eslint", "typescript", "unicorn", "oxc", "import", "jsdoc", "promise"] as const;
 
 // `--print-config` is oxlint resolving categories, plugins, overrides and rule entries
-// into the set it will actually run. Counting families in that output is what makes a
-// dropped plugin, a category narrowed back to `correctness`, or a plugin that contributes
-// nothing fail here rather than read as a clean run.
-function enabledOxlintRuleFamilies(root: string): Map<string, number> {
+// into the configuration it will actually run. Reading that output is what makes a
+// dropped plugin, a narrowed category, a plugin that contributes nothing, or a named rule
+// switched off fail here rather than read as a clean run.
+//
+// Overrides matter as much as the base. Round 2 (Sol, seat B) showed that oxlint keeps
+// them as a separate array rather than folding them into `rules`, so an override scoped
+// to `src/**/*.ts` can drop a plugin or silence a rule for every product source while
+// anything reading the top-level object still sees the full set. They are read here too.
+interface PrintedOxlintOverride {
+  readonly files: readonly string[];
+  readonly plugins?: readonly string[] | null;
+  readonly rules?: Readonly<Record<string, string | readonly unknown[]>>;
+}
+
+interface PrintedOxlintConfig {
+  readonly categories: Readonly<Record<string, string>>;
+  readonly rules: Readonly<Record<string, string | readonly unknown[]>>;
+  readonly overrides?: readonly PrintedOxlintOverride[];
+}
+
+// `src/dotnet-inspect.ts` rather than an arbitrary file: it is the product source the two
+// `observeAsync` continuations live in, so an override aimed at product code is in scope
+// for this read.
+function printedOxlintConfig(root: string): PrintedOxlintConfig {
   const run = spawnSync(
     "npx",
-    ["--no", "--", "oxlint", "--print-config", "src/bootstrap.ts"],
+    ["--no", "--", "oxlint", "--print-config", "src/dotnet-inspect.ts"],
     { cwd: root, encoding: "utf8" },
   );
   const output = run.stdout.trim();
@@ -1589,14 +1610,19 @@ function enabledOxlintRuleFamilies(root: string): Map<string, number> {
     `oxlint printed no usable configuration: ${run.stderr || output || "no output"}`);
 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-  const printed = JSON.parse(output) as {
-    readonly rules: Readonly<Record<string, string | readonly unknown[]>>;
-  };
+  return JSON.parse(output) as PrintedOxlintConfig;
+}
 
+function severityOf(entry: string | readonly unknown[] | undefined): unknown {
+  return Array.isArray(entry) ? entry[0] : entry;
+}
+
+// oxlint normalises severities to its own `deny`/`allow` spelling rather than echoing the
+// `error` and `off` written in the config, so everything below compares those.
+function enabledOxlintRuleFamilies(printed: PrintedOxlintConfig): Map<string, number> {
   const families = new Map<string, number>();
   for (const [rule, entry] of Object.entries(printed.rules)) {
-    const severity: unknown = Array.isArray(entry) ? entry[0] : entry;
-    if (severity === "off" || severity === "allow") {
+    if (severityOf(entry) === "allow") {
       continue;
     }
     const family = rule.includes("/") ? rule.slice(0, rule.indexOf("/")) : "eslint";
@@ -1607,7 +1633,7 @@ function enabledOxlintRuleFamilies(root: string): Map<string, number> {
 
 test("every plugin this project declares contributes rules oxlint actually runs", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
-  const families = enabledOxlintRuleFamilies(root);
+  const families = enabledOxlintRuleFamilies(printedOxlintConfig(root));
 
   for (const family of requiredOxlintRuleFamilies) {
     assert.ok((families.get(family) ?? 0) > 0,
@@ -1625,6 +1651,83 @@ test("every plugin this project declares contributes rules oxlint actually runs"
       `${plugin} is declared but enables no rule at this project's categories, so it `
         + "claims an adoption that is not happening");
   }
+});
+
+// A family surviving does not mean the analysis this project describes survived. Round 2
+// (Sol) got past the family counts three ways at once: `promise/always-return` off leaves
+// five other `promise` rules; dropping the `suspicious` category leaves every family
+// populated from `correctness` alone; and an override can retire a plugin for product
+// code while the base object still lists it. Each is read directly here instead.
+test("the lint runs the categories, plugins and named rules it claims", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const printed = printedOxlintConfig(root);
+
+  assert.deepEqual(printed.categories, { correctness: "deny", suspicious: "deny" },
+    "both categories are the adoption; dropping one leaves every rule family populated "
+      + "from the other, so nothing else here would notice");
+
+  assert.equal(severityOf(printed.rules["promise/always-return"]), "deny",
+    "the README explains why the two `observeAsync` continuations return explicitly; "
+      + "with the rule off that explanation describes a check that is not running");
+
+  // Every override inherits the project-wide plugin set. One that declares its own
+  // replaces it for the files it matches -- the same replacement semantics as the
+  // top-level key, applied where no gate reading that key can see it.
+  for (const override of printed.overrides ?? []) {
+    assert.ok(override.plugins === null || override.plugins === undefined,
+      `the override for ${override.files.join(", ")} declares its own plugin list, which `
+        + "replaces the project-wide set for those files rather than adding to it");
+  }
+});
+
+// The relaxations are the whole surface through which stock analysis gets weaker, so the
+// set is pinned rather than each member. Round 2 (Sol, seat A) showed the same shape on
+// the html-validate side: an assertion about one entry says nothing about a second one
+// added beside it.
+//
+// Read from `--print-config` so that a relaxation counts however it is spelled and
+// wherever it is written, including inside an override.
+test("the oxlint configuration relaxes only the rules it documents", () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const printed = printedOxlintConfig(root);
+
+  const relaxed = Object.entries(printed.rules)
+    .filter(([, entry]) => severityOf(entry) === "allow")
+    .map(([rule]) => rule)
+    .sort();
+
+  // The README names these four: underscore spelling, function relocation, listener API
+  // preference, and `Array.prototype.sort`, which prescribes the ES2023 `toSorted` while
+  // this project targets ES2022.
+  assert.deepEqual(relaxed, [
+    "no-underscore-dangle",
+    "unicorn/consistent-function-scoping",
+    "unicorn/no-array-sort",
+    "unicorn/prefer-add-event-listener",
+  ], "a rule turned off here is stock analysis this project stops doing, so it needs a "
+    + "stated reason in the README rather than a quiet config line");
+
+  const scopedRelaxations = (printed.overrides ?? []).map(override => [
+    override.files.join(", "),
+    Object.entries(override.rules ?? {})
+      .filter(([, entry]) => severityOf(entry) === "allow")
+      .map(([rule]) => rule)
+      .sort(),
+  ]);
+
+  // The one scoped exception: a generated publish artifact whose imports resolve only
+  // after Wasm publish. The authored tree keeps all five, held by the gates above.
+  assert.deepEqual(scopedRelaxations, [
+    ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
+    ["engine/wwwroot/inspect-web-engine.js", [
+      "typescript/no-unsafe-argument",
+      "typescript/no-unsafe-assignment",
+      "typescript/no-unsafe-call",
+      "typescript/no-unsafe-member-access",
+      "typescript/no-unsafe-return",
+    ]],
+  ], "an override is the other place a rule can be turned off, and the top-level list "
+    + "above cannot see it");
 });
 
 // Documents are the one kind of authored file every gate above is blind to: the compiler
@@ -1827,11 +1930,17 @@ test("the committed html-validate configuration rejects what it is kept for", ()
 // `require-sri` is the one rule this project configures away from its default, and the
 // reason is the only same-origin case that would otherwise fail: the local stylesheet and
 // the module entry point are files Vite emits, not third-party bytes to pin.
+//
+// The whole `rules` object is pinned, not that one entry. Round 2 (Sol, seat A) added
+// `"no-dup-id": "off"` beside it and kept `npm run lint` and all 35 tests green: an
+// assertion about one key says nothing about a second one added next to it, and every
+// specimen below names a rule that was still on. Pinning the object makes any further
+// relaxation of the stock presets land here.
 test("html-validate still demands a digest on third-party bytes", () => {
-  assert.deepEqual(htmlValidateConfig.rules?.["require-sri"],
-    ["error", { target: "crossorigin" }],
-    "the only intended relaxation is same-origin; `target: all` or the rule being off "
-      + "are different properties");
+  assert.deepEqual(htmlValidateConfig.rules, {
+    "require-sri": ["error", { target: "crossorigin" }],
+  }, "the only intended relaxation is same-origin; `target: all`, the rule being off, or "
+    + "a second rule configured beside it are all different properties");
   assert.deepEqual([...(htmlValidateConfig.extends ?? [])],
     ["html-validate:standard", "html-validate:document", "html-validate:a11y"],
     "the presets are what this adoption is for; narrowing them is not a config tweak");

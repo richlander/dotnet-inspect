@@ -694,7 +694,12 @@ test pins both generated lint inputs so a generator change cannot silently
 leave analysis coverage. The configuration disables four non-correctness
 rules: underscore spelling, function relocation, listener API preference, and
 `Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
-sorting, the ES2023 `toSorted` API while this project targets ES2022.
+sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
+four, plus the five unsafe-operation rules scoped to the generated
+`engine/wwwroot/inspect-web-engine.js` artifact, are the *complete* set of
+relaxations: a toolchain test pins it against Oxlint's resolved configuration,
+so a fifth disable — written at the top level or inside an `overrides` entry —
+fails rather than passing quietly.
 
 Existing JavaScript tests and verification scripts remain covered by Oxlint's
 correctness and suspicious rules, but not by its unsafe-operation type rules:
@@ -709,13 +714,17 @@ explicitly; dropping one would retire a whole family of rules with every
 command green. The core `eslint` rules are not affected by that key — they stay
 enabled whether or not the list names them — so the list does not mention them.
 Each added plugin was measured against this project at the same correctness and
-suspicious categories before being enabled, and the toolchain test reads
-Oxlint's own `--print-config` output rather than the list, so a plugin that
-enables nothing at these categories fails the gate instead of reading as an
-adoption. `promise/always-return` is enabled: the two side-effect continuations
-handed to `observeAsync` return explicitly, because their promises are consumed
-rather than terminal and so fall outside the upstream `ignoreLastCallback`
-option.
+suspicious categories before being enabled, and the toolchain tests read
+Oxlint's own `--print-config` output rather than the config file. That output is
+what Oxlint resolved, so a plugin that enables nothing at these categories, a
+narrowed category set, a named rule switched off, or an `overrides` entry that
+replaces the plugin list for product sources all fail there instead of reading
+as an adoption. Overrides need reading separately because Oxlint keeps them as
+their own array rather than folding them into the top-level rules.
+`promise/always-return` is enabled and pinned by name: the two side-effect
+continuations handed to `observeAsync` return explicitly, because their promises
+are consumed rather than terminal and so fall outside the upstream
+`ignoreLastCallback` option.
 
 `npm run lint` also runs [html-validate](https://html-validate.org) over
 `**/*.{html,htm,xhtml}` with `--config .htmlvalidate.json`. Documents are
@@ -731,24 +740,26 @@ carry a digest while same-origin files Vite emits are not asked for one.
 the project inventory prunes: `dist` is generated at the project root only, so
 an unanchored entry would also exclude an authored `src/dist`.
 
-Seven toolchain tests hold that wiring honest. They pin the preset list, the
-`require-sri` option and `root: true`; require the lint glob to reach a
-document of each covered extension, both nested and under `src/dist`; require
-the committed configuration to reject a specimen *by the name of the rule that
-must reject it* (`close-order`, `element-required-attributes`, `wcag/h37`,
-`require-sri`, `attribute-allowed-values`); and require every document the
-project owns to sit outside the ignore file.
+Six toolchain tests hold that wiring honest. They pin the preset list, the
+`root: true` setting, and the *whole* `rules` object — `require-sri` is the only
+entry, so a second rule relaxed beside it fails rather than slipping past an
+assertion aimed at one key. They require the lint glob to reach a document of
+each covered extension, both nested and under `src/dist`; require the committed
+configuration to reject a specimen *by the name of the rule that must reject it*
+(`close-order`, `element-required-attributes`, `wcag/h37`, `require-sri`,
+`attribute-allowed-values`); and require every document the project owns to sit
+outside the ignore file.
 
-Two of the seven close the gap between "the linter ran" and "the linter saw
-this file", because html-validate resolves both configuration and exclusions
-per directory. A descendant `.htmlvalidate.json` replaces the committed rules
-for its own subtree and a descendant `.htmlvalidateignore` drops documents from
-the run outright, so a walk requires the tree to hold exactly one of each, at
-the root. Separately, `**` does not descend into dotted directories, so a
-second walk requires no authored document to sit under one; that keeps the set
-the glob reaches equal to the set the inventory reports. A linter that stops
-running, loses a preset, or is never handed a document fails there rather than
-going quietly green.
+Two of the six close the gap between "the linter ran" and "the linter saw this
+file", because html-validate resolves both configuration and exclusions per
+directory. A descendant `.htmlvalidate.json` replaces the committed rules for
+its own subtree and a descendant `.htmlvalidateignore` drops documents from the
+run outright, so a walk requires the tree to hold exactly one of each, at the
+root. Separately, `**` does not descend into dotted directories, so a second
+walk requires no authored document to sit under one; that keeps the set the glob
+reaches equal to the set the inventory reports. A linter that stops running,
+loses a preset, or is never handed a document fails there rather than going
+quietly green.
 
 The `<link rel="preload" id="webassembly">` element in `index.html` carries a
 scoped `html-validate-disable-next` directive for `element-required-attributes`.
