@@ -9,19 +9,28 @@ document's vocabulary as canonical rather than inventing its own.
 ## Status
 
 Design proposal, partially landed. `find --package-prefix`'s corpus-streaming
-mechanism and typed L1 query (`PackageProfileQuery`) — plus, further than
-this document originally recommended as a follow-up slice, its rendering
-path — already merged in #4551 onto the shared `Sections`/shape-ladder
-registry (`PackageProfileSections`, `SectionPipeline<PackageProfileView>`),
-the same registry `library`, `member`, and `package` use. `PackageDependencyGroupsQuery`
-also landed in #4551, in the same L1 layer, but backs the browser's
-single-package dependency view (`InspectionEngine.QueryPackageDependencies`),
-not `find --package-prefix`'s corpus-streaming query. See
+mechanism and typed L1 query (`PackageProfileQuery`) — plus, further than this
+document originally recommended as a follow-up slice, its rendering path —
+already merged in #4551 onto the shared `Sections`/shape-ladder registry
+(`PackageProfileSections`, `SectionPipeline<PackageProfileView>`), the same
+registry `library`, `member`, and `package` use.
+`PackageDependencyGroupsQuery` also landed in #4551, in the same L1 layer, but
+backs the browser's single-package dependency view
+(`InspectionEngine.QueryPackageDependencies`), not
+`find --package-prefix`'s corpus-streaming query. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for what shipped and what did not.
 
-Still proposal-only, not present on `main`: the facet/predicate layer and the
-tier capability gate. Despite the Sections migration landing,
+The current sources also implement the host-neutral L1 nuspec facet contract
+as `PackageQuery`: product-owned ordered descriptors, typed request planning,
+ANDed predicate evaluation over `PackageProfileQuery`, non-empty inert
+evidence, separate candidate and match bounds, visible failures, and typed
+completion. `PackageQueryTests` is its Release gate;
+`PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer
+canary.
+
+Still proposal-only: CLI `--where` wiring, the tier capability gate, and the
+promoted IL tier. Despite the Sections migration landing,
 `find --package-prefix`'s corpus limit is still spelled `-t`. Its replacement
 belongs to the pending L3 design in
 [Item and line selection composition](item-and-line-limits.md).
@@ -29,8 +38,10 @@ belongs to the pending L3 design in
 The exact #4677 limit grammar, fixed pipeline order, and provider-extent rules
 below predate the focused-design split and are not implementation authority.
 [Semantic row selection](semantic-row-selection.md) now owns result-stage
-semantics. A focused source-pushdown successor will reconcile package-search
-pagination and completion; the pending L3 successor will settle CLI spelling.
+semantics. A focused source-pushdown successor will define how semantic
+selection may optimize provider extent without changing `PackageQuery`'s
+current candidate/match-bound contract; the pending L3 successor will settle
+CLI spelling.
 
 Related docs:
 
@@ -67,13 +78,13 @@ and partial-source failure, rendered through the shared Sections registry
 just as `library`/`member`/`package` are. Its corpus-limit spelling is still
 `-t`; the pending L3 design owns any replacement vocabulary — see
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
-What it does not have yet is a way to
-ask "and does each package satisfy *this*" — a facet predicate — cheaply for
-nuspec-derived facts and, on explicit request, expensively for facts that
-require opening IL. This document proposes that predicate layer, and where each piece of it
-belongs across the existing L1/L2/L3 split, rather than treating the CLI
-project as a place to accumulate new bespoke logic the way it did before that
-split existed.
+The L1 nuspec facet engine now provides a host-neutral way to ask "and does
+each package satisfy *this*" over facts already available from the source and
+exact manifest. The CLI does not expose it yet, and the explicit promoted tier
+for facts that require opening IL remains unimplemented. This document defines
+where those pieces belong across the existing L1/L2/L3 split, rather than
+treating the CLI project as a place to accumulate new bespoke logic the way it
+did before that split existed.
 
 ## Is this CLI-side or core?
 
@@ -143,12 +154,13 @@ compatibility. `find --package-prefix`'s corpus limit remains `-t` on `main`
 `Packages`, so `-S` selection is moot until the facet layer adds more to
 select between).
 
-**Interaction concern for the next slice:** the Sections migration and the
+**Interaction concern for the next CLI slice:** the Sections migration and the
 `-t`→`-n` flag rename were assumed to be one atomic step; in practice they
-decoupled, and the migration landed first. The next slice (wiring nuspec-tier
-`--where`, [Landing sequence](#landing-sequence) step 3) leaves `-t` unchanged.
-The pending #4677 L3 design alone decides its replacement and compatibility
-policy; package-query work must not establish either by precedent.
+decoupled; the Sections migration and product-owned nuspec facet contract have
+landed, while CLI wiring has not. The CLI facet slice in
+[Landing sequence](#landing-sequence) step 4 must consume the pending #4677 L3
+grammar and compatibility decision. Package-query work must not establish a
+replacement for `-t` by precedent.
 
 ### Historical flag proposal: replace `-t` with `-n`
 
@@ -189,29 +201,33 @@ are now declared sections, while the corpus limit remains `-t`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
 
-## Two-tier facets, reusing `--where`
+## Two-tier facets, one product vocabulary
 
-The web design's nuspec/promoted split maps directly onto capability, not
-vocabulary:
+The web design's nuspec/promoted split maps directly onto capability. L1 owns
+the vocabulary and predicate semantics; front ends submit product-issued
+opaque facet IDs and do not reconstruct those predicates:
 
-- **`nuspec` tier.** Free, always evaluated, over every streamed package —
-  backed entirely by fields `PackageProfileQuery` already surfaces (#4551,
-  merged; target frameworks, declared dependencies, owners, metadata
-  fields). No new grammar:
-  `RowPredicateSyntaxParser`'s existing `Field=value` / `!=` / `>=` / `<=`
-  grammar, ANDed via repeated `--where` flags exactly as it works today for
-  Performance Triage, is the vocabulary. A package row's section schema
-  simply grows nuspec-derived fields, the same way any other section
-  declares its filterable columns per
-  [row-query-order.md](row-query-order.md).
+- **`nuspec` tier.** Available over the bounded package profile produced from
+  source metadata and exact manifests. `PackageQuery.Facets` is the finite,
+  ordered vocabulary. `PackageQuery.Plan` validates selected IDs and
+  compatibility, and `PackageQuery.ExecuteAsync` ANDs the selected definitions
+  before applying the semantic match limit. A facet's tier names the
+  production envelope in which it is available, not the narrowest individual
+  field its predicate reads; the common nuspec result row still carries exact
+  manifest facts.
 - **`promoted` tier.** Requires opening IL for a bounded set of candidates —
   never for the whole corpus. This must be capability-gated the same way the
   repository already gates other exhaustive/expensive work (`--all`,
-  README.md:474, 535): a promoted-tier `--where` field used without the gate
-  present is a parse-time error naming the missing flag, the same shape as
-  `output-shapes.md`'s existing coordinate-carrier errors (for example, "IL
-  coordinate sections require `--il-offset`"). The equivalent here reads
-  something like "field `UsesUnion` requires `--deepen`."
+  README.md:474, 535). The exact CLI spelling remains for its implementation
+  slice, but the adapter must resolve that spelling through product-owned
+  descriptors or bindings and submit opaque IDs. It must not hard-code a
+  second predicate vocabulary in L2 or L3.
+
+The future CLI may reuse `RowPredicateSyntaxParser` and repeated `--where`
+syntax as an input grammar, but this document no longer defines package facets
+as arbitrary section-field predicates. If `--where` is retained, the
+implementation slice must add product-owned CLI bindings for the finite facet
+set so the CLI and browser continue to invoke the same L1 definitions.
 
 ### Tier gating: nuspec vs. promoted
 
@@ -304,6 +320,18 @@ limit, while `--deepen` bounded candidates before promoted IL evaluation. Any
 focused successor that adopts those orderings must name its enforcing gate and
 must define the associated help and completion contract.
 
+`PackageQuery.ExecuteAsync` now implements the nuspec half with separate
+`MaximumCandidates` and `MaximumMatches` bounds.
+`ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition` gates the
+filter-before-match-limit ordering, while
+`ExecuteAsync_PreservesCandidateLimitAfterFiltering` gates honest
+candidate-bound completion. Reaching the semantic match limit is deliberately
+conservative: execution stops without acquiring another manifest, so
+`MatchLimitReached` means more matches may exist even when the last emitted row
+also happened to exhaust the source. This behavior is gated by
+`ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative`. Promoted-tier
+ordering remains proposal-only.
+
 ## Shared request/outcome shape with the browser
 
 [package-query-experience.md](package-query-experience.md)'s non-goals already
@@ -324,9 +352,9 @@ the CLI's named facets as canonical for the browser's facet rail.
 
 ## Non-goals (v1)
 
-- No new expression grammar. `--where`'s existing `Field op Value` syntax is
-  the vocabulary for both tiers; this document does not propose a richer
-  predicate language.
+- No new general expression grammar in the L1 contract. The finite
+  product-issued facet IDs are canonical; any future CLI grammar must lower
+  through product-owned bindings rather than defining another predicate set.
 - No relational query surface here. Package-to-capability or
   package-to-integration questions route through the existing inspection
   graph, not through a new edge concept invented for this document.
@@ -348,16 +376,24 @@ the CLI's named facets as canonical for the browser's facet rail.
    bespoke implementation. Replacement of `-t` remains with the pending L3
    design, and `-S`/`--where` remain unwired. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
-3. **Settle source pushdown before wiring nuspec-tier `--where`.** The focused
-   source-pushdown successor must define predicate/bound ordering, required
-   provider extent, and completion evidence. Only then may the package-predicate
-   slice wire `--where` onto package-profile rows without changing current `-t`;
-   it must not infer that interaction from the historical proposal above. This
-   has not landed yet.
-4. **Add the promoted-tier capability gate and `--deepen`-bounded IL
+3. **Product-owned nuspec facet contract — implemented in the current
+   sources.** `PackageQuery` composes `PackageProfileQuery` without package
+   payload acquisition, publishes stable ordered facet descriptors, validates
+   opaque selections, and streams matched package rows with product-authored
+   evidence and honest completion. `PackageQueryTests` and
+   `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
+   gates.
+4. **Settle the pending L3 grammar, then wire the product-owned nuspec facets
+   into the CLI**, preserving the filter-before-bound ordering from
+   [Historical completion and bound proposal](#historical-completion-and-bound-proposal).
+   The CLI slice consumes product-owned bindings that lower the settled
+   spelling to opaque facet IDs without duplicating predicates. It must not
+   independently choose a replacement or compatibility policy for current
+   `-t`. Neither the L3 grammar nor CLI facet wiring has landed yet.
+5. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated
    promoted-tier field.
-5. **Define the shared save/resume file shape**, coordinated with whatever
+6. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
 
