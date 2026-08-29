@@ -51,15 +51,18 @@ This document does not own:
 
 ## Product dependencies
 
-This document composes three adjacent owner contracts without defining them:
+This document composes four adjacent owner contracts without defining them:
 
 - [#4794](https://github.com/richlander/dotnet-inspect/issues/4794) owns
   inspection-subject descriptors, availability, initial recommendation, and
   reconciliation. The Type-first default and tools-v2 root fallback belong to
   that focused effort.
+- [View Facet Registry](view-facet-registry.md) owns stable facet IDs,
+  descriptors, structural applicability, order, and facet-availability
+  outcomes.
 - [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns stable
-  portable view identities, per-coordinate view state, and canonical packet
-  projection.
+  portable fields, versioning, migration, valid combinations, per-coordinate
+  view state, canonical packet projection, and restoration.
 - [#4788](https://github.com/richlander/dotnet-inspect/issues/4788) owns any
   default-feed or acquisition-preference semantics within multi-source package
   resolution.
@@ -466,24 +469,18 @@ current filters, package kind, or display text.
 
 ### Lens ownership
 
-Lenses are grouped by the subject they inspect:
+The [View Facet Registry](view-facet-registry.md) owns lens membership,
+identity, labels, summaries, structural subject kind, and order. The UI renders
+the descriptors returned for the active subject in owner-issued order and
+submits their opaque IDs. It does not retain a subject-to-lens table, add a
+locally known lens, or omit an owner-issued descriptor because its current
+renderer lacks support.
 
-| Subject | Lenses |
-| ------- | ------ |
-| Package | Overview, Dependencies |
-| Library | References, Integrations, Opportunities, Analysis, Metadata |
-| Type | API, Metadata, Source |
-| Member | Overview, Call graph, Facts, Source, Annotated source |
-
-Package Dependencies contains declared package dependencies by target
-framework. Direct assembly references belong to Library References.
-Integrations, Opportunities, Analysis, and Library Metadata also describe
-assembly content.
-
-A lens appears only in its owning subject. The UI does not retain one mixed lens
-strip under Package or repeat library lenses in both Package and Library.
-Lens identity is scoped by its owning subject, so Library Metadata and Type
-Metadata are distinct lenses that may share a display label.
+A lens appears only in the subject-scoped descriptor set returned by Inspection
+Subject Navigation. The UI does not retain one mixed lens strip under Package
+or repeat a facet under another subject. Distinct registry IDs may share a
+display label; the UI neither deduplicates them nor derives identity from that
+label.
 
 ### Library selection
 
@@ -528,8 +525,8 @@ The selected subject controls every Library lens:
 - `All libraries` requests a coordinate-wide result over the complete library
   set.
 - An individual library requests the same lens for only that assembly.
-- The selected subject persists when switching among References, Integrations,
-  Opportunities, Analysis, and Metadata.
+- The selected subject persists when switching among every owner-issued
+  Library lens.
 - Changing package version or TFM submits the prior Library identity with the
   coordinate transition and renders the owner-issued result.
 

@@ -453,7 +453,7 @@ public static partial class CSharpBodyDiff
 
         var matchedBefore = new HashSet<int>();
         var matchedAfter = new HashSet<int>();
-        var rows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
+        var matchedRows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
 
         foreach (var correspondence in input.Correspondences)
         {
@@ -495,13 +495,16 @@ public static partial class CSharpBodyDiff
             if (change == 0)
                 continue;
 
-            rows.Add(CreateRow(
+            matchedRows.Add(CreateRow(
                 change,
                 input.Before,
                 beforeNode,
                 input.After,
                 afterNode));
         }
+
+        var rows = ImmutableArray.CreateBuilder<CSharpStructuralDiffRow>();
+        rows.AddRange(SuppressSubsumedAncestorRows(matchedRows, input.Before, input.After));
 
         foreach (int nodeId in beforeSelection)
         {
@@ -702,7 +705,23 @@ public static partial class CSharpBodyDiff
         AnnotatedSourceNode? beforeNode,
         AnnotatedSourceDocument? afterDocument,
         AnnotatedSourceNode? afterNode)
-        => new(
+    {
+        ImmutableArray<AnnotatedSourceSpan> beforeSpans;
+        ImmutableArray<AnnotatedSourceSpan> afterSpans;
+        if (beforeNode is not null
+            && afterNode is not null
+            && change.HasFlag(CSharpStructuralChangeKind.Changed))
+        {
+            (beforeSpans, afterSpans) = NarrowToChangedHeader(
+                beforeDocument!, beforeNode, afterDocument!, afterNode);
+        }
+        else
+        {
+            beforeSpans = beforeNode is null ? [] : [.. beforeNode.Spans];
+            afterSpans = afterNode is null ? [] : [.. afterNode.Spans];
+        }
+
+        return new(
             change,
             beforeNode?.Id,
             afterNode?.Id,
@@ -710,16 +729,142 @@ public static partial class CSharpBodyDiff
             afterNode?.Kind,
             beforeNode is null ? null : AnnotatedSourceNodeKinds.GetDisplayLabel(beforeNode.Kind),
             afterNode is null ? null : AnnotatedSourceNodeKinds.GetDisplayLabel(afterNode.Kind),
-            beforeNode is null ? null : EnclosingRegion(beforeDocument!, beforeNode),
-            afterNode is null ? null : EnclosingRegion(afterDocument!, afterNode),
-            beforeNode is null ? [] : [.. beforeNode.Spans],
-            afterNode is null ? [] : [.. afterNode.Spans]);
+            beforeNode is null ? null : EnclosingRegion(beforeDocument!, beforeSpans),
+            afterNode is null ? null : EnclosingRegion(afterDocument!, afterSpans),
+            beforeSpans,
+            afterSpans);
+    }
 
-    static PrintedRegionRole? EnclosingRegion(
+    // Items 2 and 7 (issue #5022): a matched pair's full node spans (e.g. an
+    // entire `using (...) { ... }` statement) over-attribute the caret to
+    // every line the node touches, even when only the header clause differs.
+    // Rather than a blanket text diff -- which would corrupt item 3's
+    // full-call-text requirement for InvocationExpression rows -- this narrows
+    // only wrapper constructs that the printer already records a `Header`
+    // sub-region for (see `HasNamedRegions` in CSharpPrinter.cs), and only
+    // when everything outside that header (indentation, body, closing brace)
+    // is byte-for-byte identical on both sides. That second check is what
+    // also resolves item 7: once the row's spans no longer cover the
+    // unchanged body lines, RenderAnnotatedBody stops annotating them.
+    //
+    // `document.Regions` is a flat, node-identity-free list of positional
+    // spans, so containment alone cannot prove a `Header` region belongs to
+    // this node rather than to a nested construct inside its body (round-1
+    // review, both reviewers independently: a headerless ancestor such as
+    // `TryStatement` -- `TryCatch`/`TryFinally` never record their own
+    // `Header` -- could otherwise adopt a nested `using`'s header as if it
+    // were its own). `KindsWithOwnHeaderRegion` is the exact, closed set of
+    // rendered kinds `CSharpPrinter.cs` emits a `Header` region for; only
+    // matched pairs of those kinds are considered at all, so a headerless
+    // ancestor can never reach the containment search in the first place.
+    static readonly ImmutableHashSet<string> KindsWithOwnHeaderRegion = ImmutableHashSet.Create(
+        StringComparer.Ordinal,
+        "UsingStatement",
+        "ForeachStatement",
+        "LockStatement",
+        "FixedStatement",
+        "IfStatement",
+        "ForStatement",
+        "WhileStatement",
+        "DoStatement",
+        "SwitchStatement");
+
+    static (ImmutableArray<AnnotatedSourceSpan> BeforeSpans, ImmutableArray<AnnotatedSourceSpan> AfterSpans)
+        NarrowToChangedHeader(
+            AnnotatedSourceDocument beforeDocument,
+            AnnotatedSourceNode beforeNode,
+            AnnotatedSourceDocument afterDocument,
+            AnnotatedSourceNode afterNode)
+    {
+        ImmutableArray<AnnotatedSourceSpan> unnarrowedBefore = [.. beforeNode.Spans];
+        ImmutableArray<AnnotatedSourceSpan> unnarrowedAfter = [.. afterNode.Spans];
+        var fallback = (unnarrowedBefore, unnarrowedAfter);
+
+        if (beforeNode.Spans.Count != 1 || afterNode.Spans.Count != 1)
+            return fallback;
+        if (!KindsWithOwnHeaderRegion.Contains(beforeNode.Kind)
+            || !KindsWithOwnHeaderRegion.Contains(afterNode.Kind))
+        {
+            return fallback;
+        }
+
+        var beforeHeader = FindSoleContainedHeaderRegion(beforeDocument, beforeNode);
+        var afterHeader = FindSoleContainedHeaderRegion(afterDocument, afterNode);
+        if (beforeHeader is not { } beforeHeaderSpan || afterHeader is not { } afterHeaderSpan)
+            return fallback;
+
+        var beforeNodeSpan = beforeNode.Spans[0];
+        var afterNodeSpan = afterNode.Spans[0];
+
+        if (!SideTextEqual(
+                beforeDocument, PrefixOutsideHeader(beforeNodeSpan, beforeHeaderSpan),
+                afterDocument, PrefixOutsideHeader(afterNodeSpan, afterHeaderSpan))
+            || !SideTextEqual(
+                beforeDocument, SuffixOutsideHeader(beforeNodeSpan, beforeHeaderSpan),
+                afterDocument, SuffixOutsideHeader(afterNodeSpan, afterHeaderSpan)))
+        {
+            return fallback;
+        }
+
+        return ([beforeHeaderSpan], [afterHeaderSpan]);
+    }
+
+    static AnnotatedSourceSpan? FindSoleContainedHeaderRegion(
         AnnotatedSourceDocument document,
         AnnotatedSourceNode node)
+    {
+        AnnotatedSourceSpan? found = null;
+        foreach (var region in document.Regions)
+        {
+            if (region.Role != PrintedRegionRole.Header
+                || region.Spans.Count != 1
+                || !ContainsAll(node.Spans, region.Spans))
+            {
+                continue;
+            }
+            if (found is not null)
+                return null; // Ambiguous: more than one contained header region.
+            found = region.Spans[0];
+        }
+        return found;
+    }
+
+    static AnnotatedSourceSpan? PrefixOutsideHeader(AnnotatedSourceSpan node, AnnotatedSourceSpan header)
+    {
+        int length = header.Start - node.Start;
+        return length <= 0 ? null : new AnnotatedSourceSpan(node.Start, length);
+    }
+
+    static AnnotatedSourceSpan? SuffixOutsideHeader(AnnotatedSourceSpan node, AnnotatedSourceSpan header)
+    {
+        int headerEnd = header.Start + header.Length;
+        int length = node.Start + node.Length - headerEnd;
+        return length <= 0 ? null : new AnnotatedSourceSpan(headerEnd, length);
+    }
+
+    static bool SideTextEqual(
+        AnnotatedSourceDocument beforeDocument,
+        AnnotatedSourceSpan? beforeSpan,
+        AnnotatedSourceDocument afterDocument,
+        AnnotatedSourceSpan? afterSpan)
+    {
+        if (beforeSpan is null || afterSpan is null)
+            return beforeSpan is null && afterSpan is null;
+        if (beforeSpan.Value.Length != afterSpan.Value.Length)
+            return false;
+        return beforeDocument.Text.AsSpan(beforeSpan.Value.Start, beforeSpan.Value.Length)
+            .SequenceEqual(afterDocument.Text.AsSpan(afterSpan.Value.Start, afterSpan.Value.Length));
+    }
+
+    // Takes the row's final spans (after any header-narrowing), not the raw
+    // node's full span, so a narrowed row's reported region role (e.g.
+    // "header") matches the caret it actually renders instead of describing
+    // the enclosing statement's full "construct" region it no longer spans.
+    static PrintedRegionRole? EnclosingRegion(
+        AnnotatedSourceDocument document,
+        IReadOnlyList<AnnotatedSourceSpan> spans)
         => document.Regions
-            .Where(region => ContainsAll(region.Spans, node.Spans))
+            .Where(region => ContainsAll(region.Spans, spans))
             .OrderBy(static region => region.Spans.Sum(static span => (long)span.Length))
             .ThenBy(static region => region.Spans[0].Start)
             .ThenBy(static region => region.Role)
@@ -737,4 +882,99 @@ public static partial class CSharpBodyDiff
         => row.BeforeSpans.IsEmpty
             ? row.AfterSpans[0].Start
             : row.BeforeSpans[0].Start;
+
+    // Item 1 (issue #5022): a stacked ancestor node (e.g. Return wrapping an
+    // InvocationExpression wrapping another InvocationExpression) re-quotes
+    // the entire statement as its own "changed" row even though every
+    // character it reports as different lives inside a more specific
+    // descendant row's own span. Drop an ancestor row exactly when some other
+    // row's span is strictly contained within it on both sides and the
+    // ancestor's text outside that contained range is identical between
+    // before and after -- i.e. the ancestor adds no information beyond the
+    // descendant it wraps. This is a plain text-containment check, not a
+    // parent/child pointer walk: the annotated-source model carries no
+    // explicit parent id, so span containment is the only honest signal
+    // available here.
+    static IEnumerable<CSharpStructuralDiffRow> SuppressSubsumedAncestorRows(
+        IReadOnlyList<CSharpStructuralDiffRow> rows,
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var candidate = rows[i];
+            bool subsumed = false;
+            for (int j = 0; j < rows.Count; j++)
+            {
+                if (i == j)
+                    continue;
+                if (IsSubsumedByDescendant(candidate, rows[j], before, after))
+                {
+                    subsumed = true;
+                    break;
+                }
+            }
+            if (!subsumed)
+                yield return candidate;
+        }
+    }
+
+    static bool IsSubsumedByDescendant(
+        CSharpStructuralDiffRow ancestor,
+        CSharpStructuralDiffRow descendant,
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        if (!ancestor.Change.HasFlag(CSharpStructuralChangeKind.Changed)
+            || !descendant.Change.HasFlag(CSharpStructuralChangeKind.Changed))
+        {
+            return false;
+        }
+
+        // Moved is owner-issued and independent of the text-containment check
+        // below: a nested descendant explains the ancestor's text difference,
+        // but it does not know about (and cannot vouch for) an independent
+        // movement result the ancestor's own correspondence carries. Suppress
+        // only when the ancestor's entire change is explained by text, i.e.
+        // its change kind is exactly Changed.
+        if (ancestor.Change != CSharpStructuralChangeKind.Changed)
+        {
+            return false;
+        }
+
+        // Only a single contiguous span per side is eligible: a discontinuous
+        // node's "outside the descendant" region is not a simple prefix/suffix
+        // pair, and widening this check to that shape is out of scope here.
+        if (ancestor.BeforeSpans.Length != 1 || ancestor.AfterSpans.Length != 1
+            || descendant.BeforeSpans.Length != 1 || descendant.AfterSpans.Length != 1)
+        {
+            return false;
+        }
+
+        var ancestorBefore = ancestor.BeforeSpans[0];
+        var ancestorAfter = ancestor.AfterSpans[0];
+        var descendantBefore = descendant.BeforeSpans[0];
+        var descendantAfter = descendant.AfterSpans[0];
+
+        if (!StrictlyContains(ancestorBefore, descendantBefore)
+            || !StrictlyContains(ancestorAfter, descendantAfter))
+        {
+            return false;
+        }
+
+        int beforePrefixLength = descendantBefore.Start - ancestorBefore.Start;
+        int afterPrefixLength = descendantAfter.Start - ancestorAfter.Start;
+        int beforeSuffixLength = (ancestorBefore.Start + ancestorBefore.Length) - (descendantBefore.Start + descendantBefore.Length);
+        int afterSuffixLength = (ancestorAfter.Start + ancestorAfter.Length) - (descendantAfter.Start + descendantAfter.Length);
+
+        return before.Text.AsSpan(ancestorBefore.Start, beforePrefixLength)
+                .SequenceEqual(after.Text.AsSpan(ancestorAfter.Start, afterPrefixLength))
+            && before.Text.AsSpan(descendantBefore.Start + descendantBefore.Length, beforeSuffixLength)
+                .SequenceEqual(after.Text.AsSpan(descendantAfter.Start + descendantAfter.Length, afterSuffixLength));
+    }
+
+    static bool StrictlyContains(AnnotatedSourceSpan outer, AnnotatedSourceSpan inner)
+        => inner.Start >= outer.Start
+            && inner.Start + inner.Length <= outer.Start + outer.Length
+            && inner.Length < outer.Length;
 }
