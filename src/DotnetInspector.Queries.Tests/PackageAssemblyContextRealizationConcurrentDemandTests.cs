@@ -40,7 +40,7 @@ public sealed class PackageAssemblyContextRealizationConcurrentDemandTests
                     .Assembly.Location);
         const string path = "lib/net11.0/Dedup.Sample.dll";
         var content = new CountingPackageContent(Archive((path, image)));
-        var package = new PackageAssemblyContextSelection(
+        var package = new PackageRootRealization(
             content,
             "Dedup.Sample",
             "1.0.0",
