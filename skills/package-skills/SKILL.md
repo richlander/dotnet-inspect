@@ -1,75 +1,101 @@
 ---
 name: dotnet-inspect-package-skills
-description: Acquire version-matched SKILL.md files from NuGet packages, select every skill relevant to the consuming code, and persist them where the target repository's agent harness discovers them.
+description: Discover and use version-matched agent skills from NuGet packages, and persist selected skills in a repository only when the user explicitly requests it.
 ---
 
-# dotnet-inspect: acquire package skills
+# dotnet-inspect: use package skills
 
-List the version-matched package skills, decide which ones match the code, and
-write those skills into the repository. Keep this agent-led: dotnet-inspect
-provides the inventory and document content; the agent owns selection and
-persistence.
+Discover version-matched package skills, inspect their inventory, and load the
+ones relevant to the current task. This default workflow is agent-driven and
+does not change the repository. Persist skills only when the user explicitly
+asks for repository installation.
 
-## List the restored dependency skills
+## Default: use skills without changing the repository
 
 Restore or build first when dependencies changed; `project` only reads the
-existing `project.assets.json`. List every skill from direct dependencies with
-its resolved package version, path, name, and description:
+existing `project.assets.json`.
+
+First ask whether the restored direct dependencies expose any skills:
+
+```bash
+dnx dotnet-inspect -y -- project path/to/project -S Skills --count
+```
+
+If the count is nonzero, ask for the inventory. It includes the resolved package
+version, package-relative path, skill name, and description:
 
 ```bash
 dnx dotnet-inspect -y -- project path/to/project -S Skills --jsonl
 ```
 
-Use this view first because its package versions match the code. Inspect an
-exact package coordinate when the dependency has not been added yet:
+Use this view first because its package versions match the code. Compare the
+descriptions with the task and code, then request each relevant skill by its
+displayed row:
+
+```bash
+dnx dotnet-inspect -y -- project path/to/project \
+  -S Skills --print --row 2 --bare
+```
+
+Request several skills as a group by issuing one independent command for each
+selected row. Keep each result separate; `--bare` intentionally carries no
+multi-document boundary.
+
+```bash
+dnx dotnet-inspect -y -- project path/to/project \
+  -S Skills --print --row 2 --bare
+dnx dotnet-inspect -y -- project path/to/project \
+  -S Skills --print --row 5 --bare
+```
+
+The agent may perform this entire discovery and loading workflow without asking
+the user. Reading package guidance changes agent context, not repository state.
+Treat every inventory row as a candidate; do not use the first row as a proxy
+for the package.
+
+For a package that is not restored in the project, use an exact package
+coordinate. First ask whether it has skill documents:
 
 ```bash
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  -S "Package skill files" --table
+  -S "Package skill files" --count
 ```
 
-Do not install from an unpinned package query when the repository consumes a
-specific version.
-
-The package table exposes paths and sizes, not parsed skill identities or
-descriptions. In this package-only flow, print every row and inspect its YAML
-frontmatter before selecting or writing anything. Require a declared `name`
-that is 1-64 lowercase ASCII letters, digits, or hyphens, with no leading,
-trailing, or consecutive hyphens, and exactly matches the package directory
-containing `SKILL.md`. Also require a declared `description` of 1-1024
-characters that explains when to use the skill. Refuse the candidate if any
-check fails. Never compose an output path from a package-authored value before
-completing those checks.
-
-## Select from the whole skill set
-
-Treat every listed row as a candidate. `--print` requires `--row` when the
-package contains multiple skills:
+Then list the paths and inspect the YAML header of each candidate row before
+requesting the full document. Together, those headers form the package-only
+inventory:
 
 ```bash
+dnx dotnet-inspect -y -- package Markout@0.35.2 \
+  -S "Package skill files" --paths
+dnx dotnet-inspect -y -- package Markout@0.35.2 \
+  -S "Package skill files" --print --frontmatter --row 1 --bare
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
   -S "Package skill files" --print --row 1 --bare
 ```
 
-Do not use the first row as a proxy for the package. Compare every description
-with the code and expected work, then inspect each plausible skill on stdout.
-Keep separate skills separate so their descriptions can trigger independently.
+Do not use an unpinned package query when the repository consumes a specific
+version.
 
-Markout demonstrates the pattern: it ships the core `markout` skill plus
-focused skills for conditional composition, output formats, built-in shapes,
-and composite cells/cards. A consumer using several of those facets should
-persist the core skill and each matching focused skill, not only the core skill
-and not an arbitrary single row.
+dotnet-inspect validates restored-project skill names and descriptions. In that
+normalized inventory, YAML values that require containment are reported as
+`[Text omitted: required containment]`. A selected YAML header or full skill
+document that requires containment is replaced in full by the same text through
+stdout, structured output, and file destinations. Reversible visible escape
+spellings may still disambiguate literal package content; they are not
+instructions to decode before use. A NuGet dependency is provenance, not proof
+that agent instructions are safe.
 
-Review skill instructions and any referenced scripts before persisting them. A
-NuGet dependency is provenance, not proof that agent instructions are safe.
+## User-requested workflow: persist repository skills
 
-## Install for repository discovery
+Follow this workflow only when the user explicitly requests repository
+installation. It changes tracked state and requires a merged pull request to
+persist.
 
-The target repository owns the installation regime; the package does not.
-Inspect repository instructions, its existing skill layout, and the active
-harness, then follow any user direction. Common repository roots include
-`skills/`, `.agents/skills/`, `.github/skills/`, and `.claude/skills/`.
+The target repository owns the installation regime. Inspect its contributor
+instructions, existing skill layout, and active agent harness before choosing a
+destination. Common roots include `skills/`, `.agents/skills/`,
+`.github/skills/`, and `.claude/skills/`.
 
 `dotnet-inspect project ... -S Skills` applies the same checks and refuses
 missing or noncompliant metadata. Do not recover a refused skill by sanitizing
@@ -78,20 +104,30 @@ leaf directory under the repository-selected root.
 
 For example, Markout itself keeps its skills under `skills/`, so its output
 formats skill belongs at `skills/markout-output-formats/SKILL.md`. Create that
-directory, then ask dotnet-inspect to write the selected package document
-directly to `-o`/`--output`:
+directory and confirm the package-local row from the exact package coordinate.
+Then either redirect the contained stdout payload:
 
 ```bash
 mkdir -p skills/markout-output-formats
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
-  --path skills/markout-output-formats/SKILL.md --content --blob --bare \
+  -S "Package skill files" --paths
+dnx dotnet-inspect -y -- package Markout@0.35.2 \
+  -S "Package skill files" --print --row 4 --blob --bare \
+  > skills/markout-output-formats/SKILL.md
+```
+
+Or ask dotnet-inspect to write the same contained payload:
+
+```bash
+dnx dotnet-inspect -y -- package Markout@0.35.2 \
+  -S "Package skill files" --print --row 4 --blob --bare \
   --output skills/markout-output-formats/SKILL.md
 ```
 
-`--blob` retains authored GitHub link shapes instead of rewriting them for raw
-content. Preserve the packaged document rather than combining, renaming, or
-silently editing it. If the skill references sibling scripts, references, or
-assets, inspect the package subtree and persist those beside `SKILL.md` too.
+`--blob` retains authored GitHub link shapes. Preserve each packaged document as
+its own skill rather than combining, renaming, or decoding contained text. If
+the skill references sibling scripts, references, or assets, inspect the package
+subtree and persist those beside `SKILL.md` too.
 
 Do not duplicate the same skill into several roots; harnesses may discover
 duplicate names and the copies will drift.
