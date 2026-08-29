@@ -73,7 +73,8 @@ The owner consumes:
 - bounded Type and Member inventories in producer-issued navigation order;
 - product accessibility descriptors;
 - exact type-definition identities and member anchors;
-- product view-facet registry descriptors and availability facts;
+- product View Facet Registry target-aware options and exact-resolution
+  results;
 - typed identity-resolution and correspondence outcomes; and
 - either a retained-session operation or an explicit stateless evaluation.
 
@@ -90,8 +91,10 @@ The owner returns:
 - Type and Member inventory rows wrapped with activation state;
 - subject-scoped lens descriptors and one lens outcome;
 - scoped diagnostics and partial-result evidence;
-- typed transition or reconciliation outcomes; and
-- opaque retained-session authority.
+- typed transition or reconciliation outcomes;
+- opaque retained-session authority; and
+- a typed consumer-synchronization disposition plus a fresh-authority
+  synchronization result for retained consumers.
 
 ### Adjacent owners
 
@@ -105,9 +108,10 @@ compile Library is tracked by
 the Type and Member identity currencies used here.
 
 [Workspace definitions](workspace-definitions.md) owns portable view-facet
-registry binding. The focused View Facet Registry work tracked by
-[#4880](https://github.com/richlander/dotnet-inspect/issues/4880) owns runtime
-lens membership, labels, and order.
+registry binding. The [View Facet Registry](view-facet-registry.md), established
+by [#4880](https://github.com/richlander/dotnet-inspect/issues/4880), owns
+runtime lens membership, labels, order, structural applicability, and
+facet-availability outcomes.
 
 [Inspect Web UI](inspect-web-ui.md) owns rendering, accessibility, focus, and
 interaction. Issue #4787 owns portable projection and complete restoration
@@ -372,6 +376,18 @@ The model establishes these design guarantees:
   effect-epoch authority;
 - every semantically changed snapshot advances the state revision regardless
   of its outcome label;
+- every current result carries the complete installed snapshot and identifies
+  whether the retained consumer must synchronize it before acknowledgement;
+- consumer installation and product acknowledgement are separate state
+  transitions, and each authority must be installed under its exact effect
+  epoch before acknowledgement;
+- acknowledgement advances the product-owned receipt only after that current
+  installation;
+- abandonment never advances the receipt, including when the consumer
+  installed the snapshot but lost authority before acknowledgement;
+- every bounded model synchronization request is settled by dedicated fresh
+  authority or by acknowledgement of an intervening current result, without a
+  product-side retry ceiling;
 - stale or foreign authority cannot authorize a consumer-visible effect;
 - prerequisite failure terminates the explicit operation without inventing a
   navigation result; and
@@ -385,6 +401,59 @@ continuing authority.
 Retained operations read the session's installed snapshot. The separate
 stateless variant may consume an explicit prior snapshot and has no implicit
 cross-command state.
+
+### Consumer synchronization
+
+One retained navigation session records the revision of the complete snapshot
+last acknowledged by its retained consumer. This is a product-owned receipt,
+not a caller-supplied prior snapshot. The consumer neither orders revisions nor
+uses them as command identity.
+
+Consumer installation is separate from that receipt. Applying a result records
+the complete snapshot and exact effect epoch installed by the consumer, but
+does not advance the product-owned receipt. Acknowledgement requires that the
+consumer installed the result under the current authority's exact epoch.
+
+Every current explicit or maintenance result carries the session's complete
+installed snapshot and one typed disposition:
+
+| Disposition | Consumer obligation |
+| --- | --- |
+| Current | The product-owned acknowledged consumer receipt already names this result's complete snapshot revision |
+| Synchronization required | Install the complete result snapshot before acknowledging its authority |
+
+The disposition is independent of semantic outcome. A rejected, failed,
+aborted, or unchanged-unavailable result is still `Synchronization required`
+when an earlier applied or maintenance result advanced the session before the
+consumer installed it. The consumer presents the current semantic outcome only
+after synchronizing the complete snapshot, so descriptors, generation-scoped
+actions, diagnostics, and lens state come from one revision.
+
+Acknowledgement confirms consumption of the result snapshot named by the
+current authority and advances the product-owned consumer receipt. The session
+rejects acknowledgement while synchronization is required and incomplete.
+Abandonment releases the current authority but does not advance the receipt;
+the debt survives supersession, destination destruction, and remount, including
+when destruction occurs after installation but before acknowledgement.
+
+A retained consumer may request synchronization without submitting a subject,
+lens, coordinate, or restoration command. The session returns the latest
+complete installed snapshot with fresh current authority and no semantic
+navigation change. If standalone maintenance is already queued, its eventual
+current result may discharge the same debt without changing request order;
+otherwise the dedicated synchronization result is admitted after the queue
+drains. Repeated remounts may request fresh authority again after abandonment;
+the product contract imposes no retry ceiling.
+
+A newer current result is also a synchronization vehicle. Product-side discard
+of older superseded work publishes no authority, but the current result's
+disposition is computed from the unchanged consumer receipt. If the consumer
+still lags, even a non-installing semantic outcome requires the current complete
+snapshot to be installed before acknowledgement.
+
+This owner does not decide how a host renders the synchronization, classifies
+browser history, or focuses a remounted surface. It supplies the complete
+snapshot, typed disposition, and current authority needed for that owner to act.
 
 ## Canonical restoration participant
 
@@ -411,9 +480,11 @@ remain outside this owner.
 A retained consumer submits subject action IDs with their issuing generation
 and submits lens identities through Inspection Subject Navigation. It treats
 intent tokens and effect authority as opaque, applies no effect without current
-authority, and performs no subject or lens fallback after a non-applied
-outcome. It acknowledges completed effects and abandons authority it can no
-longer consume so queued maintenance can proceed.
+authority, consumes the result's typed synchronization disposition, and
+performs no subject or lens fallback after a non-applied outcome. It installs
+the complete result snapshot before acknowledging `Synchronization required`,
+may request fresh synchronization authority while its receipt lags, and
+abandons authority it can no longer consume so queued maintenance can proceed.
 
 Inspect Web presentation, accessibility, focus, acknowledgement timing, and
 surface-destruction behavior belong to the UI owner and issue #4917.
@@ -435,7 +506,7 @@ retaining a navigation session.
 
 | Model | Checked design properties |
 | --- | --- |
-| `NavigationSession.tla` | Latest explicit intent wins; unavailable revision behavior follows complete-snapshot change; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect |
+| `NavigationSession.tla` | Latest explicit intent wins; unavailable revision behavior follows complete-snapshot change; maintenance is request ordered; stale authority has no effect; consumer acknowledgement requires synchronization; abandoned lag can obtain the latest snapshot under fresh authority |
 | `AtomicRestoration.tla` | One exact requested subject+lens pair is prepared atomically; failed or superseded preparation is not published |
 | `SnapshotAuthority.tla` | Retained state comes only from the installed snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
 
@@ -468,6 +539,17 @@ The eventual subject-navigation implementation must include named gates for:
 - `Maintenance_CannotInstallDuringUnconsumedEffect`
 - `StaleBasisMaintenance_SameRequestRebuildsRegathersAndIsAdmitted`
 - `EffectAuthority_RequiresExactCurrentSessionRevisionIntentAndEpoch`
+- `ConsumerSynchronization_DispositionComesFromAcknowledgedRevision`
+- `ConsumerSynchronization_DispositionIsIndependentOfSemanticOutcome`
+- `ConsumerSynchronization_NonInstallingSuccessorCarriesCurrentSnapshot`
+- `ConsumerSynchronization_InstallationDoesNotAdvanceReceipt`
+- `ConsumerSynchronization_AcknowledgementRequiresCurrentEffectInstallation`
+- `ConsumerSynchronization_AcknowledgementRequiresInstalledResult`
+- `ConsumerSynchronization_AbandonmentPreservesDebt`
+- `ConsumerSynchronization_RequestReturnsLatestSnapshotWithFreshAuthority`
+- `ConsumerSynchronization_RemountCanRequestAgainAfterAbandonment`
+- `ConsumerSynchronization_EveryRequestSettlesByCurrentResult`
+- `ConsumerSynchronization_MaintenanceOrderAndLivenessArePreserved`
 - `ExternalIntentAbort_ReleasesMaintenanceAfterAcknowledgement`
 - `CanonicalRestoration_PreparedPairEqualsExactRequest`
 - `CanonicalRestoration_FailedPreparationSettlesAsAbort`
@@ -489,6 +571,14 @@ The eventual subject-navigation implementation must include named gates for:
 | Refresh and reconciliation complete out of order | Maintenance request order determines final snapshot |
 | Coordinate acquisition fails | Prior snapshot retained; abort effect visible; maintenance eventually resumes |
 | Canonical subject plus non-default lens | One prepared snapshot returns the exact requested pair with no partial result |
+| Applied result is abandoned before consumer install | Product retains the applied snapshot; consumer receipt remains behind |
+| Applied result is installed then abandoned before acknowledgement | Consumer-installed state advances, but the product-owned receipt and synchronization debt do not |
+| Non-installing successor follows an abandoned applied result | Successor carries the complete current snapshot with `Synchronization required` |
+| Maintenance completes while the consumer lags | Current maintenance result carries the complete current snapshot and may discharge the lag without bypassing request order |
+| Consumer requests synchronization after abandonment | Latest complete snapshot returns under fresh current authority with no semantic navigation change |
+| Consumer abandons synchronization and remounts | Receipt remains behind and a later request can obtain fresh synchronization authority again |
+| Consumer acknowledges while still lagging | Acknowledgement is rejected and the product-owned consumer receipt does not advance |
+| Snapshot contents return to an earlier value at a newer revision | `Synchronization required`; equal contents do not make generation-scoped state current |
 
 ## Non-goals
 
