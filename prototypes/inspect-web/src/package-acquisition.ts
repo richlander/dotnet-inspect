@@ -150,13 +150,13 @@ function surfaceInspectionErrors(result: BrowserPackageSurface): string[] {
 // The two validations are separate because they belong on different paths, and round 6
 // review (GPT-5.6 Sol) showed what collapsing them costs.
 //
-// A *blank* identity is never legitimate: `defaultAssemblyId` is declared non-optional,
-// and a surface without one produces a package model with a blank identity whatever is
-// done with it. An *unmatched* identity is legitimate -- `InspectionEngine.cs` permits an
-// empty `assemblies` list whenever extraction truncates and then falls back to
-// `coordinate.DefaultAsset.Id`, an id matching no descriptor. The producer commits each
-// descriptor and its types atomically, but that truncated result still carries a visible
-// inspection notice worth merging into a compatible resident.
+// A *blank* identity is never legitimate for a surface whose compile library is selected.
+// Root-only package surfaces declare typed compile-library unavailability and bypass this
+// helper. An *unmatched* selected identity is legitimate -- `InspectionEngine.cs` permits
+// an empty `assemblies` list whenever extraction truncates and then falls back to the
+// selected asset id, which matches no descriptor. The producer commits each descriptor and
+// its types atomically, but that truncated result still carries a visible inspection notice
+// worth merging into a compatible resident.
 //
 // Round 5 moved the whole check after the merge branch to stop rejecting that truncated
 // surface, which also stopped rejecting blank identities on the resident-merge path.
@@ -200,6 +200,11 @@ function defaultAssembly(
 export function createNuGetPackageModel(
   result: BrowserPackageSurface,
 ): AppPackage {
+  if (result.compileLibrary.status !== "Selected") {
+    throw new Error(
+      result.compileLibrary.message
+      || `The package Root has no selected compile library (${result.compileLibrary.status}).`);
+  }
   const assembly = defaultAssembly(
     result,
     "The package query did not return its selected assembly descriptor.");
