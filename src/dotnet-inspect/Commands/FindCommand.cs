@@ -21,6 +21,15 @@ public class FindCommand
         FindOptions options,
         CancellationToken cancellationToken = default)
     {
+        if (options.IsPackageProfile
+            && options.Count
+            && options.Limit is not null)
+        {
+            CommandError.Write(
+                "--count cannot be combined with -t for a package-prefix search.");
+            return 1;
+        }
+
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -183,13 +192,6 @@ public class FindCommand
         {
             CommandError.Write(
                 $"-t must be between 1 and {PackageProfileQuery.MaximumPackageLimit} for a package-prefix profile (got {maximumPackages}).");
-            return 1;
-        }
-
-        if (options.Count && options.Limit is not null)
-        {
-            CommandError.Write(
-                "--count cannot be combined with -t for a package-prefix search.");
             return 1;
         }
 
