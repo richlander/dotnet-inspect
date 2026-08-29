@@ -1271,6 +1271,12 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
+            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    options,
+                    options.JsonOutput,
+                    "package"))
+                return 1;
+
             if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                 return 1;
 
@@ -4401,12 +4407,17 @@ public class PackageCommand
 
         if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
+            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    libraryOptions,
+                    libraryOptions.JsonOutput,
+                    "package --all-libraries"))
+                return 1;
+
             string json = JsonSerializer.Serialize(
                 inspections.ToArray(),
                 JsonContext.Default.LibraryInspectionArray);
             OutputDestination.Write(
                 libraryOptions.OutputPath,
-                libraryOptions.Rows,
                 writer => writer.WriteLine(json));
             return completionExitCode;
         }
@@ -4473,7 +4484,6 @@ public class PackageCommand
             CommandError.WriteNote("matched sections have no data across all libraries.");
             OutputDestination.Write(
                 libraryOptions.OutputPath,
-                libraryOptions.Rows,
                 static _ => { });
             return completionExitCode;
         }
@@ -4497,7 +4507,6 @@ public class PackageCommand
             markdown = OutputFormatter.AddHumanRowWindowNote(markdown, libraryOptions.HumanRowWindowNote);
         OutputDestination.Write(
             libraryOptions.OutputPath,
-            libraryOptions.Rows,
             writer => OutputFormatter.WriteLfLine(writer, markdown));
         return completionExitCode;
     }
@@ -4853,12 +4862,11 @@ public class PackageCommand
             CommandError.WriteNote("matched section has no row data across all libraries.");
             OutputDestination.Write(
                 options.OutputPath,
-                options.Rows,
                 static _ => { });
             return true;
         }
 
-        OutputDestination.Write(options.OutputPath, options.Rows, output =>
+        OutputDestination.Write(options.OutputPath, output =>
         {
             OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
             {
@@ -5637,7 +5645,6 @@ public class PackageCommand
             };
             OutputDestination.Write(
                 options.OutputPath,
-                options.Rows,
                 writer => MarkoutSerializer.Serialize(
                     emptyView,
                     writer,
@@ -5682,7 +5689,6 @@ public class PackageCommand
 
         OutputDestination.Write(
             options.OutputPath,
-            options.Rows,
             writer => MarkoutSerializer.Serialize(
                 view,
                 writer,

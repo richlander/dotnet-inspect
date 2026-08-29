@@ -206,14 +206,81 @@ public static class CommandLineBuilder
     }
 
     private static bool IsNonPrintJson(ParseResult parseResult)
-        => GetBooleanOptionValue(parseResult, "--json")
+        => ResolveEffectiveStructuredOutputFormat(parseResult)
+                == OutputFormat.Json
            && !GetBooleanOptionValue(parseResult, "--print");
 
     private static bool IsStructuredPrintProjection(ParseResult parseResult)
         => GetBooleanOptionValue(parseResult, "--print")
-           && (GetBooleanOptionValue(parseResult, "--json")
-               || GetBooleanOptionValue(parseResult, "--jsonl")
+           && (ResolveEffectiveStructuredOutputFormat(parseResult)
+                   is OutputFormat.Json or OutputFormat.Jsonl
                || GetBooleanOptionValue(parseResult, "--json-array"));
+
+    private static OutputFormat? ResolveEffectiveStructuredOutputFormat(
+        ParseResult parseResult)
+    {
+        bool hasVerbosity = IsOptionExplicit(parseResult, "-v");
+        bool json = GetBooleanOptionValue(parseResult, "--json");
+        bool markdown = GetBooleanOptionValue(parseResult, "--markdown");
+        bool plainText = GetBooleanOptionValue(parseResult, "--plaintext");
+        bool mermaid = GetBooleanOptionValue(parseResult, "--mermaid");
+        bool table = GetBooleanOptionValue(parseResult, "--table");
+        bool tsv = GetBooleanOptionValue(parseResult, "--tsv");
+        bool jsonl = GetBooleanOptionValue(parseResult, "--jsonl");
+        bool hasExplicitRenderer =
+            json || markdown || plainText || mermaid
+            || table || tsv || jsonl || hasVerbosity;
+        if (!hasExplicitRenderer
+            && GetBooleanOptionValue(parseResult, "--bare")
+            && OutputFormatResolver.GetEnvironmentOverride()
+                is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl)
+        {
+            return null;
+        }
+
+        OutputFormat format = OutputFormatResolver.Resolve(
+            json,
+            markdown,
+            hasVerbosity
+                ? Verbosity.Minimal
+                : null,
+            plainText,
+            mermaid,
+            table,
+            tsv,
+            jsonl);
+        return format is OutputFormat.Json or OutputFormat.Jsonl
+            ? format
+            : null;
+    }
+
+    private static bool IsOptionExplicit(
+        ParseResult parseResult,
+        string optionName)
+    {
+        for (System.CommandLine.Parsing.SymbolResult? scope = parseResult.CommandResult;
+             scope is not null;
+             scope = scope.Parent)
+        {
+            if (scope is not System.CommandLine.Parsing.CommandResult commandResult)
+                continue;
+
+            var option = commandResult.Command.Options
+                .FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.Name,
+                        optionName,
+                        StringComparison.Ordinal)
+                    || candidate.Aliases.Contains(
+                        optionName,
+                        StringComparer.Ordinal));
+            if (option is not null
+                && commandResult.GetResult(option) is { Implicit: false })
+                return true;
+        }
+
+        return false;
+    }
 
     private static bool GetBooleanOptionValue(
         ParseResult parseResult,

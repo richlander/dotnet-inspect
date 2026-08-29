@@ -702,7 +702,8 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
-                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                if (!IsPerformanceDocumentJsonWindowApplied(options)
+                    && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
                         options,
                         options.JsonOutput,
                         "library")
@@ -869,7 +870,8 @@ public class LibraryCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
-                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                if (!IsPerformanceDocumentJsonWindowApplied(options)
+                    && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
                         options,
                         options.JsonOutput,
                         "library")
@@ -987,7 +989,8 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
-                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                if (!IsPerformanceDocumentJsonWindowApplied(options)
+                    && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
                         options,
                         options.JsonOutput,
                         "library")
@@ -1024,6 +1027,15 @@ public class LibraryCommand
             }
         }
     }
+
+    private static bool IsPerformanceDocumentJsonWindowApplied(
+        LibraryOptions options) =>
+        options.PerformanceTriage.Top.HasValue
+        && options.IncludeSections is { Count: > 0 } sections
+        && sections.All(section =>
+            PerformanceKinds.Sections.Contains(
+                section,
+                StringComparer.Ordinal));
 
     private static int IntegrityExitCode(params LibraryInspection[] inspections)
         => IntegrityExitCode(0, inspections);

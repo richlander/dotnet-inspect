@@ -367,10 +367,12 @@ public static class ArgumentPreprocessor
             var (optionName, attachedValue) =
                 SplitAttachedOptionValue(token);
             if (attachedValue is null
-                && CommandLineModel.FindOptions(rootCommand, optionName)
-                    .Any(CommandLineModel.CanConsumeFollowingValue)
                 && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal)
+                && CommandLineModel.FindOptions(rootCommand, optionName)
+                    .Any(option => CommandLineModel.CanConsumeFollowingToken(
+                        option,
+                        args[i + 1])))
             {
                 i++;
             }

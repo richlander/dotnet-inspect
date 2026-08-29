@@ -55,6 +55,13 @@ internal static class CommandLineModel
         option.ValueType != typeof(bool)
         && option.Arity.MaximumNumberOfValues > 0;
 
+    public static bool CanConsumeFollowingToken(
+        Option option,
+        string token) =>
+        CanConsumeFollowingValue(option)
+        || (option.ValueType == typeof(bool)
+            && bool.TryParse(token, out _));
+
     public static bool IsLimitShorthand(string token) =>
         token.Length >= 2
         && token[0] == '-'

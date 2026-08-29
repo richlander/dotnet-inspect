@@ -104,6 +104,12 @@ public static class MatchCommand
 
             if (options.JsonOutput)
             {
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "match"))
+                    return 1;
+
                 if (implementationView is null)
                 {
                     JsonOutputHelper.Write(
@@ -114,17 +120,6 @@ public static class MatchCommand
                 }
                 else
                 {
-                    // Implementation.Rows is a plain CLI display list (unlike Match's receipted
-                    // StructuralCloneComparisonDocument.Correspondence.Blocks, which a validated
-                    // construction re-derives from the full comparison and cannot be safely
-                    // truncated), so it windows the same way diff's own Implementation Diff
-                    // section does.
-                    if (options.Rows is { } window && implementationView.Rows is { } rows)
-                    {
-                        var windowed = RowWindow.Apply(window, rows);
-                        implementationView.Rows = windowed.Count > 0 ? [.. windowed] : null;
-                    }
-
                     var envelope = new MatchImplementationDocument(result.Document, implementationView);
                     JsonOutputHelper.Write(
                         envelope,

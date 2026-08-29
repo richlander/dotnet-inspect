@@ -549,7 +549,6 @@ public static class OutputFormatter
         {
             OutputDestination.Write(
                 options.OutputPath,
-                options.Rows,
                 output => WriteReferenceTree(inspection, output));
             return;
         }

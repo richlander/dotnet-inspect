@@ -2333,6 +2333,8 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
+            if (RejectUnsupportedTypeJsonRowWindow(options))
+                return 1;
             WriteJsonTypeOutput(type, options);
             return 0;
         }
@@ -3652,6 +3654,12 @@ public class ApiCommand
                 .ThenBy(m => m.Name, StringComparer.Ordinal)
                 .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
                 .ToList()).ToList();
+        outputType.Interfaces = RowWindow.Apply(
+            options.Rows,
+            outputType.Interfaces).ToList();
+        outputType.TypeParameters = RowWindow.Apply(
+            options.Rows,
+            outputType.TypeParameters).ToList();
 
         // Project the durable identity (Digest + Canonical Signature) onto each member so
         // JSON consumers get the same overload handle the Markdown Digest column exposes.
@@ -3667,6 +3675,25 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeCompactJsonContext.Default.ApiType));
         else
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
+    }
+
+    private static bool RejectUnsupportedTypeJsonRowWindow(
+        ApiOptions options)
+    {
+        if (options.Rows is null
+            || options.IncludeSections is not { Count: > 0 } sections)
+            return false;
+
+        int selectedMemberSections = MemberSectionPredicates.Keys.Count(
+            sections.Contains);
+        if (selectedMemberSections <= 1)
+            return false;
+
+        CommandError.Write(
+            "type cannot apply an item window independently to multiple member "
+            + "sections in typed document JSON. Use --jsonl for row-shaped "
+            + "output, or select one member section.");
+        return true;
     }
 
     private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)

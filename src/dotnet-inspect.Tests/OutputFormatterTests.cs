@@ -69,7 +69,6 @@ public class OutputFormatterTests
             var path = Path.Combine(tempDirectory.FullName, "output.txt");
             OutputDestination.Write(
                 path,
-                rowWindow: null,
                 writer => writer.Write("first\r\nsecond\rthird\n"));
             Assert.Equal("first\nsecond\nthird\n", File.ReadAllText(path));
 

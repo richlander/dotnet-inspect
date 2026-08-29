@@ -209,42 +209,35 @@ public sealed class MatchCommandTests
         Assert.Contains("\"disposition\": \"Completed\"", output);
     }
 
-    [Fact]
-    public async Task ExecuteAsync_ImplementationJsonWithRows_WindowsImplementationRows()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_JsonWithRows_RejectsUnwindowableReceiptDocument(
+        bool includeImplementation)
     {
-        // Round 8 finding: match --implementation --json ignored -n/--top item windows
-        // entirely, serializing every implementation-diff row while markdown correctly
-        // windowed to the declared count.
-        var unwindowed = new MatchOptions
+        // Correspondence receipts are derived from the complete block set, so neither the
+        // plain document nor the implementation envelope can truncate every declared row
+        // set independently without invalidating the receipt.
+        var options = new MatchOptions
         {
             LeftSelector = $"{typeof(MatchSampleA).FullName}.Greet",
             RightSelector = $"{typeof(MatchSampleA).FullName}.GreetFormal",
             AssemblyPath = typeof(MatchCommandTests).Assembly.Location,
             IncludeAll = true,
-            IncludeImplementation = true,
+            IncludeImplementation = includeImplementation,
             JsonOutput = true,
         };
-        var windowed = unwindowed with { Rows = RowWindow.Head(1) };
+        var windowed = options with { Rows = RowWindow.Head(1) };
 
-        var (unwindowedExitCode, unwindowedOutput, unwindowedError) =
-            await ConsoleCapture.RunAsync(() => MatchCommand.ExecuteAsync(unwindowed));
         var (windowedExitCode, windowedOutput, windowedError) =
             await ConsoleCapture.RunAsync(() => MatchCommand.ExecuteAsync(windowed));
 
-        Assert.Equal(0, unwindowedExitCode);
-        Assert.Empty(unwindowedError);
-        Assert.Equal(0, windowedExitCode);
-        Assert.Empty(windowedError);
-
-        using var unwindowedDocument = JsonDocument.Parse(unwindowedOutput);
-        using var windowedDocument = JsonDocument.Parse(windowedOutput);
-        var unwindowedRows = unwindowedDocument.RootElement
-            .GetProperty("implementation").GetProperty("rows").GetArrayLength();
-        var windowedRows = windowedDocument.RootElement
-            .GetProperty("implementation").GetProperty("rows").GetArrayLength();
-
-        Assert.True(unwindowedRows > 1, "fixture must produce more than one row to prove windowing");
-        Assert.Equal(1, windowedRows);
+        Assert.Equal(1, windowedExitCode);
+        Assert.Empty(windowedOutput);
+        Assert.Contains(
+            "Document --json item windows are not yet supported by 'match'.",
+            windowedError,
+            StringComparison.Ordinal);
     }
 
     [Fact]

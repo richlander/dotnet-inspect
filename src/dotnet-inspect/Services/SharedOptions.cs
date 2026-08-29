@@ -534,16 +534,14 @@ public class SharedOptions
     {
         error = null;
 
-        if (parseResult.GetResult(PerformanceTriageTop) is not { Implicit: false })
-            return true;
-
-        if (parseResult.GetResult(RowOrderBy) is { Implicit: false })
+        bool hasTop =
+            parseResult.GetResult(PerformanceTriageTop) is { Implicit: false };
+        bool hasExplicitOrder =
+            parseResult.GetResult(RowOrderBy) is { Implicit: false };
+        if (!hasTop && !hasExplicitOrder)
             return true;
 
         if (autoSelectsRankingSection)
-            return true;
-
-        if (SelectionUsesLegacyRankingToken(select))
             return true;
 
         var resolvedSelection = ResolveSelectedSections(
@@ -558,10 +556,19 @@ public class SharedOptions
         if (SelectionHasRankingDefault(resolvedSelection))
             return true;
 
-        string section = select is { Length: 1 }
-            ? $"Section '{select[0]}' has a sequence default, not a ranking default."
-            : "--top requires a ranking order.";
-        error = $"{section} Use --top N with --order-by, or use -n N for a positional limit.";
+        if (hasExplicitOrder)
+        {
+            string target = select is { Length: 1 }
+                ? $"Section '{select[0]}'"
+                : "The selected sections";
+            error = $"{target} has no ranking order, so --top/--order-by do not apply. "
+                + "Use -n N for a positional limit.";
+            return false;
+        }
+
+        error = select is { Length: 1 }
+            ? $"Section '{select[0]}' does not support --top. Use -n N for a positional limit."
+            : "--top requires sections with a ranking default. Use -n N for a positional limit.";
         return false;
     }
 
@@ -678,10 +685,6 @@ public class SharedOptions
             ? null
             : string.Join(", then ", criteria);
     }
-
-    private static bool SelectionUsesLegacyRankingToken(string[]? select)
-        => select is { Length: > 0 } sections
-           && sections.All(IsRankingDefaultSection);
 
     private static string? GetRankingDefaultCriterion(string section)
         => section.Equals(SectionNames.PerformanceTriage, StringComparison.Ordinal)

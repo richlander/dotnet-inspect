@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -117,6 +118,42 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task DocumentJsonAppliesItemWindowIndependentlyToTypeRowSets()
+    {
+        var windowed = await RunAppAsync(
+            "type", typeof(ItemWindowTypeFixture).FullName!,
+            "--library", TestAssemblyPath,
+            "-S", "Interfaces,Methods",
+            "-n", "1",
+            "--json",
+            "--tips", "q");
+        var unsupported = await RunAppAsync(
+            "type", typeof(ItemWindowTypeFixture).FullName!,
+            "--library", TestAssemblyPath,
+            "-S", "Methods,Properties",
+            "-n", "1",
+            "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, windowed.Exit);
+        Assert.Empty(windowed.Error);
+        using var document = JsonDocument.Parse(windowed.Output);
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("interfaces").GetArrayLength());
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("members").GetArrayLength());
+
+        Assert.Equal(1, unsupported.Exit);
+        Assert.Empty(unsupported.Output);
+        Assert.Contains(
+            "cannot apply an item window independently to multiple member sections",
+            unsupported.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TopRequiresRankingOrder()
     {
         var sequence = await RunAppAsync(
@@ -151,6 +188,25 @@ public partial class CommandExecutionTests
             "--top", "1",
             "--markdown",
             "--tips", "q");
+        var inapplicableOrder = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "--order-by", "RootReach desc",
+            "--top", "1",
+            "--table",
+            "--tips", "q");
+        var inapplicableOrderOnly = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "--order-by", "RootReach desc",
+            "--table",
+            "--tips", "q");
+        var legacyPerformanceAlias = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Performance Triage",
+            "--top", "1",
+            "--json",
+            "--tips", "q");
         var head = await RunAppAsync(
             "library", TestAssemblyPath,
             "-S", "Top Leverage",
@@ -180,7 +236,7 @@ public partial class CommandExecutionTests
         Assert.Equal(1, sequence.Exit);
         Assert.Empty(sequence.Output);
         Assert.Contains(
-            "Use --top N with --order-by, or use -n N for a positional limit.",
+            "Section 'References' does not support --top. Use -n N for a positional limit.",
             sequence.Error,
             StringComparison.Ordinal);
 
@@ -199,6 +255,23 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("top 1 by", explicitOrder.Output, StringComparison.Ordinal);
         Assert.Equal(0, explicitOrderMarkdown.Exit);
         Assert.Contains("top 1 by RootReach desc", explicitOrderMarkdown.Output, StringComparison.Ordinal);
+        Assert.All(
+            new[] { inapplicableOrder, inapplicableOrderOnly },
+            result =>
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Empty(result.Output);
+                Assert.Contains(
+                    "Section 'References' has no ranking order, so --top/--order-by do not apply.",
+                    result.Error,
+                    StringComparison.Ordinal);
+            });
+        Assert.Equal(1, legacyPerformanceAlias.Exit);
+        Assert.Empty(legacyPerformanceAlias.Output);
+        Assert.Contains(
+            "Section 'Performance Triage' does not support --top.",
+            legacyPerformanceAlias.Error,
+            StringComparison.Ordinal);
         Assert.Equal(0, head.Exit);
         Assert.Contains("first 1", head.Output, StringComparison.Ordinal);
         Assert.Equal(0, tail.Exit);
@@ -222,6 +295,175 @@ public partial class CommandExecutionTests
         Assert.Contains(
             root.Parse(["library", TestAssemblyPath, "-S", "Top Leverage", "--top", "999999999999999999999"]).Errors,
             error => error.Message.Contains("Cannot parse argument", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task EnvironmentJsonRejectsRenderedLineWindows()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            var result = await RunAppAsync(
+                "library", TestAssemblyPath,
+                "-S", "References",
+                "-n", "2",
+                "--lines",
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Document --json cannot be combined with --lines.",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
+    }
+
+    [Fact]
+    public async Task BarePrintSuppressesEnvironmentJsonlBeforeLineWindowing()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDirectory) = CreateLocalReadmePackage(
+            "Test.Bare.Print.Lines",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "# Alpha skill\nsecond\nthird"));
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "jsonl");
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package skill files",
+                "--print",
+                "--row", "1",
+                "--bare",
+                "-n", "1",
+                "--lines",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Equal("# Alpha skill\n", result.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SeparatedFalseBooleanDoesNotBecomeImplicitTarget()
+    {
+        var explicitCommand = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "References",
+            "--json", "false",
+            "--tips", "q");
+        var implicitCommand = await RunAppAsync(
+            "--json", "false",
+            TestAssemblyPath,
+            "-S", "References",
+            "--tips", "q");
+
+        Assert.Equal(0, explicitCommand.Exit);
+        Assert.Equal(0, implicitCommand.Exit);
+        Assert.Empty(explicitCommand.Error);
+        Assert.Empty(implicitCommand.Error);
+        Assert.Equal(explicitCommand.Output, implicitCommand.Output);
+    }
+
+    [Fact]
+    public void FileOutputComposesAbsoluteRowsAndRenderedLines()
+    {
+        var tempDirectory =
+            Directory.CreateTempSubdirectory("item-line-output-");
+        try
+        {
+            string outputPath =
+                Path.Combine(tempDirectory.FullName, "rows.txt");
+            var root = CommandLineBuilder.CreateRootCommand();
+            DotnetInspector.CommandLine.ArgumentPreprocessor.PreprocessArgs(
+                ["library", TestAssemblyPath, "-n", "2", "--lines"],
+                root);
+
+            OutputDestination.Write(
+                outputPath,
+                writer =>
+                {
+                    foreach (string row in RowWindow.Apply(
+                                 RowWindow.Range(2, 3),
+                                 new[] { "first", "second", "third" }))
+                    {
+                        writer.WriteLine(row);
+                    }
+                });
+
+            Assert.Equal(
+                "second\nthird\n",
+                File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            DotnetInspector.CommandLine.ArgumentPreprocessor.Reset();
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AggregateDocumentJsonRejectsUnsupportedItemWindows()
+    {
+        var (packagePath, tempDirectory) = CreateLocalLibPackage();
+        try
+        {
+            var multiple = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-n", "1",
+                "--json",
+                "--tips", "q");
+            var allLibraries = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-n", "1",
+                "--json",
+                "--tips", "q");
+
+            Assert.All(
+                new[] { multiple, allLibraries },
+                result =>
+                {
+                    Assert.Equal(1, result.Exit);
+                    Assert.Empty(result.Output);
+                    Assert.Contains(
+                        "Document --json item windows are not yet supported",
+                        result.Error,
+                        StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
     }
 
     [Fact]
@@ -256,9 +498,29 @@ public partial class CommandExecutionTests
             Assert.Equal("# Alpha skill", printed.Output);
             Assert.DoesNotContain("first 1", printed.Output, StringComparison.Ordinal);
         }
+
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    public sealed class ItemWindowTypeFixture : IDisposable, ICloneable
+    {
+        public string Name { get; set; } = "";
+
+        public object Clone() => new ItemWindowTypeFixture { Name = Name };
+
+        public void Dispose()
+        {
+        }
+
+        public void First()
+        {
+        }
+
+        public void Second()
+        {
         }
     }
 

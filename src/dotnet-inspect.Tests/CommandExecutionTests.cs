@@ -1894,7 +1894,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance:*",
             "--where", "Finding=analysis.allocation",
             "--where", "Operation=box",
             "--top", "1",
@@ -1932,7 +1932,9 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             [
                 .. sourceArgs,
-                "-S", "Performance Triage",
+                "-S", command == "library"
+                    ? "Performance:*"
+                    : "Performance Triage",
                 "--where", "CallerLoop=direct",
                 "--where", "CallerLoopDepth>=1",
                 "--order-by", "CallerLoopDepth desc",
@@ -2118,7 +2120,7 @@ public partial class CommandExecutionTests
         string assemblyPath = FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
         var (exit, output, error) = await RunAppAsync(
             "library", assemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance:*",
             "--order-by", $"CallerLoopDepth {direction}",
             "--top", "1",
             "--json",
@@ -2135,7 +2137,7 @@ public partial class CommandExecutionTests
     {
         var baseline = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance:*",
             "--where", "Finding=analysis.allocation",
             "--top", "1",
             "--json",
@@ -2148,7 +2150,7 @@ public partial class CommandExecutionTests
 
         var filtered = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance:*",
             "--where", $"Token={unpaddedToken}",
             "--json",
             "--tips", "q");
@@ -2234,7 +2236,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance:*",
             "--where", "Post Dominance=return-post-dominates",
             "--order-by", "PostDominance desc,RootReach desc",
             "--json",
