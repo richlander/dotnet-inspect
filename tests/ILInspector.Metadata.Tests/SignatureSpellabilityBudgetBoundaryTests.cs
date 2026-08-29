@@ -93,6 +93,62 @@ public class SignatureSpellabilityBudgetBoundaryTests
         }
     }
 
+    // MetadataTypeDefinitionNameReader.Read walks a chain before it
+    // materializes any segment, and that chain's length is itself a charged
+    // quantity. Every call site must price the walk one of two ways: hand the
+    // reader a callback, or charge the same chain directly.
+    //
+    // GetTypeFromDefinition takes the first route, because nothing else walks a
+    // TypeDef's declaring chain. GetTypeFromReference takes the second, because
+    // the chain its name read walks is the resolution scope it already walks and
+    // charges itself -- passing a callback there would charge that chain twice.
+    // A call site that does neither reintroduces an unpriced walk.
+    [Fact]
+    public void NameReadsChargeTheChainTheyWalk()
+    {
+        ClassDeclarationSyntax provider = Provider();
+        var reads = new List<(string Method, int Arguments, bool ChargesChain)>();
+        foreach (MethodDeclarationSyntax method in
+            provider.Members.OfType<MethodDeclarationSyntax>())
+        {
+            bool chargesChain = method
+                .DescendantNodes()
+                .OfType<InvocationExpressionSyntax>()
+                .Any(invocation =>
+                    invocation.Expression
+                        is MemberAccessExpressionSyntax charge
+                    && charge.Name.Identifier.ValueText
+                        == "ChargeMetadataWork");
+
+            foreach (InvocationExpressionSyntax invocation in
+                method.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                if (invocation.Expression is MemberAccessExpressionSyntax access
+                    && access.Name.Identifier.ValueText == "Read"
+                    && access.Expression is IdentifierNameSyntax reader
+                    && reader.Identifier.ValueText
+                        == "MetadataTypeDefinitionNameReader")
+                {
+                    reads.Add((
+                        method.Identifier.ValueText,
+                        invocation.ArgumentList.Arguments.Count,
+                        chargesChain));
+                }
+            }
+        }
+
+        // A gate that matches nothing passes for the wrong reason. Both the
+        // reads and the TypeDef site must actually be found.
+        Assert.NotEmpty(reads);
+        Assert.Contains(reads, read => read.Method == "GetTypeFromDefinition");
+
+        string[] unpriced = reads
+            .Where(read => read.Arguments < 3 && !read.ChargesChain)
+            .Select(read => read.Method)
+            .ToArray();
+        Assert.Empty(unpriced);
+    }
+
     static ClassDeclarationSyntax Provider()
     {
         string file = Path.Combine(

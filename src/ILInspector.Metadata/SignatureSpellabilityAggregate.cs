@@ -881,6 +881,18 @@ internal sealed class SignatureOccurrenceProvider
         _scopeProjections = [];
     MetadataReader? _projectionReader;
 
+    // A nested TypeDef name is built by walking its declaring chain, which the
+    // name reader prices through this callback before it materializes any
+    // segment. The TypeRef path needs no equivalent: the chain its name reader
+    // walks is the resolution scope, which GetTypeFromReference already walks
+    // and charges itself, so passing a callback there would charge it twice.
+    // The delegate is cached because a decode projects many names.
+    readonly Action<int> _chargeDeclaringChain;
+
+    internal SignatureOccurrenceProvider() =>
+        _chargeDeclaringChain =
+            chainLength => _workBudget.ChargeMetadataWork(chainLength);
+
     public SignatureTypeOccurrences GetPrimitiveType(
         PrimitiveTypeCode typeCode)
     {
@@ -924,7 +936,10 @@ internal sealed class SignatureOccurrenceProvider
                 handle,
                 out MetadataNamedTypeReference? projection))
         {
-            if (MetadataTypeDefinitionNameReader.Read(reader, handle)
+            if (MetadataTypeDefinitionNameReader.Read(
+                    reader,
+                    handle,
+                    _chargeDeclaringChain)
                 is not MetadataTypeDefinitionNameReadResult.Read read)
             {
                 throw new BadImageFormatException(
@@ -1093,9 +1108,13 @@ internal sealed class SignatureOccurrenceProvider
         SignatureTypeOccurrences elementType,
         ArrayShape shape)
     {
-        // A wide shape costs more than the single node charged here, but its
-        // bounds live in the TypeSpec blob that GetTypeFromSpecification
-        // already charges before SRM decodes it.
+        // A wide shape costs more than the single node charged here. That
+        // width is bounded by SignatureBlobGuard, which charges the declared
+        // size and lower-bound counts against its own allowance and refuses
+        // the blob before decoding begins. Do not attribute the bound to the
+        // TypeSpec blob charge instead: a shape reached from a method or field
+        // signature never passes through GetTypeFromSpecification, so that
+        // charge does not run on every path that reaches here.
         _workBudget.ChargeNode();
         return elementType;
     }
