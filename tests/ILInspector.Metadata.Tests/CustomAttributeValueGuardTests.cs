@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -2707,6 +2708,88 @@ public sealed class CustomAttributeValueGuardTests
         value.WriteUInt16(0);
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);
+    }
+
+    static byte[] BuildCmodArrayImage(int elementCount, int cmodCount)
+    {
+        var metadata = CreateMetadata("ProbeCmodAmp");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default, default, default, default);
+        TypeReferenceHandle modifier = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IsConst"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+
+        var sig = new BlobBuilder();
+        sig.WriteByte(0x20);
+        sig.WriteCompressedInteger(1);
+        sig.WriteByte(0x01);
+        sig.WriteByte(0x1d);
+        for (int i = 0; i < cmodCount; i++)
+        {
+            sig.WriteByte(0x20);
+            sig.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(modifier));
+        }
+
+        sig.WriteByte(0x08);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(sig));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(elementCount);
+        for (int i = 0; i < elementCount; i++)
+            value.WriteInt32(i);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    [Fact]
+    public void ArrayElementCustomModifiers_AreSkippedOncePerArray()
+    {
+        // The element replay rewinds the signature per element. Rewinding to
+        // the element's custom modifiers rather than to its type re-skips
+        // every modifier once per element: CPU multiplied by an
+        // attacker-chosen count, on input the guard accepts. Modifiers carry
+        // no value semantics, and SRM resolves the element type once before
+        // it loops over values.
+        static long Measure(int cmodCount)
+        {
+            using var image = Open(BuildCmodArrayImage(1_000_000, cmodCount));
+            CustomAttribute attribute = FirstAttribute(image.Reader);
+            Assert.True(
+                CustomAttributeValueGuard.IsSafeToDecode(
+                    image.Reader,
+                    attribute));
+            var timer = Stopwatch.StartNew();
+            Assert.True(
+                CustomAttributeValueGuard.IsSafeToDecode(
+                    image.Reader,
+                    attribute));
+            timer.Stop();
+            return timer.ElapsedMilliseconds;
+        }
+
+        long baseline = Measure(0);
+        long modified = Measure(500);
+
+        // Generous: the defect multiplied the per-element cost by the modifier
+        // count, so the pre-fix gap is an order of magnitude, not a fraction.
+        Assert.True(
+            modified < (baseline * 4) + 250,
+            $"Guarding 1,000,000 elements took {baseline} ms with no custom "
+                + $"modifiers and {modified} ms with 500; the modifiers are "
+                + "being re-skipped per element.");
     }
 
     [Fact]

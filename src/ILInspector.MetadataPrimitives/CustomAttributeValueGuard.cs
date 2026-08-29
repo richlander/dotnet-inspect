@@ -401,6 +401,12 @@ public static class CustomAttributeValueGuard
                 return Result.Unsafe;
             if (_value.RemainingBytes < 4)
                 return Result.Truncated;
+            // Rewind to the element TYPE, not to its custom modifiers.
+            // Modifiers carry no value semantics and SRM resolves the element
+            // type once before it loops over values, so replaying them per
+            // element is work multiplied by an attacker-chosen count on input
+            // the guard accepts.
+            SkipCustomModifiers(ref _signature);
             int elementStart = _signature.Offset;
             if (!TrySkipSignatureType(ref _signature, _signatureSkip))
                 return Result.Safe;
@@ -424,6 +430,28 @@ public static class CustomAttributeValueGuard
             }
 
             return Result.Safe;
+        }
+
+        /// <summary>
+        /// Advances past any leading custom modifiers, leaving the reader on
+        /// the modified type. Returns with the reader unmoved when the blob
+        /// ends; the caller's own read reports that truncation.
+        /// </summary>
+        static void SkipCustomModifiers(ref BlobReader signature)
+        {
+            while (true)
+            {
+                int start = signature.Offset;
+                if (!TryReadElementType(ref signature, out byte code))
+                    return;
+                if (code is not (ElementTypeCmodReqd or ElementTypeCmodOpt))
+                {
+                    signature.Offset = start;
+                    return;
+                }
+
+                signature.ReadTypeHandle();
+            }
         }
 
         Result ProcessSzArrayElements(WorkItem item)
