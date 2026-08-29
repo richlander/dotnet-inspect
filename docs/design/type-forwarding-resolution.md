@@ -3022,27 +3022,42 @@ within one decode:
 | --- | ---: | ---: | ---: | --- |
 | Type name characters | 175 | 1,078 | 2,574,175 | 4,096 |
 | Resolution-scope chain length | 3 | 19 | 1,465,380 | 256 |
+| Declaring-type chain length | *unmeasured* | *unmeasured* | *unmeasured* | 256 |
 | `AssemblyRef` name storage | 58 | 292 | 1,232,837 | none |
 | `AssemblyRef` `PublicKeyOrToken` storage | 8 | 64 | 1,232,641 | 8 when a token |
 | `AssemblyRef` culture storage | 0 | 0 | 0 | none |
 | `ModuleRef` name storage | 0 | 0 | 0 | **none** |
 | `TypeSpec` blob bytes | 0 | 0 | 0 | 4,096 |
 
-The census charges `PublicKeyOrToken` at one site and does not record
-`AssemblyFlags.PublicKey`, so it does not separate the two classes by
-measurement, and the class split cannot be recovered from the recorded maximum.
-The flag decides the class, not the blob's size or cryptographic validity: an
-artifact may set `AssemblyFlags.PublicKey` on an 8-byte blob, and the
-adversarial probe below does exactly that. The measured 8-byte maximum
-therefore bounds the quantity but does not establish that no full public key
-occurred. **The full-key class is unmeasured in this census**, not measured at
-zero. Instrumenting the flag and re-running would settle it.
+Two quantities are unmeasured, for different reasons, and neither is measured
+at zero.
 
-Two results set the ceilings. Every Class A quantity stays far below its cap --
-the longest single type name observed is 175 characters against a 4,096
-ceiling, and the longest resolution-scope chain is 3 against 256 -- so the caps
-constrain nothing real. And no decode approached any budget, which is what
-makes the budgets available to bound repetition rather than typical cost.
+The declaring-type chain is unmeasured because the census measures what the
+instrumented build charged, and that build charges the chain length only on the
+`TypeRef` resolution-scope path. A conforming implementation charges it on the
+`TypeDef` path too, so the ledger figures above are a **lower bound** for a
+conforming decode, understated by at most one charge per declaring-chain node
+per projected nested name. The per-walk cap still holds unconditionally: the
+walk reads into caller-owned storage of exactly `MaxRelationshipNodes` entries
+and is refused beyond it.
+
+The `PublicKeyOrToken` class split is unmeasured because the census charges it
+at one site and does not record `AssemblyFlags.PublicKey`, so the split cannot
+be recovered from the recorded maximum. The flag decides the class, not the
+blob's size or cryptographic validity: an artifact may set
+`AssemblyFlags.PublicKey` on an 8-byte blob, and the adversarial probe below
+does exactly that. The measured 8-byte maximum therefore bounds the quantity
+but does not establish that no full public key occurred. Instrumenting the flag
+and re-running would settle it.
+
+Two results set the ceilings, for the measured quantities. Every measured
+Class A quantity stays far below its cap -- the longest single type name
+observed is 175 characters against a 4,096 ceiling, and the longest
+resolution-scope chain is 3 against 256 -- so the caps constrain nothing real.
+And no decode approached any budget, which is what makes the budgets available
+to bound repetition rather than typical cost. The unmeasured declaring-type
+chain shares the resolution-scope chain's 256 cap and cannot change that
+conclusion by more than its own bounded contribution.
 
 The last three rows were never exercised, and no probe below drives the culture
 or `ModuleRef` name paths. That is a statement about the corpus, not about
@@ -3178,7 +3193,8 @@ construction; today it is compared against the ledger and discarded. Nothing in
 this contract requires discarding it. A threshold *below* the refusal ceiling
 may report an unusual magnitude as an observation, and the census shows such a
 threshold would be quiet: the largest Class B charge anywhere in the corpus was
-58 bytes, and two of the four Class B quantities never occurred at all.
+58 bytes, and two of the three measured Class B quantities never occurred at
+all.
 
 Two constraints hold if that is built. A reporting threshold never affects
 acceptance -- it is an observation, and removing it changes no outcome. And it
