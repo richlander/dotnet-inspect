@@ -516,19 +516,25 @@ There is no "any filesystem entry" kind. Admission proves that the coordinate
 currently resolves to the kind the consuming operation requires.
 
 The adapter converts the input once with `Path.GetFullPath`. The result is the
-canonical requested path used by diagnostics and provenance. This is lexical
-normalization: it makes the coordinate absolute and removes relative path
-segments, but it does not resolve links, normalize case, or mint physical file
-identity. A non-empty path that cannot be normalized is rejected rather than
-escaping as a platform exception.
+canonical requested path used by diagnostics and provenance. For ordinary
+paths, this lexical normalization makes the coordinate absolute and removes
+relative path segments, but it does not resolve links, normalize case, or mint
+physical file identity. Windows treats extended `\\?\` paths as already
+normalized and leaves their segments unchanged. An extended disk or UNC
+coordinate is therefore admitted only when it is fully qualified and contains
+no `.` or `..` segment; otherwise it is rejected as invalid. Any other
+non-empty path that cannot be normalized is also rejected rather than escaping
+as a platform exception.
 
-All local coordinates follow symbolic links and traversable reparse points to
-their final target. The same policy preserves existing explicit-file behavior
-and supports symlinked build outputs without making directory acquisition a
-second policy domain. A dangling link is unavailable. A link whose final target
-has the wrong kind is rejected. A reparse point whose final target cannot be
-classified by the supported link API is rejected rather than opened as an
-unknown entry.
+All local coordinates follow symbolic links and name-surrogate reparse points
+to their final target. The same policy preserves existing explicit-file
+behavior and supports symlinked build outputs without making directory
+acquisition a second policy domain. A dangling link is unavailable. A link
+whose final target has the wrong kind is rejected. A name-surrogate reparse
+point whose final target cannot be classified by the supported link API is
+rejected rather than opened as an unknown entry. Non-name-surrogate reparse
+points are ordinary filesystem entries whose own expected kind is classified;
+the `ReparsePoint` attribute alone does not reject them.
 
 The canonical requested path remains the coordinate after link resolution. The
 adapter does not publish a physical target path or require the target to remain
@@ -547,7 +553,7 @@ deferred, but consumers cannot replace them with exception-message matching:
 | The path is missing, a link is dangling, or the entry disappears before the file open | `Unavailable` |
 | The path cannot be normalized | `Rejected` with an invalid-path reason |
 | The final target has the wrong expected kind | `Rejected` with a kind-mismatch reason |
-| The final target is a FIFO, socket, block device, character device, Windows device or pipe coordinate, or an unclassifiable reparse point | `Rejected` with a non-regular or unsupported-entry reason |
+| The final target is a FIFO, socket, block device, character device, Windows device or pipe coordinate, or an unclassifiable name-surrogate reparse point | `Rejected` with a non-regular or unsupported-entry reason |
 | Metadata inspection, native classification, or the file open fails for a reason other than absence | `Failed` with an admission-failed reason |
 | The current host has no supported classifier | `Failed` with a classification-unsupported reason |
 | Cancellation is observed | `OperationCanceledException` |
@@ -571,11 +577,16 @@ mode mask needed to distinguish directories, regular files, FIFOs, sockets,
 and block or character devices without opening the entry.
 
 Windows admission first rejects device and pipe namespaces and reserved DOS
-device coordinates. Extended-length paths to disk files are not rejected merely
-for using the `\\?\` prefix. Ordinary filesystem paths are inspected through
-managed attributes. A final symbolic link or traversable reparse point is
-resolved and its target attributes are inspected; an unsupported reparse kind
-is rejected. This step must prove a file or directory target before a
+device coordinates. Extended-length disk and UNC paths are not rejected merely
+for using the `\\?\` prefix after their segments satisfy the normalization rule
+above. Ordinary filesystem paths are inspected through managed attributes. For
+a final reparse point, a metadata handle opened without following the point
+queries its tag. A name-surrogate tag denotes a link-like entry: supported
+symbolic-link and mount-point forms are resolved and their final target
+attributes inspected, while an unsupported name-surrogate tag is rejected. A
+non-name-surrogate tag, including an ordinary cloud placeholder, retains its
+own file or directory attributes and proceeds to normal expected-kind and
+post-open checks. This step must prove a file or directory target before a
 file-content open.
 
 Regular-file admission then opens the canonical requested path exactly once and
@@ -619,9 +630,10 @@ open an unclassified path.
 
 The implementation is complete when focused gates prove:
 
-- canonicalization, expected-kind mismatches, final-target link following,
-  dangling links, unsupported reparse points, and hard-link non-deduplication
-  have the same semantics for every consuming local coordinate;
+- canonicalization, including extended-path segment rejection, expected-kind
+  mismatches, final-target link following, dangling links, name-surrogate
+  rejection, non-name-surrogate treatment, and hard-link non-deduplication have
+  the same semantics for every consuming local coordinate;
 - stable FIFOs, sockets, devices, and their link aliases are rejected before a
   blocking content open, while an empty regular file remains admissible;
 - a regular-file consumer receives the once-opened, post-classified handle and
@@ -1286,6 +1298,11 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
 - `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
+- `LocalPathAdmission_ExpectedKindsAndLinksAreShared`
+- `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`
+- `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`
+- `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`
+- `LocalPathAdmission_PlatformClassifiersRemainPortable`
 - `LocalDirectoryAcquisition_BoundedDeterministicSelection`
 - `LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing`
 - `LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved`
