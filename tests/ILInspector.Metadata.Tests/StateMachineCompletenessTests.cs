@@ -41,6 +41,15 @@ public sealed class StateMachineCompletenessTests
     const string CorpusVariable = "SM_COMPLETENESS_CORPUS";
 
     /// <summary>
+    /// The detail reported when SRM finds no metadata behind a CLI directory
+    /// the oracle positively claimed. Shared with the test that gates it so the
+    /// two cannot drift apart into a gate that passes by comparing against a
+    /// sentence no longer emitted.
+    /// </summary>
+    const string CliDirectoryPresentDetail =
+        "the CLI directory is present but carries no metadata";
+
+    /// <summary>
     /// The gate for the completeness property on assemblies this repository
     /// builds. Both specimens are compiler-async, are produced by the build
     /// under test, and are therefore deterministic — no corpus, no network, and
@@ -772,10 +781,19 @@ public sealed class StateMachineCompletenessTests
     /// be right next time.
     ///
     /// The bound covers the whole region the header read can touch on this
-    /// assembly, so every early-exit path in <c>ReadManagedClaim</c> is reached
-    /// by some length in the range. The theory above is kept even though this
-    /// subsumes it: it names which structure each interesting length sits at, so
-    /// a failure there says what broke, while a failure here says only where.
+    /// assembly. That range reaches four of the reader's exit paths --
+    /// SignatureIncomplete, DosHeaderIncomplete, PeOffsetOutOfRange and
+    /// OptionalHeaderIncomplete -- which are the shapes truncation can actually
+    /// produce, measured rather than assumed. An earlier revision of this
+    /// comment claimed the range reached *every* early-exit path, which was
+    /// false and was the same habit this file keeps having to correct: a
+    /// coverage claim written by inspection. Whole-method coverage is the job of
+    /// ReadManagedClaim_EnumeratedRange_ReachesEveryExitPath, which measures the
+    /// union of all the inputs.
+    ///
+    /// The theory above is kept even though this subsumes it: it names which
+    /// structure each interesting length sits at, so a failure there says what
+    /// broke, while a failure here says only where.
     /// </summary>
     [Fact]
     public void TryMeasure_NoPrefixOfAManagedAssemblyIsEverNotManaged()
@@ -824,8 +842,21 @@ public sealed class StateMachineCompletenessTests
     /// This is the corruption counterpart to the prefix enumeration above, and
     /// it closes the other dimension the earlier rounds kept landing in. The
     /// 400-specimen random fuzz that motivated the broad catches samples this
-    /// space; this enumerates it, so no judgement is exercised about which
-    /// offsets are worth trying.
+    /// space; this enumerates the offsets, so no judgement is exercised about
+    /// which of them are worth trying.
+    ///
+    /// It does sample the byte *values*, at 0x00, 0xFF and 0x7F, because this
+    /// test writes a file per case and all 256 values across the region would
+    /// be some 96,000 writes of a multi-hundred-kilobyte image. Round 9 was
+    /// right that "enumerates" was too strong a word for that, and the gap is
+    /// closed elsewhere rather than papered over: whether a file is skipped at
+    /// all is decided solely by ReadManagedClaim's answer -- NotManaged is
+    /// reached only through the precomputed outcome, and only when that answer
+    /// is No -- and
+    /// ReadManagedClaim_SilentSkipSites_AreExactlyTheKnownSet now enumerates
+    /// every one of the 256 values at every offset in memory, where the same
+    /// sweep costs a fraction of a second. This test's remaining job is the
+    /// TryMeasure-level behaviour over a representative sample of values.
     ///
     /// The property is deliberately two-sided. Offsets 0 and 1 hold "MZ", and a
     /// file whose signature is positively wrong really is not a PE, so
@@ -1047,6 +1078,17 @@ public sealed class StateMachineCompletenessTests
     /// and whoever adds it has to decide whether it is a defect or a limit
     /// worth pinning. Equality is asserted in both directions, so a site that
     /// stops being reachable fails here too rather than quietly leaving the set.
+    ///
+    /// The corruption sweep here enumerates all 256 byte values at every offset
+    /// in the header read extent, not the three values the file-writing test
+    /// samples. Round 9 pointed out that a branch keyed on some other value --
+    /// answering No when a byte equals 0x42, say -- would slip past a sampled
+    /// sweep while everything stayed green. In memory the full sweep is around
+    /// 96,000 reads and costs a fraction of a second, so there was never a
+    /// reason to sample it. This test carries the laundering-relevant claim, so
+    /// it is the one that has to be exhaustive: a file is skipped if and only if
+    /// this reader answers No, which makes the set below the complete account of
+    /// how a file can vanish from the sweep in silence.
     /// </summary>
     [Fact]
     public void ReadManagedClaim_SilentSkipSites_AreExactlyTheKnownSet()
@@ -1078,12 +1120,12 @@ public sealed class StateMachineCompletenessTests
 
         byte[] copy = (byte[])image.Clone();
 
-        foreach (byte value in (byte[])[0x00, 0xFF, 0x7F])
+        for (int value = 0; value <= 0xFF; value++)
         {
             for (int offset = 0; offset <= bound; offset++)
             {
                 byte original = copy[offset];
-                copy[offset] = value;
+                copy[offset] = (byte)value;
 
                 using (MemoryStream corrupted = new(copy))
                 {
@@ -1191,6 +1233,66 @@ public sealed class StateMachineCompletenessTests
             image.AsSpan(128 + 20), (ushort)optionalSize);
         BinaryPrimitives.WriteUInt16LittleEndian(image.AsSpan(128 + 24), 0x10B);
         return image;
+    }
+
+    /// <summary>
+    /// The no-metadata detail never asserts more about the CLI directory than
+    /// the oracle actually established.
+    ///
+    /// Round 9 found this message hardcoded to "the CLI directory is present
+    /// but carries no metadata" on every path that reached it. That sentence is
+    /// true only when the oracle answered Yes. When it answered Indeterminate --
+    /// an implausible optional header size on an ordinary native binary, say --
+    /// nothing had established that a CLI directory exists, and the outcome is
+    /// Unclassifiable, which fails the sweep. The detail is the first thing a
+    /// maintainer reads on that failure, so a confident false statement there
+    /// sends them hunting for a directory nobody claimed to have seen. Measured
+    /// before the fix, a 224-byte specimen whose oracle exit was
+    /// CliDirectoryAbsent -- a positive finding of absence -- still reported the
+    /// directory as present.
+    ///
+    /// The assertion is written as the general property rather than as "must
+    /// not say present", but only its false arm is exercised: no specimen was
+    /// constructible that makes SRM report no metadata while the oracle claims
+    /// Yes. Zeroing a real assembly's COR header metadata directory, the
+    /// obvious candidate, makes SRM throw BadImageFormatException instead, which
+    /// is DecodeFailed and never reaches this branch. So the Yes arm is retained
+    /// as correct-if-reached, in the same spirit as the round 2 defensive
+    /// catches, and is deliberately not counted as covered.
+    /// </summary>
+    [Fact]
+    public void TryMeasure_NoMetadataDetail_NeverOutrunsTheOracleClaim()
+    {
+        foreach (int optionalSize in new[] { 1, 96, 176, 215, 224, 1025 })
+        {
+            byte[] image = ShortOptionalHeaderImage(optionalSize);
+
+            string? readerDetail = null;
+            ManagedClaim claim;
+            using (var memory = new MemoryStream(image, writable: false))
+            {
+                claim = ReadManagedClaim(memory, ref readerDetail, out _);
+            }
+
+            string path = Path.Combine(
+                Path.GetTempPath(),
+                $"sm-detail-{Guid.NewGuid():N}.dll");
+            File.WriteAllBytes(path, image);
+
+            try
+            {
+                TryMeasure(path, out _, out string? detail);
+
+                Assert.NotNull(detail);
+                Assert.Equal(
+                    claim == ManagedClaim.Yes,
+                    detail!.Contains(CliDirectoryPresentDetail, StringComparison.Ordinal));
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
     }
 
     /// <summary>
@@ -1442,7 +1544,7 @@ public sealed class StateMachineCompletenessTests
             // The independent read below answers only that one question, which
             // also makes it a genuine oracle rather than a restatement of the
             // thing under test.
-            ManagedClaim claim = ReadManagedClaim(stream, ref detail);
+            ManagedClaim claim = ReadManagedClaim(stream, ref detail, out ClaimExitSite claimExit);
             if (claim == ManagedClaim.Unreadable)
             {
                 return CorpusOutcome.Inaccessible;
@@ -1509,7 +1611,26 @@ public sealed class StateMachineCompletenessTests
 
                 if (!hasMetadata)
                 {
-                    detail ??= "the CLI directory is present but carries no metadata";
+                    // The wording has to follow the claim, not assume it. When
+                    // the oracle answered Yes this really is a file with a CLI
+                    // directory and no metadata behind it. When the oracle
+                    // answered Indeterminate -- an implausible optional header
+                    // size, say, on a perfectly ordinary native binary -- it
+                    // never established that a CLI directory is present, and
+                    // Round 9 caught this message asserting one anyway. That
+                    // outcome is Unclassifiable and fails the sweep, so the
+                    // detail is what a maintainer reads first; a confident
+                    // false statement there sends them looking for a CLI
+                    // directory that was never claimed to exist.
+                    detail ??= claim switch
+                    {
+                        ManagedClaim.Yes => CliDirectoryPresentDetail,
+                        ManagedClaim.No =>
+                            "the CLI directory is absent and SRM reports no metadata",
+                        _ => $"the header oracle could not decide whether a CLI "
+                            + $"directory is present ({claimExit}), and SRM "
+                            + $"reports no metadata",
+                    };
                     return undecodable;
                 }
 
@@ -1636,12 +1757,12 @@ public sealed class StateMachineCompletenessTests
 
         byte[] copy = (byte[])image.Clone();
 
-        foreach (byte value in (byte[])[0x00, 0xFF, 0x7F])
+        for (int value = 0; value <= 0xFF; value++)
         {
             for (int offset = 0; offset <= bound; offset++)
             {
                 byte original = copy[offset];
-                copy[offset] = value;
+                copy[offset] = (byte)value;
 
                 using MemoryStream corrupted = new(copy);
                 ReadManagedClaim(corrupted, ref detail, out ClaimExitSite site);
@@ -1758,8 +1879,21 @@ public sealed class StateMachineCompletenessTests
         /// <summary>The PE offset does not address a COFF header in the stream.</summary>
         PeOffsetOutOfRange,
 
-        /// <summary>The PE signature is absent or the COFF header is short.</summary>
-        PeSignatureMissing,
+        /// <summary>
+        /// The four bytes at the PE offset are not the "PE\0\0" signature.
+        ///
+        /// This does not cover a short read of the COFF header, because
+        /// <c>PeOffsetOutOfRange</c> above has already established that at
+        /// least 24 bytes remain from the PE offset, so the read cannot come up
+        /// short. Round 9 found a truncation disjunct here that shared this
+        /// site: it could never fire, and the site read as covered because the
+        /// corruption sweep reaches the signature comparison beside it. That is
+        /// the Round 7 rule again -- a site must name an outcome, not a place --
+        /// so the unreachable disjunct was removed rather than left to be
+        /// counted as tested. The optional header read below keeps its own
+        /// length check because nothing has established its length first.
+        /// </summary>
+        PeSignatureWrong,
 
         /// <summary>The declared optional header size is not a believable size.</summary>
         OptionalHeaderSizeImplausible,
@@ -1862,15 +1996,17 @@ public sealed class StateMachineCompletenessTests
 
             stream.Position = peOffset;
 
-            // PE signature (4) followed by the COFF header (20).
+            // PE signature (4) followed by the COFF header (20). The guard above
+            // proved that 24 bytes remain, so this read cannot come up short and
+            // carries no length check; see ClaimExitSite.PeSignatureWrong.
             Span<byte> coff = stackalloc byte[24];
-            if (stream.ReadAtLeast(coff, coff.Length, throwOnEndOfStream: false) < coff.Length
-                || coff[0] != (byte)'P'
+            stream.ReadAtLeast(coff, coff.Length, throwOnEndOfStream: false);
+            if (coff[0] != (byte)'P'
                 || coff[1] != (byte)'E'
                 || coff[2] != 0
                 || coff[3] != 0)
             {
-                exitSite = ClaimExitSite.PeSignatureMissing;
+                exitSite = ClaimExitSite.PeSignatureWrong;
                 return ManagedClaim.Indeterminate;
             }
 
