@@ -293,6 +293,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Output data shapes | `docs/design/output-shapes.md` |
 | Output style | `docs/design/style-guide.md` |
 | Sections and selection | `docs/design/section-model.md` |
+| View-facet identity and discovery | `docs/design/view-facet-registry.md` |
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
 | Custom-attribute value decoding and enum widths | `docs/design/custom-attribute-value-decoding.md` |
 | Type, member, or API identity | `docs/design/type-member-api-representation.md` |
