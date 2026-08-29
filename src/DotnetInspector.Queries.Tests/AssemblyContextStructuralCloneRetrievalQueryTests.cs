@@ -723,6 +723,53 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_TypeSpecificationAttributeBudgetExhaustionIsVisible()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildAttributedMethodAssembly(
+                    methodCount: 1,
+                    attributeCount: 1_500,
+                    attributeTypeNameLength: 3_000,
+                    useTypeSpecificationParent: true));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        StructuralCloneQuerySeed.Member seed =
+            MemberSeed(
+                Image(typeof(StructuralCloneFixture).Assembly.Location),
+                typeof(StructuralCloneFixture).FullName!,
+                nameof(StructuralCloneFixture.ExactPositiveA));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed.Member(
+                            TypeName("C"),
+                            seed.MemberIdentity),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Seed,
+            failed.Failure.Role);
+        Assert.Contains(
+            "custom attribute work budget",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
     public void Execute_HealthyExactTypeSurvivesMalformedNeighbor()
     {
         ImmutableArray<byte> image =
@@ -1440,7 +1487,8 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     static byte[] BuildAttributedMethodAssembly(
         int methodCount,
         int attributeCount,
-        int attributeTypeNameLength)
+        int attributeTypeNameLength,
+        bool useTypeSpecificationParent = false)
     {
         var metadata = CreateMetadata(
             "AttributedMethods",
@@ -1462,6 +1510,17 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                     new string(
                         'A',
                         attributeTypeNameLength)));
+        EntityHandle constructorParent = attributeType;
+        if (useTypeSpecificationParent)
+        {
+            var typeSpecSignature = new BlobBuilder();
+            typeSpecSignature.WriteByte(0x12);
+            typeSpecSignature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(attributeType) << 2) | 1);
+            constructorParent =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(typeSpecSignature));
+        }
         var constructorSignature = new BlobBuilder();
         new BlobEncoder(constructorSignature)
             .MethodSignature(
@@ -1474,7 +1533,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                 parameters => { });
         MemberReferenceHandle constructor =
             metadata.AddMemberReference(
-                attributeType,
+                constructorParent,
                 metadata.GetOrAddString(".ctor"),
                 metadata.GetOrAddBlob(
                     constructorSignature));

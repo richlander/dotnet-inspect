@@ -775,10 +775,22 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         AttributeInspectionBudget budget)
     {
         budget.Admit(attributes);
-        return AttributeReader.HasExtensionAttribute(
-            reader,
-            attributes,
-            budget.ObserveMaterialization);
+        try
+        {
+            return AttributeReader.HasExtensionAttribute(
+                reader,
+                attributes,
+                budget.ObserveMaterialization);
+        }
+        catch (AttributeInspectionBudgetSignalException ex)
+        {
+            // Signature decoding converts BadImageFormatException to a
+            // rejection, so the callback uses a private signal until it leaves
+            // that guarded boundary.
+            throw new AttributeInspectionBudgetException(
+                ex.Message,
+                ex);
+        }
     }
 
     static AssemblyContextStructuralCloneRetrievalResult MetadataFailure(
@@ -850,6 +862,9 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     sealed class AttributeInspectionBudget
     {
         const int MinimumRowCharge = 64;
+        const string ExceededMessage =
+            "The exact seed member lookup exceeds the custom "
+                + "attribute work budget.";
         int remaining =
             MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
 
@@ -859,21 +874,34 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                 (long)attributes.Count * MinimumRowCharge);
 
         internal void ObserveMaterialization(int work)
-            => Charge(Math.Max(work, 1));
+        {
+            long charge = Math.Max(work, 1);
+            if (charge > remaining)
+            {
+                throw new AttributeInspectionBudgetSignalException(
+                    ExceededMessage);
+            }
+
+            remaining -= (int)charge;
+        }
 
         void Charge(long work)
         {
             if (work > remaining)
             {
                 throw new AttributeInspectionBudgetException(
-                    "The exact seed member lookup exceeds the custom "
-                        + "attribute work budget.");
+                    ExceededMessage);
             }
 
             remaining -= (int)work;
         }
     }
 
-    sealed class AttributeInspectionBudgetException(string message)
-        : BadImageFormatException(message);
+    sealed class AttributeInspectionBudgetSignalException(string message)
+        : Exception(message);
+
+    sealed class AttributeInspectionBudgetException(
+        string message,
+        Exception? innerException = null)
+        : BadImageFormatException(message, innerException);
 }
