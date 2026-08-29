@@ -84,7 +84,16 @@ public static class SourceLinkFindings
         ArgumentNullException.ThrowIfNull(subject);
         if (!source.HasPdb)
         {
+            if (source.Context.NeedsPdb
+                && !source.Context.WindowsPdbDetected)
+            {
+                return PdbUnresolved<SourceDocumentObservation>(
+                    subject,
+                    SourceDocumentDescriptor);
+            }
+
             return new FindingInspection<SourceDocumentObservation>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 
@@ -141,7 +150,16 @@ public static class SourceLinkFindings
         ArgumentNullException.ThrowIfNull(subject);
         if (!source.HasPdb)
         {
+            if (source.Context.NeedsPdb
+                && !source.Context.WindowsPdbDetected)
+            {
+                return PdbUnresolved<MemberSourceObservation>(
+                    subject,
+                    MemberSourceDescriptor);
+            }
+
             return new FindingInspection<MemberSourceObservation>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
                 "A portable PDB is unavailable.");
         }
 
@@ -387,6 +405,16 @@ public static class SourceLinkFindings
         => exception is BadImageFormatException
             or InvalidOperationException
             or ArgumentOutOfRangeException;
+
+    static FindingInspection<T> PdbUnresolved<T>(
+        FindingSubject subject,
+        FindingDescriptor descriptor)
+        where T : notnull
+        => new FindingInspection<T>.Failed(
+            new InspectionError(
+                subject,
+                descriptor,
+                "A matching portable PDB remains unresolved after acquisition."));
 
     static FindingInspection<T> Failed<T>(
         FindingSubject subject,

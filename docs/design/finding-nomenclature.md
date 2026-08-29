@@ -87,9 +87,8 @@ precise noun.
 
 ## Inspection and comparison semantics
 
-**Status:** typed absence and inspection-topology refinements are the target
-design for #4796; they remain unimplemented and unverified until the named
-gates below land.
+**Status:** implemented by `FindingInspection<T>`, `FindingComparison<T>`, and
+`FindingCorrelation<T>` and verified by the named gates below.
 
 - `Complete([])` is a successful empty census.
 - `Absent(SubjectAbsent)` means the exact subject does not exist at the
@@ -202,8 +201,7 @@ native algorithm runs only when both side-local inspections are `Complete`.
 One-version `Finding<T>` observations must not depend on the opposite endpoint
 merely to force the native algorithm through `FindingComparison<T>`.
 
-The target contract remains unimplemented until these named non-vacuity gates
-land:
+These named non-vacuity gates enforce the contract:
 
 - `FindingInspectionAbsenceKind_DeclaresCompleteClosedSet`
 - `FindingInspectionAbsent_RequiresExplicitTypedKind`

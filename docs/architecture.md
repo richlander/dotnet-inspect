@@ -143,11 +143,12 @@ package version vector:
   bypassing it. `Transitions` compares adjacent evaluated cells; a
   gap-spanning row is qualified and never claims an exact transition version.
   Analysis cells decode only the selected method body from the selected package
-  assembly. The target
-  [#4796 Finding topology](design/finding-nomenclature.md#inspection-and-comparison-semantics)
-  will split the current absence state into `SubjectAbsent` and
-  `NoApplicableInput`; that split remains unimplemented and unverified until
-  its named Findings gates land.
+  assembly. The shared
+  [Finding topology](design/finding-nomenclature.md#inspection-and-comparison-semantics)
+  distinguishes `SubjectAbsent` from `NoApplicableInput`; the current timeline
+  projection still renders both as `SubjectAbsent` pending a focused CLI
+  migration. The compatibility projection is gated by
+  `AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation`.
 
 ### find
 
