@@ -564,7 +564,9 @@ string SimpleName)` is private to
 `CSharpDeclarationWriter`.
 
 **The model duplication is a committed decision, not drift.**
-`docs/architecture.md` records it as principle 9, and
+The
+[implementation architecture map](../architecture.md#representation-specific-identities)
+records the boundary, and
 `docs/metadata-primitives.md` preserves the evidence while reopening only the
 bounded mechanics below the models. Analysis needs semantic structure for
 evidence matching; Metadata produces API/display projections; Decompiler

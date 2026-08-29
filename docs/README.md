@@ -33,7 +33,8 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | -------- | ----------- |
 | [Inspection Space Architecture](inspection-space.md) | Target core workspace, query, acquisition, join, cache, and safety architecture organized around Rich, Fast, and Safe. |
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
-| [Architecture](architecture.md) | Current command and metadata architecture. |
+| [Implementation Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
+| [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
@@ -120,7 +121,11 @@ skeleton, or ReturnToSender coverage).
 
 ### Design history and backlog
 
-Some files under `docs/design/` and `docs/backlog*.md` were written during ideation. They are useful design history, but may not describe current CLI behavior. When current behavior matters, start with Overview, Architecture, Progressive Disclosure, the embedded skill, and tests.
+Some files under `docs/design/` and `docs/backlog*.md` were written during
+ideation. They are useful design history, but may not describe current
+behavior. When current behavior matters, start with Overview, Implementation
+Architecture, the relevant host architecture, Progressive Disclosure, the
+embedded skill, and tests.
 
 ## Getting Started
 
