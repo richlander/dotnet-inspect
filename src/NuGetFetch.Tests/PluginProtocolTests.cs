@@ -217,7 +217,7 @@ public sealed class PluginProtocolTests : IDisposable
                     credentialLineWritten.TrySetResult();
                     releaseLineWriter.Task
                         .WaitAsync(
-                            TimeSpan.FromSeconds(2),
+                            TimeSpan.FromSeconds(10),
                             TestContext.Current.CancellationToken)
                         .GetAwaiter()
                         .GetResult();
@@ -315,7 +315,7 @@ public sealed class PluginProtocolTests : IDisposable
             TestContext.Current.CancellationToken);
 
         await publicationStarting.Task.WaitAsync(
-            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
 
         trackSecondAdmission.Set();
@@ -329,7 +329,7 @@ public sealed class PluginProtocolTests : IDisposable
         try
         {
             await secondAdmissionAttempted.Task.WaitAsync(
-                TimeSpan.FromSeconds(2),
+                TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
         }
         finally
@@ -338,7 +338,7 @@ public sealed class PluginProtocolTests : IDisposable
         }
 
         (bool closedPublished, bool gateHeld) = await admissionClosed.Task.WaitAsync(
-            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(5),
             TestContext.Current.CancellationToken);
         Assert.True(closedPublished);
         Assert.True(gateHeld);

@@ -337,7 +337,7 @@ internal sealed class PluginConnection : IAsyncDisposable
         {
             if (registered)
             {
-                lock (_pendingGate)
+                using (EnterPendingGate())
                 {
                     _pending.TryRemove(requestId, out _);
                     CompleteActiveOperationUnderLock();
@@ -387,7 +387,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             await _writeLock.WaitAsync(pending.WriteCancellation).ConfigureAwait(false);
             lockTaken = true;
 
-            lock (_pendingGate)
+            using (EnterPendingGate())
             {
                 if (!_acceptingRequests)
                 {
@@ -478,7 +478,7 @@ internal sealed class PluginConnection : IAsyncDisposable
             await _writeLock.WaitAsync(writeCancellation).ConfigureAwait(false);
             lockTaken = true;
 
-            lock (_pendingGate)
+            using (EnterPendingGate())
             {
                 if (_terminated || (!_acceptingRequests && !allowClosedConnection))
                 {
@@ -553,7 +553,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
     private void MarkUnobservedWrite()
     {
-        lock (_pendingGate)
+        using (EnterPendingGate())
         {
             _hasUnobservedWrite = true;
         }
@@ -816,7 +816,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
     private bool TryBeginInboundOperation()
     {
-        lock (_pendingGate)
+        using (EnterPendingGate())
         {
             if (!_acceptingRequests)
             {
@@ -830,7 +830,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
     private void CompleteActiveOperation()
     {
-        lock (_pendingGate)
+        using (EnterPendingGate())
         {
             CompleteActiveOperationUnderLock();
         }
@@ -1026,7 +1026,7 @@ internal sealed class PluginConnection : IAsyncDisposable
         await Quiesced.ConfigureAwait(false);
         bool resourcesCanDispose;
 
-        lock (_pendingGate)
+        using (EnterPendingGate())
         {
             resourcesCanDispose = _activeOperations == 0 && !_hasUnobservedWrite;
         }
