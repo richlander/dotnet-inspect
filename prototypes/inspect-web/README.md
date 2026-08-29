@@ -702,6 +702,47 @@ adding a shadow type model or migrating those files to TypeScript is outside
 this analysis change. Their dependency and reachability graph remains covered
 by Knip.
 
+Oxlint's `plugins` list enables the `import`, `jsdoc`, `node`, and `promise`
+plugins on top of the four it turns on by default. That key *replaces* the
+defaults rather than adding to them, so `eslint`, `typescript`, `unicorn`, and
+`oxc` are re-declared explicitly and the toolchain test pins all eight;
+dropping one would retire a whole family of rules with every command green.
+Each added plugin was measured against this project at the same correctness and
+suspicious categories before being enabled. One rule is off: `promise/always-return`
+reaches two side-effect continuations handed to `observeAsync`, which watches
+settlement and never reads the resolved value, and Oxlint does not implement the
+upstream `ignoreLastCallback` option that covers exactly that case.
+
+`npm run lint` also runs [html-validate](https://html-validate.org) over
+`**/*.{html,htm,xhtml}`. Documents are otherwise invisible to every other gate
+here: the compiler builds a program out of `.ts` files and Oxlint is handed a
+list of source paths, so nothing read `index.html` at all before this. The
+committed `.htmlvalidate.json` extends the `standard`, `document`, and `a11y`
+presets, which bring validity, element conformance, document structure, and
+WCAG rules. It sets `root: true` so configuration outside the project cannot
+merge into it, and makes one option change: `require-sri` uses
+`target: "crossorigin"`, so third-party bytes must carry a digest while
+same-origin files Vite emits are not asked for one. `.htmlvalidateignore`
+names only `dist` and `node_modules`.
+
+Four toolchain tests hold that wiring honest. They pin the preset list, the
+`require-sri` option and `root: true`; require the lint glob to reach a nested
+document of each covered extension; require the committed configuration to
+reject a specimen *by the name of the rule that must reject it*
+(`close-order`, `element-required-attributes`, `wcag/h37`, `require-sri`,
+`attribute-allowed-values`); and require every document the project owns to sit
+outside the ignore file. A linter that stops running, loses a preset, or is
+never handed a document fails there rather than going quietly green.
+
+The `<link rel="preload" id="webassembly">` element in `index.html` carries a
+scoped `html-validate-disable-next` directive for `element-required-attributes`.
+It is a genuinely incomplete element on purpose: the .NET Wasm publish step
+rewrites it to inject the runtime `href`, and three workflows plus
+`PromotionWorkflowContract.cs` pin it by id. The directive names that one rule
+on that one element.
+
+CSS is not linted. Adopting Stylelint is tracked separately.
+
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
 `knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
