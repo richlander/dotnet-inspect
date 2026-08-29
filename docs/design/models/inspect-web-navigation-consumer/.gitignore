@@ -1,0 +1,6 @@
+*.dot
+*.out
+*.trace
+MC.cfg
+MC.out
+states/
