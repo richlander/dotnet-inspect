@@ -506,7 +506,7 @@ Shared local-path admission is tracked by
 expected entry kind, path normalization, link and reparse-point policy,
 non-regular entries, supported-host behavior, and pre-open classification for
 both explicit-file and directory coordinates. The directory contract below
-consumes admitted directory roots and regular-file snapshots; it does not
+consumes admitted directory roots and regular-file entries; it does not
 define a second path classifier.
 
 #### Bounded directory coordinate
@@ -602,7 +602,7 @@ Each contribution records a `LocalDirectoryArtifactProvenance`:
 - the direct-child relative name as observed;
 - the full observed entry path;
 - the exact copied length; and
-- the last-write observation from the admitted file snapshot.
+- the last-write observation from the same open file used to copy the snapshot.
 
 The artifact kind is `local-directory-entry`; the entry name, matched extension,
 and bytes do not establish media or semantic kind.
