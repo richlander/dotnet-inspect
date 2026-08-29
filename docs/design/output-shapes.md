@@ -413,9 +413,31 @@ Printing documents (`-S "Package README file" --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
 explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
-including encoding, byte order mark, and line endings; a Markdown scope exports
-that projected text. Terminal-facing output never emits a live control or bidi
-scalar from package content.
+including encoding, byte order mark, and line endings, except for package skill
+documents: skills are agent instructions, so every route, including
+`project -S Skills --print`, `package -S "Package skill files" --print`,
+`--content`, and a package README declaration, classifies through a
+`TextPolicy.Prose` `InertString` and carries one containment-selected value
+through stdout, structured output, and `--out`. The raw scoped skill is
+classified before link normalization; concerning text becomes the standard
+placeholder, safe text retains its full presented spelling, and exact package
+bytes are not retained. A Markdown scope exports projected text.
+Terminal-facing output never emits a live control or bidi scalar from package
+content.
+
+Current unstructured exports remain unary.
+`Package_SkillsPrint_ResolvesCardinalityWithoutAPrinterOfItsOwn` gates
+`--print` cardinality and row selection; its exact read ordering is unverified
+as noted above. `--content --out` applies package, path, and current row-window
+selection globally, rejects unless exactly one found file remains, and reads
+that payload from the retained package acquisition. Its refusal is decided
+before creating an absent destination. These `--content` properties are gated
+by
+`PackageContentOutput_MultipleFilesRefusesBeforeCreatingExport`,
+`PackageContentOutput_RowWindowHydratesTheUnarySelection`,
+`PackageContentOutput_MultiplePackagesRefuseGlobalCardinality`, and
+`PackageContentOutput_MultiplePackagesHydrateWithoutReacquiring`. Preservation
+of an existing destination on refusal is unverified.
 
 The pending focused payload design owns future cardinality, structured output,
 line-selection compatibility, preflight, and destination-publication behavior.
@@ -428,9 +450,11 @@ directly to stdout and the `# Info` table to stderr.
 
 Two consequences define the boundary:
 
-- `--jsonl` preserves the payload as a JSON string value. The wire format
-  escapes control characters as required by JSON; parsing the JSON reconstructs
-  the original value.
+- `--jsonl` preserves ordinary payloads as JSON string values. The wire format
+  escapes control characters as required by JSON; parsing reconstructs the
+  original ordinary payload. A package skill document that requires containment
+  is omitted before serialization, so parsing returns
+  `[Text omitted: required containment]`.
 - `--content` delimits each matched file with a
   `------------ <package> :: <path> ------------` banner. Current unary
   `--print` writes its selected payload directly, without a tool-authored frame
@@ -442,8 +466,12 @@ a package whose README carries bidi, ESC, and LS hazards and asserts encoded
 stdout, contained stderr, parsed JSON payload fidelity, and exact `--out`
 export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
 gates both framed and `--bare` single-file content export with a UTF-16 payload
-that has no trailing newline. Future multi-row containment gates belong to the
-pending payload design.
+that has no trailing newline. Package skill output is gated separately by
+`SkillDocuments_OmitPayloadsThatRequireContainment` and
+`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads`;
+`Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment` gates the README
+role route. Future multi-row containment gates belong to the pending payload
+design.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must

@@ -33,7 +33,8 @@ Still proposal-only: CLI `--where` wiring, the tier capability gate, and the
 promoted IL tier. Despite the Sections migration landing,
 `find --package-prefix`'s corpus limit is still spelled `-t`. Its replacement
 belongs to the pending L3 design in
-[Item and line selection composition](item-and-line-limits.md).
+[Item and line selection composition](item-and-line-limits.md). The migration
+is a clean break: L3 must retire `-t` without a compatibility alias.
 
 The exact #4677 limit grammar, fixed pipeline order, and provider-extent rules
 below predate the focused-design split and are not implementation authority.
@@ -147,8 +148,9 @@ route through the shared pipeline, the same infrastructure `library`/`member`/
 **What did not land alongside it:** the flag-numbering half of this
 recommendation. This document's own "one deliberate, called-out behavior
 change" for this migration step was retiring `-t`-as-package-limit. That
-decision is superseded; the pending L3 design owns replacement grammar and
-compatibility. `find --package-prefix`'s corpus limit remains `-t` on `main`
+decision is superseded; the pending L3 design owns the replacement spelling,
+and the focused migration requires a clean break with no `-t` compatibility.
+`find --package-prefix`'s corpus limit remains `-t` on `main`
 (`FindOptions.Limit`, validated as "`-t` must be between 1 and..."). `-S` and
 `--where` are also not yet wired (there is currently exactly one section,
 `Packages`, so `-S` selection is moot until the facet layer adds more to
@@ -159,15 +161,16 @@ select between).
 decoupled; the Sections migration and product-owned nuspec facet contract have
 landed, while CLI wiring has not. The CLI facet slice in
 [Landing sequence](#landing-sequence) step 4 must consume the pending #4677 L3
-grammar and compatibility decision. Package-query work must not establish a
-replacement for `-t` by precedent.
+spelling and its clean-break retirement of `-t`. Package-query work must not
+preserve `-t` or establish a replacement spelling by precedent.
 
 ### Historical flag proposal: replace `-t` with `-n`
 
 > [!NOTE]
 > This subsection records the superseded umbrella proposal so the later L3
-> design can evaluate its evidence. It does not authorize a spelling,
-> compatibility policy, or implementation change.
+> design can evaluate its evidence. It does not authorize a replacement
+> spelling; the focused migration separately requires retiring `-t` without
+> compatibility.
 
 The `-t 100` `find --package-prefix` form reuses `find`'s own pre-existing
 `-t`, whose description #4551 widens from "Limit type count (`-t 5`) or
@@ -373,8 +376,8 @@ the CLI's named facets as canonical for the browser's facet rail.
    Sections registry (`PackageProfileSections`,
    `SectionPipeline<PackageProfileView>`), so `--count`/`--rows` work the
    same way they do for `library`/`member`/`package`, without a second
-   bespoke implementation. Replacement of `-t` remains with the pending L3
-   design, and `-S`/`--where` remain unwired. See
+   bespoke implementation. Clean-break replacement of `-t` remains with the
+   pending L3 design, and `-S`/`--where` remain unwired. See
    [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing).
 3. **Product-owned nuspec facet contract — implemented in the current
    sources.** `PackageQuery` composes `PackageProfileQuery` without package
@@ -383,13 +386,14 @@ the CLI's named facets as canonical for the browser's facet rail.
    evidence and honest completion. `PackageQueryTests` and
    `PackageQueryPlanner_IsReachableFromBrowserConsumer` are the named Release
    gates.
-4. **Settle the pending L3 grammar, then wire the product-owned nuspec facets
-   into the CLI**, preserving the filter-before-bound ordering from
+4. **Settle the pending L3 replacement spelling and retire `-t` without
+   compatibility, then wire the product-owned nuspec facets into the CLI**,
+   preserving the filter-before-bound ordering from
    [Historical completion and bound proposal](#historical-completion-and-bound-proposal).
    The CLI slice consumes product-owned bindings that lower the settled
    spelling to opaque facet IDs without duplicating predicates. It must not
-   independently choose a replacement or compatibility policy for current
-   `-t`. Neither the L3 grammar nor CLI facet wiring has landed yet.
+   independently choose the replacement spelling. Neither the L3 grammar nor
+   CLI facet wiring has landed yet.
 5. **Add the promoted-tier capability gate and `--deepen`-bounded IL
    evaluation**, including the L2 tier-gating error for an ungated
    promoted-tier field.

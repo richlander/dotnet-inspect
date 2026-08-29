@@ -88,7 +88,8 @@ table-row selection.
 6. Implement the focused contracts together where an intermediate
    implementation would expose incoherent user behavior.
 7. As the final implementation step, update shipped skills, help, examples,
-   completion, and compatibility tests to teach the settled model.
+   completion, and migration or retired-option tests to teach the settled
+   model.
 
 The focused documents may land separately as design work. Implementation must
 not ship a partial grammar whose meaning depends on a later slice.

@@ -139,7 +139,8 @@ When commands or flags are deprecated:
 This is the default compatibility policy, not a requirement that every syntax
 change enter deprecation. The pending L3 design in
 [Item and line selection composition](item-and-line-limits.md) will define the
-compatibility policy for #4677 CLI aliases and count grammars.
+compatibility policy for #4677 CLI aliases and count grammars. It must retire
+`find --package-prefix -t` as a clean break without a compatibility alias.
 
 Current deprecations:
 

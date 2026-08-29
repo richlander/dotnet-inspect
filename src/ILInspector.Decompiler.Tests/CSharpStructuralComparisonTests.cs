@@ -88,6 +88,7 @@ public class CSharpStructuralComparisonTests
         Assert.Equal("Changed", display.Change);
         Assert.Equal("Return -> Break", display.Structure);
         Assert.Equal("Case", display.Region);
+        Assert.Equal("return; -> break;", display.Detail);
         Assert.Equal("OpcodeDiff -> Exact; terminal IL_0072: ret", display.Fidelity);
     }
 
@@ -132,18 +133,15 @@ public class CSharpStructuralComparisonTests
             comparison,
             CSharpStructuralSide.After);
 
-        Assert.Contains(
-            "raise: Return; changed to return Read(ref value);",
-            beforeBody,
-            StringComparison.Ordinal);
+        // The enclosing Return row is collapsed (issue #5022 item 1): its only
+        // diff is the InvocationExpression's own "value" -> "ref value" change,
+        // so it adds no information beyond the more specific row below.
+        Assert.DoesNotContain("raise: Return", beforeBody, StringComparison.Ordinal);
         Assert.Contains(
             "raise: InvocationExpression; changed to Read(ref value)",
             beforeBody,
             StringComparison.Ordinal);
-        Assert.Contains(
-            "raise: Return; changed from return Read(value);",
-            afterBody,
-            StringComparison.Ordinal);
+        Assert.DoesNotContain("raise: Return", afterBody, StringComparison.Ordinal);
         Assert.Contains(
             "raise: InvocationExpression; changed from Read(value)",
             afterBody,
@@ -359,6 +357,496 @@ public class CSharpStructuralComparisonTests
         Assert.Contains(display, row => row.Change == "Added");
         Assert.Contains(display, row => row.Change == "Removed");
         Assert.Contains(display, row => row.Change == "Moved");
+
+        // Detail column: Changed rows summarize the text transition inline;
+        // Added/Removed rows use the same "+"/"-" convention as FormatTransition;
+        // a Moved-only row (no text or kind change) carries no Detail.
+        Assert.Contains(display, row => row.Change == "Changed, Moved" && row.Detail == "B() -> D()");
+        Assert.Contains(display, row => row.Change == "Added" && row.Detail == "+ E()");
+        Assert.Contains(display, row => row.Change == "Removed" && row.Detail == "- C()");
+        Assert.Contains(display, row => row.Change == "Moved" && row.Detail == "");
+    }
+
+    [Fact]
+    public void CompareStructure_CollapsesSubsumedAncestorRowsToMostSpecificNode()
+    {
+        // Reproduces the #4942 shape recorded in #4952 (issue #5022, item 1):
+        // a receiver-qualification rewrite (instance-call -> static-call
+        // syntax) nested three levels deep (Return > InvocationExpression >
+        // InvocationExpression) previously produced three stacked, redundant
+        // rows. Only the innermost node's text actually differs; the two
+        // ancestor rows re-quote the same change inside a larger span.
+        const string beforeText =
+            "return receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>();";
+        const string afterText =
+            "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();";
+
+        var before = Document(
+            beforeText,
+            ("Return", "return receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>();"),
+            ("InvocationExpression", "receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>()"),
+            ("InvocationExpression", "receiver.Values(typeof(Attribute), true)"));
+        var after = Document(
+            afterText,
+            ("Return", "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();"),
+            ("InvocationExpression", "Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>()"),
+            ("InvocationExpression", "Values(receiver, typeof(Attribute), true)"));
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0, 1, 2],
+            [0, 1, 2],
+            [
+                new CSharpNodeCorrespondence(0, 0),
+                new CSharpNodeCorrespondence(1, 1),
+                new CSharpNodeCorrespondence(2, 2),
+            ]));
+
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
+        Assert.Equal(2, row.BeforeNodeId);
+        Assert.Equal(2, row.AfterNodeId);
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotCollapseAncestorWhenItCarriesIndependentMovedInformation()
+    {
+        // Regression for round-1 review: an ancestor's Moved flag is
+        // owner-issued and independent of whatever text change a nested
+        // descendant explains. If the descendant satisfies the ancestor's
+        // text-containment check but the ancestor is Changed|Moved (not
+        // plain Changed), suppressing it would silently discard the only row
+        // reporting the move. The same nested-call shape as the item-1 test
+        // is reused here, but the outer InvocationExpression correspondence
+        // is now also flagged Moved.
+        const string beforeText =
+            "return receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>();";
+        const string afterText =
+            "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();";
+
+        var before = Document(
+            beforeText,
+            ("Return", "return receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>();"),
+            ("InvocationExpression", "receiver.Values(typeof(Attribute), true).FirstOrDefault<Attribute>()"),
+            ("InvocationExpression", "receiver.Values(typeof(Attribute), true)"));
+        var after = Document(
+            afterText,
+            ("Return", "return Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>();"),
+            ("InvocationExpression", "Values(receiver, typeof(Attribute), true).FirstOrDefault<Attribute>()"),
+            ("InvocationExpression", "Values(receiver, typeof(Attribute), true)"));
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0, 1, 2],
+            [0, 1, 2],
+            [
+                new CSharpNodeCorrespondence(0, 0),
+                new CSharpNodeCorrespondence(1, 1, Moved: true),
+                new CSharpNodeCorrespondence(2, 2),
+            ]));
+
+        Assert.Contains(comparison.Rows, row =>
+            row.Change == (CSharpStructuralChangeKind.Changed | CSharpStructuralChangeKind.Moved)
+            && row.BeforeNodeId == 1
+            && row.AfterNodeId == 1);
+        Assert.Contains(comparison.Rows, row =>
+            row.Change == CSharpStructuralChangeKind.Changed
+            && row.BeforeNodeId == 2
+            && row.AfterNodeId == 2);
+        Assert.DoesNotContain(comparison.Rows, row => row.BeforeNodeId == 0);
+    }
+
+    [Fact]
+    public void CompareStructure_NarrowsUsingStatementSpanToHeaderAndStopsAnnotatingUnchangedBody()
+    {
+        // Reproduces the #4113 shape recorded in #4952 (issue #5022, items 2
+        // and 7): a disposed-only `using` resource is raised to the
+        // variable-less form. Only the header line's variable declaration
+        // changes; the body (`{`, `n = 1;`, `}`) is untouched. Previously the
+        // matched UsingStatement row's spans covered the whole construct, so
+        // RenderAnnotatedBody repeated a "construct; text changed"
+        // annotation on all four lines. Narrowing the row's spans to the
+        // printer's own recorded Header sub-region (a) confines the caret to
+        // the header line (item 2) and (b) stops annotating the unchanged
+        // body lines as a side effect, with no separate propagation step to
+        // suppress (item 7).
+        const string beforeText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "using (DisposableFromObjectSpan([a, b]))",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+
+        // Round-2 review: the row's reported region role must reflect the
+        // narrowed spans it actually renders (Header), not the full
+        // statement's Construct region the node used to span before
+        // narrowing -- otherwise the caret narrows but the label still says
+        // "construct", contradicting itself.
+        Assert.Equal(PrintedRegionRole.Header, row.BeforeRegion);
+        Assert.Equal(PrintedRegionRole.Header, row.AfterRegion);
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        AssertCaret(
+            beforeBody,
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            "raise: UsingStatement header;");
+        AssertCaret(
+            afterBody,
+            "using (DisposableFromObjectSpan([a, b]))",
+            "raise: UsingStatement header;");
+        Assert.DoesNotContain("raise: UsingStatement construct", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("raise: UsingStatement construct", afterBody, StringComparison.Ordinal);
+        foreach (string unchangedLine in new[] { "{", "n = 1;", "}" })
+        {
+            Assert.DoesNotContain($"raise: {unchangedLine}", beforeBody, StringComparison.Ordinal);
+            Assert.DoesNotContain($"raise: {unchangedLine}", afterBody, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotNarrowMovedOnlyRowsWithUnchangedHeaderText()
+    {
+        // Round-1 review (both reviewers, independently): NarrowToChangedHeader
+        // ran for every matched pair, including Moved-only rows whose text is
+        // completely unchanged on both sides -- the prefix/suffix equality
+        // checks trivially pass in that case, so a moved statement's row would
+        // be narrowed down to just its header even though nothing about the
+        // header itself changed. Narrowing is now gated on the row actually
+        // carrying the Changed flag; a Moved-only row keeps the node's full
+        // span.
+        const string text = """
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            """;
+
+        var before = UsingStatementDocument(text);
+        var after = UsingStatementDocument(text);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0, Moved: true)]));
+
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Moved, row.Change);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(before.Nodes[0].Spans[0], beforeSpan);
+        Assert.Equal(after.Nodes[0].Spans[0], afterSpan);
+    }
+
+    [Fact]
+    public void CompareStructure_DoesNotAdoptNestedConstructHeaderForHeaderlessAncestor()
+    {
+        // Round-1 review (both reviewers, independently): document.Regions is
+        // a flat, node-identity-free list of positional spans, so containment
+        // alone cannot prove a Header region belongs to the node being
+        // narrowed rather than to a nested construct inside its body.
+        // TryCatch/TryFinally never record their own Header region (see
+        // HasNamedRegions in CSharpPrinter.cs), so a naive containment search
+        // could mistake a nested UsingStatement's header for the enclosing
+        // TryStatement's own header. Both node kinds are matched here, with
+        // only the nested using's header text changing; the TryStatement row
+        // must keep its full span (so item 1's ancestor-suppression -- which
+        // requires the ancestor to strictly contain the descendant -- still
+        // recognizes and suppresses it), never the nested header's span.
+        const string beforeText = """
+            try
+            {
+                using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+                {
+                    n = 1;
+                }
+            }
+            catch
+            {
+                Recover();
+            }
+            """;
+        const string afterText = """
+            try
+            {
+                using (DisposableFromObjectSpan([a, b]))
+                {
+                    n = 1;
+                }
+            }
+            catch
+            {
+                Recover();
+            }
+            """;
+
+        var before = TryStatementWithNestedUsingDocument(beforeText);
+        var after = TryStatementWithNestedUsingDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0, 1],
+            [0, 1],
+            [
+                new CSharpNodeCorrespondence(0, 0),
+                new CSharpNodeCorrespondence(1, 1),
+            ]));
+
+        // Item 1 (ancestor collapsing) recognizes the nested UsingStatement's
+        // narrowed header row as the sole explanation for the TryStatement's
+        // text change and suppresses the redundant ancestor row.
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(1, row.BeforeNodeId);
+        Assert.Equal(1, row.AfterNodeId);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "using (DisposableFromObjectSpan([a, b]))",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+    }
+
+    static AnnotatedSourceDocument TryStatementWithNestedUsingDocument(string text)
+    {
+        int tryStart = text.IndexOf("try", StringComparison.Ordinal);
+        int tryEnd = text.Length;
+
+        int headerStart = text.IndexOf("using (", StringComparison.Ordinal);
+        int headerEnd = text.IndexOf('\n', headerStart);
+        int bodyStart = text.IndexOf('{', headerEnd);
+        int bodyEnd = text.IndexOf('}', bodyStart) + 1;
+
+        var tryNode = new AnnotatedSourceNode(
+            0,
+            "TryStatement",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(tryStart, tryEnd - tryStart)]);
+        var usingNode = new AnnotatedSourceNode(
+            1,
+            "UsingStatement",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]);
+        var regions = (AnnotatedSourceRegion[])
+        [
+            // Matches real printer output: TryCatch is in HasNamedRegions and
+            // so records its own Construct region (spanning the whole
+            // try/catch), but -- per HasNamedRegions -- never a Header
+            // region; only the nested UsingStatement does.
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(tryStart, tryEnd - tryStart)]),
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]),
+            new(PrintedRegionRole.Header, [new AnnotatedSourceSpan(headerStart, headerEnd - headerStart)]),
+            new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(bodyStart, bodyEnd - bodyStart)]),
+        ];
+        return new AnnotatedSourceDocument(text, [tryNode, usingNode], regions, [], []);
+    }
+
+    static AnnotatedSourceDocument UsingStatementDocument(string text)
+    {
+        int headerStart = text.IndexOf("using (", StringComparison.Ordinal);
+        int headerEnd = text.IndexOf('\n', headerStart);
+        int bodyStart = text.IndexOf('{', headerEnd);
+        int bodyEnd = text.IndexOf('}', bodyStart) + 1;
+
+        var node = new AnnotatedSourceNode(
+            0,
+            "UsingStatement",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]);
+        var regions = (AnnotatedSourceRegion[])
+        [
+            // Matches real printer output (CSharpPrinter.cs, HasNamedRegions):
+            // every header-bearing statement also records a Construct region
+            // spanning the whole statement, alongside its own Header region.
+            new(PrintedRegionRole.Construct, [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]),
+            new(PrintedRegionRole.Header, [new AnnotatedSourceSpan(headerStart, headerEnd - headerStart)]),
+            new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(bodyStart, bodyEnd - bodyStart)]),
+        ];
+        return new AnnotatedSourceDocument(text, [node], regions, [], []);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_DescribesQualifierArgumentRoleTransition()
+    {
+        // Item 3 (issue #5022): once item 1 collapses #4942's stacked rows to
+        // the single most-specific InvocationExpression row, its caption
+        // should describe each side's own role ("qualifier" vs "argument 1"),
+        // not dump the other side's entire text.
+        const string beforeText = "receiver.Values(typeof(Attribute), true)";
+        const string afterText = "Values(receiver, typeof(Attribute), true)";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeText),
+            Document(afterText, "InvocationExpression", afterText),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        Assert.Contains(
+            "raise: InvocationExpression; receiver: used as extension-call qualifier",
+            beforeBody,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "raise: InvocationExpression; receiver: moved to argument 1 (static call)",
+            afterBody,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("changed to", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("changed from", afterBody, StringComparison.Ordinal);
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal(
+            "receiver: qualifier -> argument 1 (extension -> static call)",
+            display.Detail);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_DescribesReverseArgumentQualifierRoleTransition()
+    {
+        // Mirror direction: a static call's first argument becomes the
+        // extension-call qualifier.
+        const string beforeText = "Values(receiver, typeof(Attribute), true)";
+        const string afterText = "receiver.Values(typeof(Attribute), true)";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeText),
+            Document(afterText, "InvocationExpression", afterText),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        Assert.Contains(
+            "raise: InvocationExpression; receiver: argument 1 (static call)",
+            beforeBody,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "raise: InvocationExpression; receiver: moved to extension-call qualifier",
+            afterBody,
+            StringComparison.Ordinal);
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal(
+            "receiver: argument 1 -> qualifier (static -> extension call)",
+            display.Detail);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_FallsBackToTextDumpWhenQualifierRoleShapeIsNotRecognized()
+    {
+        // A callee rename is not the narrow "receiver becomes an argument"
+        // shape item 3 targets, so this must fall back to the honest
+        // "changed to/from" text dump rather than guessing.
+        const string beforeText = "receiver.Values(typeof(Attribute), true)";
+        const string afterText = "receiver.OtherValues(typeof(Attribute), true)";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeText),
+            Document(afterText, "InvocationExpression", afterText),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+
+        Assert.Contains(
+            $"raise: InvocationExpression; changed to {afterText}",
+            beforeBody,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_FallsBackToTextDumpWhenArgumentChangeAccompaniesQualifierMove()
+    {
+        // Regression for round-1 review: the qualifier looks like it moved
+        // into the argument list, but a *different* argument also changed
+        // ("old" -> "new"). Confirming only that the qualifier's text occurs
+        // somewhere in the other side's arguments (without checking the rest
+        // of the argument list is preserved) would produce a role caption
+        // that silently hides the unrelated argument change. This must fall
+        // back to the literal text dump instead.
+        const string beforeText = "receiver.Values(old)";
+        const string afterText = "Values(new, receiver)";
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            Document(beforeText, "InvocationExpression", beforeText),
+            Document(afterText, "InvocationExpression", afterText),
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+
+        Assert.Contains(
+            $"raise: InvocationExpression; changed to {afterText}",
+            beforeBody,
+            StringComparison.Ordinal);
+
+        var display = Assert.Single(CSharpStructuralDiffPrinter.ToDisplayRows(comparison));
+        Assert.Equal($"{beforeText} -> {afterText}", display.Detail);
     }
 
     [Fact]
@@ -681,8 +1169,12 @@ public class CSharpStructuralComparisonTests
     [Fact]
     public void RenderAnnotatedBody_EarlyColumnSpansUseExactGutterFreeCarets()
     {
+        // The InvocationExpression's callee ("a" -> "z") differs independently
+        // of the nested NameExpression's own text ("b" -> "c"), so its row is
+        // not subsumed by item 1's ancestor-collapsing (issue #5022): both
+        // rows carry genuinely distinct information and both must still stack.
         const string beforeText = "a(b);";
-        const string afterText = "a(c);";
+        const string afterText = "z(c);";
         var before = new AnnotatedSourceDocument(
             beforeText,
             [
