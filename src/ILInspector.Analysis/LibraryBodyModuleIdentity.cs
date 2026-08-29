@@ -41,7 +41,8 @@ public sealed record LibraryBodyModuleIdentity
         if (moduleVersionId == Guid.Empty)
         {
             throw new BadImageFormatException(
-                "The analyzed module has an empty module version identifier.");
+                "The analyzed module must have a non-empty MVID "
+                + "(module version identifier).");
         }
 
         return new(

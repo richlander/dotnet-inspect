@@ -168,7 +168,7 @@ public class LibraryBodyIndexTests
                     LibraryBodyAnalysisFeatures.None));
 
         Assert.Contains(
-            "empty module version identifier",
+            "non-empty MVID",
             error.Message,
             StringComparison.Ordinal);
     }
