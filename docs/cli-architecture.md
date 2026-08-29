@@ -30,7 +30,7 @@ The CLI owns:
 - authorizing network, source-content, and expensive work;
 - creating and disposing operation contexts, workspaces, services, and
   cancellation;
-- resolving view facets, sections, schemas, rows, and command-specific demand;
+- resolving sections, schemas, rows, and command-specific demand;
 - selecting Markdown, JSON, table, TSV, JSONL, or other supported output
   shapes;
 - projecting typed results and failures into user-facing models; and
@@ -58,7 +58,7 @@ request/workspace context
 subject + lens + section/row plan
    |
    v
-compiled typed-query plan
+typed-query plan
    |
    v
 producer-owned results and failures
@@ -99,12 +99,13 @@ The CLI resolves user gestures in stages:
    other explicit input.
 2. Focus options identify a package, assembly, type, member, Finding, or graph
    subject.
-3. View-facet and section resolution choose the product lens.
+3. Section and lens resolution choose the product lens.
 4. Verbosity, discovery, fields, rows, and limits choose projection density.
 5. The selected section lens contributes direct typed-query demand.
 6. The command adds any attributed host demand that is not represented by a
    section.
-7. The compiled inspection domain returns the owner-issued query plan.
+7. The query catalog returns the owner-issued query plan. Diff currently
+   performs this step through its compiled inspection domain and section lens.
 
 The CLI does not reproduce query prerequisites, execution order, or cost. Those
 remain with `InspectionQueryCatalog<TContext>`. It does not derive section
@@ -122,9 +123,9 @@ The command scope owns disposable and request-specific resources:
 - cancellation and per-command resource budgets; and
 - output streams and final exit status.
 
-Compiled query plans are context-free and reusable. Execution borrows the
-context supplied by the command; query/lens composition does not retain or
-dispose it.
+Query plans are context-free and reusable. Where a compiled domain has been
+adopted, execution borrows the context supplied by the command; query/lens
+composition does not retain or dispose it.
 
 Failures remain typed until a command presentation boundary. A command may add
 safe context and choose an exit code, but it must not reinterpret an

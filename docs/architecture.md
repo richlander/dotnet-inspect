@@ -34,7 +34,7 @@ Host composition and presentation
                        |
                        v
 Typed inspection composition
-  immutable query domains | section lenses | request-local plans
+  immutable query catalogs | section demand | request-local plans
                        |
                        v
 Domain-owned evidence
@@ -57,8 +57,8 @@ A normal inspection follows the same broad path in every host:
 | ----- | -------------- | ---------------------- |
 | 1. Admit sources | Interpret explicit package, platform, project, local-file, or in-memory input and authorize any network or source-content work. | Host adapters, `DotnetInspector.Packages`, `DotnetInspector.Services`, `DotnetInspector.Artifacts.*` |
 | 2. Form a workspace | Retain immutable content and binding-consistent participant contexts for the operation lifetime. | `ArtifactSetSession`, query workspaces, assembly context groups |
-| 3. Resolve intent | Turn host gestures into typed subjects, lenses, sections, row plans, and capabilities. | CLI options and resolvers, view-facet and navigation contracts, section catalogs |
-| 4. Plan producers | Lower direct section and host demand through an immutable typed-query domain. | `CompiledInspectionDomain<TContext>`, `InspectionQueryCatalog<TContext>` |
+| 3. Resolve intent | Turn host gestures into typed subjects, lenses, sections, row plans, and capabilities. | CLI options and resolvers, section catalogs, output projections |
+| 4. Plan producers | Lower direct section and host demand through an immutable typed-query catalog. | `InspectionQueryCatalog<TContext>`; Diff's compiled domain and lens |
 | 5. Produce evidence | Execute only the selected producer closure over caller-owned contexts. | Metadata, SourceLink, Analysis, Decompiler, Research, package, and relationship queries |
 | 6. Compose results | Preserve owner-issued identity, provenance, correspondence, Findings, and typed failure outcomes. | Query results and focused comparison or graph contracts |
 | 7. Present | Project results into sections, rows, documents, or host-native interactions. | CLI views/output, inspect-web engine/UI, focused tools |
@@ -78,14 +78,15 @@ The implementation uses the L1/L2/L3 vocabulary defined by
 | L2 inspection lenses | Section candidates, direct producer demand, schemas, output-row projection, and related selection metadata. | Producer algorithms, prerequisite semantics, or host acquisition policy. |
 | L3 hosts | User gestures, source authorization, operation lifetime, navigation, command-specific demand, and presentation choice. | Metadata, Analysis, or other producer truth. |
 
-`DotnetInspector.RowSelection` is an orthogonal dependency-free utility.
 Artifact contracts and domain engines sit below these consumer layers rather
 than forming an additional host tier.
 
-The L1/L2 binding is owned by
+The reusable L1/L2 binding is owned by
 [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition).
 One immutable producer domain can serve multiple immutable section lenses while
-each request supplies its own context and cancellation.
+each request supplies its own context and cancellation. Diff is the current
+production canary; other command families still use their existing query and
+section catalog composition.
 
 ## Implementation regions
 
@@ -129,7 +130,7 @@ depends on typed models.
 | `ILInspector.Decompiler` | Per-method IR, structuring, typing, C# projection, and annotated IL. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
 | `ILInspector.ILDiff` | Canonical IL-body and assembly comparison with typed failures and Finding projection. | [Implementation diff](design/implementation-diff.md) |
 | `ILInspector.CallGraph` | Host-neutral projection of Analysis call trees into graph nodes, edges, cycles, and characteristics. | [Call graph projection](design/call-graph-projection.md) |
-| `ILInspector.Research` | Composition of producer-owned Analysis and Decompiler evidence into offset-keyed facts and implementation comparisons. | [Finding adoption](design/finding-adoption.md) |
+| `ILInspector.Research` | Composition of producer-owned Analysis and Decompiler evidence into offset-keyed facts and implementation comparisons. | [IL coordinate workflows](design/il-coordinate-workflows.md), [Implementation diff](design/implementation-diff.md) |
 | `ILInspector.Findings` | Domain-free observation, census, matching, transition, comparison, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding producers](design/finding-producers.md) |
 | `ILInspector.Text` | Exact ordered line inspection and generic text comparison on the Finding spine. | [Finding producers](design/finding-producers.md) |
 
@@ -146,7 +147,6 @@ reaches through Research to redefine the other.
 | `DotnetInspector.PackageQueries` | Package-aware composition over package-neutral queries and realization proofs. | [Package query CLI](design/package-query-cli.md) |
 | `DotnetInspector.Vocabulary` | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
 | `DotnetInspector.Sections` | Current L2 section pipelines, immutable catalogs, schemas, and compiled query-domain lenses. | [Section model](design/section-model.md), [section pipeline](design/section-pipeline.md) |
-| `DotnetInspector.RowSelection` | Ordered row-selection stages shared without a host dependency. | [Semantic row selection](design/semantic-row-selection.md) |
 
 Queries accept content-shaped or context-shaped inputs. They do not choose a
 renderer, parse command lines, or use display strings as identity.
@@ -175,7 +175,7 @@ presentation rows:
 - owner-issued correspondence between versions, representations, or
   participants;
 - `Finding<T>`, censuses, comparisons, transitions, and correlation results;
-- section, schema, row, output-shape, view-facet, and navigation identities;
+- section, schema, row, and output-shape identities;
 - inert presentation text at the untrusted-data boundary.
 
 The owning documents define construction and failure semantics. Adjacent
@@ -222,7 +222,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | ----------- | ---------- | ------------ |
 | Workspace, acquisition, cache, or source policy | [Inspection space](inspection-space.md), [artifact acquisition](design/artifact-acquisition-and-workspaces.md) | `DotnetInspector.Artifacts*`, `DotnetInspector.Core`, `DotnetInspector.Packages`, `DotnetInspector.Services` |
 | Query planning or execution | [Inspection layers](design/inspection-layers.md) | `DotnetInspector.Queries`, optional query companions |
-| Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md) | `src/dotnet-inspect/Sections`, `DotnetInspector.RowSelection` |
+| Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md) | `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
 | Metadata, API, type, or member facts | [Assembly inspection query](design/assembly-inspection-query.md), [representation](design/type-member-api-representation.md) | `ILInspector.Metadata*`, `ILInspector.CSharp`, `CSharpText` |
 | Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |
 | IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `ILInspector.Findings` |
