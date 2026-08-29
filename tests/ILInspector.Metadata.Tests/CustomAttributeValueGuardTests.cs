@@ -2664,6 +2664,85 @@ public sealed class CustomAttributeValueGuardTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildGenericParameterArrayImage(int elementCount, int argCount)
+    {
+        var metadata = CreateMetadata("ProbeGenericAmp");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default, default, default, default);
+        TypeReferenceHandle genericType = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("G`1"));
+
+        var specBlob = new BlobBuilder();
+        var args = new BlobEncoder(specBlob)
+            .TypeSpecificationSignature()
+            .GenericInstantiation(genericType, argCount, isValueType: true);
+        for (int i = 0; i < argCount; i++)
+            args.AddArgument().Int32();
+        TypeSpecificationHandle spec =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(specBlob));
+
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type()
+                    .SZArray().GenericTypeParameter(0));
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            spec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(elementCount);
+        for (int i = 0; i < elementCount; i++)
+            value.WriteInt32(i);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    [Fact]
+    public void GenericParameterArrayElements_ResolveTheTypeSpecOnce()
+    {
+        // A VAR element type sends every element back through the
+        // constructor's TypeSpec. Re-validating that blob per element is
+        // allocation proportional to an attacker-chosen count, multiplied by
+        // an attacker-chosen generic argument count, on input the guard
+        // accepts. SRM resolves the element type once before it loops over
+        // values, so resolving once is also what matches the decoder.
+        static long Measure(int elementCount)
+        {
+            using var image = Open(
+                BuildGenericParameterArrayImage(elementCount, 20_000));
+            CustomAttribute attribute = FirstAttribute(image.Reader);
+            Assert.True(
+                CustomAttributeValueGuard.IsSafeToDecode(
+                    image.Reader,
+                    attribute));
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            Assert.True(
+                CustomAttributeValueGuard.IsSafeToDecode(
+                    image.Reader,
+                    attribute));
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+
+        long one = Measure(1);
+        long many = Measure(100);
+        Assert.True(
+            many < one + 100_000,
+            $"Guarding one element allocated {one} bytes and 100 allocated "
+                + $"{many}; the TypeSpec is being re-validated per element.");
+    }
+
     [Fact]
     public void SignatureTypedArrayElements_RenderTheTypeNameOncePerHandle()
     {

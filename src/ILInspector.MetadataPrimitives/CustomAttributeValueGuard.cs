@@ -175,6 +175,13 @@ public static class CustomAttributeValueGuard
         PrimitiveTypeCode _memoEnumHandleWidth;
         EntityHandle _memoSystemTypeHandle;
         bool _memoIsSystemType;
+        bool _memoSpecResolved;
+        Result _memoSpecResult;
+        bool _memoSpecFound;
+        BlobReader _memoSpecArguments;
+        int _memoSpecArgumentCount;
+        int _memoArgumentIndex = -1;
+        int _memoArgumentOffset;
 
         public void Push(WorkItem item) => _work.Push(item);
 
@@ -647,13 +654,104 @@ public static class CustomAttributeValueGuard
             int parameterIndex = _signature.ReadCompressedInteger();
             if (methodParameter || parameterIndex < 0)
                 return Result.Unsafe;
+
+            Result located = LocateGenericArgument(
+                parameterIndex,
+                out bool found,
+                out BlobReader instantiation);
+            if (located != Result.Safe || !found)
+                return located;
+
+            // SRM substitutes once, then recurses with an empty generic
+            // context. Re-entering this method on the same TypeSpec is a
+            // stack overflow; a substituted VAR/MVAR is therefore Unsafe.
+            _frames ??= new Stack<SignatureFrame>();
+            _frames.Push(new SignatureFrame(_signature, _substituteGenerics));
+            _work.Push(WorkItem.PopFrame());
+            _signature = instantiation;
+            _substituteGenerics = false;
+            return ProcessFixedArg(depth + 1);
+        }
+
+        /// <summary>
+        /// Locates the generic argument a VAR substitutes to, reusing the work
+        /// when the index repeats. The constructor -- and so its TypeSpec -- is
+        /// fixed for the whole walk, so validating that blob and stepping to an
+        /// argument is the same work every time. A typed array rewinds and
+        /// re-reads its element type once per element, so without this the walk
+        /// re-validates the entire TypeSpec once per declared element:
+        /// allocation proportional to an attacker-chosen count, inside the
+        /// guard whose purpose is to bound exactly that. SRM resolves the
+        /// element type once before it loops over values, so resolving once
+        /// here is also what matches the decoder.
+        /// </summary>
+        Result LocateGenericArgument(
+            int parameterIndex,
+            out bool found,
+            out BlobReader instantiation)
+        {
+            instantiation = default;
+            found = false;
+            if (!_memoSpecResolved)
+            {
+                _memoSpecResolved = true;
+                _memoSpecResult = ResolveConstructorInstantiation(
+                    out _memoSpecFound,
+                    out _memoSpecArguments,
+                    out _memoSpecArgumentCount);
+            }
+
+            if (_memoSpecResult != Result.Safe || !_memoSpecFound)
+                return _memoSpecResult;
+            if (parameterIndex >= _memoSpecArgumentCount)
+                return Result.Unsafe;
+
+            instantiation = _memoSpecArguments;
+            if (_memoArgumentIndex == parameterIndex)
+            {
+                instantiation.Offset = _memoArgumentOffset;
+                found = true;
+                return Result.Safe;
+            }
+
+            for (int index = 0; index < parameterIndex; index++)
+            {
+                // Match SRM CustomAttributeDecoder.SkipType, including its
+                // CLASS/VALUETYPE recurse-as-type-code, so the remaining
+                // argument is the one DecodeValue will decode.
+                if (!TrySkipSrmAttributeType(ref instantiation, depth: 1, _srmSkip))
+                    return Result.Unsafe;
+            }
+
+            _memoArgumentIndex = parameterIndex;
+            _memoArgumentOffset = instantiation.Offset;
+            found = true;
+            return Result.Safe;
+        }
+
+        /// <summary>
+        /// Validates the constructor's TypeSpec once and positions a reader on
+        /// its first generic argument. <paramref name="found"/> is false when
+        /// the blob ends early, which the walk treats as safe rather than
+        /// hostile.
+        /// </summary>
+        Result ResolveConstructorInstantiation(
+            out bool found,
+            out BlobReader arguments,
+            out int argumentCount)
+        {
+            found = false;
+            arguments = default;
+            argumentCount = 0;
             if (!TryGetConstructorTypeSpec(_reader, _constructor, out var spec))
                 return Result.Unsafe;
             if (!SignatureBlobGuard.IsSafeToDecode(
                     _reader,
                     spec.Signature,
                     SignatureBlobGuard.Kind.TypeSpecification))
+            {
                 return Result.Unsafe;
+            }
 
             var instantiation = _reader.GetBlobReader(spec.Signature);
             if (!TryReadElementType(ref instantiation, out byte code))
@@ -674,27 +772,10 @@ public static class CustomAttributeValueGuard
             instantiation.ReadTypeHandle();
             if (instantiation.RemainingBytes < 1)
                 return Result.Safe;
-            int arguments = instantiation.ReadCompressedInteger();
-            if (parameterIndex >= arguments)
-                return Result.Unsafe;
-            for (int index = 0; index < parameterIndex; index++)
-            {
-                // Match SRM CustomAttributeDecoder.SkipType, including its
-                // CLASS/VALUETYPE recurse-as-type-code, so the remaining
-                // argument is the one DecodeValue will decode.
-                if (!TrySkipSrmAttributeType(ref instantiation, depth: 1, _srmSkip))
-                    return Result.Unsafe;
-            }
-
-            // SRM substitutes once, then recurses with an empty generic
-            // context. Re-entering this method on the same TypeSpec is a
-            // stack overflow; a substituted VAR/MVAR is therefore Unsafe.
-            _frames ??= new Stack<SignatureFrame>();
-            _frames.Push(new SignatureFrame(_signature, _substituteGenerics));
-            _work.Push(WorkItem.PopFrame());
-            _signature = instantiation;
-            _substituteGenerics = false;
-            return ProcessFixedArg(depth + 1);
+            argumentCount = instantiation.ReadCompressedInteger();
+            arguments = instantiation;
+            found = true;
+            return Result.Safe;
         }
 
         Result PopFrame()
