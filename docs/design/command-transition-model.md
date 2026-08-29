@@ -433,13 +433,15 @@ or operation.
 Adding `--member` changes the focus from the type-owned census to one exact
 member. With `--finding api.member`, the correlation selects that member's
 native identity key and currently reports `Present`, `Missing`,
-`SubjectAbsent`, and `Failed` cells. The target
-[#4796 Finding topology](finding-nomenclature.md#inspection-and-comparison-semantics)
-adds `NoApplicableInput` and narrows `SubjectAbsent` to proven exact-subject
-absence; that split remains unimplemented and unverified until its named
-Findings gates land. With `analysis.allocation`, `analysis.call-site`, or
-`analysis.unsafety`, the selected member is the Analysis subject and the
-correlated values are its producer-native occurrence censuses:
+`SubjectAbsent`, and `Failed` cells. The shared
+[Finding topology](finding-nomenclature.md#inspection-and-comparison-semantics)
+also retains `NoApplicableInput` and narrows `SubjectAbsent` to proven
+exact-subject absence. The current timeline projection renders both typed
+absence kinds as `SubjectAbsent` pending a focused CLI migration. With
+`analysis.allocation`, `analysis.call-site`, or `analysis.unsafety`, the
+selected member is the Analysis subject and the correlated values are its
+producer-native occurrence censuses. The compatibility projection is gated by
+`AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation`:
 
 ```bash
 dotnet-inspect timeline --package Foo@1.0.0..2.0.0 \
@@ -471,18 +473,18 @@ Finding census-correlation semantics:
 
 - `Complete`: the focused census completed, including when it contains zero
   observations;
-- `SubjectAbsent`: the current single absence state when the producer has no
-  applicable subject input;
+- `SubjectAbsent`: the current presentation for either typed absence kind;
 - `Failed`: inspection did not complete;
 - `Unevaluated`: the address exists in the resolved vector but was not supplied
   to `FindingCensusCorrelation`.
 
-The target
-[#4796 Finding topology](finding-nomenclature.md#inspection-and-comparison-semantics)
-splits that current absence state into `SubjectAbsent` when the exact subject is
-proven absent and `NoApplicableInput` when the subject exists without input for
-this producer. The split remains unimplemented and unverified until its named
-Findings gates land.
+The shared
+[Finding topology](finding-nomenclature.md#inspection-and-comparison-semantics)
+retains `SubjectAbsent` when the exact subject is proven absent and
+`NoApplicableInput` when the subject exists without input for this producer.
+This command's presentation still collapses both to `SubjectAbsent`; exposing
+the distinction is a focused CLI migration. The current projection is gated by
+`AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation`.
 
 `Unevaluated` is a presentation state formed by joining the version vector with
 the sparse correlation. It is not fabricated as a Finding or inspection
