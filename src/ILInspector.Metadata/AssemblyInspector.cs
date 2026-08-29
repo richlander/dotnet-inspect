@@ -22,10 +22,10 @@ public static class AssemblyInspector
         var corHeader = peHeaders.CorHeader;
 
         info.HasCorHeader = corHeader != null;
-        info.HasManagedMetadata = peReader.HasMetadata;
+        info.HasManagedMetadata = MetadataFormatAdmission.AdmitImage(peReader);
 
         bool hasR2R = corHeader != null && corHeader.ManagedNativeHeaderDirectory.Size > 0;
-        bool hasILCode = corHeader != null && peReader.HasMetadata;
+        bool hasILCode = corHeader != null && MetadataFormatAdmission.AdmitImage(peReader);
         bool isILOnly = corHeader?.Flags.HasFlag(CorFlags.ILOnly) == true;
 
         info.HasILCode = hasILCode;
@@ -67,7 +67,7 @@ public static class AssemblyInspector
         info.IsExecutable = peHeaders.IsExe;
         info.IsDll = peHeaders.IsDll;
 
-        if (peReader.HasMetadata)
+        if (MetadataFormatAdmission.AdmitImage(peReader))
         {
             var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
             info.RuntimeVersion = metadataReader.MetadataVersion;
@@ -117,7 +117,7 @@ public static class AssemblyInspector
     {
         var info = ExtractAssemblyInfo(peReader);
 
-        if (peReader.HasMetadata)
+        if (MetadataFormatAdmission.AdmitImage(peReader))
         {
             var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);
             info.MetadataVersion = metadataReader.GetTableRowCount(TableIndex.Module);
@@ -137,7 +137,7 @@ public static class AssemblyInspector
     public static List<AssemblyReferenceIdentity> ExtractReferenceIdentities(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
         return ExtractReferenceIdentities(MetadataFormatAdmission.GetMetadataReader(peReader));
@@ -316,7 +316,7 @@ public static class AssemblyInspector
         ExtractReferenceIdentitiesAndCompany(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return ([], null);
 
         var metadataReader = MetadataFormatAdmission.GetMetadataReader(peReader);

@@ -45,7 +45,8 @@ public sealed class AssemblyImage : IDisposable
     }
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
-    public bool HasMetadata => PEReader.HasMetadata;
+    public bool HasMetadata =>
+        MetadataFormatAdmission.AdmitImage(PEReader);
 
     /// <summary>Opens an image from a file path.</summary>
     public static AssemblyImage Open(string path) => FromStream(File.OpenRead(path));

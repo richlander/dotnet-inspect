@@ -58,13 +58,15 @@ public sealed class AssemblySetResolutionSession : IDisposable
                 TryCreateManagedAssembly(
                     input.Path,
                     input.Provenance,
-                    out string? failure);
+                    out string? failure,
+                    out Exception? admissionFailure);
             if (assembly is null)
             {
                 failures.Add(
                     new AcquisitionFailure(
                         input.Path,
-                        failure!));
+                        failure!,
+                        admissionFailure));
                 continue;
             }
 
@@ -111,6 +113,24 @@ public sealed class AssemblySetResolutionSession : IDisposable
         foreach (AcquisitionFailure failure
             in _acquisitionFailures)
         {
+            if (failure.AdmissionFailure is { } admissionFailure)
+            {
+                merged.InspectionFailures.Add(
+                    new ApiSurfaceInspectionFailure(
+                        "acquire API surface",
+                        0,
+                        MetadataTypeNameFailureMechanism.Metadata,
+                        admissionFailure.GetType().Name,
+                        admissionFailure.Message)
+                    {
+                        SourceAssemblyPath = failure.Path,
+                    });
+                sink?.Invoke(
+                    $"  ! {Path.GetFileName(failure.Path)}: "
+                        + admissionFailure.Message);
+                continue;
+            }
+
             ApiSurface? moduleSurface =
                 AssemblyReader.ExtractModuleApiSurface(
                     failure.Path,
@@ -214,7 +234,8 @@ public sealed class AssemblySetResolutionSession : IDisposable
     static ResolvedAssemblyReference? TryCreateManagedAssembly(
         string path,
         AssemblyResolutionProvenance provenance,
-        out string? failure)
+        out string? failure,
+        out Exception? admissionFailure)
     {
         try
         {
@@ -225,7 +246,16 @@ public sealed class AssemblySetResolutionSession : IDisposable
             failure = assembly is null
                 ? "The selected file does not contain managed metadata."
                 : null;
+            admissionFailure = null;
             return assembly;
+        }
+        catch (Exception ex) when (
+            ex is UnsupportedMetadataFormatException
+                or MalformedMetadataRootException)
+        {
+            failure = ex.Message;
+            admissionFailure = ex;
+            return null;
         }
         catch (Exception ex) when (
             ex is IOException
@@ -239,6 +269,7 @@ public sealed class AssemblySetResolutionSession : IDisposable
         {
             failure =
                 "The selected assembly could not be acquired.";
+            admissionFailure = null;
             return null;
         }
     }
@@ -277,7 +308,8 @@ public sealed class AssemblySetResolutionSession : IDisposable
 
     sealed record AcquisitionFailure(
         string Path,
-        string Detail);
+        string Detail,
+        Exception? AdmissionFailure);
 
     sealed record Participant(
         string Path,

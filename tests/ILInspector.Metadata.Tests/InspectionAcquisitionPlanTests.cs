@@ -155,15 +155,22 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
-    public void CreateFromPathIfManaged_NonPeImage_ReturnsNull()
+    public void CreateFromPathIfManaged_NonPeImageIsTypedMalformed()
     {
         string invalid = Path.GetTempFileName();
         try
         {
-            Assert.Null(
-                ResolvedAssemblyReference.CreateFromPathIfManaged(
-                    invalid,
-                    AssemblyResolutionProvenance.Local("test")));
+            var exception =
+                Assert.Throws<MalformedMetadataRootException>(
+                    () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                        invalid,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Contains(
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory),
+                exception.Message,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -271,12 +278,23 @@ public class InspectionAcquisitionPlanTests
                 AssemblyResolutionProvenance.Local("test")));
 
         byte[] malformed = [0x01, 0x02, 0x03];
-        Assert.Null(
-            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
-                RegisterArtifact(
-                    () => new MemoryStream(malformed, writable: false)),
-                () => new MemoryStream(malformed, writable: false),
-                AssemblyResolutionProvenance.Local("test")));
+        var malformedException =
+            Assert.Throws<MalformedMetadataRootException>(
+                () => ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                    RegisterArtifact(
+                        () => new MemoryStream(
+                            malformed,
+                            writable: false)),
+                    () => new MemoryStream(
+                        malformed,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        Assert.Contains(
+            nameof(
+                MetadataRootMalformedReason
+                    .UnmappableMetadataDirectory),
+            malformedException.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

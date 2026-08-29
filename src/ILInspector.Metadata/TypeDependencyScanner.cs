@@ -56,7 +56,7 @@ public static class TypeDependencyScanner
                     }
                     peReaders.Add(peReader);
 
-                    if (!peReader.HasMetadata)
+                    if (!MetadataFormatAdmission.AdmitImage(peReader))
                         continue;
 
                     var mdReader = MetadataFormatAdmission.GetMetadataReader(peReader);

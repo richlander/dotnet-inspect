@@ -554,7 +554,82 @@ public class AssemblyDependencyResolverTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void ResolveAndAcquire_GenericInvalidImageRemainUnresolved(
+    public void ResolverEntryPoints_UnmappableMetadataDirectoryIsTyped(
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string validTargetPath = Path.Combine(
+                root,
+                "ValidTarget.dll");
+            string malformedTargetPath = Path.Combine(
+                root,
+                "MalformedTarget.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                validTargetPath);
+            byte[] malformed = CreateUnmappableMetadataImage();
+            File.WriteAllBytes(candidatePath, malformed);
+            File.WriteAllBytes(malformedTargetPath, malformed);
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(validTargetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = snapshot,
+                });
+            var dependency = new ResolvedAssemblyDependency(
+                candidatePath,
+                AssemblyDependencyProvenance.SiblingAssembly);
+
+            AssertFormatAdmissionFailure(
+                unsupported: false,
+                () => resolver.Resolve(
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    AssemblyResolutionScope.Any),
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory));
+            AssertFormatAdmissionFailure(
+                unsupported: false,
+                () => resolver.Acquire(dependency),
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory));
+
+            var targetResolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(
+                    malformedTargetPath)
+                {
+                    SnapshotAssemblyImages = snapshot,
+                });
+            AssertFormatAdmissionFailure(
+                unsupported: false,
+                () => targetResolver.AcquireTargetAssembly(),
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveAndAcquire_NoMetadataRemainUnresolved(
         bool snapshot)
     {
         string root = Directory.CreateTempSubdirectory(
@@ -566,7 +641,7 @@ public class AssemblyDependencyResolverTests
             File.Copy(
                 typeof(AssemblyDependencyResolverTests).Assembly.Location,
                 targetPath);
-            File.WriteAllText(candidatePath, "not a PE image");
+            File.WriteAllBytes(candidatePath, CreateNoMetadataImage());
             var resolver = new AssemblyDependencyResolver(
                 new AssemblyDependencyResolutionOptions(targetPath)
                 {
@@ -2504,9 +2579,36 @@ public class AssemblyDependencyResolverTests
         return image;
     }
 
+    static byte[] CreateUnmappableMetadataImage()
+    {
+        byte[] image = CreateUnsupportedMetadataImage();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 8,
+                sizeof(int)),
+            int.MaxValue);
+        return image;
+    }
+
+    static byte[] CreateNoMetadataImage()
+    {
+        byte[] image = CreateUnsupportedMetadataImage();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
+    }
+
     static void AssertFormatAdmissionFailure(
         bool unsupported,
-        Action action)
+        Action action,
+        string expectedMalformedReason = "InvalidSignature")
     {
         if (unsupported)
         {
@@ -2517,7 +2619,7 @@ public class AssemblyDependencyResolverTests
             var exception =
                 Assert.Throws<MalformedMetadataRootException>(action);
             Assert.Contains(
-                "InvalidSignature",
+                expectedMalformedReason,
                 exception.Message,
                 StringComparison.Ordinal);
         }

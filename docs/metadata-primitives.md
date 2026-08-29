@@ -205,8 +205,11 @@ unsupported or malformed admission exceptions instead of representing them as
 missing assemblies. `Resolve_FormatAdmissionFailureIsTyped`,
 `Acquire_FormatAdmissionFailureIsTyped`, and
 `AcquireTargetAssembly_FormatAdmissionFailureIsTyped` gate both snapshot and
-live-path acquisition; `ResolveAndAcquire_GenericInvalidImageRemainUnresolved`
-keeps generic invalid images on the established nullable boundary.
+live-path acquisition;
+`ResolverEntryPoints_UnmappableMetadataDirectoryIsTyped` gates the
+pre-admission mapping failure, while
+`ResolveAndAcquire_NoMetadataRemainUnresolved` keeps the established
+no-metadata nullable boundary.
 
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to
@@ -228,7 +231,10 @@ The classifier's primitive-local contract is gated by
 `LayeringTests.MetadataPrimitives_MetadataRootClassifierIsIsolated`.
 Metadata-owned session and projection adoption is separately gated by
 `LayeringTests.Metadata_MetadataReadersRequireFormatAdmission` and the
-admission cases in `MetadataImageFormatClassifierTests`; Browser projection
+admission cases in `MetadataImageFormatClassifierTests`.
+`LayeringTests.Metadata_MetadataPredicatesRequireFormatAdmission` prevents a
+raw `PEReader.HasMetadata` predicate from running before that admission in the
+Metadata assembly. Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.
 These focused gates do not close `MDP017`'s separately planned cache,

@@ -59,7 +59,7 @@ public static class MetadataTableProjector
         ArgumentNullException.ThrowIfNull(peReader);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return new MetadataTableProjection(ImmutableArray<MetadataTableView>.Empty);
 
         // MetadataReaderOptions.None keeps the projection raw: the default enables
@@ -101,7 +101,7 @@ public static class MetadataTableProjector
         ArgumentOutOfRangeException.ThrowIfLessThan(rowId, 1);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata
+        if (!MetadataFormatAdmission.AdmitImage(peReader)
             || !MetadataTableProjectionEngine.TryGetTableSpec(table, out var spec))
             return null;
 
@@ -171,7 +171,7 @@ public static class MetadataTableProjector
 
         var target = new MetadataRowLocation(targetTable, targetRowId);
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return new MetadataRowReferenceSet(
                 target, [], [], [], Truncated: false, TargetExists: false);
 
@@ -211,7 +211,7 @@ public static class MetadataTableProjector
         ArgumentOutOfRangeException.ThrowIfNegative(address);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return null;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
@@ -257,7 +257,7 @@ public static class MetadataTableProjector
         ArgumentNullException.ThrowIfNull(peReader);
         options ??= new MetadataProjectionOptions();
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return null;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);

@@ -2644,7 +2644,7 @@ public static partial class AttributeReader
     public static List<(string Name, string? Value)> GetMethodAttributes(
         PEReader peReader, string fullTypeName, string methodName, int overloadIndex, bool publicOnly = true)
     {
-        if (!peReader.HasMetadata) return [];
+        if (!MetadataFormatAdmission.AdmitImage(peReader)) return [];
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         return ReadMethodAttributes(reader, FindMethodHandle(reader, fullTypeName, methodName, overloadIndex, publicOnly));

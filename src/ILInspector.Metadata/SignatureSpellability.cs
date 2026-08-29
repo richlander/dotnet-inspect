@@ -138,7 +138,7 @@ public sealed class SignatureSpellability
             stream = resolved.OpenRead();
             pe = new PEReader(stream);
             resolved.ValidateArtifactContent(pe);
-            if (pe.HasMetadata)
+            if (MetadataFormatAdmission.AdmitImage(pe))
             {
                 var reader = MetadataFormatAdmission.GetMetadataReader(pe);
                 foreach (var handle in reader.TypeDefinitions)

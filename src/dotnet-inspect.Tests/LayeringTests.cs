@@ -368,6 +368,23 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void Metadata_MetadataPredicatesRequireFormatAdmission()
+    {
+        Assert.Empty(
+            MetadataHasMetadataSites(
+                typeof(AssemblyInspectionSession).Assembly.Location));
+    }
+
+    [Fact]
+    public void MetadataPredicateGateRecognizesRawHasMetadata()
+    {
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataHasMetadataFixture/1",
+            MetadataHasMetadataSites(
+                typeof(LayeringTests).Assembly.Location));
+    }
+
+    [Fact]
     public void MetadataPrimitives_MethodSemanticsReaderIsIsolated()
     {
         string project = Path.Combine(
@@ -1123,7 +1140,20 @@ public sealed class LayeringTests
     }
 
     static IEnumerable<string> MetadataReaderConstructionSites(
-        string assemblyPath)
+        string assemblyPath) =>
+        MetadataCallSites(
+            assemblyPath,
+            CallsAssemblyMetadataReaderConstruction);
+
+    static IEnumerable<string> MetadataHasMetadataSites(
+        string assemblyPath) =>
+        MetadataCallSites(
+            assemblyPath,
+            CallsPeReaderHasMetadata);
+
+    static IEnumerable<string> MetadataCallSites(
+        string assemblyPath,
+        Func<MetadataReader, byte[], bool> matches)
     {
         using var stream = File.OpenRead(assemblyPath);
         using var peReader = new PEReader(stream);
@@ -1140,7 +1170,7 @@ public sealed class LayeringTests
                 peReader.GetMethodBody(method.RelativeVirtualAddress)
                     .GetILBytes()
                 ?? [];
-            if (!CallsAssemblyMetadataReaderConstruction(reader, il))
+            if (!matches(reader, il))
                 continue;
 
             TypeDefinitionHandle declaringHandle =
@@ -1157,6 +1187,42 @@ public sealed class LayeringTests
         }
 
         return sites;
+    }
+
+    static bool CallsPeReaderHasMetadata(
+        MetadataReader reader,
+        byte[] il)
+    {
+        foreach (DecodedInstruction instruction in InstructionDecoder.Decode(il))
+        {
+            if (instruction.Operand
+                    is not (OperandKind.InlineMethod or OperandKind.InlineTok))
+            {
+                continue;
+            }
+
+            EntityHandle operand =
+                MetadataTokens.EntityHandle((int)instruction.OperandValue);
+            if (operand.Kind != HandleKind.MemberReference)
+                continue;
+
+            MemberReference member = reader.GetMemberReference(
+                (MemberReferenceHandle)operand);
+            if (member.Parent.Kind != HandleKind.TypeReference)
+                continue;
+
+            TypeReference type = reader.GetTypeReference(
+                (TypeReferenceHandle)member.Parent);
+            if (reader.GetString(type.Name) == nameof(PEReader)
+                && reader.GetString(type.Namespace)
+                    == typeof(PEReader).Namespace
+                && reader.GetString(member.Name) == "get_HasMetadata")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static bool CallsAssemblyMetadataReaderConstruction(
@@ -1218,6 +1284,9 @@ public sealed class LayeringTests
 
     static MetadataReaderProvider PortablePdbProviderFixture(Stream stream)
         => MetadataReaderProvider.FromPortablePdbStream(stream);
+
+    static bool MetadataHasMetadataFixture(PEReader reader)
+        => reader.HasMetadata;
 
     private static bool IsNuGetImplementationPackage(string package) =>
         package.Equals("NuGet", StringComparison.OrdinalIgnoreCase)

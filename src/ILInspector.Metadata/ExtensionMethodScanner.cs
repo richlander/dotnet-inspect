@@ -89,7 +89,7 @@ public static class ExtensionMethodScanner
     public static IEnumerable<ExtensionMethodInfo> FindExtensions(
         PEReader peReader, string targetType, bool includeAll = false)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             yield break;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -209,7 +209,7 @@ public static class ExtensionMethodScanner
     public static IEnumerable<ExtensionMethodInfo> FindAllExtensions(
         PEReader peReader, bool includeAll = false)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             yield break;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -314,7 +314,7 @@ public static class ExtensionMethodScanner
     public static List<ExtensionReachabilityType> IndexReachableTypes(
         PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
         MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -340,7 +340,7 @@ public static class ExtensionMethodScanner
         PEReader peReader,
         int metadataToken)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
         EntityHandle entity = MetadataTokens.EntityHandle(metadataToken);
@@ -387,7 +387,7 @@ public static class ExtensionMethodScanner
                 {
                     var stream = File.OpenRead(assemblyPath);
                     var peReader = new PEReader(stream);
-                    if (!peReader.HasMetadata)
+                    if (!MetadataFormatAdmission.AdmitImage(peReader))
                     {
                         peReader.Dispose();
                         stream.Dispose();

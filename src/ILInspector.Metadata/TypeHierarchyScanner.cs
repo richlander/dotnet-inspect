@@ -49,7 +49,7 @@ public static class TypeHierarchyScanner
         string targetType,
         bool includeHidden = false)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             yield break;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);

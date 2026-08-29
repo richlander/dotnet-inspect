@@ -805,7 +805,7 @@ public sealed partial class AssemblyDependencyResolver :
             using var stream = new MemoryStream(image, writable: false);
             using var reader =
                 new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!reader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(reader))
             {
                 return new(
                     Identity: null,

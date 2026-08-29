@@ -88,7 +88,7 @@ public static class MethodClassificationScanner
     {
         List<ClassifiedMethodInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);

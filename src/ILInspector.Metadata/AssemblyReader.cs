@@ -24,7 +24,7 @@ public static class AssemblyReader
         {
             using var stream = File.OpenRead(path);
             using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata
+            if (!MetadataFormatAdmission.AdmitImage(peReader)
                 || MetadataFormatAdmission.GetMetadataReader(peReader).IsAssembly)
             {
                 return null;
@@ -88,7 +88,7 @@ public static class AssemblyReader
         {
             using var peReader = new PEReader(stream);
 
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 return null;
 
             return ApiSurfaceExtractor.Extract(peReader, includeAll, typesOnly);
@@ -140,7 +140,7 @@ public static class AssemblyReader
         {
             using var peReader = new PEReader(stream);
 
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 return null;
 
             return ApiSurfaceExtractor.ExtractSummary(peReader);
@@ -168,7 +168,7 @@ public static class AssemblyReader
             using var stream = File.OpenRead(dllPath);
             using var peReader = new PEReader(stream);
 
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 return null;
 
             return FindUniquePublicType(MetadataFormatAdmission.GetMetadataReader(peReader), typeName);
@@ -264,7 +264,7 @@ public static class AssemblyReader
             using var stream = File.OpenRead(dllPath);
             using var peReader = new PEReader(stream);
 
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 return 0;
 
             var reader = MetadataFormatAdmission.GetMetadataReader(peReader);

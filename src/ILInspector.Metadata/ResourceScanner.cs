@@ -34,7 +34,7 @@ public static class ResourceScanner
     {
         List<ManifestResourceInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);

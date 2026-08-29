@@ -138,7 +138,7 @@ public sealed class AssemblyImageSnapshot
                     ImmutableCollectionsMarshal.AsImmutableArray(bytes);
 
                 using var peReader = new PEReader(content);
-                if (!peReader.HasMetadata)
+                if (!MetadataFormatAdmission.AdmitImage(peReader))
                 {
                     return Reject(
                         CandidateOpenFailureKind.InvalidImage,
@@ -239,7 +239,7 @@ public sealed class AssemblyImageSnapshot
         try
         {
             using var peReader = new PEReader(content);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 return Reject(
                     CandidateOpenFailureKind.InvalidImage,

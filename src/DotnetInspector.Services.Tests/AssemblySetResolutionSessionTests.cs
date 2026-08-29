@@ -30,6 +30,13 @@ public class AssemblySetResolutionSessionTests
                 "acquire API surface",
                 failure.Operation);
             Assert.Equal(path, failure.SourceAssemblyPath);
+            Assert.Equal(
+                nameof(MalformedMetadataRootException),
+                failure.Kind);
+            Assert.Equal(
+                "The assembly metadata root is malformed "
+                    + "(UnmappableMetadataDirectory).",
+                failure.Detail);
             Assert.Empty(surface.Types);
         }
         finally

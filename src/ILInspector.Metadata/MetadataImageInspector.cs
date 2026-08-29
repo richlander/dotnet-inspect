@@ -44,7 +44,7 @@ public static class MetadataImageInspector
     {
         ArgumentNullException.ThrowIfNull(peReader);
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return null;
 
         // MetadataReaderOptions.None for the same reason the projector uses it:

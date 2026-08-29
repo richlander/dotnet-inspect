@@ -63,7 +63,7 @@ public static class IntegrationOpportunityScanner
 {
     public static List<IntegrationOpportunityInfo> Scan(PEReader peReader, IReadOnlySet<string> existingIntegrations)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);

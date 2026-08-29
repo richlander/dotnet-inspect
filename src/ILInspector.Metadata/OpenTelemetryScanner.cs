@@ -21,7 +21,7 @@ public static class OpenTelemetryScanner
 
     public static List<OpenTelemetrySignalInfo> Scan(PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -159,7 +159,7 @@ public static class OpenTelemetryScanner
     }
 
     public static bool HasSupport(PEReader peReader)
-        => peReader.HasMetadata && HasSupport(MetadataFormatAdmission.GetMetadataReader(peReader));
+        => MetadataFormatAdmission.AdmitImage(peReader) && HasSupport(MetadataFormatAdmission.GetMetadataReader(peReader));
 
     internal static bool HasSupport(MetadataReader reader)
     {

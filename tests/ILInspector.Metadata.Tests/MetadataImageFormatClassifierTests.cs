@@ -113,6 +113,28 @@ public sealed class MetadataImageFormatClassifierTests
     }
 
     [Fact]
+    public void Mdp017_DirectMetadataEntryPointsRejectUnmappableRoot()
+    {
+        byte[] image = BuildImage("v4.0.30319");
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(CorHeaderStart(image) + 8, sizeof(int)),
+            int.MaxValue);
+
+        foreach (Action<PEReader> inspect in s_directMetadataEntryPoints)
+        {
+            using var peReader = Open(image);
+            var error = Assert.Throws<MalformedMetadataRootException>(
+                () => inspect(peReader));
+            Assert.Contains(
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory),
+                error.Message,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Mdp017_NoMetadataPreservesDirectEntryPointBoundaries()
     {
         byte[] image = BuildImage("v4.0.30319");
@@ -214,6 +236,17 @@ public sealed class MetadataImageFormatClassifierTests
         BinaryPrimitives.WriteUInt32LittleEndian(
             image.AsSpan(MetadataStart(image), sizeof(uint)),
             0xDEADBEEF);
+
+        AssertPathScannersReject<MalformedMetadataRootException>(image);
+    }
+
+    [Fact]
+    public void Mdp017_PathScannersPreserveUnmappableRejection()
+    {
+        byte[] image = BuildImage("v4.0.30319");
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(CorHeaderStart(image) + 8, sizeof(int)),
+            int.MaxValue);
 
         AssertPathScannersReject<MalformedMetadataRootException>(image);
     }

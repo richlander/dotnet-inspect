@@ -10,70 +10,61 @@ namespace DotnetInspector.MetadataRendering.Tests;
 
 /// <summary>
 /// Gates the one case where the metadata root's version stamp can outgrow its
-/// display budget.
+/// ECMA-335 bound.
 /// <para>
-/// The stamp is a counted string read straight out of the image, and
-/// neutralizing a control character expands it to six characters, so the budget
-/// is sized at 255 * 6 — the widest a conforming stamp can become, since
-/// ECMA-335 II.24.2.1 caps the field at 255 bytes. `MetadataRootBuilder` refuses
-/// to write a longer one even with `suppressValidation: true`, so no compiler
-/// or emitter can produce this input.
+/// ECMA-335 II.24.2.1 caps the null-terminated version string at 255 bytes.
+/// `MetadataRootBuilder` refuses to write a longer one even with
+/// `suppressValidation: true`, so no compiler or conforming emitter can produce
+/// this input.
 /// </para>
 /// <para>
-/// A hand-built image can, and `MetadataReader` reads it back without complaint.
-/// That makes an oversized stamp reachable in exactly the population this code
-/// exists to survive — malformed images — so the truncation must be visible
-/// rather than silent. This fixture is what proves the state is reachable at
-/// all; without it, `MetadataVersion.IsTruncated` would be dead code that no
-/// test could distinguish from a constant `false`.
-/// </para>
-/// <para>
-/// The fixture technique came from the adversarial review of PR #3518, which
-/// found the truncation flag being discarded.
+/// A hand-built image can carry the oversized field, and SRM accepts it. The
+/// Metadata-owned admission boundary rejects that non-conforming root before
+/// projection, so neither direct inspection nor `mdi` can present a bounded
+/// prefix as though it were the complete stamp.
 /// </para>
 /// </summary>
 public sealed class OversizedMetadataVersionTests(OversizedVersionFixture fixture)
     : IClassFixture<OversizedVersionFixture>
 {
     /// <summary>
-    /// The metadata layer must report that it clipped the value. Everything
-    /// downstream keys off the contained value's own `IsTruncated`, so if
-    /// `Describe` clips without recording it, no renderer can mark the value
-    /// however carefully it is written.
+    /// Direct inspection preserves the classifier's typed malformed-root
+    /// rejection.
     /// </summary>
     [Fact]
-    public void Describe_ReportsTheStampAsTruncated()
+    public void Describe_RejectsOversizedStampAsMalformed()
     {
         using var peReader = new PEReader(new MemoryStream(fixture.Bytes, writable: false));
-        var overview = MetadataImageInspector.Describe(peReader);
+        var exception = Assert.Throws<MalformedMetadataRootException>(
+            () => MetadataImageInspector.Describe(peReader));
 
-        Assert.NotNull(overview);
-        Assert.True(
-            overview.MetadataVersion.IsTruncated,
-            "A stamp too long to neutralize within the budget must be reported as truncated.");
-        Assert.Equal(OversizedVersionFixture.Budget, overview.MetadataVersion.Length);
+        Assert.Contains(
+            nameof(MetadataRootMalformedReason.InvalidVersionLength),
+            exception.Message,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// The end-to-end claim, and the one that matters to a reader: the rendered
-    /// stamp carries the ellipsis, so a 1530-character prefix cannot be mistaken
-    /// for the whole 1547-character value. Asserted through `mdi` rather than the
-    /// renderer alone so the truncation is proven to survive the whole path.
+    /// The end-to-end command reports the same bounded rejection without
+    /// producing successful output.
     /// </summary>
     [Fact]
-    public void Overview_RendersTheTruncationMarkerSoAPrefixIsNotReadAsTheWholeStamp()
+    public void Overview_ReportsOversizedStampAsMalformedWithoutOutput()
     {
         var output = new StringWriter();
+        var error = new StringWriter();
         int code = MdiCommand.ExecuteOverview(
-            fixture.Path, MetadataTableFormat.Markdown, output, new StringWriter());
+            fixture.Path,
+            MetadataTableFormat.Markdown,
+            output,
+            error);
 
-        Assert.Equal(0, code);
-
-        string line = output.ToString()
-            .Split('\n')
-            .Single(static l => l.Contains("Metadata version", StringComparison.Ordinal));
-
-        Assert.Contains('…', line);
+        Assert.Equal(1, code);
+        Assert.Equal(string.Empty, output.ToString());
+        Assert.Contains(
+            "The assembly metadata root is malformed (InvalidVersionLength).",
+            error.ToString(),
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1239,13 +1230,6 @@ public sealed class OversizedVersionFixture : IDisposable
     /// </para>
     /// </summary>
     public const int Expansion = 1536;
-
-    /// <summary>
-    /// The widest a neutralized stamp may render: `MetadataImageInspector`'s
-    /// budget, restated here so a change to it fails this test rather than
-    /// silently changing what "truncated" means.
-    /// </summary>
-    public const int Budget = 255 * 6;
 
     public OversizedVersionFixture()
     {

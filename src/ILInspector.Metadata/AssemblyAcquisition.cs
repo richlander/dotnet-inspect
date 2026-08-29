@@ -296,11 +296,16 @@ public sealed class ResolvedAssemblyReference
         {
             peReader =
                 new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 peReader.Dispose();
                 return null;
             }
+        }
+        catch (MalformedMetadataRootException)
+        {
+            peReader?.Dispose();
+            throw;
         }
         catch (BadImageFormatException)
         {
@@ -396,11 +401,16 @@ public sealed class ResolvedAssemblyReference
         {
             peReader =
                 new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 peReader.Dispose();
                 return null;
             }
+        }
+        catch (MalformedMetadataRootException)
+        {
+            peReader?.Dispose();
+            throw;
         }
         catch (BadImageFormatException)
         {
@@ -481,7 +491,7 @@ public sealed class ResolvedAssemblyReference
             {
                 using var peReader =
                     new System.Reflection.PortableExecutable.PEReader(stream);
-                if (peReader.HasMetadata)
+                if (MetadataFormatAdmission.AdmitImage(peReader))
                 {
                     MetadataReader metadata = MetadataFormatAdmission.GetMetadataReader(peReader);
                     if (metadata.IsAssembly)
@@ -574,7 +584,7 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(peReader);
         if (Registration.ArtifactRegistration is null)
             return;
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
         {
             throw new BadImageFormatException(
                 "The artifact-bound assembly image has no managed metadata.");

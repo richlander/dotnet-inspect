@@ -28,7 +28,12 @@ public sealed class MalformedMetadataRootException(
 /// </summary>
 public static class MetadataFormatAdmission
 {
-    internal static bool AdmitImage(PEReader peReader)
+    /// <summary>
+    /// Returns <see langword="true"/> for supported ECMA-335 metadata and
+    /// <see langword="false"/> when the image has no metadata. Unsupported or
+    /// malformed metadata throws its bounded typed admission exception.
+    /// </summary>
+    public static bool AdmitImage(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
 

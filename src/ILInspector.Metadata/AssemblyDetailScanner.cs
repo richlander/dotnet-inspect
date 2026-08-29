@@ -51,7 +51,7 @@ public static class AssemblyDetailScanner
     {
         List<AssemblyAttributeInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -96,7 +96,7 @@ public static class AssemblyDetailScanner
     /// </summary>
     public static AssemblyAuditMetadata ScanAuditMetadata(PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return new AssemblyAuditMetadata();
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -210,7 +210,7 @@ public static class AssemblyDetailScanner
     {
         List<TypeForwarderInfo> results = [];
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return results;
 
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
