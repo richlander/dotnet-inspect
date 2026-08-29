@@ -293,6 +293,8 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public RowWindow? Rows { get; init; }
 
+    public string? HumanRowWindowNote { get; init; }
+
     /// <summary>
     /// Row predicates for the Performance Triage section.
     /// </summary>

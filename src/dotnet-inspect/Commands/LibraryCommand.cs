@@ -708,7 +708,12 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (!IsPerformanceDocumentJsonWindowApplied(options)
+                    && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                            options,
+                            options.JsonOutput,
+                            "library")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -871,7 +876,12 @@ public class LibraryCommand
                 if (assemblyPaths.Count > 0)
                     ExtractResourcesIfRequested(assemblyPaths[0], options);
 
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (!IsPerformanceDocumentJsonWindowApplied(options)
+                    && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                            options,
+                            options.JsonOutput,
+                            "library")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 if (inspections.Count == 1 && !IsAllTfmPackageSelection(options))
@@ -985,7 +995,12 @@ public class LibraryCommand
                     return 1;
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (!IsPerformanceDocumentJsonWindowApplied(options)
+                    && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                            options,
+                            options.JsonOutput,
+                            "library")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
@@ -1337,6 +1352,15 @@ public class LibraryCommand
             markoutWriter.Flush();
         }, options.Rows);
     }
+
+    private static bool IsPerformanceDocumentJsonWindowApplied(
+        LibraryOptions options) =>
+        options.PerformanceTriage.Top.HasValue
+        && options.IncludeSections is { Count: > 0 } sections
+        && sections.All(section =>
+            PerformanceKinds.Sections.Contains(
+                section,
+                StringComparer.Ordinal));
 
     private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)
     {

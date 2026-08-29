@@ -104,6 +104,12 @@ public static class MatchCommand
 
             if (options.JsonOutput)
             {
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "match"))
+                    return 1;
+
                 if (implementationView is null)
                 {
                     JsonOutputHelper.Write(

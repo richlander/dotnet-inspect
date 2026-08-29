@@ -70,7 +70,16 @@ public static class CommandLineBuilder
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
     /// Delegates to <see cref="ArgumentPreprocessor.PreprocessArgs"/> for backward compatibility.
     /// </summary>
-    public static string[] PreprocessArgs(string[] args) => ArgumentPreprocessor.PreprocessArgs(args);
+    public static string[] PreprocessArgs(string[] args)
+    {
+        var rootCommand = CreateRootCommand();
+        return ArgumentPreprocessor.PreprocessArgs(args, rootCommand);
+    }
+
+    internal static string[] PreprocessArgs(
+        string[] args,
+        RootCommand rootCommand) =>
+        ArgumentPreprocessor.PreprocessArgs(args, rootCommand);
 
     /// <summary>
     /// Invokes a parsed command under the payload-projection audit. This is the single
@@ -97,10 +106,28 @@ public static class CommandLineBuilder
         if (WriteParseErrors(parseResult))
             return 1;
 
+        if (RejectInvalidLineWindow(parseResult))
+            return 1;
+
         // Two projections cannot both shape one payload, so reject the combination before
         // the command runs rather than letting one of them be discarded.
         if (!ProjectionAudit.ValidateExclusive(parseResult, message => CommandError.Write(message)))
             return 1;
+
+        var originalOut = Console.Out;
+        TailLineLimitingTextWriter? tailWriter = null;
+        if (ShouldApplyConsoleLineWindow(parseResult))
+        {
+            if (TailLines is int tailLines)
+            {
+                tailWriter = new TailLineLimitingTextWriter(originalOut, tailLines);
+                Console.SetOut(tailWriter);
+            }
+            else if (HeadLines is int headLines)
+            {
+                Console.SetOut(new LineLimitingTextWriter(originalOut, headLines));
+            }
+        }
 
         try
         {
@@ -145,6 +172,142 @@ public static class CommandLineBuilder
             CommandError.WriteUnhandled(ex);
             return 1;
         }
+        finally
+        {
+            tailWriter?.FlushTail();
+            if (!ReferenceEquals(Console.Out, originalOut))
+                Console.SetOut(originalOut);
+        }
+    }
+
+    private static bool RejectInvalidLineWindow(ParseResult parseResult)
+    {
+        if (HeadLines is null && TailLines is null)
+            return false;
+
+        if (IsNonPrintJson(parseResult))
+        {
+            CommandError.Write("Document --json cannot be combined with --lines.");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ShouldApplyConsoleLineWindow(ParseResult parseResult)
+    {
+        if (HeadLines is null && TailLines is null)
+            return false;
+
+        if (IsNonPrintJson(parseResult))
+            return false;
+
+        return !IsStructuredPrintProjection(parseResult);
+    }
+
+    private static bool IsNonPrintJson(ParseResult parseResult)
+        => ResolveEffectiveStructuredOutputFormat(parseResult)
+                == OutputFormat.Json
+           && !GetBooleanOptionValue(parseResult, "--print");
+
+    private static bool IsStructuredPrintProjection(ParseResult parseResult)
+        => GetBooleanOptionValue(parseResult, "--print")
+           && (ResolveEffectiveStructuredOutputFormat(parseResult)
+                   is OutputFormat.Json or OutputFormat.Jsonl
+               || GetBooleanOptionValue(parseResult, "--json-array"));
+
+    private static OutputFormat? ResolveEffectiveStructuredOutputFormat(
+        ParseResult parseResult)
+    {
+        bool hasVerbosity = IsOptionExplicit(parseResult, "-v");
+        bool json = GetBooleanOptionValue(parseResult, "--json");
+        bool markdown = GetBooleanOptionValue(parseResult, "--markdown");
+        bool plainText = GetBooleanOptionValue(parseResult, "--plaintext");
+        bool mermaid = GetBooleanOptionValue(parseResult, "--mermaid");
+        bool table = GetBooleanOptionValue(parseResult, "--table");
+        bool tsv = GetBooleanOptionValue(parseResult, "--tsv");
+        bool jsonl = GetBooleanOptionValue(parseResult, "--jsonl");
+        bool hasExplicitRenderer =
+            json || markdown || plainText || mermaid
+            || table || tsv || jsonl || hasVerbosity;
+        if (!hasExplicitRenderer
+            && GetBooleanOptionValue(parseResult, "--bare")
+            && OutputFormatResolver.GetEnvironmentOverride()
+                is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl)
+        {
+            return null;
+        }
+
+        OutputFormat format = OutputFormatResolver.Resolve(
+            json,
+            markdown,
+            hasVerbosity
+                ? Verbosity.Minimal
+                : null,
+            plainText,
+            mermaid,
+            table,
+            tsv,
+            jsonl);
+        return format is OutputFormat.Json or OutputFormat.Jsonl
+            ? format
+            : null;
+    }
+
+    private static bool IsOptionExplicit(
+        ParseResult parseResult,
+        string optionName)
+    {
+        for (System.CommandLine.Parsing.SymbolResult? scope = parseResult.CommandResult;
+             scope is not null;
+             scope = scope.Parent)
+        {
+            if (scope is not System.CommandLine.Parsing.CommandResult commandResult)
+                continue;
+
+            var option = commandResult.Command.Options
+                .FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.Name,
+                        optionName,
+                        StringComparison.Ordinal)
+                    || candidate.Aliases.Contains(
+                        optionName,
+                        StringComparer.Ordinal));
+            if (option is not null
+                && commandResult.GetResult(option) is { Implicit: false })
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool GetBooleanOptionValue(
+        ParseResult parseResult,
+        string optionName)
+    {
+        for (System.CommandLine.Parsing.SymbolResult? scope = parseResult.CommandResult;
+             scope is not null;
+             scope = scope.Parent)
+        {
+            if (scope is not System.CommandLine.Parsing.CommandResult commandResult)
+                continue;
+
+            var option = commandResult.Command.Options
+                .OfType<Option<bool>>()
+                .FirstOrDefault(candidate =>
+                    string.Equals(
+                        candidate.Name,
+                        optionName,
+                        StringComparison.Ordinal)
+                    || candidate.Aliases.Contains(
+                        optionName,
+                        StringComparer.Ordinal));
+            if (option is not null)
+                return parseResult.GetValue(option);
+        }
+
+        return false;
     }
 
     private static bool WriteParseErrors(ParseResult parseResult)

@@ -1108,7 +1108,11 @@ public class PackageCommand
             }
             else
             {
-                if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "package")
+                    || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
@@ -1261,7 +1265,11 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
-            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    options,
+                    options.JsonOutput,
+                    "package")
+                || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                 return 1;
 
             Console.WriteLine(JsonSerializer.Serialize(
@@ -4428,6 +4436,12 @@ public class PackageCommand
 
         if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
+            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    libraryOptions,
+                    libraryOptions.JsonOutput,
+                    "package --all-libraries"))
+                return 1;
+
             string json = JsonSerializer.Serialize(
                 inspections.ToArray(),
                 JsonContext.Default.LibraryInspectionArray);

@@ -141,11 +141,14 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(opts.Json);
         opts.AddTableOptionsTo(listCommand);
         listCommand.Options.Add(opts.Limit);
+        listCommand.Options.Add(opts.Head);
+        listCommand.Options.Add(opts.Tail);
+        opts.AddRowWindowValidators(listCommand);
         listCommand.SetAction((parseResult) =>
         {
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
-            return SkillCommand.ExecuteList(format, noHeader);
+            return SkillCommand.ExecuteList(format, noHeader, opts.ParseRows(parseResult));
         });
         skillCommand.Subcommands.Add(listCommand);
 
@@ -186,6 +189,9 @@ public static class UtilityCommandDefinitions
         listCommand.Options.Add(opts.PlainText);
         opts.AddTableOptionsTo(listCommand);
         listCommand.Options.Add(opts.Limit);
+        listCommand.Options.Add(opts.Head);
+        listCommand.Options.Add(opts.Tail);
+        opts.AddRowWindowValidators(listCommand);
         listCommand.SetAction(parseResult =>
         {
             // Parent-bound flags (e.g. `demo --markdown --mermaid list`) must use the
@@ -196,7 +202,11 @@ public static class UtilityCommandDefinitions
             var format = opts.ResolveFormat(parseResult);
             var noHeader = parseResult.GetValue(opts.NoHeaders);
             var mermaid = parseResult.GetValue(opts.Mermaid);
-            return DemoCommand.ExecuteList(format, noHeader, mermaidRequested: mermaid);
+            return DemoCommand.ExecuteList(
+                format,
+                noHeader,
+                mermaidRequested: mermaid,
+                rows: opts.ParseRows(parseResult));
         });
         demoCommand.Subcommands.Add(listCommand);
 

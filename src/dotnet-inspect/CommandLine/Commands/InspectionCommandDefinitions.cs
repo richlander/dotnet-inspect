@@ -457,6 +457,23 @@ public static class InspectionCommandDefinitions
                 }
                 select = [.. select ?? [], .. targets];
             }
+            var pipeline = LibrarySections.CreatePipeline();
+            if (!opts.TryValidateTopRanking(
+                    parseResult,
+                    select,
+                    autoSelectsRankingSection: performanceTriage.HasFilters
+                                              && !bodyKindQuery.HasFilter
+                                              && !opts.IsDiscoveryMode(parseResult)
+                                              && !hasExplicitSelect,
+                    pipeline.SelectableSectionNames,
+                    pipeline.InfoSectionNames,
+                    pipeline.GetCategoryMap(),
+                    selectDefault,
+                    out var topRankingError))
+            {
+                CommandError.Write(topRankingError!);
+                return 1;
+            }
 
             var options = new LibraryOptions
             {
@@ -506,6 +523,13 @@ public static class InspectionCommandDefinitions
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = opts.ParseRows(parseResult),
+                HumanRowWindowNote = opts.BuildHumanRowWindowNote(
+                    parseResult,
+                    select,
+                    pipeline.SelectableSectionNames,
+                    pipeline.InfoSectionNames,
+                    pipeline.GetCategoryMap(),
+                    selectDefault),
                 PerformanceTriage = performanceTriage,
                 BodyKindQuery = bodyKindQuery,
                 Schema = opts.ParseSchema(parseResult),

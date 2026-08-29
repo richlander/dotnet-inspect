@@ -2314,6 +2314,11 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
+            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    options,
+                    options.JsonOutput,
+                    "type"))
+                return 1;
             WriteJsonTypeOutput(type, options);
             return 0;
         }

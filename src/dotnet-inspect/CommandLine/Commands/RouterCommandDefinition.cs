@@ -86,15 +86,15 @@ public static class RouterCommandDefinition
             }
 
             RequestTelemetry.Breadcrumb("router-hit", string.Join(' ', tokens));
-            var rewritten = await RouterTokenRewriter.RewriteAsync(
+            var route = await RouteTokensAsync(
                 tokens,
                 sourceOptions,
                 rootCommand);
             RequestTelemetry.Breadcrumb(
                 "router-rewrite",
-                $"{string.Join(' ', tokens)} -> {string.Join(' ', rewritten)}");
+                $"{string.Join(' ', tokens)} -> {string.Join(' ', route.Arguments)}");
 
-            if (rewritten.Length == tokens.Length && rewritten.SequenceEqual(tokens))
+            if (!route.Routed)
             {
                 CommandError.Write($"Could not route '{tokens[0]}'.");
                 return 1;
@@ -103,10 +103,34 @@ public static class RouterCommandDefinition
             // Invoked through the audit choke point, not ParseResult.InvokeAsync: the router
             // captures projection flags as raw tokens, so the outer invocation records nothing
             // and only this rewritten parse can tell whether a projection was honored.
-            return await CommandLineBuilder.InvokeAsync(rootCommand.Parse(rewritten));
+            return await CommandLineBuilder.InvokeAsync(
+                rootCommand.Parse(route.Arguments));
         });
 
         return routerCommand;
+    }
+
+    internal static async Task<(bool Routed, string[] Arguments)>
+        RouteTokensAsync(
+            string[] tokens,
+            NuGetSourceOptions sourceOptions,
+            RootCommand rootCommand)
+    {
+        string[] rewritten = await RouterTokenRewriter.RewriteAsync(
+            tokens,
+            sourceOptions,
+            rootCommand);
+        if (rewritten.Length == tokens.Length
+            && rewritten.SequenceEqual(tokens))
+        {
+            return (false, rewritten);
+        }
+
+        return (
+            true,
+            ArgumentPreprocessor.PreprocessRoutedArgs(
+                rewritten,
+                rootCommand));
     }
 
     private static List<ParseError> GetSourceOptionErrors(
@@ -229,6 +253,13 @@ public static class RouterCommandDefinition
                 || ContainsOption(tokens, "--latest-version")
                 || ContainsOption(tokens, "--versions")
                 || ContainsOption(tokens, "--versions-with-feed");
+            bool libraryValueIsLimitShorthand =
+                hasLibraryValue
+                && CommandLineModel.IsLimitShorthand(libraryValue);
+            TryFindPositionalIndex(
+                tail,
+                rootCommand,
+                out int deferredTargetIndex);
             if (TryRouteExplicitSourceTarget(
                     target,
                     tail,
@@ -247,6 +278,18 @@ public static class RouterCommandDefinition
                     out explicitSourceRoute))
             {
                 return explicitSourceRoute;
+            }
+
+            if (libraryValueIsLimitShorthand
+                && deferredTargetIndex < 0
+                && !hasExplicitGenericNotation
+                && !hasTypeOption
+                && !hasMemberOption
+                && !ContainsOption(tail, "--package")
+                && !ContainsOption(tail, "--platform")
+                && !ContainsOption(tail, "--project"))
+            {
+                return ["package", .. tokens];
             }
 
             if (hasTypeOption && hasExplicitApiSource)
@@ -908,19 +951,7 @@ public static class RouterCommandDefinition
         private static bool IsKnownOption(
             RootCommand rootCommand,
             string token) =>
-            FindKnownOption(rootCommand, token) is not null;
-
-        private static Option? FindKnownOption(
-            RootCommand rootCommand,
-            string token)
-        {
-            var optionName = GetOptionName(token);
-            return rootCommand.Options
-                .Concat(rootCommand.Subcommands.SelectMany(
-                    static command => command.Options))
-                .FirstOrDefault(
-                    option => MatchesOption(option, optionName));
-        }
+            CommandLineModel.FindOptions(rootCommand, token).Any();
 
         private static bool IsPackageRelativeLibraryValue(string value)
         {
@@ -1063,8 +1094,13 @@ public static class RouterCommandDefinition
             index = -1;
             for (var i = 0; i < tokens.Length; i++)
             {
-                var option = FindKnownOption(rootCommand, tokens[i]);
-                if (option is null)
+                Option[] options =
+                [
+                    .. CommandLineModel.FindOptions(
+                        rootCommand,
+                        tokens[i])
+                ];
+                if (options.Length == 0)
                 {
                     if (tokens[i].StartsWith('-'))
                         continue;
@@ -1073,20 +1109,20 @@ public static class RouterCommandDefinition
                     return true;
                 }
 
-                if (tokens[i].AsSpan().IndexOfAny('=', ':') >= 0)
+                if (CommandLineModel.HasAttachedValue(tokens[i]))
                     continue;
 
-                var remainingValues = option.ValueType == typeof(bool)
-                    ? 0
-                    : option.AllowMultipleArgumentsPerToken
-                        ? option.Arity.MaximumNumberOfValues
-                        : Math.Min(
-                            1,
-                            option.Arity.MaximumNumberOfValues);
+                int remainingValues = options.Max(option =>
+                    !CommandLineModel.CanConsumeFollowingValue(option)
+                        ? 0
+                        : option.AllowMultipleArgumentsPerToken
+                            ? option.Arity.MaximumNumberOfValues
+                            : Math.Min(
+                                1,
+                                option.Arity.MaximumNumberOfValues));
                 while (remainingValues > 0
                     && i + 1 < tokens.Length
-                    && FindKnownOption(rootCommand, tokens[i + 1])
-                        is null)
+                    && !IsKnownOption(rootCommand, tokens[i + 1]))
                 {
                     i++;
                     remainingValues--;
@@ -1103,24 +1139,6 @@ public static class RouterCommandDefinition
 
             return FqnParser.LastTopLevelDot(target) < 0;
         }
-
-        private static string GetOptionName(string token)
-        {
-            var separator = token.AsSpan().IndexOfAny('=', ':');
-            return separator < 0
-                ? token
-                : token[..separator];
-        }
-
-        private static bool MatchesOption(
-            Option option,
-            string optionName) =>
-            option.Name.Equals(
-                optionName,
-                StringComparison.OrdinalIgnoreCase)
-            || option.Aliases.Contains(
-                optionName,
-                StringComparer.OrdinalIgnoreCase);
 
         private static string[] RemoveOptionWithValue(
             string[] tokens,

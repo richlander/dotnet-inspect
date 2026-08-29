@@ -2,6 +2,7 @@ using System.Text.Json;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
@@ -58,6 +59,35 @@ public class DemoCommandTests
             .Select(element => element.GetProperty("id").GetString()!)
             .ToArray();
         Assert.Equal(ProductInspectionDemos.HomeScenarioIds, ids);
+    }
+
+    [Fact]
+    public async Task ExecuteList_AppliesItemWindow()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(
+                DemoCommand.ExecuteList(
+                    OutputFormat.Json,
+                    rows: RowWindow.Head(1))));
+
+        Assert.Equal(0, exitCode);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+        Assert.Equal(
+            ProductInspectionDemos.Entries[0].Id,
+            document.RootElement[0].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task ListCommand_AppliesItemWindow()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync("demo", "list", "-n", "1", "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
     }
 
     [Fact]

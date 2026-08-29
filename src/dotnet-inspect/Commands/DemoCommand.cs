@@ -51,7 +51,8 @@ public static class DemoCommand
     public static int ExecuteList(
         OutputFormat format = OutputFormat.Markdown,
         bool noHeader = false,
-        bool mermaidRequested = false)
+        bool mermaidRequested = false,
+        RowWindow? rows = null)
     {
         if (format is OutputFormat.Mermaid || mermaidRequested)
         {
@@ -63,16 +64,16 @@ public static class DemoCommand
 
         if (format == OutputFormat.Json)
         {
-            var rows = ProductInspectionDemos.Entries
+            var jsonRows = RowWindow.Apply(rows, ProductInspectionDemos.Entries)
                 .Select(entry => new DemoListJsonRow(entry.Id, entry.Title, entry.Summary))
                 .ToList();
-            Console.WriteLine(JsonSerializer.Serialize(rows, DemoJsonContext.Default.ListDemoListJsonRow));
+            Console.WriteLine(JsonSerializer.Serialize(jsonRows, DemoJsonContext.Default.ListDemoListJsonRow));
             return 0;
         }
 
         var view = new DemoListView
         {
-            Demos = ProductInspectionDemos.Entries
+            Demos = RowWindow.Apply(rows, ProductInspectionDemos.Entries)
                 .Select(entry => new DemoListRow
                 {
                     Id = entry.Id,

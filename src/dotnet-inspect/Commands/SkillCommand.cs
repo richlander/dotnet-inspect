@@ -114,16 +114,22 @@ public class SkillCommand
     /// skill, at H1 since it is the whole document here. Table/TSV/JSONL render
     /// just the rows; JSON emits structured rows.
     /// </summary>
-    public static int ExecuteList(OutputFormat format = OutputFormat.Markdown, bool noHeader = false)
+    public static int ExecuteList(
+        OutputFormat format = OutputFormat.Markdown,
+        bool noHeader = false,
+        RowWindow? rows = null)
     {
+        var visibleSkills = RowWindow.Apply(rows, Skills);
         if (format == OutputFormat.Json)
         {
-            var rows = Skills.Select(s => new SkillListJsonRow(s.Name, s.Description)).ToList();
-            Console.WriteLine(JsonSerializer.Serialize(rows, SkillListJsonContext.Default.ListSkillListJsonRow));
+            var jsonRows = visibleSkills
+                .Select(s => new SkillListJsonRow(s.Name, s.Description))
+                .ToList();
+            Console.WriteLine(JsonSerializer.Serialize(jsonRows, SkillListJsonContext.Default.ListSkillListJsonRow));
             return 0;
         }
 
-        var view = BuildSkillsView();
+        var view = BuildSkillsView(visibleSkills);
         switch (format)
         {
             case OutputFormat.Table:
@@ -146,9 +152,10 @@ public class SkillCommand
         return 0;
     }
 
-    private static SkillsView BuildSkillsView() => new()
+    private static SkillsView BuildSkillsView(
+        IReadOnlyList<SkillEntry>? skills = null) => new()
     {
-        Skills = Skills
+        Skills = (skills ?? Skills)
             .Select(s => new SkillRow
             {
                 Skill = s.Name,

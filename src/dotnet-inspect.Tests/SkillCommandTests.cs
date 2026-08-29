@@ -1,5 +1,7 @@
+using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -35,6 +37,40 @@ public class SkillCommandTests
         {
             Assert.Contains(skill.Name, output[skillsIndex..]);
         }
+    }
+
+    [Fact]
+    public async Task ExecuteList_AppliesItemWindow()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(
+            () => Task.FromResult(
+                SkillCommand.ExecuteList(
+                    OutputFormat.Json,
+                    rows: RowWindow.Head(1))));
+
+        Assert.Equal(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+        Assert.Equal(
+            SkillCommand.Skills[0].Name,
+            document.RootElement[0].GetProperty("skill").GetString());
+    }
+
+    [Fact]
+    public async Task ListCommand_AppliesItemWindow()
+    {
+        var (exitCode, output, _) = await ConsoleCapture.RunAsync(async () =>
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+                ["skill", "list", "-n", "1", "--json"]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(0, exitCode);
+        using var document = System.Text.Json.JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
     }
 
     [Fact]
