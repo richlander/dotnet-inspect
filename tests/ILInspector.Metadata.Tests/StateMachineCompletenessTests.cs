@@ -35,7 +35,16 @@ namespace ILInspector.Metadata.Tests;
 /// index fails to build at all, every structural TypeDef comes back
 /// <c>Rejected</c> whether or not it ever carried a claim, so a whole-assembly
 /// rejection says the index failed rather than that this many claims were
-/// refused. The sweep's report separates the two.
+/// refused.
+///
+/// The report does not separate those two. It keeps <c>Failure.Kind</c> only,
+/// and the kinds overlap — <c>Malformed</c> and <c>BudgetExceeded</c> arise
+/// both ways — so "refused authentication" in a sweep message means "the index
+/// did not authenticate this type", not necessarily that a claim was offered
+/// and declined. Round 15 caught this paragraph asserting a distinction nothing
+/// makes. Read a whole-assembly rejection as the index having failed, and the
+/// shape of the failure as the thing to go look at; #4833 tracks the failure
+/// contract that would let the report say which it was.
 /// </summary>
 public sealed class StateMachineCompletenessTests
 {
@@ -742,23 +751,37 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Enumeration terminates on a directory that contains itself.
+    /// Enumeration terminates on a directory that contains itself, and still
+    /// reaches files nested beneath the corpus root.
     ///
-    /// This one keeps its place while the rest of the enumeration tests go,
-    /// because a hang is the failure mode this harness has actually produced: an
-    /// unattended FIFO in a corpus blocks the sweep on open, and a test that
-    /// never returns reports nothing at all. A cycle is the cheap, portable
-    /// version of that risk.
+    /// The termination half keeps its place while the rest of the enumeration
+    /// tests go, because a hang is the failure mode this harness has actually
+    /// produced: an unattended FIFO in a corpus blocks the sweep on open, and a
+    /// test that never returns reports nothing at all. A cycle is the cheap,
+    /// portable version of that risk, and the test proves termination by
+    /// returning.
+    ///
+    /// Round 15 found the traversal half missing. Every other corpus in this
+    /// file is flat, so deleting the directory push from
+    /// <see cref="EnumerateCandidates"/> outright — the sweep then measuring
+    /// only the root, which is most of what it is for — left the whole suite
+    /// green. The damaged specimen sits one directory down, so a sweep that
+    /// stops at the root reports clean and fails here.
     /// </summary>
     [Fact]
-    public void Sweep_DirectoryCycle_TerminatesAndStaysClean()
+    public void Sweep_DirectoryCycle_TerminatesAndReachesNestedFiles()
     {
         string corpus = NewCorpusDirectory();
         try
         {
-            File.Copy(
-                typeof(Fixtures).Assembly.Location,
-                Path.Combine(corpus, "good.dll"));
+            string specimen = typeof(Fixtures).Assembly.Location;
+            File.Copy(specimen, Path.Combine(corpus, "good.dll"));
+
+            string nested = Path.Combine(corpus, "nested");
+            Directory.CreateDirectory(nested);
+            File.WriteAllBytes(
+                Path.Combine(nested, "buried.dll"),
+                Damage(File.ReadAllBytes(specimen), DamageKind.Truncated));
 
             try
             {
@@ -773,7 +796,11 @@ public sealed class StateMachineCompletenessTests
 
             string? problems = SweepProblems(corpus, out string surveyed);
 
-            Assert.True(problems is null, $"{surveyed}\n\n{problems}");
+            Assert.False(
+                problems is null,
+                "A damaged assembly one directory down was never enumerated, so "
+                    + $"the sweep reported the corpus clean. {surveyed}");
+            Assert.Contains("buried.dll", problems);
         }
         finally
         {
@@ -1183,6 +1210,22 @@ public sealed class StateMachineCompletenessTests
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
+                    // Defer to the oracle. SRM is lazy, so an ordinary text file
+                    // in a corpus reaches here rather than the constructor:
+                    // HasMetadata throws "Unknown file format" and answers
+                    // nothing. The oracle already read the headers and did, so
+                    // `undecodable` carries its answer -- NotManaged for a file
+                    // that never claimed to be managed, DecodeFailed for one
+                    // that did, Unclassifiable when the oracle could not tell
+                    // either.
+                    //
+                    // Round 15 proposed returning Unclassifiable unconditionally
+                    // here, on the reasoning that SRM throwing means damage
+                    // rather than agreement with a No. Tried it:
+                    // Sweep_NonManagedFile_IsSkippedButCounted went red, because
+                    // notes.txt takes exactly this path and is not damaged. A
+                    // corpus of build output is full of such files and the sweep
+                    // has to skip them without failing.
                     detail = $"{ex.GetType().Name}: {ex.Message}";
                     return undecodable;
                 }
