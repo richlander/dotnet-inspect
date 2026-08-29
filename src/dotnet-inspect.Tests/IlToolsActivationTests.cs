@@ -615,22 +615,29 @@ public class IlToolsActivationTests
     /// mentions `export` and would otherwise sail through.
     /// </summary>
     [Fact]
-    public void AgentsMarkdown_DelegatesIlToolsPathAssemblyToTheScript()
+    public void DevelopmentDocumentation_DelegatesIlToolsPathAssemblyToTheScript()
     {
         var agents = File.ReadAllText(Path.Combine(RepoRoot, "AGENTS.md"));
+        var developmentEnvironment = File.ReadAllText(
+            Path.Combine(RepoRoot, "docs", "dev-environment.md"));
 
-        Assert.Contains("source eng/activate-iltools.sh", agents);
+        Assert.Contains(
+            "docs/dev-environment.md#test-tooling-activation",
+            agents);
+        Assert.Contains(
+            "source eng/activate-iltools.sh",
+            developmentEnvironment);
 
-        foreach (var block in FencedBashBlocks(agents).Where(b => b.Contains("iltools")))
+        foreach (var block in FencedBashBlocks($"{agents}\n{developmentEnvironment}").Where(b => b.Contains("iltools")))
         {
             Assert.False(
                 block.Contains("restore-iltools.sh"),
-                $"AGENTS.md tells the reader to run the producer directly instead of sourcing\n" +
+                $"Contributor guidance tells the reader to run the producer directly instead of sourcing\n" +
                 $"eng/activate-iltools.sh, which puts the PATH assembly back outside the gate:\n{block}");
 
             Assert.False(
                 block.Contains("PATH="),
-                $"AGENTS.md assembles PATH by hand instead of sourcing eng/activate-iltools.sh:\n{block}");
+                $"Contributor guidance assembles PATH by hand instead of sourcing eng/activate-iltools.sh:\n{block}");
         }
     }
 

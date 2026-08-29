@@ -59,6 +59,7 @@ public sealed class SectionPipeline<TModel>
     private bool _curatedCatalog;
     private bool _computedPoles = true;
     private Func<InspectionQueryDefinition, InspectionCost>? _queryCost;
+    private bool _queryCostsCompiled;
     private SectionCatalog<TModel>? _compiledCatalog;
 
     public const string AllCategory = "@All";
@@ -104,6 +105,12 @@ public sealed class SectionPipeline<TModel>
         Func<InspectionQueryDefinition, InspectionCost> costOf)
     {
         EnsureMutable();
+        ArgumentNullException.ThrowIfNull(costOf);
+        if (_queryCostsCompiled)
+        {
+            throw new InvalidOperationException(
+                "Query costs are owned by the compiled inspection domain.");
+        }
         if (_entries.Count > 0)
             throw new InvalidOperationException(
                 "UseQueryCosts must be called before any section is registered; " +
@@ -111,6 +118,14 @@ public sealed class SectionPipeline<TModel>
                 "declared cost.");
 
         _queryCost = costOf;
+        return this;
+    }
+
+    internal SectionPipeline<TModel> UseCompiledQueryCosts(
+        Func<InspectionQueryDefinition, InspectionCost> costOf)
+    {
+        UseQueryCosts(costOf);
+        _queryCostsCompiled = true;
         return this;
     }
 
@@ -806,7 +821,7 @@ public sealed class SectionPipeline<TModel>
         HashSet<string>? include = null,
         bool fixedOverview = false,
         InspectionTrace? trace = null,
-        IReadOnlyList<(string Reason, InspectionQueryDefinition Query)>? commandDemand = null,
+        IReadOnlyList<HostQueryDemand>? commandDemand = null,
         bool excludeUnbounded = false)
     {
         HashSet<InspectionQueryDefinition> queries = [];
@@ -822,10 +837,10 @@ public sealed class SectionPipeline<TModel>
 
         if (commandDemand is not null)
         {
-            foreach ((string reason, InspectionQueryDefinition query) in commandDemand)
+            foreach (HostQueryDemand demand in commandDemand)
             {
-                queries.Add(query);
-                trace?.RecordCommandQueryDemand(reason, query);
+                queries.Add(demand.Query);
+                trace?.RecordCommandQueryDemand(demand.Reason, demand.Query);
             }
         }
 
