@@ -91,7 +91,9 @@ public class OutputFormatterTests
         var tempDirectory = Directory.CreateTempSubdirectory("projection-row-window-");
         try
         {
-            CommandLine.ArgumentPreprocessor.PreprocessArgs(["-n", "1"]);
+            var root = CommandLineBuilder.CreateRootCommand();
+            var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "-n", "1"]);
+            CommandLineBuilder.ApplyParsedLineWindow(root.Parse(args));
             var path = Path.Combine(tempDirectory.FullName, "paths.txt");
             var exit = ShapeProjectionOutput.Write(
                 [
@@ -122,7 +124,9 @@ public class OutputFormatterTests
         var tempDirectory = Directory.CreateTempSubdirectory("projection-exact-preflight-");
         try
         {
-            CommandLine.ArgumentPreprocessor.PreprocessArgs(["-n", "1"]);
+            var root = CommandLineBuilder.CreateRootCommand();
+            var args = CommandLineBuilder.PreprocessArgs(["package", "Foo", "-n", "1"]);
+            CommandLineBuilder.ApplyParsedLineWindow(root.Parse(args));
             var absentPath = Path.Combine(tempDirectory.FullName, "absent.bin");
             var existingPath = Path.Combine(tempDirectory.FullName, "existing.bin");
             byte[] sentinel = [0x10, 0x20, 0x30];

@@ -72,6 +72,58 @@ public static class CommandLineBuilder
     /// </summary>
     public static string[] PreprocessArgs(string[] args) => ArgumentPreprocessor.PreprocessArgs(args);
 
+    public static void ApplyParsedLineWindow(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
+        => ArgumentPreprocessor.ApplyParsedLineWindow(parseResult, rawArgs);
+
+    public static void ApplyParsedLineWindow(
+        ParseResult parseResult,
+        RootCommand rootCommand,
+        string[] preprocessedArgs)
+    {
+        var ownership = ResolveLineWindowParseResult(
+            parseResult,
+            rootCommand,
+            preprocessedArgs);
+        ArgumentPreprocessor.ApplyParsedLineWindow(
+            ownership.ParseResult,
+            ownership.Args);
+    }
+
+    public static bool HasParsedOption(ParseResult parseResult, string alias)
+        => ArgumentPreprocessor.HasParsedOption(parseResult, alias);
+
+    public static bool HasParsedOption(
+        ParseResult parseResult,
+        RootCommand rootCommand,
+        string[] preprocessedArgs,
+        string alias)
+        => ArgumentPreprocessor.HasParsedOption(
+            ResolveLineWindowParseResult(
+                parseResult,
+                rootCommand,
+                preprocessedArgs).ParseResult,
+            alias);
+
+    private static (ParseResult ParseResult, string[] Args)
+        ResolveLineWindowParseResult(
+        ParseResult parseResult,
+        RootCommand rootCommand,
+        string[] preprocessedArgs)
+    {
+        if (parseResult.CommandResult.Command.Name != "router"
+            || preprocessedArgs.Length == 0
+            || preprocessedArgs[0] != "router")
+        {
+            return (parseResult, preprocessedArgs);
+        }
+
+        string[] packageArgs =
+            [PackageCommand.Name, .. preprocessedArgs[1..]];
+        return (rootCommand.Parse(packageArgs), packageArgs);
+    }
+
     /// <summary>
     /// Invokes a parsed command under the payload-projection audit. This is the single
     /// invoke choke point: the product entry point and the test harness both call it, so a
@@ -92,8 +144,12 @@ public static class CommandLineBuilder
     /// the default handler off and catching here rather than only at the entry point
     /// keeps the containment on the path the test harness exercises too.
     /// </summary>
-    public static async Task<int> InvokeAsync(ParseResult parseResult)
+    public static async Task<int> InvokeAsync(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
     {
+        ApplyParsedLineWindow(parseResult, rawArgs);
+
         if (WriteParseErrors(parseResult))
             return 1;
 

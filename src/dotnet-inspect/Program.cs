@@ -175,16 +175,6 @@ try
     if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault() != args[0])
         RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
 
-    // Install line-limiting writer when -NN shorthand was used (e.g. -30).
-    // With --rows, -n/-NN is interpreted by commands as per-table row limits. The
-    // head/tail conflict is validated at parse time by the command validator in
-    // SharedOptions.AddOutputOptionsTo against the real System.CommandLine parse (so it
-    // covers =-syntax and concatenated forms the arg-preprocessor token scan misses),
-    // which is why no --rows gate remains here.
-    var rowLimitMode = args
-        .TakeWhile(a => a != "--")
-        .Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
-
     if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
     {
         CommandError.Write(staleArgumentError!);
@@ -195,6 +185,12 @@ try
     // item limit can keep complete records rather than clipping rendered output.
     var rootCommand = CommandLineBuilder.CreateRootCommand();
     var result = rootCommand.Parse(args);
+    CommandLineBuilder.ApplyParsedLineWindow(result, rootCommand, args);
+    bool rowLimitMode = CommandLineBuilder.HasParsedOption(
+        result,
+        rootCommand,
+        args,
+        "--rows");
     bool packageSearchItemLimit =
         CommandLineBuilder.UsesTypedItemLimit(result);
 
@@ -216,7 +212,7 @@ try
         }
     }
 
-    int exitCode = await CommandLineBuilder.InvokeAsync(result);
+    int exitCode = await CommandLineBuilder.InvokeAsync(result, args);
 
     // Flush tail writer to emit only the last N lines
     if (tailWriter != null)

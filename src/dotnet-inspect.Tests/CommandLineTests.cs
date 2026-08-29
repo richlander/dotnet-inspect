@@ -14,6 +14,17 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class CommandLineTests
 {
+    private static string[] PreprocessAndApplyLineWindow(string[] args)
+    {
+        string[] processed = CommandLineBuilder.PreprocessArgs(args);
+        var root = CommandLineBuilder.CreateRootCommand();
+        CommandLineBuilder.ApplyParsedLineWindow(
+            root.Parse(processed),
+            root,
+            processed);
+        return processed;
+    }
+
     [Fact]
     public void RootCommand_WithNoArgs_ShowsHelpWithoutError()
     {
@@ -596,7 +607,7 @@ public class CommandLineTests
     {
         string[] args = ["find", "--package-prefix", "Azure", option, "-5"];
 
-        string[] result = CommandLineBuilder.PreprocessArgs(args);
+        string[] result = PreprocessAndApplyLineWindow(args);
 
         Assert.Same(args, result);
         Assert.Equal(
@@ -612,7 +623,7 @@ public class CommandLineTests
     {
         string[] args = ["package", "Foo", option];
 
-        string[] result = CommandLineBuilder.PreprocessArgs(args);
+        string[] result = PreprocessAndApplyLineWindow(args);
 
         Assert.Same(args, result);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
@@ -626,7 +637,7 @@ public class CommandLineTests
     {
         string[] args = ["package", "Foo", option, "--tail"];
 
-        string[] result = CommandLineBuilder.PreprocessArgs(args);
+        string[] result = PreprocessAndApplyLineWindow(args);
 
         Assert.Same(args, result);
         Assert.Null(CommandLineBuilder.HeadLines);
@@ -644,7 +655,7 @@ public class CommandLineTests
     {
         string[] args = ["package", "Foo", "-n1", tail];
 
-        CommandLineBuilder.PreprocessArgs(args);
+        PreprocessAndApplyLineWindow(args);
 
         Assert.Equal(fromEnd ? null : 1, CommandLineBuilder.HeadLines);
         Assert.Equal(fromEnd ? 1 : null, CommandLineBuilder.TailLines);
@@ -659,7 +670,7 @@ public class CommandLineTests
     {
         string[] args = ["package", "Foo", "-n1", "--tail", value];
 
-        CommandLineBuilder.PreprocessArgs(args);
+        PreprocessAndApplyLineWindow(args);
 
         Assert.Equal(fromEnd ? null : 1, CommandLineBuilder.HeadLines);
         Assert.Equal(fromEnd ? 1 : null, CommandLineBuilder.TailLines);
@@ -674,7 +685,7 @@ public class CommandLineTests
     {
         string[] args = ["package", "Foo", option, "-n1"];
 
-        CommandLineBuilder.PreprocessArgs(args);
+        PreprocessAndApplyLineWindow(args);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
@@ -689,7 +700,7 @@ public class CommandLineTests
     {
         string[] args = ["package", "Foo", option, "-5"];
 
-        string[] result = CommandLineBuilder.PreprocessArgs(args);
+        string[] result = PreprocessAndApplyLineWindow(args);
 
         Assert.Equal(["package", "Foo", option, "-n", "5"], result);
         Assert.Equal(5, CommandLineBuilder.HeadLines);
@@ -711,7 +722,7 @@ public class CommandLineTests
         string option,
         string lineLimit)
     {
-        CommandLineBuilder.PreprocessArgs(["package", "Foo", option, lineLimit]);
+        PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
@@ -723,7 +734,7 @@ public class CommandLineTests
     public void PreprocessArgs_RequiredLibraryValueCanResembleLineLimit(
         string command)
     {
-        CommandLineBuilder.PreprocessArgs([command, "Foo", "--library", "-n1"]);
+        PreprocessAndApplyLineWindow([command, "Foo", "--library", "-n1"]);
 
         Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
@@ -732,8 +743,42 @@ public class CommandLineTests
     [Fact]
     public void PreprocessArgs_RequiredProjectReadmeValueCanResembleLineLimit()
     {
-        CommandLineBuilder.PreprocessArgs(
+        PreprocessAndApplyLineWindow(
             ["project", "--readme", "-n1", "--help"]);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
+    public void ParsedLineWindow_UsesActiveCommandOptionArity()
+    {
+        PreprocessAndApplyLineWindow(
+            ["find", "--platform", "-n1", "JsonSerializer"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        string[] shorthand = PreprocessAndApplyLineWindow(
+            ["find", "--platform", "-1", "JsonSerializer"]);
+        Assert.Equal(
+            ["find", "--platform", "-n", "1", "JsonSerializer"],
+            shorthand);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        PreprocessAndApplyLineWindow(
+            ["member", "System.String", "--focus", "-n1"]);
+        Assert.Null(CommandLineBuilder.HeadLines);
+
+        PreprocessAndApplyLineWindow(
+            ["library", "example.dll", "--version", "-n1"]);
+        Assert.Null(CommandLineBuilder.HeadLines);
+    }
+
+    [Theory]
+    [InlineData("--path=-n1")]
+    [InlineData("--library=-n1")]
+    public void ParsedLineWindow_InlineOptionalValueRemainsAValue(string option)
+    {
+        PreprocessAndApplyLineWindow(["package", "Foo", option]);
 
         Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
@@ -742,11 +787,11 @@ public class CommandLineTests
     [Fact]
     public void PreprocessArgs_CommandLikeValuesDoNotChangeImplicitPackageContext()
     {
-        CommandLineBuilder.PreprocessArgs(
+        PreprocessAndApplyLineWindow(
             ["--source", "api", "Foo.nupkg", "--path", "-n1"]);
         Assert.Equal(1, CommandLineBuilder.HeadLines);
 
-        CommandLineBuilder.PreprocessArgs(
+        PreprocessAndApplyLineWindow(
             ["Foo", "--path", "-n1", "-t", "project"]);
         Assert.Equal(1, CommandLineBuilder.HeadLines);
     }
@@ -767,7 +812,7 @@ public class CommandLineTests
     {
         string[] args = ["package", "Foo", preceding, token];
 
-        CommandLineBuilder.PreprocessArgs(args);
+        PreprocessAndApplyLineWindow(args);
 
         Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
@@ -797,6 +842,17 @@ public class CommandLineTests
         Assert.Equal(
             ["router", "System.Text.Json", direction, value, "-n1"],
             result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_SearchPlatformSeparatedTailValueKeepsTarget()
+    {
+        string[] args =
+            ["find", "--platform", "JsonSerializer", "--tail", "false"];
+
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Same(args, result);
     }
 
     [Theory]

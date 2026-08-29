@@ -1606,7 +1606,7 @@ public partial class CommandExecutionTests
             }
 
             var root = CommandLineBuilder.CreateRootCommand();
-            return await CommandLineBuilder.InvokeAsync(root.Parse(args));
+            return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
         });
     }
 
@@ -29040,6 +29040,39 @@ public partial class CommandExecutionTests
             Assert.Empty(result.Output);
             Assert.Empty(result.Error);
             Assert.Equal("first\nsecond", File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public async Task PackageExactTransfer_OptionShapedOutputNameStillSeesFollowingLineWindow(
+        string lineWindow)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.OptionShapedOutput",
+            "README.md",
+            "first\nsecond");
+        var outputPath = Path.Combine(tempDir, "--tfm");
+        const string sentinel = "safe";
+        File.WriteAllText(outputPath, sentinel);
+        try
+        {
+            var result = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath,
+                "-S", "Package README file",
+                "--print", "--out", "--tfm", lineWindow,
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains("line limit", result.Error, StringComparison.Ordinal);
+            Assert.Equal(sentinel, File.ReadAllText(outputPath));
         }
         finally
         {
