@@ -759,9 +759,16 @@ conformance, document structure, and WCAG rules. It sets `root: true` so
 configuration outside the project cannot merge into it, and makes one option
 change: `require-sri` uses `target: "crossorigin"`, so third-party bytes must
 carry a digest while same-origin files Vite emits are not asked for one.
-`.htmlvalidateignore` names only `/dist` and `node_modules`, anchored the way
-the project inventory prunes: `dist` is generated at the project root only, so
-an unanchored entry would also exclude an authored `src/dist`.
+`.htmlvalidateignore` names only generated output — `/dist`, `node_modules`,
+`bin` and `obj` — anchored the way the project inventory prunes: `dist` is
+generated at the project root only, so an unanchored entry would also exclude an
+authored `src/dist`, while `bin` and `obj` are .NET build output beside
+`engine/InspectWeb.Engine.csproj` and are pruned at any depth. The `bin` and
+`obj` entries matter only once the engine project has been built, which is why
+they went unnoticed locally and surfaced on CI: without them html-validate was
+linting `engine/bin/**` and `engine/obj/**` — MSBuild static-web-asset
+placeholders and copied `wwwroot` output that no one authored and no one can
+fix.
 
 Eight toolchain tests hold that wiring honest. They pin the preset list, the
 `root: true` setting, and the *whole* `rules` object — `require-sri` is the only

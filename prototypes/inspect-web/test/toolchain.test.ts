@@ -2163,7 +2163,9 @@ test("the html-validate ignore file names only generated directories", () => {
     .map(line => line.trim())
     .filter(line => line !== "");
 
-  assert.deepEqual(ignored, ["/dist", "node_modules"]);
+  assert.deepEqual(ignored, ["/dist", "node_modules", "bin", "obj"],
+    "these mirror how the project inventory prunes, which is what lets the two sets be "
+      + "compared at all; an entry here that is not generated output hides real markup");
 
   // The walk prunes exactly what the ignore file names, so anything it reports is a
   // document the lint is expected to reach. A new entry here that covered authored markup
