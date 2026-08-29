@@ -71,6 +71,16 @@ Confirm that the release commit contains the intended `VersionPrefix`, release
 notes, package `README.md`, and embedded product skills. Record the documentation
 checkpoint even when no edits were required.
 
+When reconciling the shipped skill corpus (`skills/*/SKILL.md`, embedded in the
+tool binary and registered in `SkillCommand.Skills`), check scope as well as
+accuracy: each shipped skill must describe a genuine end-user capability of the
+published tool, not a repository-internal process, CI/certification harness, or
+maintainer workflow (that content belongs under `.github/skills/` instead, and
+is never embedded or registered). Adding a new skill to the shipped corpus, or
+moving a skill into or out of it, is a product-surface change and needs the
+repository owner's explicit approval before landing — do not add or relocate a
+shipped skill unilaterally while doing routine release reconciliation.
+
 ## Publish package and site together
 
 Open `release.yml` and `promote-inspect-web.yml` together:
