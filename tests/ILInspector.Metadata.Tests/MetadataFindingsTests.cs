@@ -35,6 +35,29 @@ public class MetadataFindingsTests
     }
 
     [Fact]
+    public void CompositeExactness_RejectsPairlessTopologyChange()
+    {
+        FindingComparison<ApiTypeHandle> types =
+            FindingComparison.Compare<ApiTypeHandle>(
+                new FindingInspection<ApiTypeHandle>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent),
+                new FindingInspection<ApiTypeHandle>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput));
+        FindingComparison<ApiMemberHandle> members =
+            FindingComparison.Compare<ApiMemberHandle>(
+                new FindingInspection<ApiMemberHandle>.Complete([]),
+                new FindingInspection<ApiMemberHandle>.Complete([]));
+
+        var comparison = new ApiFindingComparison(
+            types,
+            members,
+            new ApiDiff());
+
+        Assert.False(types.IsExact);
+        Assert.False(comparison.IsExact);
+    }
+
+    [Fact]
     public void AddedAndRemovedMembers_AgreeWithApiDiffAnalyzer()
     {
         var oldSurface = Surface(Type("Widget", members:

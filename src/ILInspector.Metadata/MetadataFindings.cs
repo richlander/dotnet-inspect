@@ -825,9 +825,7 @@ public sealed record ApiFindingComparison
     public ApiDiff ApiDiff { get; }
 
     public bool IsExact
-        => Types is FindingComparison<ApiTypeHandle>.Complete typeComparison
-        && Members is FindingComparison<ApiMemberHandle>.Complete memberComparison
-        && ApiDiff.IsEmpty
-        && FindingEquivalence.Exact.IsEquivalent(typeComparison.Pairs)
-        && FindingEquivalence.Exact.IsEquivalent(memberComparison.Pairs);
+        => Types.IsExact
+        && Members.IsExact
+        && ApiDiff.IsEmpty;
 }
