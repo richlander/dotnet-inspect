@@ -146,7 +146,9 @@ differently, but the difference is enforced for only one of them:
   Neither environment-controlled root is the sole anchor `IsPathInCacheContext`
   checks against, either — see the `appName` bullet above and
   [Path-context containment](#path-context-containment) for the
-  independently-anchored legacy root.
+  legacy root and the caveat that it is checked only when the active-root
+  check completes without throwing and simply doesn't match, not truly
+  independently.
 
 The contract is: **`category`, `extension`, and `appName` are caller-owned
 values that every current producer restricts to a fixed literal or a
@@ -186,8 +188,19 @@ escapes the cache root — the existing traversal test only covers the
 root-escaping case (`Clear("..")`, correctly rejected) — so this is a
 distinct failure mode from the path-traversal gap above: a non-conforming
 `category` can silently retarget a destructive operation to a different
-in-root location, not just widen it outside the root. `basePath` is exempt
-from the path-traversal framing of this gap since it is already the accepted
+in-root location, not just widen it outside the root. That "correctly
+rejected" traversal result is also configuration-dependent, not universal: the
+guard accepts a path under *either* the active root or the legacy root (see
+[Path-context containment](#path-context-containment) below), and those two
+roots are derived independently — nothing prevents an operator-supplied
+`basePath` override from placing the active root as a subdirectory *of* the
+legacy root. In that configuration, `Clear("..")` resolves to the legacy
+root itself, which the guard accepts as a legitimate containment target, and
+the deletion proceeds — the traversal succeeds by landing on the *other*
+accepted anchor rather than by escaping both. This is the same
+"root-escaping" case, but its rejection depends on the active and legacy
+roots not being nested inside one another, which nothing here enforces.
+`basePath` is exempt from the path-traversal framing of this gap since it is already the accepted
 exception above, but `GetBasePath`/`Initialize` still place no containment
 constraint on it at all — a `basePath` sourced from untrusted *content*
 rather than trusted operator configuration would be unconstrained in a
@@ -221,7 +234,21 @@ moment it (or a path derived from it) is passed as the *candidate* to
 not silently no-op or contain some unexpected path; it fails
 `EnsurePathInCacheContext`'s guard and throws, because the guard cannot
 distinguish "root not supplied" from "candidate not supplied" once both
-happen to be the same blank string. `Clear` calls it internally before deleting;
+happen to be the same blank string. The legacy root is not evaluated
+independently of the active-root check succeeding cleanly, either:
+`IsPathInCacheContext` checks the active root (`IsSameOrChildPath(fullPath,
+GetBasePath())`) first, and only evaluates `GetLegacyBasePath()`/the legacy
+comparison if that first check *returns* `false` — normally, not
+exceptionally. Because one `catch` wraps both stages, an exception while
+resolving the *active* root (`IsSameOrChildPath` calls
+`Path.GetFullPath(root)` on `GetBasePath()`'s result, which throws for a
+malformed override — see the trust-boundary section above on `basePath`
+having no format validation) is caught and returns `false` immediately,
+without ever reaching the legacy-root comparison. So the legacy root is not
+truly an "independent" second anchor in the sense of being checked
+regardless of what happens to the active-root check; it is checked only
+when active-root resolution completes without throwing and simply doesn't
+match. `Clear` calls it internally before deleting;
 other owners call it directly, but not exclusively before deletion. The
 following description of `NuGetCache`'s and `PlatformPackService`'s call
 sites is cited only as evidence for a `CoreCache`-owned claim — that this
@@ -687,8 +714,22 @@ has released `s_maintenanceLock` and returned, can schedule a new cleanup
 task and reset `s_maintenanceTask` to `null` — but that clears the memoized
 field for the *next* caller of `RequestVersionedCategoryCleanupAsync`; it
 does not, and cannot, add the new task into the array a previously returned
-task already captured. Whoever is still awaiting that earlier task
-therefore never learns about maintenance scheduled after they obtained it.
+task already captured. That does not mean the earlier task's *result* is
+unaffected by the later registration, though: `AwaitMaintenanceAsync`
+captures the task array by reference but reads `progress.Snapshot()` only
+after that array completes — and `progress` is the same
+`CacheMaintenanceProgress` instance shared by every task in the generation,
+including ones registered (against the same root, via
+`ScheduleVersionedCategoryCleanup`) after the earlier call already captured
+its array. So the earlier caller's `CacheMaintenanceResult` can include
+byte/directory counts recorded by a task it never waited for, if that later
+task happens to record its result before the earlier array finishes and
+`Snapshot()` runs — the *waiting* is scoped to the captured array, but the
+*reported counters* are scoped to the whole generation's shared progress
+object, and those two scopes can diverge. Whoever is still awaiting that earlier task
+therefore never learns about maintenance scheduled after they obtained it
+*by waiting for its completion* — but may still observe its accounting
+folded into the numbers the earlier task reports.
 The public `WaitForMaintenance` path does not have this exposure: it holds
 `s_maintenanceLock` for its entire wait, so no `RegisterVersionedCategory`
 call can interleave and schedule additional work while it is in progress.
@@ -879,7 +920,18 @@ overload observed it:
   turns a hit into a `null` return — this `catch` returns directly, so the
   separate miss path (including its own telemetry call and
   `InfoTracker.RecordCacheMiss()`) never runs; a hit that fails this way is
-  not counted as a miss either.
+  not counted as a miss either, but it is not left uncounted altogether:
+  `InfoTracker.RecordCacheHit()` runs, unconditionally, *before*
+  `CacheTelemetry.Record(..., Hit)` inside the same `try`, so the hit counter
+  is already incremented by the time a throwing hit subscriber turns the
+  return value into `null` — the caller observes a miss-shaped result
+  (`null`) while `InfoTracker` still recorded a hit. The miss path has no
+  equivalent guard at all: `CacheTelemetry.Record(..., Miss)` runs
+  unconditionally before `RecordCacheMiss()`, and neither call is wrapped in
+  any `try`/`catch` on this path — so a throwing miss subscriber propagates
+  out of the method entirely (the caller gets an exception, not `null`), and
+  `RecordCacheMiss()` never runs, leaving that access entirely uncounted
+  rather than double-counted or undercounted in a bounded way.
 - **`TryGet`/`TryGetBytes` *with* `maxAge`:** the hit-telemetry call is inside
   a `catch` that swallows the exception and falls through to the *same*
   unguarded miss-telemetry call below it. A subscriber that throws on the
