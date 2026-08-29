@@ -80,9 +80,6 @@ The owner consumes:
 
 A retained operation reads prior state only from its navigation session.
 Stateless evaluation may receive an explicit prior snapshot as data.
-Navigation may orchestrate View Facet Registry evaluation by passing
-owner-issued capability facts opaquely to that owner, but only the Registry's
-typed options and resolution results drive Navigation policy.
 
 ### Outputs
 
@@ -166,11 +163,10 @@ The conceptual subject identity family is:
 Identity equality never uses display text, filename, list position, metadata
 token alone, or backend arrival order.
 
-A navigation lens identity combines one exact structural subject identity with
-one view-facet registry identity. The registry owns the stable facet identity;
-Inspection Subject Navigation owns the exact subject binding. Library Metadata
-and Type Metadata can therefore share a label without sharing identity, while
-two Types using `type.api` remain distinct navigation lens identities.
+A navigation lens identity combines a structural subject kind with one
+view-facet registry identity. The registry owns the stable facet identity;
+Inspection Subject Navigation owns the subject binding. Library Metadata and
+Type Metadata can therefore share a label without sharing identity.
 
 ### Snapshot
 
@@ -273,8 +269,7 @@ The initial semantic recommendations are:
 | Type | API |
 | Library | References |
 | Package Root | Package Overview |
-| Other Root | Root owner's registry role, initially Root Overview |
-| Member | Member Overview |
+| Other Root | Root owner's recommendation |
 
 The exact identities and membership come from the View Facet Registry. If the
 preferred descriptor is unavailable or failed, navigation selects the first
@@ -308,17 +303,6 @@ Subject and lens activation return one of these semantic outcomes:
 | Rejected | Retains state because the command is stale, foreign, or invalid |
 | Failed | Retains state because navigation evaluation failed |
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
-
-After a lens request passes Navigation's command-currency and generation
-checks, a View Facet Registry `Available` result supplies the exact activation
-target. Successful Navigation preparation maps it to `Applied`; a later
-Navigation evaluation failure remains `Failed`. Registry `Unavailable` and
-`Failed` retain their corresponding descriptor evidence and map to
-`Unavailable` and `Failed`. Registry `Inapplicable` and `Unknown` map to
-`Rejected` while retaining the exact registry result in diagnostic evidence.
-Navigation does not collapse those two results or turn a registry failure into
-unavailability. Stale, foreign, or superseded commands retain the Navigation
-outcomes defined here without evaluating a registry result into state.
 
 An unavailable request never silently activates a sibling, ancestor, or
 recommended Type. If the already committed subject became invalid
@@ -476,8 +460,6 @@ The eventual subject-navigation implementation must include named gates for:
 - `SameCoordinateReconciliation_FollowsSubjectTable`
 - `CoordinateVariation_UsesTypedCorrespondence`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
-- `RegistryResolutionOutcomesRetainExactEvidence`
-- `RegistryDescriptorsRemainOwnerOrdered`
 - `RetainedSession_UsesInstalledSnapshotAsOnlyPriorState`
 - `RetainedSession_RejectsCallerSuppliedPriorSnapshot`
 - `RetainedSession_RejectsSuppliedSameSessionSnapshotCustody`
