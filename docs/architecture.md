@@ -1,8 +1,9 @@
 # Implementation architecture
 
-This document maps the current implementation to the architecture owned by the
-rest of the documentation set. It is a guide to composition, project
-boundaries, and code location; it is not an umbrella specification.
+This document maps the current implementation and its explicit migration
+boundaries to the architecture owned by the rest of the documentation set. It
+is a guide to composition, project boundaries, and code location; it is not an
+umbrella specification.
 
 Authority is intentionally distributed:
 
@@ -22,7 +23,8 @@ tests win.
 ## Essential shape
 
 `dotnet-inspect` is one inspection product with multiple hosts. The CLI is the
-most complete host, but it is not the architectural center.
+most complete host, but it is not the architectural center. The product is
+converging incrementally on this host-neutral shape:
 
 ```text
 Hosts
@@ -51,12 +53,13 @@ referenced from several layers.
 
 ## Request composition
 
-A normal inspection follows the same broad path in every host:
+Current hosts perform the same broad responsibilities, although migration to
+the source-neutral artifact and compiled-domain seams is incremental:
 
 | Stage | Responsibility | Typical implementation |
 | ----- | -------------- | ---------------------- |
-| 1. Admit sources | Interpret explicit package, platform, project, local-file, or in-memory input and authorize any network or source-content work. | Host adapters, `DotnetInspector.Packages`, `DotnetInspector.Services`, `DotnetInspector.Artifacts.*` |
-| 2. Form a workspace | Retain immutable content and binding-consistent participant contexts for the operation lifetime. | `ArtifactSetSession`, query workspaces, assembly context groups |
+| 1. Admit sources | Interpret explicit package, platform, project, local-file, or in-memory input and authorize any network or source-content work. | Host adapters, `DotnetInspector.Packages`, `DotnetInspector.Services` |
+| 2. Form a workspace | Retain content and binding-consistent participant contexts for the operation lifetime. | `AssemblySet`, query workspaces, assembly context groups; artifact-session canaries |
 | 3. Resolve intent | Turn host gestures into typed subjects, lenses, sections, row plans, and capabilities. | CLI options and resolvers, section catalogs, output projections |
 | 4. Plan producers | Lower direct section and host demand through an immutable typed-query catalog. | `InspectionQueryCatalog<TContext>`; Diff's compiled domain and lens |
 | 5. Produce evidence | Execute only the selected producer closure over caller-owned contexts. | Metadata, SourceLink, Analysis, Decompiler, Research, package, and relationship queries |
@@ -69,7 +72,7 @@ failed inspection into an empty success.
 
 ## Logical layers
 
-The implementation uses the L1/L2/L3 vocabulary defined by
+The implementation uses the L1/L2/L3 ownership vocabulary defined by
 [Inspection layers](design/inspection-layers.md):
 
 | Layer | Owns | Does not own |
@@ -80,6 +83,12 @@ The implementation uses the L1/L2/L3 vocabulary defined by
 
 Artifact contracts and domain engines sit below these consumer layers rather
 than forming an additional host tier.
+
+These are logical boundaries, not a claim that every layer is already a
+separate reusable assembly. L1 is available through host-neutral projects.
+Current L2 section pipelines remain in the `DotnetInspector.Sections` namespace
+inside the CLI project; the owning design describes their separate-component
+target.
 
 The reusable L1/L2 binding is owned by
 [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition).
@@ -95,15 +104,17 @@ section catalog composition.
 | Region | Responsibility | Primary authority |
 | ------ | -------------- | ----------------- |
 | `DotnetInspector.Artifacts` | Source-neutral artifact identity, provenance, diagnostics, acquisition outcomes, and guarded content access. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
-| `DotnetInspector.Artifacts.Workspaces` | Bounded immutable contribution composition and workspace-session lifetime. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
-| `DotnetInspector.Artifacts.Local` | Snapshotting explicitly supplied local files into artifact contracts. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
+| `DotnetInspector.Artifacts.Workspaces` | Bounded immutable contribution composition and workspace-session lifetime, currently exercised by the package-free fixture canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
+| `DotnetInspector.Artifacts.Local` | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
 | `DotnetInspector.Core` | Tool runtime kernel: cache roots, cache publication, network policy, telemetry, and hardened readers. | [Inspection space architecture](inspection-space.md), [cache concurrency](design/cache-concurrency.md) |
 | `DotnetInspector.Packages`, `NuGetFetch` | Package archives, feeds, package/source caches, and version acquisition. | [Version resolution](design/version-resolution.md), [NuGet authentication](design/nuget-authentication.md) |
 | `DotnetInspector.Services` | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
 
-The artifact floor is intentionally package- and Metadata-free. Higher
-acquisition adapters produce its contracts; consumers receive guarded content
-instead of re-opening a path by convention.
+The artifact floor is intentionally package- and Metadata-free. Its contracts,
+local adapter, and workspace session are implemented migration foundations, not
+the universal CLI acquisition path. The current package-free fixture consumes
+the canary; existing CLI paths still compose Packages, Services, `AssemblySet`,
+and query workspaces while migration continues.
 
 ### Metadata, source, and text
 
@@ -138,18 +149,25 @@ Analysis and Decompiler intentionally answer different questions at different
 representation altitudes. Research composes their evidence; neither engine
 reaches through Research to redefine the other.
 
-### Query and lens composition
+### Query and current lens composition
 
 | Region | Responsibility | Primary authority |
 | ------ | -------------- | ----------------- |
 | `DotnetInspector.Queries` | Core L1 query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |
 | `DotnetInspector.ResearchQueries` | Optional Research-backed L1 queries without pulling Research into the core query assembly. | [Inspection layers](design/inspection-layers.md) |
-| `DotnetInspector.PackageQueries` | Package-aware composition over package-neutral queries and realization proofs. | [Package query CLI](design/package-query-cli.md) |
+| `DotnetInspector.PackageQueries` | Package-aware composition over package-neutral queries and realization proofs. | [Package Root realization](design/artifact-acquisition-and-workspaces.md#package-root-realization) |
 | `DotnetInspector.Vocabulary` | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
-| `DotnetInspector.Sections` | Current L2 section pipelines, immutable catalogs, schemas, and compiled query-domain lenses. | [Section model](design/section-model.md), [section pipeline](design/section-pipeline.md) |
 
 Queries accept content-shaped or context-shaped inputs. They do not choose a
 renderer, parse command lines, or use display strings as identity.
+
+Current L2 section pipelines, immutable catalogs, schemas, and compiled lenses
+live under `src/dotnet-inspect/Sections` in the CLI assembly. The
+[Section model](design/section-model.md) and
+[section pipeline](design/section-pipeline.md) own those contracts;
+[Inspection layers](design/inspection-layers.md) owns the target reusable L2
+component boundary. The browser host currently consumes L1 query projects
+without referencing the CLI assembly.
 
 ### Hosts and tools
 

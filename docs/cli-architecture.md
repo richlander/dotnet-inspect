@@ -31,8 +31,8 @@ The CLI owns:
 - creating and disposing operation contexts, workspaces, services, and
   cancellation;
 - resolving sections, schemas, rows, and command-specific demand;
-- selecting Markdown, JSON, table, TSV, JSONL, or other supported output
-  shapes;
+- selecting Markdown, JSON, table, TSV, JSONL, or another supported output
+  format and passing requested section/shape choices to L2;
 - projecting typed results and failures into user-facing models; and
 - writing diagnostics and exit codes.
 
@@ -64,7 +64,7 @@ typed-query plan
 producer-owned results and failures
    |
    v
-models + views + selected output shape
+selected shape + selected format
    |
    v
 stdout / stderr / exit code
@@ -140,13 +140,14 @@ The CLI keeps typed product data separate from host presentation:
 | ---- | ---- |
 | `Models/` | CLI compatibility and document data without Markout presentation attributes. |
 | `Views/` | Markout-facing projections, sections, field builders, and display-only computed values. |
-| `Output/` | Output-shape selection, serializers, table/TSV/JSONL writers, and command-specific formatters. |
+| `Output/` | Output-format adapters, serializers, table/TSV/JSONL writers, and command-specific formatters. |
 | `JsonContext.cs` | System.Text.Json source-generated metadata for structured output. |
 | Markout context declarations in `Views/` | Markout source-generated metadata for Markdown-oriented views. |
 
 JSON may use a typed data model or an explicitly designed projection. Markdown
-and row output consume view or row shapes. The owning output documents define
-which fields and sections appear at each verbosity.
+and row output consume the selected Document, Table, Vector, or Scalar shape in
+the selected format. The owning output documents define which fields and
+sections appear at each verbosity.
 
 Agent-oriented compactness is a presentation concern, not the product
 architecture. The embedded skills and `llm-design.md` explain how agents choose
@@ -164,7 +165,7 @@ src/dotnet-inspect/
 ├── Inspectors/     CLI-specific adapters and compatibility projection
 ├── Models/         CLI data/document models
 ├── Views/          presentation projections and Markout contexts
-├── Output/         output-shape and serialization adapters
+├── Output/         output-format and serialization adapters
 └── JsonContext.cs  structured-output source generation
 ```
 
