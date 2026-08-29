@@ -249,12 +249,18 @@ with no rejections or absences. That would cover only corpora in which every
 machine is expected to resolve; it would not exercise the absent or rejected
 columns.
 
-### C2 — Failure is never success-shaped
+### C2 — Keyed failure queries are never success-shaped
 
-A construction failure is reported as a failure. Exhausting a bound yields
-`BudgetExceeded`; malformed SRM data yields `Malformed`. Neither becomes an
-empty successful index, and neither becomes an index that answers `Absent` for
-rows it never examined.
+After construction fails, every valid `GetByKickoff`, `GetByStateMachine`, and
+`GetByImplementation` query reports that failure. Exhausting a bound yields
+`BudgetExceeded`; malformed SRM data yields `Malformed`. Neither keyed path
+answers `Absent` for rows construction never examined.
+
+This invariant does **not** cover `Relationships`. That public enumeration is
+empty after whole-module failure and carries no status, so by itself it is
+indistinguishable from a successful index with no relationships. A consumer
+that needs to enumerate and detect global failure has no supported operation
+today; #4833 tracks that missing contract.
 
 Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PropagatesTypedBudgetFailure`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`.

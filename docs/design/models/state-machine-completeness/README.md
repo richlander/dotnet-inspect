@@ -43,6 +43,11 @@ state-machine index. Keeping that seam explicit is preferable to putting
 kickoff, state-machine, implementation, and claimed-name keys back into C1's
 structural-machine domain.
 
+The completeness model covers keyed query results, not the public
+`Relationships` enumeration. Production returns an empty enumeration after
+whole-module failure with no accompanying status, so that surface remains
+success-shaped and is tracked by #4833 rather than idealized here.
+
 ## Structure
 
 There are two models because the invariants have different units.
@@ -119,7 +124,7 @@ vacuous: a broken merge could never reach the state in which it is checked.
 | Name | Design invariant | Statement |
 | --- | --- | --- |
 | `C1_Totality` | C1 | Once `Built`, every machine's result matches an independent recount of `truth` |
-| `C2_FailureIsTyped` | C2 | `Failed` implies a typed kind, and never a success-shaped state |
+| `C2_FailureIsTyped` | C2 | `Failed` implies typed, non-`Absent` keyed-query results |
 | `C3_FailureRejectsAll` | C3 | `Failed` implies *every* machine reports `Rejected` |
 | `C5_ComponentsEqualGraphClosure` | C5 | Component equality is exactly connectivity through tagged merge keys |
 | `C5_ComponentProjectionAgrees` | C5 | One component has one frozen evidence set and reason |
