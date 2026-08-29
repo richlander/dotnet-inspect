@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
 using System.Reflection.Metadata;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
@@ -248,8 +249,14 @@ public sealed partial class AssemblyDependencyResolver :
         return resolved;
     }
 
-    public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-        => ResolveCore(identity, scope).Assembly;
+    public ResolvedAssemblyReference? Resolve(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+    {
+        AssemblyResolutionAttempt attempt = ResolveCore(identity, scope);
+        attempt.AdmissionFailure?.Throw();
+        return attempt.Assembly;
+    }
 
     AssemblyResolutionAttempt ResolveCore(
         AssemblyReferenceIdentity identity,
@@ -267,6 +274,7 @@ public sealed partial class AssemblyDependencyResolver :
         }
 
         CandidateOpenFailureKind? candidateFailure = null;
+        ExceptionDispatchInfo? candidateAdmissionFailure = null;
         CandidateTier? activeTier = null;
 
         foreach (var dependency in candidates)
@@ -287,7 +295,8 @@ public sealed partial class AssemblyDependencyResolver :
                 {
                     return new AssemblyResolutionAttempt(
                         Assembly: null,
-                        candidateFailure);
+                        candidateFailure,
+                        AdmissionFailure: candidateAdmissionFailure);
                 }
             }
             activeTier = tier;
@@ -300,9 +309,14 @@ public sealed partial class AssemblyDependencyResolver :
             ResolvedAssemblyReference? selected = descriptor.Assembly;
             if (selected is null)
             {
-                candidateFailure ??=
-                    descriptor.FailureKind
-                    ?? CandidateOpenFailureKind.Unreadable;
+                if (candidateFailure is null)
+                {
+                    candidateFailure =
+                        descriptor.FailureKind
+                        ?? CandidateOpenFailureKind.Unreadable;
+                    candidateAdmissionFailure =
+                        descriptor.AdmissionFailure;
+                }
                 continue;
             }
             if (!identity.MatchesCandidate(
@@ -322,7 +336,8 @@ public sealed partial class AssemblyDependencyResolver :
         {
             return new AssemblyResolutionAttempt(
                 Assembly: null,
-                candidateFailure);
+                candidateFailure,
+                AdmissionFailure: candidateAdmissionFailure);
         }
 
         // The target may reference an older platform contract than the running
@@ -357,9 +372,14 @@ public sealed partial class AssemblyDependencyResolver :
                 ResolvedAssemblyReference? selected = descriptor.Assembly;
                 if (selected is null)
                 {
-                    candidateFailure ??=
-                        descriptor.FailureKind
-                        ?? CandidateOpenFailureKind.Unreadable;
+                    if (candidateFailure is null)
+                    {
+                        candidateFailure =
+                            descriptor.FailureKind
+                            ?? CandidateOpenFailureKind.Unreadable;
+                        candidateAdmissionFailure =
+                            descriptor.AdmissionFailure;
+                    }
                 }
                 else if (identity.MatchesCandidate(
                         selected.Identity,
@@ -375,7 +395,8 @@ public sealed partial class AssemblyDependencyResolver :
 
         return new AssemblyResolutionAttempt(
             Assembly: null,
-            candidateFailure);
+            candidateFailure,
+            AdmissionFailure: candidateAdmissionFailure);
     }
 
     AssemblyResolutionAttempt? ResolveDesignatedOverlay(
@@ -406,6 +427,7 @@ public sealed partial class AssemblyDependencyResolver :
         var entitled = new List<ResolvedAssemblyReference>();
         CandidateOpenFailureKind? budgetFailure = null;
         CandidateOpenFailureKind? unsupportedFormatFailure = null;
+        ExceptionDispatchInfo? unsupportedAdmissionFailure = null;
         foreach (ResolvedAssemblyDependency dependency in candidates)
         {
             bool designated =
@@ -440,6 +462,8 @@ public sealed partial class AssemblyDependencyResolver :
             {
                 unsupportedFormatFailure =
                     CandidateOpenFailureKind.UnsupportedMetadataFormat;
+                unsupportedAdmissionFailure =
+                    descriptor.AdmissionFailure;
             }
         }
 
@@ -462,7 +486,8 @@ public sealed partial class AssemblyDependencyResolver :
         {
             return new AssemblyResolutionAttempt(
                 Assembly: null,
-                unsupportedFormatFailure);
+                unsupportedFormatFailure,
+                AdmissionFailure: unsupportedAdmissionFailure);
         }
         if (selection is null)
             return null;
@@ -691,6 +716,7 @@ public sealed partial class AssemblyDependencyResolver :
             throw new AssemblyDependencySnapshotBudgetExceededException(
                 _options.MaxSnapshotImageBytes);
         }
+        result.AdmissionFailure?.Throw();
 
         return result.Assembly;
     }
@@ -725,7 +751,8 @@ public sealed partial class AssemblyDependencyResolver :
                     Assembly: null,
                     ClassifyCandidateOpenFailure(
                         failure
-                        ?? new BadImageFormatException()));
+                        ?? new BadImageFormatException()),
+                    CaptureAdmissionFailure(failure));
         }
 
         SnapshotImageResolution snapshot =
@@ -742,7 +769,8 @@ public sealed partial class AssemblyDependencyResolver :
             return new(
                 Assembly: null,
                 snapshot.FailureKind
-                ?? CandidateOpenFailureKind.Unreadable);
+                ?? CandidateOpenFailureKind.Unreadable,
+                snapshot.AdmissionFailure);
         }
 
         byte[] image = snapshot.Image;
@@ -810,7 +838,8 @@ public sealed partial class AssemblyDependencyResolver :
             return new(
                 Identity: null,
                 Image: null,
-                ClassifyCandidateOpenFailure(ex));
+                ClassifyCandidateOpenFailure(ex),
+                CaptureAdmissionFailure(ex));
         }
         finally
         {
@@ -855,6 +884,13 @@ public sealed partial class AssemblyDependencyResolver :
             _ => CandidateOpenFailureKind.Unreadable,
         };
 
+    static ExceptionDispatchInfo? CaptureAdmissionFailure(
+        Exception? exception) =>
+        exception is UnsupportedMetadataFormatException
+            or MalformedMetadataRootException
+                ? ExceptionDispatchInfo.Capture(exception)
+                : null;
+
     readonly record struct AssemblyBindingRequestKey(
         AssemblyBindingTarget Target,
         AssemblyAcquisitionRegistration? Origin,
@@ -882,7 +918,8 @@ public sealed partial class AssemblyDependencyResolver :
         ResolvedAssemblyReference? Assembly,
         CandidateOpenFailureKind? CandidateFailure,
         ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
-        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default);
+        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default,
+        ExceptionDispatchInfo? AdmissionFailure = null);
 
     readonly record struct AssemblyDescriptorKey(
         string Path,
@@ -890,11 +927,13 @@ public sealed partial class AssemblyDependencyResolver :
 
     sealed record AssemblyDescriptorResolution(
         ResolvedAssemblyReference? Assembly,
-        CandidateOpenFailureKind? FailureKind);
+        CandidateOpenFailureKind? FailureKind,
+        ExceptionDispatchInfo? AdmissionFailure = null);
 
     sealed record SnapshotImageResolution(
         AssemblyReferenceIdentity? Identity,
         byte[]? Image,
-        CandidateOpenFailureKind? FailureKind);
+        CandidateOpenFailureKind? FailureKind,
+        ExceptionDispatchInfo? AdmissionFailure = null);
 
 }

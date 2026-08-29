@@ -192,6 +192,15 @@ continue rendering valid neighboring assemblies. A single selected package
 member retains the direct typed rejection used by single-library inspection,
 including when grouped Integrations preflight discovers the rejection.
 
+The nullable `AssemblyDependencyResolver.Resolve`, `Acquire`, and
+`AcquireTargetAssembly` compatibility entry points likewise rethrow exact
+unsupported or malformed admission exceptions instead of representing them as
+missing assemblies. `Resolve_FormatAdmissionFailureIsTyped`,
+`Acquire_FormatAdmissionFailureIsTyped`, and
+`AcquireTargetAssembly_FormatAdmissionFailureIsTyped` gate both snapshot and
+live-path acquisition; `ResolveAndAcquire_GenericInvalidImageRemainUnresolved`
+keeps generic invalid images on the established nullable boundary.
+
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to
 `UnsupportedMetadataFormatException`.

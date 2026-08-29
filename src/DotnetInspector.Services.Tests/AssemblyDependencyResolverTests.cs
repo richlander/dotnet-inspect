@@ -431,6 +431,171 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void Resolve_FormatAdmissionFailureIsTyped(
+        bool unsupported,
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllBytes(
+                candidatePath,
+                CreateFormatRejectedMetadataImage(unsupported));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = snapshot,
+                });
+
+            AssertFormatAdmissionFailure(
+                unsupported,
+                () => resolver.Resolve(
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    AssemblyResolutionScope.Any));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void Acquire_FormatAdmissionFailureIsTyped(
+        bool unsupported,
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllBytes(
+                candidatePath,
+                CreateFormatRejectedMetadataImage(unsupported));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    SnapshotAssemblyImages = snapshot,
+                });
+            var dependency = new ResolvedAssemblyDependency(
+                candidatePath,
+                AssemblyDependencyProvenance.SiblingAssembly);
+
+            AssertFormatAdmissionFailure(
+                unsupported,
+                () => resolver.Acquire(dependency));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void AcquireTargetAssembly_FormatAdmissionFailureIsTyped(
+        bool unsupported,
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            File.WriteAllBytes(
+                targetPath,
+                CreateFormatRejectedMetadataImage(unsupported));
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    SnapshotAssemblyImages = snapshot,
+                });
+
+            AssertFormatAdmissionFailure(
+                unsupported,
+                () => resolver.AcquireTargetAssembly());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveAndAcquire_GenericInvalidImageRemainUnresolved(
+        bool snapshot)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-assembly-deps-").FullName;
+        try
+        {
+            string targetPath = Path.Combine(root, "Target.dll");
+            string candidatePath = Path.Combine(root, "Dependency.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+            File.WriteAllText(candidatePath, "not a PE image");
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [],
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = snapshot,
+                });
+            var dependency = new ResolvedAssemblyDependency(
+                candidatePath,
+                AssemblyDependencyProvenance.SiblingAssembly);
+
+            Assert.Null(
+                resolver.Resolve(
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    AssemblyResolutionScope.Any));
+            Assert.Null(resolver.Acquire(dependency));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Select_IntrinsicCoreLibraryUsesTheTargetsBindingDomain()
     {
@@ -2321,6 +2486,41 @@ public class AssemblyDependencyResolverTests
                 sizeof(int)),
             fixedMetadataRootPrefixLength + versionLength);
         return image;
+    }
+
+    static byte[] CreateFormatRejectedMetadataImage(bool unsupported)
+    {
+        byte[] image = CreateUnsupportedMetadataImage();
+        if (unsupported)
+            return image;
+
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.MetadataStartOffset,
+                sizeof(uint)),
+            0);
+        return image;
+    }
+
+    static void AssertFormatAdmissionFailure(
+        bool unsupported,
+        Action action)
+    {
+        if (unsupported)
+        {
+            Assert.Throws<UnsupportedMetadataFormatException>(action);
+        }
+        else
+        {
+            var exception =
+                Assert.Throws<MalformedMetadataRootException>(action);
+            Assert.Contains(
+                "InvalidSignature",
+                exception.Message,
+                StringComparison.Ordinal);
+        }
     }
 
     static ResolvedAssemblyReference Descriptor(
