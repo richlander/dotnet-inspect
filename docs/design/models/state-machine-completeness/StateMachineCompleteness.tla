@@ -16,7 +16,7 @@ CONSTANTS
     MachineCount, \* structural state machines in the image
     MaxBudget,    \* classification steps before exhaustion
     FailureMode,  \* how whole-module failure rewrites results
-    FailureExitMode, \* whether failed construction can recover
+    FailureMutationMode, \* whether a published failure may change
     FinishMode    \* what construction requires before publishing
 
 (***************************************************************************)
@@ -26,8 +26,8 @@ CONSTANTS
 (*               = "PreserveClassified" leave earlier results standing      *)
 (*               = "ReportAbsent"       report Absent instead of Rejected   *)
 (*                                                                         *)
-(*   FailureExitMode = "Absorbing"       failure is terminal                 *)
-(*                   = "Recover"         failure incorrectly resumes         *)
+(*   FailureMutationMode = "Stable"      published failure is immutable      *)
+(*                       = "RewriteDetail" mutate it after publication        *)
 (*                                                                         *)
 (*   FinishMode  = "Guarded"            require every machine classified    *)
 (*               = "AllowUnvisited"     publish unclassified rows           *)
@@ -37,7 +37,7 @@ ASSUME
     /\ MachineCount \in Nat \ {0}
     /\ MaxBudget \in Nat
     /\ FailureMode \in {"Total", "PreserveClassified", "ReportAbsent"}
-    /\ FailureExitMode \in {"Absorbing", "Recover"}
+    /\ FailureMutationMode \in {"Stable", "RewriteDetail"}
     /\ FinishMode \in {"Guarded", "AllowUnvisited", "DropAsAbsent"}
 
 Machines == 1..MachineCount
@@ -55,16 +55,18 @@ VARIABLES
     truth,        \* independently recomputed classification
     phase,        \* Building, Built, or Failed
     kind,         \* whole-module failure kind, or None
+    failureDetail,\* abstract published failure detail, or zero
     result,       \* published result per structural machine
     visited,      \* structural machines construction reached
     budget        \* remaining classification steps
 
-vars == <<truth, phase, kind, result, visited, budget>>
+vars == <<truth, phase, kind, failureDetail, result, visited, budget>>
 
 TypeOK ==
     /\ truth \in [Machines -> Truths]
     /\ phase \in Phases
     /\ kind \in FailureKinds \cup {"None"}
+    /\ failureDetail \in 0..2
     /\ result \in [Machines -> Results]
     /\ visited \subseteq Machines
     /\ budget \in 0..MaxBudget
@@ -73,6 +75,7 @@ Init ==
     /\ truth \in [Machines -> Truths]
     /\ phase = "Building"
     /\ kind = "None"
+    /\ failureDetail = 0
     /\ result = [m \in Machines |-> "Unclassified"]
     /\ visited = {}
     /\ budget = MaxBudget
@@ -85,7 +88,7 @@ ClassifyOne(m, expectedTruth, classification) ==
     /\ result' = [result EXCEPT ![m] = classification]
     /\ visited' = visited \cup {m}
     /\ budget' = budget - 1
-    /\ UNCHANGED <<truth, phase, kind>>
+    /\ UNCHANGED <<truth, phase, kind, failureDetail>>
 
 ResolveOne(m) == ClassifyOne(m, "Resolvable", "Resolved")
 RejectOne(m) == ClassifyOne(m, "Refused", "Rejected")
@@ -99,6 +102,7 @@ FailModule(k) ==
     /\ phase = "Building"
     /\ phase' = "Failed"
     /\ kind' = k
+    /\ failureDetail' = 1
     /\ result' = [m \in Machines |->
                     CASE FailureMode = "ReportAbsent" -> "Absent"
                       [] FailureMode = "PreserveClassified" ->
@@ -115,12 +119,11 @@ ExhaustBudget ==
     /\ visited # Machines
     /\ FailModule("BudgetExceeded")
 
-RecoverFailure ==
+MutateFailedDetail ==
     /\ phase = "Failed"
-    /\ FailureExitMode = "Recover"
-    /\ phase' = "Building"
-    /\ kind' = "None"
-    /\ UNCHANGED <<truth, result, visited, budget>>
+    /\ FailureMutationMode = "RewriteDetail"
+    /\ failureDetail' = 2
+    /\ UNCHANGED <<truth, phase, kind, result, visited, budget>>
 
 Finish ==
     /\ phase = "Building"
@@ -131,7 +134,7 @@ Finish ==
                          IF result[m] = "Unclassified" THEN "Absent"
                          ELSE result[m]]
                  ELSE result
-    /\ UNCHANGED <<truth, kind, visited, budget>>
+    /\ UNCHANGED <<truth, kind, failureDetail, visited, budget>>
 
 Next ==
     \/ \E m \in Machines : ResolveOne(m)
@@ -139,7 +142,7 @@ Next ==
     \/ \E m \in Machines : AbsentOne(m)
     \/ Malform
     \/ ExhaustBudget
-    \/ RecoverFailure
+    \/ MutateFailedDetail
     \/ Finish
     \/ /\ phase \in {"Built", "Failed"}
        /\ UNCHANGED vars
@@ -159,7 +162,7 @@ C3_FailureRejectsAll ==
     (phase = "Failed") => \A m \in Machines : result[m] = "Rejected"
 
 FailureIsAbsorbing ==
-    [][ (phase = "Failed") => (phase' = "Failed" /\ kind' = kind) ]_vars
+    [][ (phase = "Failed") => UNCHANGED vars ]_vars
 
 EventuallyTerminal == <>Terminal
 

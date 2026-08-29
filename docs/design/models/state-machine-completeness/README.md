@@ -45,6 +45,7 @@ There are two models because the invariants have different units.
 | `truth` | per machine: what it **actually** is, independent of the index |
 | `phase` | `"Building"`, `"Built"`, or `"Failed"` |
 | `kind` | the typed failure kind once `phase = "Failed"` |
+| `failureDetail` | abstract published whole-module failure detail |
 | `result` | per machine: `Unclassified`, `Resolved`, `Absent`, `Rejected` |
 | `visited` | machines construction has reached |
 | `budget` | construction steps remaining |
@@ -113,7 +114,7 @@ vacuous: a broken merge could never reach the state in which it is checked.
 | `C5_ComponentProjectionAgrees` | C5 | One component has one frozen evidence set and reason |
 | `C5_EvidenceMembershipIsComplete` | C5 | Frozen evidence is the union of every component publication's payload |
 | `C5_ReasonComesFromComponent` | C5 | The selected `(Kind, Detail)` pair belongs intact to one component publication |
-| `FailureIsAbsorbing` | C2, C3 | `Failed` is never left, and results never change after it |
+| `FailureIsAbsorbing` | C2, C3 | No modeled part of a published whole-module failure can change |
 | `EventuallyTerminal` | — | Construction always reaches `Built` or `Failed` |
 
 `FailureIsAbsorbing` and `EventuallyTerminal` are temporal; the rest are
@@ -182,7 +183,7 @@ beside the test. The counterexample is cheap, exact, and re-runnable by anyone.
 ## Deliberate counterexamples
 
 Each counterexample is a **committed configuration**, not a described edit.
-The classification model carries `FailureMode`, `FailureExitMode`, and
+The classification model carries `FailureMode`, `FailureMutationMode`, and
 `FinishMode`; the merge
 model carries `MergeMode` and `FreezeMode`. Their correct settings drive the
 three scenarios above, and each configuration below selects one broken
@@ -200,7 +201,7 @@ weaker than it looks.
 | --- | --- | --- |
 | `BrokenPartialFailure.cfg` | Module failure preserves results already recorded, rejecting only unclassified machines | `C3_FailureRejectsAll` |
 | `BrokenAbsentOnFailure.cfg` | Module failure reports `Absent` rather than `Rejected` | `C2_FailureIsTyped` |
-| `BrokenRecoveringFailure.cfg` | Whole-module failure resumes construction | `FailureIsAbsorbing` |
+| `BrokenMutatingFailure.cfg` | A published whole-module failure changes its detail | `FailureIsAbsorbing` |
 | `BrokenPartialMerge.cfg` | A publication joins current representatives but not their whole components | `C5_ComponentsEqualGraphClosure` |
 | `BrokenUnvisitedPublish.cfg` | Construction publishes before classifying every machine | `C1_Totality` |
 | `BrokenUnmergedPublish.cfg` | A publication records links without joining the components they reach | `C5_ComponentsEqualGraphClosure` |
@@ -239,8 +240,10 @@ was checking less than it appeared to.
 - `BrokenHybridReason.cfg` replaces an atomic reason value with independently
   modeled kind and detail, so a hybrid pair can now falsify the intact-pair
   statement.
-- `BrokenRecoveringFailure.cfg` makes non-vacuity evidence explicit for the
-  temporal absorption property rather than relying on the transition shape.
+- `BrokenMutatingFailure.cfg` rewrites only the abstract failure detail while
+  phase, kind, classifications, and budget stay fixed. It makes every-variable
+  absorption load-bearing without also producing a successful index that
+  violates C1.
 
 The last two are worth generalizing from. A model can fail by idealizing the
 implementation, but it can also fail by promoting an incidental implementation
@@ -270,7 +273,7 @@ violation:
 
 ```bash
 for cfg in BrokenPartialFailure BrokenAbsentOnFailure \
-  BrokenRecoveringFailure BrokenUnvisitedPublish BrokenDroppedRow; do
+  BrokenMutatingFailure BrokenUnvisitedPublish BrokenDroppedRow; do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS" tlc2.TLC \
     -config "$cfg.cfg" StateMachineCompleteness.tla
 done
