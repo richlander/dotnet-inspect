@@ -283,6 +283,11 @@ public static class PlatformResolver
         string? packsDirectory = null) =>
         GetInstalledFrameworksCore(packsDirectory);
 
+    internal static PlatformFrameworkSnapshot GetInstalledFrameworkSnapshot() =>
+        new(
+            GetInstalledFrameworks(),
+            GetInstalledRuntimeFrameworks());
+
     private static List<FrameworkInfo> GetInstalledFrameworksCore(string? packsDirectory)
     {
         List<string> packsDirs;
@@ -354,6 +359,32 @@ public static class PlatformResolver
         }
 
         return [.. frameworkMap.Values];
+    }
+
+    private static List<RuntimeFrameworkInfo> GetInstalledRuntimeFrameworks()
+    {
+        var sharedDirectory = GetSharedDirectory();
+        if (sharedDirectory is null)
+            return [];
+
+        List<RuntimeFrameworkInfo> frameworks = [];
+        foreach (var (shortName, sharedFrameworkName) in SharedFrameworkMappings)
+        {
+            string frameworkPath =
+                Path.Combine(sharedDirectory, sharedFrameworkName);
+            string? latestVersion =
+                GetInstalledVersions(frameworkPath).FirstOrDefault();
+            if (latestVersion is null)
+                continue;
+
+            frameworks.Add(
+                new RuntimeFrameworkInfo(
+                    shortName,
+                    latestVersion,
+                    Path.Combine(frameworkPath, latestVersion)));
+        }
+
+        return frameworks;
     }
 
     /// <summary>
@@ -586,21 +617,23 @@ public static class PlatformResolver
             packsDirectory,
             useRuntimeAssemblies,
             platformVersion,
-            installedFrameworks: null);
+            installedFrameworks: null,
+            installedRuntimeFrameworks: null);
 
     internal static (string? AssemblyPath, string? Framework, string? Version, string? Error)
-        ResolveAssemblyFromFrameworks(
+        ResolveAssemblyFromSnapshot(
             string assemblyName,
-            IReadOnlyList<FrameworkInfo> installedFrameworks)
+            PlatformFrameworkSnapshot snapshot)
     {
-        ArgumentNullException.ThrowIfNull(installedFrameworks);
+        ArgumentNullException.ThrowIfNull(snapshot);
         return ResolveAssemblyCore(
             assemblyName,
             frameworkSpec: null,
             packsDirectory: null,
             useRuntimeAssemblies: false,
             platformVersion: null,
-            installedFrameworks);
+            snapshot.ReferenceFrameworks,
+            snapshot.RuntimeFrameworks);
     }
 
     private static (string? AssemblyPath, string? Framework, string? Version, string? Error)
@@ -610,7 +643,8 @@ public static class PlatformResolver
             string? packsDirectory,
             bool useRuntimeAssemblies,
             string? platformVersion,
-            IReadOnlyList<FrameworkInfo>? installedFrameworks)
+            IReadOnlyList<FrameworkInfo>? installedFrameworks,
+            IReadOnlyList<RuntimeFrameworkInfo>? installedRuntimeFrameworks)
     {
         // Detect framework names passed as assembly names (e.g., --platform Microsoft.AspNetCore.App)
         // and provide a helpful error message
@@ -698,7 +732,12 @@ public static class PlatformResolver
                 continue;
 
             // Check if the runtime has a newer (or equal) version
-            var rt = ResolveRuntimeAssembly(assemblyName, shortName);
+            var rt = installedRuntimeFrameworks is null
+                ? ResolveRuntimeAssembly(assemblyName, shortName)
+                : ResolveRuntimeAssembly(
+                    assemblyName,
+                    shortName,
+                    installedRuntimeFrameworks);
             if (rt.AssemblyPath != null && rt.Version != null)
             {
                 var rtVer = ParseVersion(rt.Version);
@@ -714,7 +753,12 @@ public static class PlatformResolver
         // live in the shared runtime but have no ref-pack counterpart.
         foreach (var shortName in new[] { "runtime", "aspnetcore" })
         {
-            var rt = ResolveRuntimeAssembly(assemblyName, shortName);
+            var rt = installedRuntimeFrameworks is null
+                ? ResolveRuntimeAssembly(assemblyName, shortName)
+                : ResolveRuntimeAssembly(
+                    assemblyName,
+                    shortName,
+                    installedRuntimeFrameworks);
             if (rt.AssemblyPath != null)
                 return rt;
         }
@@ -819,6 +863,35 @@ public static class PlatformResolver
         }
 
         return (assemblyPath, frameworkName, version, null);
+    }
+
+    private static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveRuntimeAssembly(
+            string assemblyName,
+            string frameworkName,
+            IReadOnlyList<RuntimeFrameworkInfo> installedFrameworks)
+    {
+        RuntimeFrameworkInfo? framework =
+            installedFrameworks.FirstOrDefault(
+                candidate => candidate.ShortName.Equals(
+                    frameworkName,
+                    StringComparison.OrdinalIgnoreCase));
+        if (framework is null)
+        {
+            return (null, null, null,
+                frameworkName.Equals(
+                    "netstandard",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? "netstandard does not have runtime libraries (ref-only)"
+                    : $"Framework '{frameworkName}' runtime is not installed");
+        }
+
+        string? assemblyPath =
+            FindAssemblyCaseInsensitive(framework.DirectoryPath, assemblyName);
+        return assemblyPath is null
+            ? (null, null, null,
+                $"Library '{assemblyName}' not found in {frameworkName} runtime {framework.Version}")
+            : (assemblyPath, framework.ShortName, framework.Version, null);
     }
 
     private static (string? AssemblyPath, string? Framework, string? Version, string? Error) ResolveRuntimeAssemblyAcrossFrameworks(
@@ -1199,6 +1272,15 @@ public class FrameworkInfo
     public int AssemblyCount { get; set; }
     public string Path { get; set; } = "";
 }
+
+internal sealed record PlatformFrameworkSnapshot(
+    IReadOnlyList<FrameworkInfo> ReferenceFrameworks,
+    IReadOnlyList<RuntimeFrameworkInfo> RuntimeFrameworks);
+
+internal sealed record RuntimeFrameworkInfo(
+    string ShortName,
+    string Version,
+    string DirectoryPath);
 
 /// <summary>
 /// Information about a reference assembly.

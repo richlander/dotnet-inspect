@@ -1022,21 +1022,21 @@ public class PlatformResolverTests
     [Fact]
     public void GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterCoreCacheRootChanges()
     {
-        CoreCache.Initialize("dotnet-inspect");
-        var (baselineRefPath, _, baselineError) =
-            PlatformResolver.ResolveFramework("runtime");
-        if (baselineRefPath is null)
-        {
-            Assert.Skip($"Runtime reference pack not available: {baselineError}");
-            return;
-        }
-
         const string SyntheticVersion = "999.0.0";
         string temporaryCache = Directory.CreateTempSubdirectory(
             "dotnet-inspect-platform-cache-").FullName;
         try
         {
             CoreCache.Initialize("dotnet-inspect-test", temporaryCache);
+            var (baselineRefPath, _, baselineError) =
+                PlatformResolver.ResolveFramework("runtime");
+            if (baselineRefPath is null)
+            {
+                Assert.Skip(
+                    $"Runtime reference pack not available: {baselineError}");
+                return;
+            }
+
             string packsDirectory =
                 Assert.IsType<string>(PlatformPackService.GetPacksCachePath());
             string syntheticRefPath = Path.Combine(
@@ -1062,7 +1062,7 @@ public class PlatformResolverTests
         }
         finally
         {
-            CoreCache.Initialize("dotnet-inspect");
+            CoreCache.Initialize("dotnet-inspect-test");
             Directory.Delete(temporaryCache, recursive: true);
         }
 
@@ -1079,33 +1079,40 @@ public class PlatformResolverTests
     [Fact]
     public void AssemblyDependencyResolver_InstalledFallbackUsesOneFrameworkSnapshotPerResolver()
     {
-        CoreCache.Initialize("dotnet-inspect");
-        var (baselineRefPath, _, baselineError) =
-            PlatformResolver.ResolveFramework("runtime");
-        if (baselineRefPath is null)
-        {
-            Assert.Skip($"Runtime reference pack not available: {baselineError}");
-            return;
-        }
-
-        string runtimeSource = Path.Combine(
-            baselineRefPath,
-            "System.Runtime.dll");
-        string consoleSource = Path.Combine(
-            baselineRefPath,
-            "System.Console.dll");
-        if (!File.Exists(runtimeSource) || !File.Exists(consoleSource))
-        {
-            Assert.Skip(
-                $"Runtime reference pack is incomplete: {baselineRefPath}");
-            return;
-        }
-
-        string temporaryCache = Directory.CreateTempSubdirectory(
+        string? originalDotnetRoot =
+            Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        string temporaryRoot = Directory.CreateTempSubdirectory(
             "dotnet-inspect-platform-snapshot-").FullName;
         try
         {
-            CoreCache.Initialize("dotnet-inspect-test", temporaryCache);
+            CoreCache.Initialize(
+                "dotnet-inspect-test",
+                Path.Combine(temporaryRoot, "cache"));
+            var (baselineRefPath, _, baselineError) =
+                PlatformResolver.ResolveFramework("runtime");
+            if (baselineRefPath is null)
+            {
+                Assert.Skip(
+                    $"Runtime reference pack not available: {baselineError}");
+                return;
+            }
+
+            string runtimeSource = Path.Combine(
+                baselineRefPath,
+                "System.Runtime.dll");
+            string consoleSource = Path.Combine(
+                baselineRefPath,
+                "System.Console.dll");
+            string coreLibrarySource = typeof(object).Assembly.Location;
+            if (!File.Exists(runtimeSource)
+                || !File.Exists(consoleSource)
+                || !File.Exists(coreLibrarySource))
+            {
+                Assert.Skip(
+                    $"Runtime installation is incomplete: {baselineRefPath}");
+                return;
+            }
+
             string packsDirectory =
                 Assert.IsType<string>(PlatformPackService.GetPacksCachePath());
             string firstRefPath = Path.Combine(
@@ -1121,6 +1128,26 @@ public class PlatformResolverTests
             File.Copy(
                 consoleSource,
                 Path.Combine(firstRefPath, "System.Console.dll"));
+
+            string firstDotnetRoot = Path.Combine(temporaryRoot, "first");
+            string firstRuntimePath = Path.Combine(
+                firstDotnetRoot,
+                "shared",
+                "Microsoft.NETCore.App",
+                "998.0.0");
+            Directory.CreateDirectory(firstRuntimePath);
+            File.Copy(
+                runtimeSource,
+                Path.Combine(firstRuntimePath, "System.Runtime.dll"));
+            File.Copy(
+                consoleSource,
+                Path.Combine(firstRuntimePath, "System.Console.dll"));
+            File.Copy(
+                coreLibrarySource,
+                Path.Combine(firstRuntimePath, "System.Private.CoreLib.dll"));
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                firstDotnetRoot);
 
             AssemblyDependencyResolver resolver = CreateResolver();
             Assert.Equal(
@@ -1138,17 +1165,51 @@ public class PlatformResolverTests
                 runtimeSource,
                 Path.Combine(secondRefPath, "System.Runtime.dll"));
 
+            string secondDotnetRoot = Path.Combine(temporaryRoot, "second");
+            string secondRuntimePath = Path.Combine(
+                secondDotnetRoot,
+                "shared",
+                "Microsoft.NETCore.App",
+                "999.5.0");
+            Directory.CreateDirectory(secondRuntimePath);
+            File.Copy(
+                consoleSource,
+                Path.Combine(secondRuntimePath, "System.Console.dll"));
+            File.Copy(
+                coreLibrarySource,
+                Path.Combine(secondRuntimePath, "System.Private.CoreLib.dll"));
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                secondDotnetRoot);
+
             Assert.Equal(
                 Path.Combine(firstRefPath, "System.Console.dll"),
                 Select(resolver, "System.Console").Assembly.Path);
             Assert.Equal(
+                Path.Combine(
+                    firstRuntimePath,
+                    "System.Private.CoreLib.dll"),
+                Select(resolver, "System.Private.CoreLib").Assembly.Path);
+
+            AssemblyDependencyResolver refreshedResolver = CreateResolver();
+            Assert.Equal(
                 Path.Combine(secondRefPath, "System.Runtime.dll"),
-                Select(CreateResolver(), "System.Runtime").Assembly.Path);
+                Select(refreshedResolver, "System.Runtime").Assembly.Path);
+            Assert.Equal(
+                Path.Combine(
+                    secondRuntimePath,
+                    "System.Private.CoreLib.dll"),
+                Select(
+                    refreshedResolver,
+                    "System.Private.CoreLib").Assembly.Path);
         }
         finally
         {
-            CoreCache.Initialize("dotnet-inspect");
-            Directory.Delete(temporaryCache, recursive: true);
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                originalDotnetRoot);
+            CoreCache.Initialize("dotnet-inspect-test");
+            Directory.Delete(temporaryRoot, recursive: true);
         }
 
         AssemblyDependencyResolver CreateResolver() =>
