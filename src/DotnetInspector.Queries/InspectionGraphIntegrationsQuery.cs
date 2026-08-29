@@ -187,13 +187,13 @@ public static class InspectionGraphIntegrationsCatalog
                     new NamedTypeOccurrenceIdentity(
                         extension.Registration,
                         extension.Member,
-                        integration: null,
+                        concept: null,
                         extension.ExtendedType),
                 InspectionGraphIntegrationEvidence integration =>
                     new NamedTypeOccurrenceIdentity(
                         integration.Registration,
                         integration.Member,
-                        integration.Integration,
+                        integration.Concept,
                         integration.TargetType),
                 InspectionGraphReferenceEvidence reference =>
                     new ReferenceOccurrenceIdentity(
@@ -203,7 +203,7 @@ public static class InspectionGraphIntegrationsCatalog
                     (
                         opportunity.SourceRegistration,
                         opportunity.SourceType,
-                        opportunity.Integration,
+                        opportunity.Concept,
                         opportunity.Target),
                 _ => throw new ArgumentException(
                     "Unsupported Integration graph occurrence evidence.",
@@ -215,18 +215,18 @@ public static class InspectionGraphIntegrationsCatalog
         {
             readonly AssemblyAcquisitionRegistration _registration;
             readonly MemberAnchor _member;
-            readonly string? _integration;
+            readonly IntegrationConceptDescriptor? _concept;
             readonly MetadataNamedTypeReference _reference;
 
             internal NamedTypeOccurrenceIdentity(
                 AssemblyAcquisitionRegistration registration,
                 MemberAnchor member,
-                string? integration,
+                IntegrationConceptDescriptor? concept,
                 MetadataNamedTypeReference reference)
             {
                 _registration = registration;
                 _member = member;
-                _integration = integration;
+                _concept = concept;
                 _reference = reference;
             }
 
@@ -236,10 +236,7 @@ public static class InspectionGraphIntegrationsCatalog
                     _registration,
                     other._registration)
                 && _member == other._member
-                && string.Equals(
-                    _integration,
-                    other._integration,
-                    StringComparison.Ordinal)
+                && ReferenceEquals(_concept, other._concept)
                 && NamedTypeReferencesAreEquivalent(
                     _reference,
                     other._reference);
@@ -252,7 +249,7 @@ public static class InspectionGraphIntegrationsCatalog
                 HashCode.Combine(
                     _registration,
                     _member,
-                    _integration,
+                    _concept,
                     NamedTypeReferenceHashCode(_reference));
         }
 
@@ -388,10 +385,12 @@ public sealed record InspectionGraphExtensionEvidence(
 public sealed record InspectionGraphIntegrationEvidence(
     AssemblyAcquisitionRegistration Registration,
     MemberAnchor Member,
-    string Integration,
+    IntegrationConceptDescriptor Concept,
     MetadataNamedTypeReference TargetType)
     : IInspectionGraphOccurrenceEvidence
 {
+    public string Integration => Concept.DisplayLabel;
+
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.IntegrationEvidence;
 }
@@ -410,10 +409,12 @@ public sealed record InspectionGraphReferenceEvidence(
 public sealed record InspectionGraphOpportunityEvidence(
     AssemblyAcquisitionRegistration SourceRegistration,
     MetadataTypeDefinitionName SourceType,
-    string Integration,
+    IntegrationConceptDescriptor Concept,
     IntegrationOpportunityTarget Target)
     : IInspectionGraphOccurrenceEvidence
 {
+    public string Integration => Concept.DisplayLabel;
+
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.OpportunityEvidence;
 }
@@ -1251,6 +1252,10 @@ public static class InspectionGraphIntegrationsQuery
                 EcosystemIntegrationSignalInfo signal,
                 EcosystemIntegrationApiEvidence api)
             {
+                IntegrationConceptDescriptor concept =
+                    signal.GetConcept()
+                    ?? throw new InspectionQueryException(
+                        $"Integration signal '{signal.Integration}' is not configured.");
                 if (api.ReturnType is not { } targetType)
                 {
                     AddFailure(
@@ -1285,7 +1290,7 @@ public static class InspectionGraphIntegrationsQuery
                     _fulfilledOpportunities.Add(
                         new OpportunityFulfillmentKey(
                             receiver,
-                            signal.Integration,
+                            concept,
                             target));
                 }
                 AddOccurrence(
@@ -1297,7 +1302,7 @@ public static class InspectionGraphIntegrationsQuery
                     new InspectionGraphIntegrationEvidence(
                         registration,
                         api.Member,
-                        signal.Integration,
+                        concept,
                         targetType));
             }
         }
@@ -1393,6 +1398,10 @@ public static class InspectionGraphIntegrationsQuery
                         foreach (IntegrationOpportunityInfo opportunity
                             in available.Opportunities)
                         {
+                            IntegrationConceptDescriptor concept =
+                                opportunity.GetConcept()
+                                ?? throw new InspectionQueryException(
+                                    $"Integration opportunity '{opportunity.Integration}' is not configured.");
                             if (opportunity.GetTarget() is not { } targetSpec)
                                 continue;
                             if (opportunity.GetSourceTypeDefinition()
@@ -1425,7 +1434,7 @@ public static class InspectionGraphIntegrationsQuery
                             if (_fulfilledOpportunities.Contains(
                                     new OpportunityFulfillmentKey(
                                         occurrenceSource,
-                                        opportunity.Integration,
+                                        concept,
                                         target)))
                             {
                                 continue;
@@ -1445,7 +1454,7 @@ public static class InspectionGraphIntegrationsQuery
                                 new InspectionGraphOpportunityEvidence(
                                     available.Subject.Registration,
                                     sourceType,
-                                    opportunity.Integration,
+                                    concept,
                                     targetSpec));
                         }
                         break;
@@ -2027,7 +2036,7 @@ public static class InspectionGraphIntegrationsQuery
 
         readonly record struct OpportunityFulfillmentKey(
             InspectionGraphSubject.TypeSubject Source,
-            string Integration,
+            IntegrationConceptDescriptor Concept,
             InspectionGraphSubject.TypeSubject Target);
     }
 }

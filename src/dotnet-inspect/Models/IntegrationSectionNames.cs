@@ -5,9 +5,8 @@ namespace DotnetInspector.Models;
 // Display/selector names for the ecosystem-integration sections. Prefixed with
 // "Integration: " (like "Performance: ") so the whole family clusters together
 // under alphabetical section ordering. These are a presentation concern and are
-// deliberately distinct from the integration identity strings in
-// EcosystemIntegrationNames, which remain unprefixed for signal matching and
-// finding/JSON payloads.
+// deliberately distinct from IntegrationConceptDescriptor identity. The
+// unprefixed compatibility labels remain in signal and finding/JSON payloads.
 internal static class IntegrationSectionNames
 {
     public const string Prefix = "Integration: ";

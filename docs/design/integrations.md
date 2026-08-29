@@ -354,11 +354,16 @@ other command paths remain later slices.
 
 ## Workspace Census target
 
-**Status:** target design. The existing Library-targeted sections and
-Integration graph remain current behavior. Workspace Census descriptors,
-candidate inventory, projections, and every gate in
-[Workspace Census verification](#workspace-census-verification) are unverified
-until their implementation lands.
+**Status:** incremental implementation. The configured concept catalog,
+producer-policy catalog, Integration analysis descriptor, Census request
+declarations, and their named capability gates are implemented by
+`IntegrationConceptCatalog` and `IntegrationAnalysisCatalog`. The existing
+Library-targeted sections and Integration graph now retain those exact concept
+descriptors while preserving their compatibility labels and output.
+
+Candidate identity, producer and candidate attempts, Census execution,
+inventory, graph correspondence, matrix projection, and their remaining gates
+are still target design.
 
 The Census is one Integration analysis over one finite universe. It is not a
 loop that runs the existing Library-targeted question once per participant.
@@ -390,11 +395,20 @@ policies and relationship descriptors that may supply its evidence. The
 catalog, rather than observations or registered Section names, is the source
 for structural capability introspection.
 
-The current `EcosystemIntegrationNames` values are compatibility labels. The
-target catalog replaces parallel string inventories: scanner policy,
-opportunity policy, focused-section registration, and Census grouping bind to
-descriptor identity. Labels remain presentation and never become candidate
-identity.
+`IntegrationConceptCatalog` owns the exact descriptors and their
+`IntegrationProducerPolicyDescriptor` bindings in Metadata.
+`IntegrationAnalysisCatalog` binds those exact values to query prerequisites,
+graph relationship descriptors, typed universe requirements, and the generic
+`AnalysisDescriptor`. Scanner and opportunity evidence retain the exact
+concept and producer-policy descriptors; focused-section and graph consumers
+bind to the same concept identity.
+
+The current `EcosystemIntegrationNames` values remain compatibility labels for
+existing Finding, JSON, selector, and display contracts. Labels are
+presentation and never become candidate identity. A compatibility record
+constructed with an unknown label has no configured descriptor; product
+composition that requires configured Integration identity rejects that state
+instead of minting identity from the label.
 
 Structural discovery lists every configured concept even when the selected
 universe yields no candidate for it. Request capability separately validates
@@ -403,7 +417,7 @@ projection. Neither operation scans metadata or probes Section effectiveness.
 
 ### Universe capability requirements
 
-The Integration analysis descriptor issues a closed, ordered set of typed
+The implemented Integration analysis descriptor issues a closed, ordered set of typed
 universe requirements. Each requirement has a stable identity, names the
 configured Integration concepts that depend on it, and declares one provider
 capability. The Workspace Census requires:
@@ -791,12 +805,14 @@ Integration detection or disposition policy.
 
 Implementation should land as focused slices:
 
-1. descriptor catalog, candidate identity, attempts, disposition, and Census
-   snapshot;
-2. `Integration Inventory` row Section and structured row output;
-3. graph correspondence from `In` candidates without changing graph semantics;
-4. sparse matrix projection and WASM demo; and
-5. separately owned #4979 `find` prerequisite or optional enrichment for
+1. configured concept and producer-policy catalog plus generic request
+   capability declarations (implemented);
+2. candidate identity, producer-policy and candidate attempts, disposition,
+   and the projection-neutral Census snapshot;
+3. `Integration Inventory` row Section and structured row output;
+4. graph correspondence from `In` candidates without changing graph semantics;
+5. sparse matrix projection and WASM demo; and
+6. separately owned #4979 `find` prerequisite or optional enrichment for
    discovering an unknown parent.
 
 Each slice must preserve current focused Library sections and explicit
@@ -842,7 +858,7 @@ Integration graph behavior until its replacement path has parity gates.
 
 ### Workspace Census verification
 
-The target implementation is unverified until these named gates land:
+The catalog and request-capability slice is verified by:
 
 - `IntegrationCapability_ListsConfiguredUnobservedConcepts`
 - `IntegrationCapability_DoesNotExecuteProducersOrProbeSections`
@@ -850,10 +866,21 @@ The target implementation is unverified until these named gates land:
 - `IntegrationCapability_DeclaresTypedUniverseRequirementsByConcept`
 - `IntegrationCapability_UnsatisfiedUniverseNamesRequirementsAndConcepts`
 - `IntegrationCapability_ValidatedUniverseRetainsExactRequirementIdentities`
-- `IntegrationCapability_CandidateFailureDoesNotChangeRequestCapability`
 - `IntegrationCapability_RequiresStableOrderedBindingContextIdentity`
 - `IntegrationCapability_PartialProducerPolicyEvidenceNamesAffectedConcepts`
 - `IntegrationCapability_EveryDeclaredUniverseRequirementHasPositiveAndNegativeCoverage`
+
+Existing behavior retaining the same descriptor identity is additionally gated
+by
+`EcosystemIntegrationScannerTests.Scan_ProjectsExactOrderedPublicCurrencyAndPresence`,
+`AssemblyContextIntegrationsQueryTests.Execute_ComposesOpportunitiesFromTypedIntegrations`,
+`InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`,
+and `SectionPipelineTests.IntegrationSections_BindToGroupQueriesByIdentity`.
+
+The remaining target implementation is unverified until these named gates
+land:
+
+- `IntegrationCapability_CandidateFailureDoesNotChangeRequestCapability`
 - `IntegrationCensus_AccountsForEveryRequiredSourceParticipant`
 - `IntegrationCensus_AccountsForEveryRequiredProducerPolicyAttempt`
 - `IntegrationCensus_ProducerPolicyExpectedSetIsFullParticipantRequirementProduct`

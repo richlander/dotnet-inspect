@@ -36,6 +36,23 @@ public record EcosystemIntegrationSignalInfo(
     string Name,
     string Shape = IntegrationSignalShape.Type)
 {
+    readonly IntegrationConceptDescriptor? _concept =
+        IntegrationConceptCatalog.TryGetByDisplayLabel(
+            Integration,
+            out IntegrationConceptDescriptor? concept)
+            ? concept
+            : null;
+
+    internal EcosystemIntegrationSignalInfo(
+        IntegrationConceptDescriptor concept,
+        string kind,
+        string name,
+        string shape = IntegrationSignalShape.Type)
+        : this(concept.DisplayLabel, kind, name, shape)
+    {
+        _concept = concept;
+    }
+
     internal ImmutableArray<EcosystemIntegrationApiEvidence> ApiEvidence
         { get; init; } = [];
     internal bool ApiEvidenceUnavailable { get; init; }
@@ -51,6 +68,20 @@ public record EcosystemIntegrationSignalInfo(
 
     public MetadataTypeDefinitionName? GetTypeDefinition() =>
         TypeDefinition;
+
+    public IntegrationConceptDescriptor? GetConcept() => _concept;
+
+    public IntegrationProducerPolicyDescriptor? GetProducerPolicy()
+    {
+        IntegrationProducerPolicyDescriptor policy =
+            IntegrationConceptCatalog.EcosystemObserved;
+        return _concept is not null
+            && policy.Concepts.Contains(
+                _concept,
+                ReferenceEqualityComparer.Instance)
+                ? policy
+                : null;
+    }
 
     // Preserve the original four-field signal contract. Structured evidence is
     // derived from the same metadata and intentionally does not affect row

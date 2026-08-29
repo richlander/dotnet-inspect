@@ -31,6 +31,13 @@ public class EcosystemIntegrationScannerTests
         ];
 
         Assert.Equal(expected, signals);
+        Assert.Same(
+            IntegrationConceptCatalog.DependencyInjection,
+            signals[0].GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.EcosystemObserved,
+            signals[0].GetProducerPolicy());
+        Assert.Same(signals[0].GetConcept(), signals[1].GetConcept());
         EcosystemIntegrationApiEvidence api = Assert.IsType<
             EcosystemIntegrationApiEvidence>(
                 signals[0].GetApiEvidence());
@@ -63,6 +70,51 @@ public class EcosystemIntegrationScannerTests
         Assert.Equal(scannedPresence, summarizedPresence);
         Assert.Equal(1, scannedPresence.IntegrationCount);
         Assert.True(scannedPresence.HasDependencyInjectionSupport);
+    }
+
+    [Fact]
+    public void SummarizePresence_PreservesUnknownCompatibilityLabelCount()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly();
+        using var peReader = new PEReader(stream);
+        EcosystemIntegrationSignalInfo[] signals =
+        [
+            new(
+                "External Integration",
+                "External",
+                "External.Type"),
+        ];
+
+        EcosystemIntegrationPresence presence =
+            EcosystemIntegrationScanner.SummarizePresence(
+                peReader,
+                signals,
+                hasOpenTelemetrySupport: false);
+
+        Assert.Equal(1, presence.IntegrationCount);
+    }
+
+    [Fact]
+    public void CompatibilityRecords_DoNotInventProducerPolicyMembership()
+    {
+        var ecosystemSignal = new EcosystemIntegrationSignalInfo(
+            EcosystemIntegrationNames.OpenTelemetry,
+            "Telemetry",
+            "OpenTelemetry.Api");
+        var opportunity = new IntegrationOpportunityInfo(
+            EcosystemIntegrationNames.Logging,
+            "Logger",
+            "Logging",
+            "Add logging");
+
+        Assert.Same(
+            IntegrationConceptCatalog.OpenTelemetry,
+            ecosystemSignal.GetConcept());
+        Assert.Null(ecosystemSignal.GetProducerPolicy());
+        Assert.Same(
+            IntegrationConceptCatalog.Logging,
+            opportunity.GetConcept());
+        Assert.Null(opportunity.GetProducerPolicy());
     }
 
     [Fact]

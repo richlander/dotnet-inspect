@@ -1797,6 +1797,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 Assert.Equal(
                     EcosystemIntegrationNames.AI,
                     evidence.Integration);
+                Assert.Same(
+                    IntegrationConceptCatalog.AI,
+                    evidence.Concept);
                 Assert.Equal(
                     "AsIChatClient",
                     evidence.Member.MemberName);
