@@ -20,13 +20,13 @@ documentation.
   ask the user when it is unclear whether a new design is needed. Finding
   defects in a design is always cheaper than finding them in code.
 - **Requested work hot-starts through PR and review.** Agents may branch,
-  commit, push, open a PR, and dispatch round 1 without separate approval.
-  Replacement rounds inside the current six-round block also dispatch
+  commit, push, and open its PR without separate approval. Once eligible, round
+  1 and every replacement inside the current six-round block dispatch
   automatically; only a new block (rounds 7, 13, 19, ...) requires approval.
   Merge remains separately authorized.
-- **Markdown-only PRs hot-start immediately.** When every changed file is
-  `*.md`, `markdownlint` is the only pre-review and per-round gate. Open the PR
-  and dispatch review without asking or waiting for `ci-required`.
+- **Markdown-only PRs hot-start immediately at non-boundary rounds.** When every
+  changed file is `*.md`, `markdownlint` is the pre-review and per-round gate.
+  Open the PR and dispatch review without asking or waiting for `ci-required`.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -133,9 +133,9 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 
 ### Standing adjustments
 
-- **Review in parallel with CI:** requires the user's approval for that PR. A CI
-  failure requiring an author change still supersedes the attempt, and all
-  findings carry forward.
+- **Review non-Markdown changes in parallel with CI:** requires the user's
+  approval for that PR. A CI failure requiring an author change still
+  supersedes the attempt, and all findings carry forward.
 - **Auto-merge on the final push:** once every required review is review-clean,
   or the intended final head/base carries an approved exact-head
   trivial-interaction waiver, the user may authorize auto-merge for that exact
@@ -395,11 +395,11 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    CI and GitHub's live mergeability immediately before every merge attempt,
    even when `review-clean` is present.
 6. **A round closes only when reconciled and its applicable gates are green.**
-   A known-red current-head `ci-required` still blocks; unavailable or pending
-   status follows
+   For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   A Markdown-only PR's per-round gate is pre-commit `markdownlint`; do not wait
-   for `ci-required` before review. Author changes restart the *same* round.
+   At non-boundary rounds, a Markdown-only PR's gate is pre-commit
+   `markdownlint`; do not wait for CI before review. A gate failure requiring an
+   author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -553,10 +553,10 @@ Put it under `## Demo` above validation in the PR body.
 - Use REST endpoints via `gh api`, not `gh pr edit`, for PR/issue metadata
   changes; see [GitHub API operations](docs/github-api-operations.md) for the
   exact commands and the `-F`/`-f` distinction that matters for PR bodies.
-- For non-Markdown-only PRs, treat CI as confirmation: run the focused gate;
-  run eligible local suites, CI, and review concurrently. Query GitHub status
-  only when the round cadence requires it, using response headers instead of
-  quota probes, and follow
+- For non-Markdown-only PRs, run the focused gate, push promptly, and start
+  eligible local suites and CI concurrently. Reviewer dispatch waits for green
+  `ci-required` unless the user approved parallel review. Query GitHub status
+  only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
   instead of polling. If an hour passes without an authored change while an
   independent gate hasn't started, fix the sequencing or record the blocker.

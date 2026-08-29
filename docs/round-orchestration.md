@@ -48,10 +48,10 @@ locked candidate.
 | Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-A documentation-only candidate substitutes pre-commit `markdownlint` for green
-`ci-required` at non-boundary rounds; `ci-required` is still mandatory at every
-six-round boundary and for final merge readiness. The user may authorize review
-in parallel with CI for other changes.
+A Markdown-only candidate (every changed file is `*.md`) substitutes pre-commit
+`markdownlint` for green `ci-required` at non-boundary rounds; `ci-required`
+remains mandatory at every six-round boundary and for final merge readiness.
+The user may authorize review in parallel with CI for other changes.
 
 ### Review-clean, and recovery
 
@@ -80,7 +80,7 @@ Recovery transitions, applied without waiting for CI:
   unchanged head; repeat only with concrete transient evidence, otherwise treat
   it as an author change.
 
-A final-gate `ci-required` regression discovered after a documentation-only
+A final-gate `ci-required` regression discovered after a Markdown-only
 round closes does not reopen that round: retry the unchanged head only with
 concrete transient evidence, otherwise remove `review-clean` and form a
 candidate at the next round number. Never close with a required check red. A
@@ -355,7 +355,7 @@ a blocker, and it clears only when every listed predicate clears.
 - `wait` requires a non-empty `Blocked` or `Waiting` field. A retained
   `schedule` means the agent will check automatically; without one, the wait is
   passive and resumes only when a later user or workflow turn re-enters it.
-- When a completed documentation-only round is review-clean and no further
+- When a completed Markdown-only round is review-clean and no further
   author or review round is needed, but `ci-required` remains pending or
   missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
   `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
