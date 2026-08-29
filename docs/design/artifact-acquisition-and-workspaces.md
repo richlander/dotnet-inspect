@@ -456,11 +456,12 @@ One focused context shape composes:
 - one exact installed-platform realization.
 
 This section owns acquisition, role assignment, lifetime, and atomic workspace
-publication for that shape. It consumes the platform closure and overlay policy
-from
+publication for that shape. It consumes shared local-path admission from #5096
+and the platform closure and overlay policy from
 [platform composition and overlays](platform-composition-and-overlays.md);
-it does not redefine assembly-identity matching, designated-over-platform
-precedence, or request-level compatibility.
+it does not redefine local path normalization or entry classification,
+assembly-identity matching, designated-over-platform precedence, or
+request-level compatibility.
 
 #### Typed request and outcome
 
@@ -476,17 +477,19 @@ accepted by this request shape.
 The authorized plan supplies finite local-file, platform-artifact,
 acquisition-byte, retained-byte, and group-snapshot limits. The installed
 platform adapter registration must declare finite maximum member and byte
-bounds within that plan before acquisition. Normalization computes the combined
-reservation with checked arithmetic; the workspace reserves it from the same
-aggregate account as every other in-flight or retained context before calling
-either adapter.
+bounds within that plan before acquisition. Raw local-coordinate cardinality
+and the declared adapter bounds compute a conservative combined reservation
+with checked arithmetic; the workspace reserves it from the same aggregate
+account as every other in-flight or retained context before local-path
+admission or either adapter begins. Duplicate coordinates may leave part of
+that reservation unused; publication or cleanup releases the remainder under
+the ordinary session rules.
 
-`ExactLocalFileCoordinate` construction validates and normalizes one path
-spelling without performing I/O and requires an absolute path, so coordinate
-identity never depends on a later process-current-directory change. The
-exact-file local adapter establishes existence and regular-file shape while
-acquiring the snapshot. A coordinate that names a directory is rejected as
-`exact-file-required`; it is never expanded into directory members.
+`ExactLocalFileCoordinate` frames one path spelling with the expected
+regular-file kind. Shared local-path admission from #5096 owns normalization,
+entry classification, link policy, supported-host behavior, and the canonical
+coordinate identity this context consumes. A coordinate admitted as any other
+entry kind is rejected visibly and is never expanded into directory members.
 
 The realization outcome is one of:
 
@@ -545,12 +548,13 @@ the local source or installed platform path.
 
 The realizer normalizes the request, reserves one aggregate admission, and
 invokes the exact-file local adapter and installed-platform adapter within one
-`ArtifactSetSession`. Every input is required. It projects managed assembly
-participants only after all acquisitions succeed, then atomically publishes
-the sealed session and group. An invalid managed image, missing required
-platform member, failed acquisition, projection failure, role conflict, or
-budget exhaustion publishes neither a shortened group nor a partial session.
-Cancellation remains cancellation and follows the session cleanup contract.
+`ArtifactSetSession`. Every supplied local coordinate and every selected
+platform member is required. It projects managed assembly participants only
+after all acquisitions succeed, then atomically publishes the sealed session
+and group. An invalid managed image, missing required platform member, failed
+acquisition, projection failure, role conflict, or budget exhaustion publishes
+neither a shortened group nor a partial session. Cancellation remains
+cancellation and follows the session cleanup contract.
 
 Workspace admission, rather than an adapter or downstream assembly consumer,
 assigns these roles:
@@ -594,19 +598,17 @@ source. Which assembly set constitutes the family closure remains owned by
 
 #### Duplicate and collision policy
 
-Absolute local coordinates are normalized with `Path.GetFullPath` and compared
-ordinally on Windows, Linux, and macOS. This is coordinate equality, not
-physical-file identity: case variants, symlinks, and hard links are not
-resolved or inferred to be the same acquisition. On a case-insensitive volume,
-two case variants may therefore acquire the same physical file as distinct
-coordinates and produce a visible assembly-identity ambiguity. This is an
-accepted visible failure: preserving both requests avoids silently merging
-potentially distinct files on a case-sensitive volume.
+Local-coordinate equality is the canonical identity issued by shared
+local-path admission #5096. This context neither compares raw path strings nor
+adds a second physical-file, casing, link, or host rule. Distinct admitted
+coordinate identities remain distinct even when later assembly projection
+finds equal metadata identity.
 
 Duplicates and cross-role collisions then have these outcomes:
 
-- repeated spellings of one normalized designated coordinate acquire and
-  register that local artifact once, preserving first-occurrence order;
+- repeated spellings of one designated coordinate acquire and register that
+  local artifact once when #5096 assigns them the same canonical coordinate
+  identity, preserving first-occurrence order;
 - when the root is also designated, one local acquisition and participant
   carries both the root context role and `CallerDesignated`;
 - a local root or designation whose normalized path also appears in the
@@ -685,9 +687,9 @@ The two designation spellings produce only `a2`. The local and platform
 `System.Collections` participants remain distinct even if their source paths
 or bytes coincide. The mock demonstrates realization, not which binding
 candidate later wins. As a neighboring negative case,
-`designated = [/work/]` produces typed `Rejected(exact-file-required)`
-evidence and no published session; it does not designate `App.dll`,
-`System.Collections.dll`, or any sibling.
+`designated = [/work/]` produces typed rejected local-path-admission evidence
+for an unexpected entry kind and no published session; it does not designate
+`App.dll`, `System.Collections.dll`, or any sibling.
 
 #### Required implementation gates
 
@@ -707,8 +709,12 @@ These properties remain unverified until the named Release gates land:
   one selected installed hive and implementation layout supply the closure
   without reference-pack, TPA, NuGet, remote, loose-directory, roll-forward, or
   second-hive fallback;
-- `ExplicitAssemblyContext_RepeatedCanonicalDesignationHasOneRegistration`
-  proves repeated canonical spellings acquire one designated registration;
+- `ExplicitAssemblyContext_UsesAdmittedLocalCoordinateIdentity` proves
+  #5096-issued canonical identities drive duplicate handling without a second
+  path classifier on Windows, Linux, and macOS;
+- `ExplicitAssemblyContext_RepeatedAdmittedDesignationHasOneRegistration`
+  proves repeated spellings admitted as one canonical coordinate acquire one
+  designated registration;
 - `ExplicitAssemblyContext_PathCollisionsPreserveRoleSemantics` covers
   root/designated coalescing and distinct designated/platform and root/platform
   registrations;
@@ -727,9 +733,6 @@ These properties remain unverified until the named Release gates land:
 - `ExplicitAssemblyContext_FailurePublishesNoPartialGroup` covers invalid
   managed images, absent platform versions, role conflicts, and artifact and
   group snapshot-budget exhaustion;
-- `ExplicitAssemblyContext_PathEqualityIsOrdinalAcrossHosts` covers absolute
-  path capture and ordinal coordinate equality on Windows, Linux, and macOS;
-  and
 - `ExplicitAssemblyContext_UnsupportedHostIsTyped` proves a host without the
   two required adapters fails before admission rather than changing source
   kinds.
