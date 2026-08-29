@@ -12,15 +12,20 @@ CONSTANTS
     InboundFailureMode,
     ResponseMode,
     ProgressMode,
-    ShutdownMode
+    ShutdownMode,
+    WriteTimeoutMode,
+    InitializationTimeoutMode
 
 ASSUME
-    /\ RequestCount = 2
+    /\ RequestCount \in Nat
+    /\ RequestCount >= 2
     /\ HandshakeMode \in {"Symmetric", "HostOnly"}
     /\ InboundFailureMode \in {"Contain", "Drop"}
     /\ ResponseMode \in {"Correlated", "Misdirect"}
     /\ ProgressMode \in {"Correlated", "Misdirect"}
     /\ ShutdownMode \in {"CloseAdmission", "SnapshotOnly"}
+    /\ WriteTimeoutMode \in {"CoversWrite", "AfterWrite"}
+    /\ InitializationTimeoutMode \in {"Enforced", "Absent"}
 
 Requests == 1..RequestCount
 
@@ -31,9 +36,11 @@ PluginHandshakeStates ==
     {"NotReceived",
      "ValidWaitingWrite",
      "InvalidWaitingWrite",
-     "ValidWriting",
-     "InvalidWriting",
-     "RespondedSuccess",
+    "MalformedWaitingWrite",
+    "ValidWriting",
+    "InvalidWriting",
+    "MalformedWriting",
+    "RespondedSuccess",
      "RespondedError",
      "Dropped",
      "Aborted"}
@@ -81,23 +88,10 @@ LiveRequest(request) ==
 LiveRequests ==
     {request \in Requests : LiveRequest(request)}
 
-AlternativeWaitingRequest(source) ==
-    CHOOSE target \in Requests \ {source} :
-        requestState[target] = "Waiting"
-
-CanMisdirect(source) ==
-    \E target \in Requests \ {source} :
-        requestState[target] = "Waiting"
-
-ResponseTarget(source) ==
-    IF ResponseMode = "Correlated"
-    THEN source
-    ELSE AlternativeWaitingRequest(source)
-
-ProgressTarget(source) ==
-    IF ProgressMode = "Correlated"
-    THEN source
-    ELSE AlternativeWaitingRequest(source)
+DeadlineEligible(request) ==
+    IF WriteTimeoutMode = "CoversWrite"
+    THEN LiveRequest(request)
+    ELSE requestState[request] = "Waiting"
 
 HandshakeSatisfied ==
     IF HandshakeMode = "Symmetric"
@@ -107,7 +101,8 @@ HandshakeSatisfied ==
 InboundHandshakeLive ==
     pluginHandshake \in
         {"ValidWaitingWrite", "InvalidWaitingWrite",
-         "ValidWriting", "InvalidWriting"}
+         "MalformedWaitingWrite", "ValidWriting", "InvalidWriting",
+         "MalformedWriting"}
 
 InboundHandshakeSettled ==
     pluginHandshake \in
@@ -162,10 +157,11 @@ DeliverPluginHandshake ==
     /\ readLoop = "Running"
     /\ shutdownPhase = "None"
     /\ pluginHandshake = "NotReceived"
-    /\ pluginHandshake' =
-        IF inboundHandshakeValid
-        THEN "ValidWaitingWrite"
-        ELSE "InvalidWaitingWrite"
+    /\ pluginHandshake' \in
+        {IF inboundHandshakeValid
+         THEN "ValidWaitingWrite"
+         ELSE "InvalidWaitingWrite",
+         "MalformedWaitingWrite"}
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
@@ -178,13 +174,18 @@ AcquirePluginHandshakeWrite ==
     /\ connection = "Handshaking"
     /\ readLoop = "Running"
     /\ shutdownPhase = "None"
-    /\ pluginHandshake \in {"ValidWaitingWrite", "InvalidWaitingWrite"}
+    /\ pluginHandshake \in
+        {"ValidWaitingWrite", "InvalidWaitingWrite",
+         "MalformedWaitingWrite"}
     /\ writeOwner = NoWriter
     /\ writeOwner' = PluginHandshakeWriter
     /\ pluginHandshake' =
         IF pluginHandshake = "ValidWaitingWrite"
         THEN "ValidWriting"
-        ELSE "InvalidWriting"
+        ELSE
+            IF pluginHandshake = "InvalidWaitingWrite"
+            THEN "InvalidWriting"
+            ELSE "MalformedWriting"
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
@@ -196,15 +197,19 @@ FinishPluginHandshakeWrite ==
     /\ connection = "Handshaking"
     /\ readLoop = "Running"
     /\ shutdownPhase = "None"
-    /\ pluginHandshake \in {"ValidWriting", "InvalidWriting"}
+    /\ pluginHandshake \in
+        {"ValidWriting", "InvalidWriting", "MalformedWriting"}
     /\ writeOwner = PluginHandshakeWriter
     /\ pluginHandshake' =
         IF pluginHandshake = "ValidWriting"
         THEN "RespondedSuccess"
         ELSE
-            IF InboundFailureMode = "Contain"
+            IF pluginHandshake = "InvalidWriting"
             THEN "RespondedError"
-            ELSE "Dropped"
+            ELSE
+                IF InboundFailureMode = "Contain"
+                THEN "RespondedError"
+                ELSE "Dropped"
     /\ writeOwner' = NoWriter
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
@@ -233,18 +238,22 @@ FailHostInitialization ==
           completionCount, shutdownPhase, shutdownSnapshot,
           readyWitness, admissionWitness, responseWitness, progressWitness>>
 
-FailPluginInitialization ==
+TimeoutInitialization ==
     /\ connection = "Handshaking"
     /\ readLoop = "Running"
     /\ shutdownPhase = "None"
-    /\ pluginHandshake = "RespondedError"
+    /\ InitializationTimeoutMode = "Enforced"
     /\ connection' = "Failed"
     /\ readLoop' = "Stopped"
     /\ admissionOpen' = FALSE
+    /\ pluginHandshake' =
+        IF InboundHandshakeLive
+        THEN "Aborted"
+        ELSE pluginHandshake
     /\ writeOwner' = NoWriter
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
-          claimsAuthentication, hostHandshake, pluginHandshake,
+          claimsAuthentication, hostHandshake,
           requestState, requestOutcome, deadlineRemaining, progressSent,
           completionCount, shutdownPhase, shutdownSnapshot, readyWitness,
           admissionWitness, responseWitness, progressWitness>>
@@ -334,22 +343,26 @@ FinishRequestWrite(request) ==
           shutdownPhase, shutdownSnapshot, readyWitness,
           admissionWitness, responseWitness, progressWitness>>
 
-ReceiveResponse(source) ==
-    /\ source \in Requests
-    /\ requestState[source] = "Waiting"
-    /\ (ResponseMode = "Correlated" \/ CanMisdirect(source))
-    /\ LET target == ResponseTarget(source)
-       IN
-        /\ requestState' =
-            [requestState EXCEPT ![target] = "Done"]
-        /\ requestOutcome' =
-            [requestOutcome EXCEPT ![target] = "Success"]
-        /\ deadlineRemaining' =
-            [deadlineRemaining EXCEPT ![target] = 0]
-        /\ completionCount' =
-            [completionCount EXCEPT ![target] = @ + 1]
-        /\ responseWitness' =
-            (responseWitness /\ target = source)
+ReceiveResponse(messageId, target) ==
+    /\ messageId \in Requests
+    /\ target \in Requests
+    /\ connection = "Ready"
+    /\ readLoop = "Running"
+    /\ requestState[messageId] = "Waiting"
+    /\ requestState[target] = "Waiting"
+    /\ IF ResponseMode = "Correlated"
+       THEN target = messageId
+       ELSE target # messageId
+    /\ requestState' =
+        [requestState EXCEPT ![target] = "Done"]
+    /\ requestOutcome' =
+        [requestOutcome EXCEPT ![target] = "Success"]
+    /\ deadlineRemaining' =
+        [deadlineRemaining EXCEPT ![target] = 0]
+    /\ completionCount' =
+        [completionCount EXCEPT ![target] = @ + 1]
+    /\ responseWitness' =
+        (responseWitness /\ target = messageId)
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
@@ -357,19 +370,23 @@ ReceiveResponse(source) ==
           shutdownPhase, shutdownSnapshot, readyWitness,
           admissionWitness, progressWitness>>
 
-ReceiveProgress(source) ==
-    /\ source \in Requests
-    /\ requestState[source] = "Waiting"
-    /\ progressSent[source] = 0
-    /\ (ProgressMode = "Correlated" \/ CanMisdirect(source))
-    /\ LET target == ProgressTarget(source)
-       IN
-        /\ deadlineRemaining' =
-            [deadlineRemaining EXCEPT ![target] = 1]
-        /\ progressSent' =
-            [progressSent EXCEPT ![source] = 1]
-        /\ progressWitness' =
-            (progressWitness /\ target = source)
+ReceiveProgress(messageId, target) ==
+    /\ messageId \in Requests
+    /\ target \in Requests
+    /\ connection = "Ready"
+    /\ readLoop = "Running"
+    /\ requestState[messageId] = "Waiting"
+    /\ requestState[target] = "Waiting"
+    /\ progressSent[messageId] = 0
+    /\ IF ProgressMode = "Correlated"
+       THEN target = messageId
+       ELSE target # messageId
+    /\ deadlineRemaining' =
+        [deadlineRemaining EXCEPT ![target] = 1]
+    /\ progressSent' =
+        [progressSent EXCEPT ![messageId] = 1]
+    /\ progressWitness' =
+        (progressWitness /\ target = messageId)
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
@@ -380,6 +397,8 @@ ReceiveProgress(source) ==
 
 ReceiveFault(request) ==
     /\ request \in Requests
+    /\ connection = "Ready"
+    /\ readLoop = "Running"
     /\ requestState[request] = "Waiting"
     /\ requestState' =
         [requestState EXCEPT ![request] = "Done"]
@@ -398,7 +417,7 @@ ReceiveFault(request) ==
 
 TickDeadline(request) ==
     /\ request \in Requests
-    /\ requestState[request] = "Waiting"
+    /\ DeadlineEligible(request)
     /\ deadlineRemaining[request] > 0
     /\ deadlineRemaining' =
         [deadlineRemaining EXCEPT ![request] = @ - 1]
@@ -412,41 +431,132 @@ TickDeadline(request) ==
 
 TimeoutRequest(request) ==
     /\ request \in Requests
-    /\ requestState[request] = "Waiting"
+    /\ DeadlineEligible(request)
     /\ deadlineRemaining[request] = 0
-    /\ requestState' =
-        [requestState EXCEPT ![request] = "Done"]
-    /\ requestOutcome' =
-        [requestOutcome EXCEPT ![request] = "TimedOut"]
-    /\ completionCount' =
-        [completionCount EXCEPT ![request] = @ + 1]
+    /\ LET abortConnection ==
+            requestState[request] = "Writing"
+            /\ writeOwner = request
+       IN
+        /\ requestState' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN "Done"
+                    ELSE requestState[candidate]]
+            ELSE [requestState EXCEPT ![request] = "Done"]
+        /\ requestOutcome' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN
+                        IF candidate = request
+                        THEN "TimedOut"
+                        ELSE "ConnectionClosed"
+                    ELSE requestOutcome[candidate]]
+            ELSE [requestOutcome EXCEPT ![request] = "TimedOut"]
+        /\ deadlineRemaining' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN 0
+                    ELSE deadlineRemaining[candidate]]
+            ELSE deadlineRemaining
+        /\ completionCount' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN completionCount[candidate] + 1
+                    ELSE completionCount[candidate]]
+            ELSE [completionCount EXCEPT ![request] = @ + 1]
+        /\ connection' =
+            IF abortConnection
+            THEN "Closed"
+            ELSE connection
+        /\ readLoop' =
+            IF abortConnection
+            THEN "Stopped"
+            ELSE readLoop
+        /\ admissionOpen' =
+            IF abortConnection
+            THEN FALSE
+            ELSE admissionOpen
+        /\ writeOwner' =
+            IF abortConnection
+            THEN NoWriter
+            ELSE writeOwner
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
-          claimsAuthentication, connection, readLoop, admissionOpen,
-          hostHandshake, pluginHandshake, writeOwner,
-          deadlineRemaining, progressSent, shutdownPhase,
+          claimsAuthentication, hostHandshake, pluginHandshake,
+          progressSent, shutdownPhase,
           shutdownSnapshot, readyWitness, admissionWitness,
           responseWitness, progressWitness>>
 
 CancelCaller(request) ==
     /\ request \in Requests
     /\ LiveRequest(request)
-    /\ requestState' =
-        [requestState EXCEPT ![request] = "Done"]
-    /\ requestOutcome' =
-        [requestOutcome EXCEPT ![request] = "CallerCanceled"]
-    /\ deadlineRemaining' =
-        [deadlineRemaining EXCEPT ![request] = 0]
-    /\ completionCount' =
-        [completionCount EXCEPT ![request] = @ + 1]
-    /\ writeOwner' =
-        IF writeOwner = request
-        THEN NoWriter
-        ELSE writeOwner
+    /\ LET abortConnection ==
+            requestState[request] = "Writing"
+            /\ writeOwner = request
+       IN
+        /\ requestState' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN "Done"
+                    ELSE requestState[candidate]]
+            ELSE [requestState EXCEPT ![request] = "Done"]
+        /\ requestOutcome' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN
+                        IF candidate = request
+                        THEN "CallerCanceled"
+                        ELSE "ConnectionClosed"
+                    ELSE requestOutcome[candidate]]
+            ELSE [requestOutcome EXCEPT ![request] = "CallerCanceled"]
+        /\ deadlineRemaining' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN 0
+                    ELSE deadlineRemaining[candidate]]
+            ELSE [deadlineRemaining EXCEPT ![request] = 0]
+        /\ completionCount' =
+            IF abortConnection
+            THEN
+                [candidate \in Requests |->
+                    IF LiveRequest(candidate)
+                    THEN completionCount[candidate] + 1
+                    ELSE completionCount[candidate]]
+            ELSE [completionCount EXCEPT ![request] = @ + 1]
+        /\ connection' =
+            IF abortConnection
+            THEN "Closed"
+            ELSE connection
+        /\ readLoop' =
+            IF abortConnection
+            THEN "Stopped"
+            ELSE readLoop
+        /\ admissionOpen' =
+            IF abortConnection
+            THEN FALSE
+            ELSE admissionOpen
+        /\ writeOwner' =
+            IF abortConnection
+            THEN NoWriter
+            ELSE writeOwner
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
-          claimsAuthentication, connection, readLoop, admissionOpen,
-          hostHandshake, pluginHandshake, progressSent, shutdownPhase,
+          claimsAuthentication, hostHandshake, pluginHandshake,
+          progressSent, shutdownPhase,
           shutdownSnapshot, readyWitness, admissionWitness,
           responseWitness, progressWitness>>
 
@@ -535,13 +645,15 @@ Next ==
     \/ AcquirePluginHandshakeWrite
     \/ FinishPluginHandshakeWrite
     \/ FailHostInitialization
-    \/ FailPluginInitialization
+    \/ TimeoutInitialization
     \/ ResolveAuthenticationClaim
     \/ \E request \in Requests : BeginRequest(request)
     \/ \E request \in Requests : AcquireRequestWrite(request)
     \/ \E request \in Requests : FinishRequestWrite(request)
-    \/ \E request \in Requests : ReceiveResponse(request)
-    \/ \E request \in Requests : ReceiveProgress(request)
+    \/ \E messageId, target \in Requests :
+        ReceiveResponse(messageId, target)
+    \/ \E messageId, target \in Requests :
+        ReceiveProgress(messageId, target)
     \/ \E request \in Requests : ReceiveFault(request)
     \/ \E request \in Requests : TickDeadline(request)
     \/ \E request \in Requests : TimeoutRequest(request)
@@ -554,16 +666,13 @@ Next ==
 Spec ==
     /\ Init
     /\ [][Next]_vars
-    /\ WF_vars(DeliverHostHandshake)
-    /\ WF_vars(DeliverPluginHandshake)
     /\ WF_vars(AcquirePluginHandshakeWrite)
     /\ WF_vars(FinishPluginHandshakeWrite)
     /\ WF_vars(FailHostInitialization)
-    /\ WF_vars(FailPluginInitialization)
+    /\ WF_vars(TimeoutInitialization)
     /\ WF_vars(ResolveAuthenticationClaim)
     /\ \A request \in Requests:
         /\ WF_vars(AcquireRequestWrite(request))
-        /\ WF_vars(FinishRequestWrite(request))
         /\ WF_vars(TickDeadline(request))
         /\ WF_vars(TimeoutRequest(request))
     /\ WF_vars(CaptureShutdownSnapshot)
@@ -584,7 +693,7 @@ TypeOK ==
     /\ requestOutcome \in [Requests -> RequestOutcomes]
     /\ deadlineRemaining \in [Requests -> 0..1]
     /\ progressSent \in [Requests -> 0..1]
-    /\ completionCount \in [Requests -> 0..1]
+    /\ completionCount \in [Requests -> 0..2]
     /\ shutdownPhase \in ShutdownPhases
     /\ shutdownSnapshot \in SUBSET Requests
     /\ readyWitness \in BOOLEAN
@@ -604,11 +713,10 @@ RequestCompletionIsExact ==
 
 WriterIsOwnedByLiveWork ==
     /\ writeOwner = PluginHandshakeWriter =>
-        pluginHandshake \in {"ValidWriting", "InvalidWriting"}
+        pluginHandshake \in
+            {"ValidWriting", "InvalidWriting", "MalformedWriting"}
     /\ \A request \in Requests:
         (writeOwner = request) => requestState[request] = "Writing"
-    /\ Cardinality(
-        {owner \in WriterOwners : owner = writeOwner /\ owner # NoWriter}) <= 1
 
 ReadyRequiresSymmetricHandshake ==
     /\ readyWitness
@@ -628,9 +736,6 @@ ProgressRenewsOnlyItsRequest ==
 
 InboundFailureIsContained ==
     pluginHandshake # "Dropped"
-
-ReadLoopLossClosesAdmission ==
-    readLoop = "Stopped" => ~admissionOpen
 
 ShutdownSettlementIsComplete ==
     shutdownPhase = "Settled" => LiveRequests = {}

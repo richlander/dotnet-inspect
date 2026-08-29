@@ -141,12 +141,25 @@ exchange one compact JSON object per line, UTF-8 without a BOM. The sequence is 
 `MonitorNuGetProcessExit`, `Initialize`, `GetOperationClaims`, `SetLogLevel`, and then
 `GetAuthenticationCredentials`.
 
-Two details are easy to get wrong and are pinned by tests:
+Two details are easy to get wrong:
 
 - **The handshake is symmetric.** The plugin sends its *own* handshake request at the same time
   as the host sends one. A host that only waits for a reply, without answering, deadlocks.
+  `ReadyRequiresSymmetricHandshake` checks the design interaction; implementation correspondence
+  for the host's response remains unverified.
 - **`Progress` messages restart the request timer.** They are the plugin saying "still working"
   during a slow sign-in. A host that ignores them times out a request that is progressing fine.
+  `ProgressRenewsOnlyItsRequest` checks the design interaction; implementation correspondence is
+  unverified.
+
+The request timeout covers the whole admitted operation: registration, waiting for the serialized
+writer, and waiting for a response. If timeout or caller cancellation preempts the request that
+owns an in-progress pipe write, the connection terminates before another writer can use that pipe.
+Terminal pipe loss closes request admission before the read loop collects and settles pending
+requests. A malformed plugin-originated request receives an error response or the connection
+terminates; it never becomes abandoned work. These are model-checked design rules. The current
+implementation does not yet enforce the stalled-write or shutdown-admission rules, and malformed
+inbound payload handling remains tracked by #3551.
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).

@@ -37,6 +37,11 @@ The plugin is an external protocol peer, not a hostile in-process caller. Its
 messages may be malformed, delayed, reordered across request IDs, or terminated
 by process or pipe failure.
 
+A well-formed but unsupported handshake is distinct from a malformed handshake.
+The former receives the protocol's error response in every mode. The
+`InboundFailureMode` mutation applies only to a payload that cannot be
+deserialized, matching the current unobserved-task path.
+
 Plugin discovery, executable selection, HTTP challenge and retry policy,
 credential scope, redirects, authentication types, interactive token
 acquisition, and token secrecy are outside the model. Provider disposal
@@ -50,24 +55,28 @@ successful symmetric handshake and Authentication claim, but not the individual
 wire shape or ordering of `MonitorNuGetProcessExit`, `Initialize`,
 `GetOperationClaims`, and `SetLogLevel`.
 
+Responses and progress messages carry an explicit modeled request ID and name
+the request whose state they mutate. Unknown and stale request IDs are outside
+the finite model; the implementation ignores them when `_pending` has no
+matching entry.
+
 ## Checked properties
 
 | Property | Claim |
 | --- | --- |
 | `TypeOK` | Every state remains within the declared finite shape. |
 | `RequestCompletionIsExact` | A completed request has exactly one typed outcome; live and unused requests have none. |
-| `WriterIsOwnedByLiveWork` | The serialized writer belongs to exactly one live request or inbound handshake. |
+| `WriterIsOwnedByLiveWork` | The serialized writer belongs to one live request or inbound handshake. |
 | `ReadyRequiresSymmetricHandshake` | Readiness requires both handshake directions and the Authentication claim. |
 | `RequestAdmissionHasLiveReceiver` | A request is admitted only while the read loop can receive its response. |
 | `ResponsesCompleteOnlyTheirRequest` | A response completes only the request carrying its ID. |
 | `ProgressRenewsOnlyItsRequest` | Progress renews only the matching live request's deadline. |
 | `InboundFailureIsContained` | Malformed inbound handshake handling cannot disappear as unobserved work. |
-| `ReadLoopLossClosesAdmission` | Observing terminal pipe loss closes request admission. |
 | `ShutdownSettlementIsComplete` | The shutdown collection settles every request admitted before admission closed. |
 | `ClosedConnectionIsQuiescent` | A closed connection owns no writer or live request and cannot admit work. |
 | `InitializationEventuallySettles` | Under weak fairness for protocol handling, initialization reaches ready, failed, or closing state. |
 | `InboundHandshakeEventuallySettles` | A received inbound handshake is answered or the connection terminates. |
-| `EveryAdmittedRequestSettles` | Serialized write and deadline progress eventually give every admitted request one outcome. |
+| `EveryAdmittedRequestSettles` | A deadline covering registration, serialized write, and response waiting eventually gives every admitted request one outcome. |
 | `ObservedShutdownEventuallyCloses` | Once pipe loss is observed, internal shutdown reaches closed state. |
 
 `Safety.cfg` checks all state invariants. `Liveness.cfg` checks the four
@@ -75,11 +84,21 @@ temporal properties with the core completion and quiescence invariants.
 
 ## Fairness and environment assumptions
 
-Weak fairness applies to internal protocol handling, serialized writes,
-deadline ticks and timeout classification, and the internal shutdown steps.
-Beginning a credential request, receiving a response, progress, fault, caller
-cancellation, and pipe loss are environment actions and are not required to
-occur.
+Weak fairness applies to internal handling after a plugin message arrives,
+host initialization and request deadlines, writer acquisition when the writer
+is available, and the internal shutdown steps. Plugin delivery, successful
+transport writes, beginning a credential request, receiving a response,
+progress, fault, caller cancellation, and pipe loss are environment actions
+and are not required to occur.
+
+The positive model makes request timeout effective from registration through
+the serialized write and response wait. `CurrentStalledWrite.cfg` instead
+matches the current control flow, where the timer may expire but `SendAsync`
+does not observe it until `WriteAsync` returns. With no fairness assumption that
+the plugin drains stdin, TLC finds that an admitted request can remain in the
+writer forever. The positive rule does not abandon that writer and reuse the
+pipe: timeout or caller cancellation while a request owns the writer terminates
+the connection and settles every other admitted request as connection-closed.
 
 Progress is bounded to one message per request. This is a finite abstraction,
 not a claim that real plugins emit at most one update. The bound ensures a
@@ -96,13 +115,14 @@ product behavior:
 | Model rule | Implementation evidence |
 | --- | --- |
 | Initialization follows the required wire sequence | `PluginProtocolTests.InitializationFollowsTheProtocolSequence` |
-| The host and plugin both participate in the handshake | The real subprocess used by `PluginProtocolTests.FullExchange_YieldsCredentials` will not serve credentials until its handshake is answered. |
+| The host answers the plugin-originated handshake | Unverified; the fake plugin records the response but does not require or assert it. |
 | A dying process settles the current request as plugin failure | `PluginProtocolTests.WhenOnePluginDiesDuringTheRequest_TheNextIsTried` |
 | Caller cancellation remains caller cancellation | `PluginProtocolTests.CallerCancellationContinuesToPropagate` |
 | A malformed response header does not end the read loop | `PluginProtocolTests.AProtocolMessageWithNonStringHeadersIsIgnoredRatherThanEndingTheConversation` |
 | Concurrent request-ID correlation and out-of-order replies | Unverified. |
 | Progress renews the matching implementation timer | Unverified; the design previously described this as tested, but no matching test exists. |
-| Pipe-loss admission and pending-request collection are atomic | Unverified. |
+| Pipe loss closes admission before pending requests are collected | Not implemented; `CurrentShutdownAdmission.cfg` and `CurrentShutdownSnapshot.cfg` abstract the current ordering. |
+| A stalled in-progress write is bounded by terminating the connection | Not implemented; `CurrentStalledWrite.cfg` abstracts the current control flow. |
 | Malformed plugin-originated payloads settle inbound work | Not implemented; tracked by #3551. |
 
 Formal model-to-implementation correspondence is unverified. In particular,
@@ -118,10 +138,14 @@ matches the abstraction.
 | `Safety.cfg` | Checks correlation, exact completion, handshake authority, writer ownership, inbound-failure containment, and shutdown safety. |
 | `Liveness.cfg` | Checks initialization, inbound handling, admitted-request, and shutdown progress. |
 | `BrokenHostOnlyHandshake.cfg` | Lets host readiness depend only on the reply to its own handshake. It must violate `ReadyRequiresSymmetricHandshake`. |
-| `CurrentInboundFailure.cfg` | Drops a malformed plugin-originated handshake as unobserved work. It must violate `InboundHandshakeEventuallySettles`. |
+| `BrokenInitializationTimeout.cfg` | Removes the host's independent initialization timeout. It must violate `InitializationEventuallySettles` when the plugin remains silent. |
+| `BrokenInboundSettlement.cfg` | Combines malformed abandoned work with no host timeout. It must violate `InboundHandshakeEventuallySettles`. |
+| `CurrentInboundFailure.cfg` | Drops a malformed plugin-originated handshake as unobserved work. It must violate `InboundFailureIsContained`. |
 | `BrokenResponseCorrelation.cfg` | Completes another live request instead of the response's request ID. It must violate `ResponsesCompleteOnlyTheirRequest`. |
 | `BrokenProgressCorrelation.cfg` | Renews another live request instead of the progress message's request ID. It must violate `ProgressRenewsOnlyItsRequest`. |
-| `BrokenShutdownAdmission.cfg` | Leaves admission open while shutdown snapshots pending requests. It must violate `ShutdownSettlementIsComplete`. |
+| `CurrentShutdownAdmission.cfg` | Admits a request after the read loop stops. It must violate `RequestAdmissionHasLiveReceiver`. |
+| `CurrentShutdownSnapshot.cfg` | Leaves admission open while shutdown snapshots pending requests. It must violate `ShutdownSettlementIsComplete`. |
+| `CurrentStalledWrite.cfg` | Lets timeout become observable only after a serialized write returns. It must violate `EveryAdmittedRequestSettles` when the write stalls. |
 
 All configurations disable TLC's deadlock check because ready, failed, closed,
 and completed-request states may intentionally stutter.
@@ -146,15 +170,19 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -config Liveness.cfg NuGetPluginSessionLifecycle.tla
 ```
 
-The five non-positive configurations are expected to exit unsuccessfully:
+The nine non-positive configurations are expected to exit unsuccessfully:
 
 ```bash
 for config in \
   BrokenHostOnlyHandshake \
+  BrokenInitializationTimeout \
+  BrokenInboundSettlement \
   CurrentInboundFailure \
   BrokenResponseCorrelation \
   BrokenProgressCorrelation \
-  BrokenShutdownAdmission
+  CurrentShutdownAdmission \
+  CurrentShutdownSnapshot \
+  CurrentStalledWrite
 do
   java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
     -workers 1 -cleanup -noGenerateSpecTE \
@@ -168,12 +196,13 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 4,034 | 2,003 | 22 | All 11 invariants passed. |
-| Liveness | 4,034 | 2,003 | 22 | All four temporal properties passed across five behavior-checking branches. |
+| Safety | 4,237 | 2,127 | 22 | All 10 invariants passed. |
+| Liveness | 4,237 | 2,127 | 22 | All four temporal properties passed across five behavior-checking branches. |
 
-The safety run gave nonzero coverage to all 20 actions. This includes 95
-`ReceiveResponse`, 20 `ReceiveProgress`, 255 `ObservePipeClosed`, 284
-`CaptureShutdownSnapshot`, and 408 `SettleShutdownSnapshot` transitions.
+The safety run gave nonzero coverage to all 20 actions. This includes 89
+`TickDeadline`, 32 `ReceiveResponse`, 18 `ReceiveProgress`, 353
+`ObservePipeClosed`, 411 `CaptureShutdownSnapshot`, and 288
+`SettleShutdownSnapshot` transitions.
 
 During model construction, TLC found that the first positive specification
 allowed this sequence:
@@ -185,20 +214,24 @@ allowed this sequence:
 
 That was a specification error rather than a product finding. The corrected
 model makes receiver loss supersede all remaining initialization progress and
-checks the rule through `ReadLoopLossClosesAdmission` and
+checks the rule through `RequestAdmissionHasLiveReceiver` and
 `ReadyRequiresSymmetricHandshake`.
 
 Every non-positive configuration exited unsuccessfully on its intended claim.
-The four invariant mutations returned TLC status 12; the temporal current-
-mechanics configuration returned status 13.
+Six invariant configurations returned TLC status 12; the three temporal
+configurations returned status 13.
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
-| Host-only handshake | 69 / 64 | 3 | The host received its own successful handshake response and published `Ready` before receiving or answering the plugin's handshake. |
-| Current inbound failure | 4,026 / 1,997 | 22 | A malformed plugin-originated handshake faulted abandoned handling, and the connection could stutter forever without responding or terminating. |
-| Response correlation | 652 / 471 | 13 | Two requests waited concurrently; the response carrying request 1's ID completed request 2. |
-| Progress correlation | 620 / 455 | 13 | Two requests waited concurrently; progress carrying request 1's ID renewed request 2's deadline. |
-| Shutdown admission | 463 / 384 | 10 | The read loop stopped and captured an empty pending set; request 1 was then admitted before settlement and escaped the snapshot. |
+| Host-only handshake | 122 / 102 | 3 | The host received its own successful handshake response and published `Ready` before receiving or answering the plugin's handshake. |
+| Missing initialization timeout | 4,133 / 2,086 | 22 | With no fair host timeout and no required peer delivery, the session remained in `Handshaking`. |
+| Missing inbound settlement | 4,171 / 2,128 | 22 | A malformed plugin-originated handshake became abandoned work and, without host timeout, remained unsettled. |
+| Current inbound failure | 172 / 138 | 4 | A malformed plugin-originated handshake faulted abandoned handling without sending the mandatory response; the host can recover only through its independent initialization timeout. |
+| Response correlation | 1,222 / 766 | 13 | Two requests waited concurrently; the response carrying request 1's ID completed request 2. |
+| Progress correlation | 1,190 / 748 | 13 | Two requests waited concurrently; progress carrying request 1's ID renewed request 2's deadline. |
+| Current shutdown admission | 654 / 478 | 8 | The read loop stopped, but request 1 was admitted with no live receiver. |
+| Current shutdown snapshot | 846 / 601 | 10 | The read loop captured an empty pending set; request 1 was then admitted before settlement, escaped the snapshot, and depended on its ordinary request timeout. |
+| Current stalled write | 3,123 / 1,836 | 22 | Request 1 acquired the serialized writer, the transport never completed the write, and the already-running timer could not settle the request because its result was observed only after the write. |
 
 The runs used:
 
@@ -209,5 +242,7 @@ The runs used:
 - Homebrew OpenJDK `25.0.4.1`; and
 - a run on 2026-08-28.
 
-The model's finite bound is two concurrent host requests, one inbound
-handshake, and at most one progress message per request.
+The recorded configurations use two concurrent host requests, one inbound
+handshake, and at most one progress message per request. A separate safety run
+with `RequestCount = 3` also completed with no error after generating 83,192
+states and finding 29,119 distinct states at depth 28.
