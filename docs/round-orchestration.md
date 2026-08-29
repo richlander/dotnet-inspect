@@ -86,10 +86,11 @@ Recovery transitions, applied without waiting for CI:
   unchanged head; repeat only with concrete transient evidence, otherwise treat
   it as an author change.
 
-A final-gate `ci-required` regression discovered after a Markdown-only
-round closes does not reopen that round: retry the unchanged head only with
-concrete transient evidence, otherwise remove `review-clean` and form a
-candidate at the next round number. Never close with a required check red. A
+A final-gate `ci-required` failure observed during or after a non-boundary
+Markdown-only round does not interrupt or reopen that round. Finish its review
+path; afterward, retry the unchanged head only with concrete transient evidence,
+otherwise remove `review-clean` and form a candidate at the next round number.
+Never close with a required check red. A
 superseded attempt spends no round and gets no completion report; let its
 reviewers finish or acknowledge cancellation, and carry every returned finding
 forward.
@@ -373,6 +374,9 @@ a blocker, and it clears only when every listed predicate clears.
   author or review round is needed, but `ci-required` remains pending or
   missing, use `Waiting: check:ci-required` and `Recommendation: wait`. Use
   `Waiting: check:ci-required,merge` when live mergeability is also unresolved.
+  A completed failure finishes the current round, then follows the final-gate
+  transition above; use `Recommendation: continue` only when the next round is
+  inside the authorized block.
   An intermediate or fix-producing round reports `continue` without waiting for
   CI only when the next round remains inside the current authorized block and
   the status cadence permits it. At a six-round boundary, fresh green
