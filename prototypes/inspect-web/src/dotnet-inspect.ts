@@ -10344,8 +10344,18 @@ function clearNavigationError() {
   state.retryAction = null;
 }
 
+function dismissModalsForHistoryNavigation() {
+  state.settings = false;
+  state.explorer = null;
+  state.tasteOpen = false;
+  spotlight.reset();
+  sourceInspection.clearGraphSource();
+  documentInspection.clear();
+}
+
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
+  dismissModalsForHistoryNavigation();
   invalidateMemberCallGraphWork(state);
   invalidateGraphMemberNavigation();
   state.loading = false;
@@ -10355,7 +10365,6 @@ window.addEventListener("popstate", () => {
     state.packageQueryOpen = true;
     state.credits = false;
     state.home = false;
-    spotlight.reset();
     render();
     focusPackageQueryInput();
     return;

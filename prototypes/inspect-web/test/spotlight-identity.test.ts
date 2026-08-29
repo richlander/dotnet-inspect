@@ -2760,6 +2760,12 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\)/);
   assert.match(
     popstate,
+    /const navigationSeq = navigationSequence\.begin\(\);\s*dismissModalsForHistoryNavigation\(\)/);
+  assert.match(
+    appSource,
+    /function dismissModalsForHistoryNavigation\(\) \{\s*state\.settings = false;\s*state\.explorer = null;\s*state\.tasteOpen = false;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\)/);
+  assert.match(
+    popstate,
     /if \(isPackageQueryPath\(location\.pathname\)\) \{[\s\S]*applyPackageQueryHistory\(history\.state\)/);
   assert.match(
     popstate,
