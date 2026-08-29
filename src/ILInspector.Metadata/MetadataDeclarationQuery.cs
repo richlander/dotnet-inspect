@@ -159,6 +159,8 @@ public static class MetadataDeclarationQuery
                 Attributes = declaration.Attributes.ToList(),
                 GetterToken = declaration.Getter.IsNil ? null : MetadataTokens.GetToken(declaration.Getter),
                 SetterToken = declaration.Setter.IsNil ? null : MetadataTokens.GetToken(declaration.Setter),
+                GetterHasBody = MethodHasBody(reader, declaration.Getter),
+                SetterHasBody = MethodHasBody(reader, declaration.Setter),
             });
         }
 
@@ -184,6 +186,8 @@ public static class MetadataDeclarationQuery
                 Signature = MethodSignatureText(declaration),
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 MetadataToken = MetadataTokens.GetToken(methodHandle),
+                HasMethodBody =
+                    MethodDefinitionBodyFacts.HasAnalyzableIlBody(method),
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
                 IsVirtual = declaration.IsVirtual,
@@ -224,6 +228,14 @@ public static class MetadataDeclarationQuery
 
         return type;
     }
+
+    private static bool? MethodHasBody(
+        MetadataReader reader,
+        MethodDefinitionHandle handle)
+        => handle.IsNil
+            ? null
+            : MethodDefinitionBodyFacts.HasAnalyzableIlBody(
+                reader.GetMethodDefinition(handle));
 
     public static List<int> GetIntroducedTypeParameterCounts(
         MetadataReader reader,

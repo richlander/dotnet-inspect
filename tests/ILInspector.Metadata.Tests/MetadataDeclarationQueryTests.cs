@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using ILInspector.Metadata;
@@ -119,6 +120,39 @@ public sealed class MetadataDeclarationQueryTests
         var field = Assert.Single(all.Members, member => member.Name == "_count");
         Assert.Equal("private", field.Accessibility);
         Assert.Equal("int", field.ReturnType);
+    }
+
+    [Fact]
+    public void TypeSurfaces_ClassifyOnlyAnalyzableManagedIlAsMethodBodies()
+    {
+        byte[] image = BuildManagedAndNativeBodyImage();
+        using var stream = new MemoryStream(image);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name) == "NativeMethods");
+
+        ApiType declarationSurface =
+            MetadataDeclarationQuery.GetTypeSurface(reader, typeHandle);
+        ApiType extractedSurface = Assert.Single(
+            ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true).Types,
+            type => type.Name == "NativeMethods");
+
+        AssertBodyKinds(declarationSurface);
+        AssertBodyKinds(extractedSurface);
+
+        static void AssertBodyKinds(ApiType type)
+        {
+            Assert.True(Assert.Single(
+                type.Members,
+                member => member.Name == "ManagedWithRva").HasMethodBody);
+            Assert.False(Assert.Single(
+                type.Members,
+                member => member.Name == "NativeWithRva").HasMethodBody);
+        }
     }
 
     [Fact]
@@ -324,6 +358,92 @@ public sealed class MetadataDeclarationQueryTests
         string path = Path.Combine(Path.GetTempPath(), $"MissingParamRow-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
+    }
+
+    static byte[] BuildManagedAndNativeBodyImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("BodyKinds.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("BodyKinds"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+
+        var instructions = new BlobBuilder();
+        var encoder = new InstructionEncoder(
+            instructions,
+            new ControlFlowBuilder());
+        encoder.OpCode(ILOpCode.Ret);
+        var methodBodies = new BlobBuilder();
+        int managedBodyOffset =
+            new MethodBodyStreamEncoder(methodBodies)
+                .AddMethodBody(encoder, maxStack: 0);
+        methodBodies.Align(4);
+        int nativeBodyOffset = methodBodies.Count;
+        methodBodies.WriteByte(0xc3);
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(
+                parameterCount: 0,
+                returnType => returnType.Void(),
+                parameters => { });
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("NativeMethods"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("ManagedWithRva"),
+            signatureHandle,
+            managedBodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.Native
+                | MethodImplAttributes.Unmanaged,
+            metadata.GetOrAddString("NativeWithRva"),
+            signatureHandle,
+            nativeBodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            methodBodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static TypeDefinition GetTypeDefinition(Type type)

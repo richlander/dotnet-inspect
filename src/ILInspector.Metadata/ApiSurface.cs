@@ -1060,6 +1060,10 @@ public class ApiMember
     /// </summary>
     public int? GetterToken { get; set; }
     public int? SetterToken { get; set; }
+    [JsonIgnore]
+    public bool? GetterHasBody { get; set; }
+    [JsonIgnore]
+    public bool? SetterHasBody { get; set; }
 
     [JsonIgnore]
     public bool? HasGetter { get; set; }
@@ -1087,6 +1091,10 @@ public class ApiMember
     public int? AdderToken { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RemoverToken { get; set; }
+    [JsonIgnore]
+    public bool? AdderHasBody { get; set; }
+    [JsonIgnore]
+    public bool? RemoverHasBody { get; set; }
 
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
@@ -1115,7 +1123,7 @@ public class ApiMember
     public bool IsAsync { get; set; }
 
     /// <summary>
-    /// Whether this MethodDef has a managed body RVA. Null is retained for
+    /// Whether this MethodDef has analyzable managed IL. Null is retained for
     /// older or hand-composed surfaces that predate the exact metadata fact.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

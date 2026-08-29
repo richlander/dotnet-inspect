@@ -2376,9 +2376,10 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_ImplicitCallerSection_CountRejectsTreePresentation()
+    public async Task Member_AuthoredCallGraphWithCallerScope_CountRemainsScalar()
     {
-        var (exit, output, error) = await RunAppAsync(
+        string[] arguments =
+        [
             "member",
             typeof(MemberCallGraphFixture).FullName!,
             nameof(MemberCallGraphFixture.RootCall),
@@ -2389,13 +2390,16 @@ public partial class CommandExecutionTests
             "--bin",
             Path.GetDirectoryName(TestAssemblyPath)!,
             "--count",
-            "--tree",
             "--tips",
-            "q");
+            "q",
+        ];
+        var scalar = await RunAppAsync(arguments);
+        var tree = await RunAppAsync([.. arguments, "--tree"]);
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("exactly one selected shape", error);
+        Assert.Equal(scalar, tree);
+        Assert.Equal(0, tree.Exit);
+        Assert.True(int.TryParse(tree.Output.Trim(), out int count));
+        Assert.True(count > 0);
     }
 
     [Fact]
@@ -4633,6 +4637,61 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("  Classes", ambiguous.Error);
         Assert.DoesNotContain("  Inspection Failures", ambiguous.Error);
         Assert.DoesNotContain("  Method Groups", explicitMember.Error);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.BodyShapes)]
+    [InlineData("Body*")]
+    public async Task Member_DottedTargetValidatesBodyShapesBeforeAcquisition(
+        string selector)
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            selector,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Section '{SectionNames.BodyShapes}' requires --where",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedTargetValidatesBodyKindTargetBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            SectionNames.IL,
+            "--where",
+            "Kind=LiteralExpression",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"--where Kind=... targets section '{SectionNames.BodyShapes}'.",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
     }
 
     [Fact]
@@ -8494,7 +8553,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_MixedPipelineCountMap_RetainsRequestedZeroRows()
+    public async Task Member_AutoSelectedMixedPipelineCountMapRetainsInventoryRows()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(SampleKeywordParameterHost).FullName!,
@@ -8511,8 +8570,8 @@ public partial class CommandExecutionTests
             .ToDictionary(
                 row => row.GetProperty("section").GetString()!,
                 row => row.GetProperty("count").GetInt32());
-        Assert.Equal(0, counts["Member Index"]);
-        Assert.Equal(0, counts["Methods"]);
+        Assert.Equal(1, counts["Member Index"]);
+        Assert.Equal(1, counts["Methods"]);
         Assert.Equal(1, counts["Signature"]);
     }
 
@@ -9394,6 +9453,258 @@ public partial class CommandExecutionTests
         var sections = SectionHeadings(output);
         Assert.DoesNotContain(SectionNames.TypeInfo, sections);
         Assert.NotEmpty(sections);
+    }
+
+    [Fact]
+    public async Task Member_DottedOverloadInventory_BareSelectUsesActualPipeline()
+    {
+        var dotted = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-S", "--tips", "q");
+        var explicitMember = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer",
+            "--platform", "System.Text.Json",
+            "-m", "Serialize", "-S", "--tips", "q");
+
+        Assert.Equal(0, dotted.Exit);
+        Assert.Equal(explicitMember.Exit, dotted.Exit);
+        Assert.Equal(explicitMember.Output, dotted.Output);
+        Assert.Contains("## Methods", dotted.Output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--tsv")]
+    public async Task Member_DottedOverloadInventory_GlobCardinalityUsesActualPipeline(
+        string format)
+    {
+        var dotted = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-S", "Member*", format, "--tips", "q");
+        var explicitMember = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer",
+            "--platform", "System.Text.Json",
+            "-m", "Serialize", "-S", "Member*", format, "--tips", "q");
+
+        Assert.Equal(0, dotted.Exit);
+        Assert.Equal(explicitMember.Exit, dotted.Exit);
+        Assert.Equal(explicitMember.Output, dotted.Output);
+        Assert.Equal(explicitMember.Error, dotted.Error);
+        Assert.NotEqual(string.Empty, dotted.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_DottedOverloadInventory_MultiSectionGlobUsesActualPipeline()
+    {
+        var dotted = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", "Call*", "--count", "--tips", "q");
+        var explicitMember = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-m", "Clone", "-S", "Call*", "--count", "--tips", "q");
+
+        Assert.Equal(0, dotted.Exit);
+        Assert.Equal(explicitMember.Exit, dotted.Exit);
+        Assert.Equal(explicitMember.Output, dotted.Output);
+        Assert.Equal(explicitMember.Error, dotted.Error);
+        Assert.Contains(SectionNames.CallGraph, dotted.Output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.Callers, dotted.Output, StringComparison.Ordinal);
+        Assert.Contains(SectionNames.Calls, dotted.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_DottedOverloadInventory_AcceptsOverloadOnlySection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SectionNames.SourceLocations, "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Equal(string.Empty, error);
+    }
+
+    [Fact]
+    public async Task Member_DottedStructuralSchema_UsesOfflinePipelineUnion()
+    {
+        var broadOnly = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-D", SectionNames.MethodGroups, "--schema", "--count", "--tips", "q");
+        var sourceLocations = await RunAppAsync(
+            "member", "System.Text.Json.JsonSerializer.Serialize",
+            "--platform", "System.Text.Json",
+            "-D", SectionNames.SourceLocations, "--schema", "--count", "--tips", "q");
+
+        Assert.Equal(0, broadOnly.Exit);
+        Assert.NotEqual(string.Empty, broadOnly.Output.Trim());
+        Assert.Empty(broadOnly.Error);
+        Assert.Equal(0, sourceLocations.Exit);
+        Assert.NotEqual(string.Empty, sourceLocations.Output.Trim());
+        Assert.Empty(sourceLocations.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedStructuralSchema_IgnoresSelectAndReportsUnion()
+    {
+        var dotted = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-D", "--schema", "-S", "Bogus", "--tips", "q");
+        Assert.Equal(0, dotted.Exit);
+        Assert.Contains(SectionNames.MethodGroups, dotted.Output);
+        Assert.Contains(SectionNames.AnnotatedSource, dotted.Output);
+        Assert.Empty(dotted.Error);
+        Assert.DoesNotContain("Bogus", dotted.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedDetail_PreservesAdvertisedInventorySections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SectionNames.Methods, "-S", SectionNames.Signature, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"## {SectionNames.Methods}", output);
+        Assert.Contains($"## {SectionNames.Signature}", output);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedDetail_EffectiveDiscoveryUsesDetailAnnotations()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Text.StringBuilder", "-m", "Clear",
+            "--platform", "System.Runtime",
+            "-S", SectionNames.DecompiledSource,
+            "-D", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"kind\":\"section\"", output);
+        Assert.DoesNotContain("section (verbose)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_DuplicateAllSelectors_AreIdempotent()
+    {
+        var single = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SelectResolver.AllSelector, "--tips", "q");
+        var duplicate = await RunAppAsync(
+            "member", "System.String.Clone", "--platform", "System.Runtime",
+            "-S", SelectResolver.AllSelector, "-S", SelectResolver.AllSelector, "--tips", "q");
+
+        Assert.Equal(single.Exit, duplicate.Exit);
+        Assert.Equal(single.Output, duplicate.Output);
+        Assert.Equal(single.Error, duplicate.Error);
+    }
+
+    [Fact]
+    public async Task Member_AutoSelectedDetail_RendersRequestedTypeShapeSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.List<T>.TrimExcess",
+            "--platform", "System.Collections",
+            "-S", SectionNames.TypeParameters, "-S", SectionNames.Signature, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"## {SectionNames.TypeParameters}", output);
+        Assert.Contains($"## {SectionNames.Signature}", output);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--json")]
+    public async Task Member_InapplicableBodySection_CountReportsNoDataAfterAutoSelection(
+        string? ignoredFormat)
+    {
+        List<string> args =
+        [
+            "member", "System.String.Empty", "--platform", "System.Runtime",
+            "-S", SectionNames.IL, "--count", "--tips", "q"
+        ];
+        if (ignoredFormat is not null)
+            args.Add(ignoredFormat);
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Contains(
+            $"section '{SectionNames.IL}' has no data",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("System.String.Empty", SectionNames.IL, "--tsv")]
+    [InlineData("System.String.Empty", SectionNames.IL, "--jsonl")]
+    [InlineData("System.IDisposable.Dispose", SectionNames.Calls, "--tsv")]
+    [InlineData("System.IDisposable.Dispose", SectionNames.Calls, "--jsonl")]
+    public async Task Member_InapplicableBodySection_RowFormatReportsNoDataAfterAutoSelection(
+        string target,
+        string section,
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", target, "--platform", "System.Runtime",
+            "-S", section, format, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"section '{section}' has no data",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Member_DottedLookup_ReportsTreeFormatConflictBeforeLookup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Missing.Type.Member", "--platform", "System.Runtime",
+            "-S", SectionNames.CallGraph, "--tree", "--json", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(
+            "--tree is a standalone output format and cannot combine with another output format.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Member_DottedLookup_ReportsSelectorlessCountErrorBeforeLookup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Missing.Type.Member", "--platform", "System.Runtime",
+            "--count", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, output.Trim());
+        Assert.Contains(CountOutput.SectionRequiredMessage, error, StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Type_TypeInfo_ProjectsSynthesizedFactTableColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-S", SectionNames.TypeInfo, "--tsv", "--columns", "Field", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("field\n", output, StringComparison.Ordinal);
+        Assert.Contains("\nType\n", output, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, error);
     }
 
     private static List<string> SectionHeadings(string output) =>
@@ -10480,6 +10791,52 @@ public partial class CommandExecutionTests
                 "BodyStateSample",
                 document.RootElement.GetProperty("name").GetString());
         }
+    }
+
+    [Theory]
+    [InlineData("@Source", false)]
+    [InlineData("*", false)]
+    [InlineData("PDB Source", true)]
+    public async Task Member_DeferredLookup_PreservesExactSelectorProvenance(
+        string selector,
+        bool exactSourceSection)
+    {
+        string[] commonArguments =
+        [
+            "--platform",
+            "System.Runtime",
+            "-S",
+            selector,
+            "--json",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+            ["member", "System.String", "Clone", .. commonArguments]);
+        var deferred = await RunAppAsync(
+            ["member", "System.String.Clone", .. commonArguments]);
+
+        Assert.Equal(direct, deferred);
+        if (exactSourceSection)
+        {
+            Assert.Equal(1, deferred.Exit);
+            Assert.Empty(deferred.Output);
+            Assert.Contains(
+                ApiCommand.NoPdbSourceMappingReason,
+                deferred.Error);
+            Assert.Contains(
+                "cannot represent this code-section failure",
+                deferred.Error);
+            return;
+        }
+
+        Assert.Equal(0, deferred.Exit);
+        Assert.Empty(deferred.Error);
+        using var document = JsonDocument.Parse(deferred.Output);
+        Assert.Equal(
+            "String",
+            document.RootElement.GetProperty("name").GetString());
     }
 
     [Theory]
@@ -15008,6 +15365,75 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## Callers", output);
         Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), output);
+    }
+
+    [Fact]
+    public async Task Member_CallerProjectionWithoutSectionUsesImplicitCallers()
+    {
+        var testDirectory = Path.GetDirectoryName(TestAssemblyPath)!;
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
+            $"{nameof(MemberCallGraphFixture.Inner)}:1", "--bin", testDirectory,
+            "--columns", "Caller", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(nameof(MemberCallGraphFixture.Mid), output);
+        Assert.DoesNotContain(nameof(MemberCallGraphFixture.RootCall), output);
+    }
+
+    [Fact]
+    public async Task Member_NamedEffectiveDiscoveryDoesNotAcquireUnusedCallerScope()
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-named-discovery-scope-{Guid.NewGuid():N}");
+        var unscoped = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-D", SectionNames.MethodGroups, "--json", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", "System.String", "--platform", "System.Runtime",
+            "-D", SectionNames.MethodGroups, "--json",
+            "--bin", missingDirectory, "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.NotEmpty(scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_BareEffectiveDiscoveryRetainsCallerFallback()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            nameof(MemberCallGraphFixture.Inner), "-D", "--bin", fixtureDirectory,
+            "--json", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            row => row.GetProperty("name").GetString() == SectionNames.Callers);
+    }
+
+    [Fact]
+    public async Task Member_NamedCallerDiscoveryRetainsCallerSection()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            $"{nameof(MemberCallGraphFixture.Inner)}:1", "-D", SectionNames.Callers,
+            "--bin", fixtureDirectory, "--json", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.NotEqual(string.Empty, result.Output.Trim());
     }
 
     [Fact]
@@ -15052,6 +15478,707 @@ public partial class CommandExecutionTests
         Assert.Contains("section 'Callers' requires a single selected overload", error);
         Assert.Contains("Overloaded~<digest>", error);
         Assert.Contains("Overloaded:1 through Overloaded:2", error);
+    }
+
+    [Theory]
+    [InlineData("Method Groups", false)]
+    [InlineData("Properties", true)]
+    public async Task Member_CallerScope_SingleSectionCountDoesNotInjectCallers(
+        string section,
+        bool expectedEmpty)
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var unscoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--count", "-S", section, "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--count", "-S", section, "--tips", "q");
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Equal(unscoped.Output, scoped.Output);
+        Assert.True(int.TryParse(unscoped.Output.Trim(), out int count));
+        Assert.Equal(expectedEmpty, count == 0);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_OverloadInventoryCountDoesNotInjectCallers()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        string memberName = nameof(CallerScopeCountFixture.Target);
+        var unscoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "--count", "--mermaid", "-S", "Methods", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--count", "--mermaid",
+            "-S", "Methods", "--tips", "q");
+
+        Assert.Equal(0, unscoped.Exit);
+        Assert.Empty(unscoped.Error);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Empty(scoped.Error);
+        Assert.Equal(unscoped.Output, scoped.Output);
+        Assert.True(int.TryParse(unscoped.Output.Trim(), out int count));
+        Assert.True(count > 0);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_AuthoredMarkdownSectionDoesNotInjectCallers()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var unscoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "-S", SectionNames.MethodGroups, "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "-S", SectionNames.MethodGroups, "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Contains($"## {SectionNames.MethodGroups}", scoped.Output);
+        Assert.DoesNotContain($"## {SectionNames.Callers}", scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_AuthoredBareSectionDoesNotInjectCallers()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        string memberName = nameof(MemberCallGraphFixture.Inner);
+        var unscoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "-S", SectionNames.DecompiledSource, "--bare", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, memberName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory,
+            "-S", SectionNames.DecompiledSource, "--bare", "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.NotEmpty(scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_UnusedByAuthoredSectionDoesNotResolveScope()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", missingDirectory,
+            "--count", "-S", SectionNames.MethodGroups, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.True(int.TryParse(result.Output.Trim(), out int count));
+        Assert.True(count > 0);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_UnusedByBodySectionPreservesTargetAssembly()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string typeName = typeof(MemberCallGraphFixture).FullName!;
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-unused-caller-body-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", missingDirectory,
+            "--count", "-S", SectionNames.CalledTypes, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.True(int.TryParse(result.Output.Trim(), out int count));
+        Assert.True(count > 0);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_WithoutSectionSelectionStillAggregatesCallers()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Callers", result.Output);
+        Assert.Contains(nameof(CallerScopeCountFixture.Root), result.Output);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_BareSelectPreservesAuthoredOverview()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        string typeName = typeof(CallerScopeCountFixture).FullName!;
+        var unscoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "-S", "--tips", "q");
+        var scoped = await RunAppAsync(
+            "member", typeName, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "-S", "--tips", "q");
+
+        Assert.Equal(unscoped, scoped);
+        Assert.Equal(0, scoped.Exit);
+        Assert.Contains($"## {SectionNames.MethodGroups}", scoped.Output);
+        Assert.DoesNotContain($"## {SectionNames.Callers}", scoped.Output);
+        Assert.Empty(scoped.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_EmptyTypeFilterSkipsImplicitCallerAcquisition()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-empty-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "--kind", "field", "--bin", missingDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain(SectionNames.Callers, result.Output);
+        Assert.DoesNotContain(SectionNames.Callers, result.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_KindFilterExcludesImplicitCallerTargets()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            nameof(MemberCallGraphFixture.Inner), "--kind", "property",
+            "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Callers", result.Output);
+        Assert.DoesNotContain("Callers", result.Error);
+    }
+
+    [Fact]
+    public async Task Member_CallerScope_UnsafeFilterExcludesImplicitCallerTargets()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            nameof(MemberCallGraphFixture.Inner), "--unsafe",
+            "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Callers", result.Output);
+        Assert.DoesNotContain("Callers", result.Error);
+    }
+
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-D")]
+    public async Task Member_TypeScopeCallerSection_IsSelectableAndDiscoverable(
+        string option)
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, option, SectionNames.Callers, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            option == "-S" ? $"## {SectionNames.Callers}" : "| Caller | column |",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeCallersWithoutAdditionalScopeUsesOwnAssembly()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "-S", SectionNames.Callers, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {SectionNames.Callers}", result.Output);
+        Assert.Contains(nameof(CallerScopeCountFixture.Root), result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeCallersUsesForwardedImplementationAssembly()
+    {
+        const string typeName =
+            "System.Runtime.CompilerServices.RuntimeFeature";
+        var facade = await RunAppAsync(
+            "member", typeName, "--platform", "System.Runtime",
+            "-S", SectionNames.Callers, "--count", "--tips", "q");
+        var implementation = await RunAppAsync(
+            "member", typeName, "--platform", "System.Private.CoreLib",
+            "-S", SectionNames.Callers, "--count", "--tips", "q");
+
+        Assert.Equal(0, facade.Exit);
+        Assert.Equal(0, implementation.Exit);
+        Assert.Empty(facade.Error);
+        Assert.Empty(implementation.Error);
+        Assert.Equal(implementation.Output, facade.Output);
+        Assert.True(int.Parse(facade.Output.Trim()) > 0);
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeMixedCallersUsesForwardedImplementationAssembly()
+    {
+        const string typeName =
+            "System.Runtime.CompilerServices.RuntimeFeature";
+        var result = await RunAppAsync(
+            "member", typeName, "--platform", "System.Runtime",
+            "-S", $"{SectionNames.Callers},{SectionNames.UnsafeMembers}",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains($"## {SectionNames.Callers}", result.Output);
+        Assert.Contains(
+            "RuntimeFeature.IsSupported(string)",
+            result.Output);
+        Assert.DoesNotContain(
+            "No callers found in this assembly.",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeCallersDocumentJsonFailsClosed()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "-S", SectionNames.Callers, "--json", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Document --json cannot represent {SectionNames.Callers} analysis.",
+            result.Error);
+        Assert.Contains("--jsonl", result.Error);
+        Assert.Contains("--tsv", result.Error);
+        Assert.Contains("--table", result.Error);
+        Assert.Contains("--count", result.Error);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.Callers, SectionNames.PdbSource)]
+    [InlineData(SectionNames.Callers, SectionNames.SourceLocations)]
+    [InlineData(SectionNames.CallGraph, SectionNames.PdbSource)]
+    [InlineData(SectionNames.CallGraph, SectionNames.SourceLocations)]
+    public async Task Member_ExactCallerAnalysisDocumentJsonFailsBeforeCallerScopeAcquisition(
+        string section,
+        string sourceSection)
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            $"{nameof(MemberBodylessEvidenceFixture.Executable)}:1",
+            "-S", $"{section},{sourceSection}",
+            "--json",
+            "--bin", missingDirectory,
+            "--verbose",
+            "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Document --json cannot represent {section} analysis.",
+            result.Error);
+        Assert.DoesNotContain("Directory not found", result.Error);
+        Assert.DoesNotContain(
+            "PDB",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "symbol server",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(SectionNames.Callers)]
+    [InlineData(SectionNames.CallGraph)]
+    public async Task Member_InapplicableExactCallerAnalysisDocumentJsonFailsClosed(
+        string section)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "Field", Kind = "field" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            IncludeSections = [section],
+            ExactIncludeSectionsOverride = [section],
+            MemberSectionsPreResolved = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent {section} analysis.",
+            error);
+    }
+
+    [Fact]
+    public async Task Member_ExpandedCallersDocumentJsonPreservesTypeDocument()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            IncludeSections =
+            [
+                SectionNames.Callers,
+                SectionNames.Signature,
+            ],
+            ExactIncludeSectionsOverride = [],
+            MemberSectionsPreResolved = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal("C", document.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Member_ExpandedCallerDocumentJsonSkipsUnusedCallerScopeAcquisition()
+    {
+        string missingDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-caller-scope-{Guid.NewGuid():N}");
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            $"{nameof(MemberBodylessEvidenceFixture.Executable)}:1",
+            "-S", "Call*",
+            "--json",
+            "--bin", missingDirectory,
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Directory not found", result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            nameof(MemberBodylessEvidenceFixture),
+            document.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Member_TypeScopeCallGraphRemainsUnselectable()
+    {
+        string fixtureAssembly = typeof(CallerScopeCountFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(CallerScopeCountFixture).FullName!,
+            "--library", fixtureAssembly,
+            "-S", SectionNames.CallGraph, "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Select value '{SectionNames.CallGraph}' not found",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Mixed), "Mixed:2", "Mixed(int* value)")]
+    [InlineData("this[]", "Item:2", "this[int* value]")]
+    public async Task Member_UnsafeFilterAutoSelectsOriginalOverloadIndex(
+        string memberName,
+        string selector,
+        string signature)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            memberName,
+            "--unsafe", "-S",
+            $"{SectionNames.Signature},{SectionNames.MemberIndex}",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(signature, result.Output);
+        Assert.Contains($"`{selector}`", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_GenericArityAutoSelectionPublishesCopyableSelector()
+    {
+        string assemblyPath = typeof(MemberBodylessEvidenceFixture).Assembly.Location;
+        string typeName = typeof(MemberBodylessEvidenceFixture).FullName!;
+        var selected = await RunAppAsync(
+            "member", typeName, "--library", assemblyPath,
+            "Generic<T,T>", "-S",
+            $"{SectionNames.Signature},{SectionNames.MemberIndex}",
+            "--tips", "q");
+
+        Assert.Equal(0, selected.Exit);
+        Assert.Empty(selected.Error);
+        Assert.Contains("Generic<T1, T2>(T1 first, T2 second)", selected.Output);
+        Assert.Contains("`Generic:2`", selected.Output);
+
+        var copied = await RunAppAsync(
+            "member", typeName, "--library", assemblyPath,
+            "Generic:2", "-S", SectionNames.Signature, "--tips", "q");
+
+        Assert.Equal(0, copied.Exit);
+        Assert.Empty(copied.Error);
+        Assert.Contains("Generic<T1, T2>(T1 first, T2 second)", copied.Output);
+    }
+
+    [Fact]
+    public async Task Member_SingletonAutoSelectionPublishesBareSelector()
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            nameof(MemberBodylessEvidenceFixture.Native),
+            "-S", $"{SectionNames.Signature},{SectionNames.MemberIndex}",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("`Native`", result.Output);
+        Assert.DoesNotContain("`Native:1`", result.Output);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Native),
+        "native marker")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Abstract),
+        "abstract marker")]
+    public async Task Member_BodylessCustomAttributesRemainAddressable(
+        string memberName,
+        string marker)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location, memberName,
+            "-S", SectionNames.CustomAttributes, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {SectionNames.CustomAttributes}", result.Output);
+        Assert.Contains(marker, result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Native),
+        SectionNames.UnsafeOperations,
+        "void*")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Native),
+        SectionNames.SafetyFacts,
+        "void*")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Abstract),
+        SectionNames.UnsafeOperations,
+        "int*")]
+    [InlineData(
+        nameof(MemberBodylessEvidenceFixture.Abstract),
+        SectionNames.SafetyFacts,
+        "int*")]
+    public async Task Member_BodylessUnsafeSignatureEvidenceRemainsAddressable(
+        string memberName,
+        string section,
+        string signatureEvidence)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location, memberName,
+            "-S", section, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {section}", result.Output);
+        Assert.Contains("Unsafe signature", result.Output);
+        Assert.Contains(signatureEvidence, result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Native), false)]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Abstract), false)]
+    [InlineData(nameof(MemberBodylessEvidenceFixture.Executable), true)]
+    public async Task Member_BodylessDiscoveryExcludesExecutableOnlySections(
+        string memberName,
+        bool expected)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            memberName,
+            "-D", "--json", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        var discoveredSections = document.RootElement
+            .EnumerateArray()
+            .Select(item => item.GetProperty("name").GetString())
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        string[] executableOnlySections =
+        [
+            SectionNames.AllocationFacts,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.AppliedTaste,
+            SectionNames.CostFacts,
+            SectionNames.CostOverlay,
+            SectionNames.IL,
+            SectionNames.PerformanceTriage,
+            SectionNames.SemanticsOverlay,
+            SectionNames.TopLeverage,
+        ];
+        foreach (string section in executableOnlySections)
+            Assert.Equal(expected, discoveredSections.Contains(section));
+    }
+
+    [Theory]
+    [InlineData(SectionNames.IL, SectionNames.SafetyFacts)]
+    [InlineData(SectionNames.IL, SectionNames.UnsafeOperations)]
+    [InlineData(SectionNames.AppliedTaste, SectionNames.SafetyFacts)]
+    [InlineData(SectionNames.AnnotatedSourceDocument, SectionNames.UnsafeOperations)]
+    public async Task Member_BodylessMixedEvidenceReportsUnavailableExecutableSection(
+        string executableSection,
+        string bodylessSection)
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessEvidenceFixture).FullName!,
+            "--library", typeof(MemberBodylessEvidenceFixture).Assembly.Location,
+            nameof(MemberBodylessEvidenceFixture.Native),
+            "-S", $"{executableSection},{bodylessSection}",
+            "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains($"## {bodylessSection}", result.Output);
+        Assert.DoesNotContain($"## {executableSection}", result.Output);
+        Assert.Contains(
+            $"section '{executableSection}' has no data",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData(nameof(IMemberAbstractCallerFixture.Invoke))]
+    [InlineData(nameof(IMemberAbstractCallerFixture.Value))]
+    public async Task Member_AbstractCallerTarget_RetainsMethodAndAccessorTokens(
+        string memberName)
+    {
+        string fixtureAssembly = typeof(IMemberAbstractCallerFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(IMemberAbstractCallerFixture).FullName!,
+            "--library", fixtureAssembly, memberName,
+            "-S", SectionNames.Callers, "--bin", fixtureDirectory, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(nameof(MemberAbstractCallerUseFixture.Call), result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task Member_DocumentJsonWithCallerScope_PreservesMemberInventory()
+    {
+        string fixtureAssembly = typeof(MemberCallGraphFixture).Assembly.Location;
+        string fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)!;
+        var result = await RunAppAsync(
+            "member", typeof(MemberCallGraphFixture).FullName!, "--library", fixtureAssembly,
+            "--bin", fixtureDirectory, "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.NotEmpty(document.RootElement.GetProperty("members").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Member_PInvokeIl_IsVisibleAsInapplicable()
+    {
+        var result = await RunAppAsync(
+            "member", typeof(SamplePInvokeClass).FullName!, "--library", TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId), "--all",
+            "-S", SectionNames.IL, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("section 'IL' has no data", result.Error);
+    }
+
+    [Fact]
+    public async Task Member_AttachedPInvokeExtensionIl_IsVisibleAsInapplicable()
+    {
+        var result = await RunAppAsync(
+            "member", typeof(MemberBodylessExtensionReceiver).FullName!,
+            "--library", typeof(MemberBodylessExtensionReceiver).Assembly.Location,
+            nameof(MemberBodylessExtensionFixture.AttachedNative),
+            "-S", SectionNames.IL, "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain($"## {SectionNames.IL}", result.Output);
+        Assert.Contains("section 'IL' has no data", result.Error);
     }
 
     [Fact]
@@ -15484,16 +16611,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_AnnotatedSourceDocumentJson_RejectsImplicitCallerSection()
+    public async Task Member_AnnotatedSourceDocumentJson_DoesNotInjectCallerSection()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
             "Pump:1", "-S", "Annotated Source Document", "--json",
             "--bin", Path.GetDirectoryName(TestAssemblyPath)!, "--tips", "q");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("must be the only selected section under --json", error);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("text", out _));
+        Assert.False(document.RootElement.TryGetProperty("namespace", out _));
     }
 
     [Fact]
@@ -27045,6 +28174,115 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_DottedImpliedMemberWithDistinctGenericSelector_IsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.MemoryExtensions.Contains",
+            "--platform", "System.Memory",
+            "-m", "AsSpan<T>", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires exactly one member name", error);
+    }
+
+    [Fact]
+    public async Task Member_DottedImpliedMemberWithConflictingGenericArity_IsRejected()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(MemberGenericSelectorFixture).FullName!}.GenericChoice<T>",
+            "--library", TestAssemblyPath,
+            "-m", "GenericChoice<T1,T2>", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot combine different generic arities", error);
+    }
+
+    [Fact]
+    public async Task Member_DottedImpliedMemberWithMatchingGenericArity_Resolves()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            $"{typeof(MemberGenericSelectorFixture).FullName!}.GenericChoice<T>",
+            "--library", TestAssemblyPath,
+            "-m", "GenericChoice<TValue>", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("GenericChoice<T>", output);
+        Assert.DoesNotContain("GenericChoice(string value)", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_DottedImpliedExtensionKindDoesNotSelectOrdinaryMethod()
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.String",
+                "extension:Contains:1",
+                .. tail
+            ]);
+        var deferred = await RunAppAsync(
+            [
+                "member",
+                "System.String.extension:Contains:1",
+                .. tail
+            ]);
+        var routed = await RunAppAsync(
+            ["System.String.extension:Contains:1", .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Empty(routed.Output);
+        Assert.Contains(
+            "No members matched selector 'Contains'",
+            routed.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedImpliedExplicitKindDoesNotSelectOrdinaryMethod()
+    {
+        const string selector = "explicit:Contains";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "--all",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["member", "System.String", selector, .. tail]);
+        var deferred = await RunAppAsync(
+            ["member", $"System.String.{selector}", .. tail]);
+        var routed = await RunAppAsync(
+            [$"System.String.{selector}", .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("0", routed.Output.Trim());
+        Assert.Empty(routed.Error);
+    }
+
+    [Fact]
     public async Task Member_GenericContainingTypeAndGenericMethod_ResolvesTheMember()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -27161,6 +28399,18 @@ public partial class CommandExecutionTests
             "--count",
             "--tips",
             "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_SourcelessGenericContainingTypeAndGenericMethod_ResolvesTheMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Collections.Generic.List<T>.ConvertAll<TOutput>",
+            "-S", "Signature", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());

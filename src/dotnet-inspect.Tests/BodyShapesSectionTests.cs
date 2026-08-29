@@ -1582,6 +1582,64 @@ public sealed class BodyShapesSectionTests
                     overloadIndex: 2)).MetadataToken);
     }
 
+    [Theory]
+    [InlineData(SectionNames.IL)]
+    [InlineData(SectionNames.AppliedTaste)]
+    [InlineData(SectionNames.AnnotatedSourceDocument)]
+    public async Task MemberBodyResolution_SelectsAccessorOrdinalBeforeBodyFiltering(
+        string executableSection)
+    {
+        var type = new ApiType
+        {
+            Name = "MixedAccessor",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 1,
+                    GetterHasBody = false,
+                    SetterToken = 2,
+                    SetterHasBody = true,
+                }
+            ]
+        };
+
+        var getter = ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { executableSection },
+            new MemberOptions { OverloadIndex = 1 });
+        var setter = ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { executableSection },
+            new MemberOptions { OverloadIndex = 2 });
+        var addressableGetter = ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { SectionNames.CustomAttributes },
+            new MemberOptions { OverloadIndex = 1 });
+
+        Assert.Empty(getter);
+        Assert.Equal(2, Assert.Single(setter).MetadataToken);
+        Assert.Equal(1, Assert.Single(addressableGetter).MetadataToken);
+
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    executableSection
+                }
+        };
+        var (_, error) = await ConsoleCapture.RunAsync(() =>
+            ApiCommand.WarnEmptySelectedSections(
+                type,
+                options,
+                ApiMemberSectionPipelines.Create(options)));
+        Assert.Contains($"section '{executableSection}' has no data", error);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunMemberAsync(
         string member,
         string kind,

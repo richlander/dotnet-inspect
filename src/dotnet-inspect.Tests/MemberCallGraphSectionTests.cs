@@ -10,6 +10,60 @@ namespace DotnetInspector.Tests;
 public class MemberCallGraphSectionTests
 {
     [Fact]
+    public async Task PreResolvedBroadSection_IsRejectedAfterDottedLookupSelectsOverloadInventory()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.MethodGroups],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains($"Select value '{SectionNames.MethodGroups}' not found.", result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedDottedStructuralDiscovery_UsesTheOfflineUnion()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            IncludeSections = [SectionNames.MethodGroups],
+            Discover = [SectionNames.MethodGroups],
+            Schema = true,
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotEqual(string.Empty, result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task PreResolvedDottedSection_WithRawSelector_UsesTheLookupSelectedPipeline()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            Select = [SectionNames.Methods],
+            IncludeSections = [SectionNames.Signature],
+            Count = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task PreResolvedSection_OverridesStaleRawSelector()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -355,6 +409,43 @@ public class MemberCallGraphSectionTests
         Assert.Equal(
             [SectionNames.Summary, SectionNames.Signature, SectionNames.CallGraph],
             writerOptions.IncludeSections);
+    }
+
+    [Fact]
+    public async Task OverloadInventory_CallGraphSchema_IsQueryable()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = $"{typeof(MemberCallGraphFixture).FullName}.{nameof(MemberCallGraphFixture.RootCall)}",
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            Discover = [SectionNames.CallGraph],
+            Schema = true,
+            TipLevel = TipLevel.Quiet,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Fanout", result.Output);
+        Assert.Contains("Fanin", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task AutoSelectedDetail_EffectiveDiscoveryIncludesInventorySection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+                IncludeSections = [SectionNames.Methods, SectionNames.Signature],
+                Discover = [SectionNames.Methods],
+                TipLevel = TipLevel.Quiet
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotEqual(string.Empty, result.Output.Trim());
+        Assert.Empty(result.Error);
     }
 
     [Fact]
@@ -1356,6 +1447,15 @@ public static class MemberCallGraphFixture
             await Task.Yield();
             return ReadValue(value);
         };
+}
+
+public static class CallerScopeCountFixture
+{
+    public static void Root() => Target();
+
+    public static void Target()
+    {
+    }
 }
 
 // Instance fixtures whose accessors carry non-default modifiers, so the synthesized

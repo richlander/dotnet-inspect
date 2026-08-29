@@ -242,6 +242,21 @@ public static class ApiOutputFormatter
             options.IncludeSections,
             selectAll,
             explicitInclude: sectionsPreResolved);
+        if (options is MemberOptions { AutoSelectedSingleOverload: true })
+        {
+            includeSections ??= [];
+            includeSections.UnionWith(
+                ApiMemberOverloadSectionDescriptors.CreatePipeline().GetEffectiveSections(
+                    type,
+                    effectiveVerbosity,
+                    options.IncludeSections,
+                    explicitInclude: sectionsPreResolved));
+        }
+        if (ApiMemberSectionPipelines.ShouldAggregateCallers(type, options))
+        {
+            includeSections ??= [];
+            includeSections.Add(SectionNames.Callers);
+        }
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -505,7 +520,9 @@ public static class ApiOutputFormatter
 
         // Type parameters table (pipeline controls visibility via IncludeSections)
         List<TypeParameterRow>? typeParameterRows = null;
-        if (!memberFilterActive && type.TypeParameters.Count > 0)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.TypeParameters))
+            && type.TypeParameters.Count > 0)
         {
             typeParameterRows = type.TypeParameters
                 .Select(tp => new TypeParameterRow { Parameter = tp.DisplayName, Constraints = ConstraintSummary(type.TypeParameters, tp) })
@@ -514,7 +531,9 @@ public static class ApiOutputFormatter
 
         // Interfaces (pipeline controls visibility via IncludeSections)
         List<InterfaceRow>? interfaceRows = null;
-        if (!memberFilterActive && type.Interfaces.Count > 0)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.Interfaces))
+            && type.Interfaces.Count > 0)
         {
             interfaceRows = projection.Interfaces
                 .Select(i => new InterfaceRow { Interface = CSharpIdentifier.ContainRenderedText(i) })
@@ -523,7 +542,9 @@ public static class ApiOutputFormatter
 
         // Baseclass (pipeline controls visibility via IncludeSections; filtered for trivial bases)
         List<BaseclassRow>? baseclassRows = null;
-        if (!memberFilterActive && baseType != null)
+        if ((!memberFilterActive
+             || SectionRequested(options.IncludeSections, SectionNames.Baseclass))
+            && baseType != null)
         {
             baseclassRows = [new BaseclassRow { Type = baseType }];
         }
@@ -1447,24 +1468,92 @@ public static class ApiOutputFormatter
     /// overload-index selector (<c>Prop:1</c>/<c>Prop:2</c>) addresses. A field carries
     /// no accessor token and yields no body methods, so its body sections stay N/A.
     /// </summary>
-    internal static List<ApiMember> ResolveBodyMethods(ApiType type, IReadOnlySet<string> requestedSections)
+    internal static List<ApiMember> ResolveBodyMethods(
+        ApiType type,
+        IReadOnlySet<string> requestedSections,
+        ApiOptions? options = null)
     {
-        bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
-        var methods = type.Members
-            .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
-            .ToList();
+        bool includeBodyless = requestedSections.Any(
+            AddressableWithoutExecutableBodySections.Contains);
+        var aggregatedCallerTokens = (options as MemberOptions)?.AggregatedCallerMemberTokens;
+        List<ApiMember> methods;
+        if (aggregatedCallerTokens is { } tokens)
+        {
+            methods = type.Members
+                .Where(ApiMemberSectionDescriptors.IsMethodLike)
+                .Where(member => member.MetadataToken is { } token && tokens.Contains(token))
+                .ToList();
+            var methodTokens = methods
+                .Select(member => member.MetadataToken)
+                .OfType<int>()
+                .ToHashSet();
+            methods.AddRange(type.Members
+                .Where(ApiMemberSectionDescriptors.HasAccessorTokens)
+                .SelectMany(member => AccessorMethods(member, type))
+                .Where(member => member.MetadataToken is { } token
+                    && tokens.Contains(token)
+                    && methodTokens.Add(token)));
+        }
+        else
+        {
+            methods = type.Members
+                .Where(member =>
+                    options is null
+                    || ApiMemberSectionPipelines.IsImplicitCallerTarget(
+                        member,
+                        options))
+                .Where(member =>
+                    ApiMemberSectionDescriptors.IsMethodLike(member)
+                    && (includeBodyless
+                        || ApiMemberSectionDescriptors.HasExecutableBody(member)))
+                .ToList();
+        }
 
-        if (methods.Count == 0
-            && type.Members is [{ } single]
+        if (aggregatedCallerTokens is null
+            && methods.Count == 0
+            && type.Members
+                .Where(member =>
+                    options is null
+                    || ApiMemberSectionPipelines.IsImplicitCallerTarget(
+                        member,
+                        options))
+                .ToList() is [{ } single]
             && ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
-            methods = AccessorMethods(single, type)
-                .Where(m => !m.IsAbstract || includeAbstract)
+            IEnumerable<ApiMember> accessors = AccessorMethods(single, type);
+            if (options is MemberOptions { OverloadIndex: { } accessorOrdinal })
+            {
+                // Keep bodyless slots in the ordinal inventory: filtering first would
+                // compact :2 into :1 and inspect the wrong accessor.
+                accessors = accessors
+                    .Skip(accessorOrdinal - 1)
+                    .Take(1);
+            }
+
+            methods = accessors
+                .Where(member =>
+                    includeBodyless
+                    || ApiMemberSectionDescriptors.HasExecutableBody(member))
                 .ToList();
         }
 
         return methods;
     }
+
+    private static readonly HashSet<string> AddressableWithoutExecutableBodySections =
+    [
+        SectionNames.DecompiledSource,
+        SectionNames.FidelityCauses,
+        SectionNames.AnnotatedSource,
+        SectionNames.PdbSource,
+        SectionNames.SourceDiff,
+        SectionNames.SourceLocations,
+        SectionNames.CustomAttributes,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+        SectionNames.SafetyFacts,
+        SectionNames.UnsafeOperations
+    ];
 
     /// <summary>
     /// Synthesizes method members for a property's or event's accessors, keyed by the
@@ -1538,6 +1627,14 @@ public static class ApiOutputFormatter
             Name = name,
             Kind = "method",
             MetadataToken = token,
+            HasMethodBody = accessorKind switch
+            {
+                "get" => owner.GetterHasBody,
+                "set" => owner.SetterHasBody,
+                "add" => owner.AdderHasBody,
+                "remove" => owner.RemoverHasBody,
+                _ => null
+            },
             DeclaringType = declaringType,
             ReturnType = returnType,
             Signature = $"{returnType} {name}({renderedParameters})",

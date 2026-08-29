@@ -145,6 +145,15 @@ joining the base scope; `Unsafe Members` is the current library example.
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.
 
+Structural discovery avoids target inspection. A dotted
+`member Type.Member` argument is ambiguous because the last dot may instead
+belong to a namespace-qualified or nested type. With `--schema`, metadata is
+intentionally unavailable, so the command reports the conservative union of
+the member pipelines that the target may select. An explicit overload or digest
+suffix (`Name:N` or `Name~digest`) identifies the detail pipeline from syntax
+alone. Effective discovery may resolve the boundary against metadata and
+report only the pipeline that applies.
+
 ## Network and source capabilities
 
 Package acquisition and symbol/source acquisition are separate.

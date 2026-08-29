@@ -1417,14 +1417,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
     static bool HasAnalyzableIlBody(
         MethodDefinition method)
-        => method.RelativeVirtualAddress != 0
-            && (method.Attributes
-                    & MethodAttributes.PinvokeImpl) == 0
-            && (method.ImplAttributes
-                    & (MethodImplAttributes.CodeTypeMask
-                        | MethodImplAttributes.ManagedMask
-                        | MethodImplAttributes.InternalCall))
-                == MethodImplAttributes.IL;
+        => MethodDefinitionBodyFacts.HasAnalyzableIlBody(method);
 
     bool ImplementsAsyncStateMachine(
         TypeDefinition type)

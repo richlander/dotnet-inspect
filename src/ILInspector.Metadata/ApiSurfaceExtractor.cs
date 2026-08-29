@@ -157,6 +157,14 @@ public abstract record ApiSurfaceExtractionResult
 /// </summary>
 public static class ApiSurfaceExtractor
 {
+    private static bool? MethodHasBody(
+        MetadataReader reader,
+        MethodDefinitionHandle handle)
+        => handle.IsNil
+            ? null
+            : MethodDefinitionBodyFacts.HasAnalyzableIlBody(
+                reader.GetMethodDefinition(handle));
+
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
     private static readonly ConditionalWeakTable<
@@ -1115,7 +1123,7 @@ public static class ApiSurfaceExtractor
                     GenericArity =
                         method.GetGenericParameters().Count,
                     HasMethodBody =
-                        method.RelativeVirtualAddress != 0,
+                        MethodDefinitionBodyFacts.HasAnalyzableIlBody(method),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1363,6 +1371,8 @@ public static class ApiSurfaceExtractor
                         observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    GetterHasBody = MethodHasBody(reader, accessors.Getter),
+                    SetterHasBody = MethodHasBody(reader, accessors.Setter),
                     HasGetter = !accessors.Getter.IsNil,
                     GetterAccessibility = accessors.Getter.IsNil
                         ? null
@@ -1781,7 +1791,9 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Adder),
                     RemoverToken = accessors.Remover.IsNil
                         ? null
-                        : MetadataTokens.GetToken(accessors.Remover)
+                        : MetadataTokens.GetToken(accessors.Remover),
+                    AdderHasBody = MethodHasBody(reader, accessors.Adder),
+                    RemoverHasBody = MethodHasBody(reader, accessors.Remover)
                 };
 
                 budget?.RetainMember(member);
@@ -2903,6 +2915,7 @@ public static class ApiSurfaceExtractor
                     SignatureModel = extension.SignatureModel,
                     SignatureDecodeStatus = extension.SignatureDecodeStatus,
                     MetadataToken = extension.MetadataToken,
+                    HasMethodBody = extension.HasMethodBody,
                     IsStatic = extension.IsStatic,
                     IsVirtual = extension.IsVirtual,
                     IsAbstract = extension.IsAbstract,

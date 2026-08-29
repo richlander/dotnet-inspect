@@ -152,6 +152,11 @@ public static class MemberCommand
                 var mergedArity =
                     mergeOptions.MemberGenericArity
                     ?? impliedSelector.GenericArity;
+                var mergedKinds = new HashSet<string>(
+                    mergeOptions.KindFilter,
+                    StringComparer.OrdinalIgnoreCase);
+                if (impliedSelector.Kind is { Length: > 0 } impliedKind)
+                    mergedKinds.Add(impliedKind);
                 if (mergedArity.HasValue && mergedFilter.Count != 1)
                 {
                     CommandError.Write("A generic arity selector requires exactly one member name.");
@@ -161,6 +166,7 @@ public static class MemberCommand
                 mergeOptions = mergeOptions with
                 {
                     MemberFilter = mergedFilter,
+                    KindFilter = mergedKinds,
                     MemberGenericArity = mergedArity,
                     OverloadIndex =
                         mergeOptions.OverloadIndex
@@ -206,27 +212,13 @@ public static class MemberCommand
                     ProjectAssetsPath = projectAssetsPath,
                 };
             }
-            else if (!options.MemberSectionsPreResolved
-                && options.MemberFilter.Count == 0
-                && options.Select is { Length: > 0 })
+            var memberPipeline = ApiMemberSectionPipelines.Create(options);
+
+            // Structural discovery ignores -S. Once lookup has identified the actual member
+            // pipeline, report that schema directly just as the non-dotted path does.
+            if (options.Discover is not null && !options.EffectiveDiscovery)
             {
-                var actualPipeline = ApiMemberSectionPipelines.Create(options);
-                var actualSelect = SelectResolver.ResolveSelectAsSections(
-                    options.Select,
-                    actualPipeline.SelectableSectionNames,
-                    actualPipeline.InfoSectionNames,
-                    actualPipeline.GetCategoryMap(),
-                    selectDefault: options.SelectDefault);
-                if (SelectOutput.WriteUnresolved(actualSelect))
-                    return 1;
-                if (actualSelect.Sections != null)
-                {
-                    options = options with
-                    {
-                        IncludeSections = actualSelect.Sections,
-                        ExactIncludeSectionsOverride = actualSelect.ExactSections,
-                    };
-                }
+                return ApiCommand.ExecuteStructuralTypeDiscovery(options, memberPipeline);
             }
 
             if (options.BodyKindQuery.HasFilter
@@ -238,6 +230,28 @@ public static class MemberCommand
                     + "(for example, Name:1 or Name~digest).");
                 return 1;
             }
+
+            if (options.MemberSelectionDeferredToLookup)
+            {
+                if (ApiCommand.ReresolveSectionsForMemberLookup(options) is not { } resolved)
+                    return 1;
+                options = resolved;
+                memberPipeline = ApiMemberSectionPipelines.Create(options);
+            }
+            else if (ApiCommand.RevalidateResolvedMemberSections(options, memberPipeline) is { } revalidated)
+            {
+                options = revalidated;
+                if (options.MemberPipelineDeferredToLookup)
+                {
+                    if (ApiCommand.FinalizeResolvedMemberSelection(options, memberPipeline)
+                        is not { } finalized)
+                        return 1;
+                    options = finalized;
+                }
+            }
+            else
+                return 1;
+
             if (options.BodyKindQuery.HasFilter
                 && options.IncludeSections is null
                 && options.Discover is null)
@@ -282,8 +296,19 @@ public static class MemberCommand
             MemberOptions effectiveOptions = options;
             if (!options.DocsExplicitlySet && options.Verbosity >= Verbosity.Normal)
                 effectiveOptions = options with { ShowDocs = true };
-            if (effectiveOptions.HasCallerScope)
-                effectiveOptions = IncludeCallersSection(effectiveOptions);
+            var discoveredCallerSections =
+                GetDiscoveredCallerSections(effectiveOptions);
+            var callersImplicitlySelected = effectiveOptions.HasCallerScope
+                && !IsWholeDocumentJson(effectiveOptions)
+                && (!HasAuthoredSectionRequest(effectiveOptions)
+                    || discoveredCallerSections.Count > 0);
+            if (callersImplicitlySelected)
+            {
+                effectiveOptions = IncludeCallerScopeSections(
+                    effectiveOptions,
+                    discoveredCallerSections);
+            }
+            var authoredSelection = effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -291,21 +316,47 @@ public static class MemberCommand
             // here to avoid a spurious "digest cannot be combined with --index" conflict.
             if (!effectiveOptions.OverloadIndex.HasValue
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
-                && ShouldAutoSelectSingleOverload(effectiveOptions))
+                && ShouldAutoSelectSingleOverload(authoredSelection))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
-                var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
-                if (autoOverloads.Count == 1)
+                var autoCandidates = GetTargetCandidates(
+                        apiType,
+                        effectiveOptions,
+                        autoMemberName)
+                    .Where(candidate =>
+                        !effectiveOptions.UnsafeOnly
+                        || candidate.Member.IsUnsafe)
+                    .ToList();
+                if (autoCandidates.Count == 1)
                 {
+                    var autoCandidate = autoCandidates[0];
                     if (effectiveOptions.BodyKindQuery.HasFilter
-                        && BodyAccessorCount(autoOverloads[0]) > 1)
+                        && BodyAccessorCount(autoCandidate.Member) > 1)
                     {
                         WriteAccessorSelectionRequired(
                             apiType,
-                            autoOverloads[0]);
+                            autoCandidate.Member);
                         return 1;
                     }
-                    effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+                    var inventoryPipeline = ApiMemberSectionPipelines.Create(authoredSelection);
+                    if (ApiCommand.RevalidateResolvedMemberSections(
+                            authoredSelection,
+                            inventoryPipeline)
+                        is not { } inventorySections)
+                        return 1;
+
+                    inventorySections = inventorySections with
+                    {
+                        OverloadIndex = autoCandidate.SelectorIndex,
+                        AutoSelectedSingleOverload = true
+                    };
+                    var detailPipeline = ApiMemberSectionPipelines.Create(inventorySections);
+                    if (ApiCommand.FinalizeResolvedMemberSelection(
+                            inventorySections,
+                            detailPipeline)
+                        is not { } detailOptions)
+                        return 1;
+                    effectiveOptions = detailOptions;
                 }
             }
 
@@ -336,6 +387,11 @@ public static class MemberCommand
 
                 var target = memberResolution.Target!;
                 var selected = target.ApiMember.Member;
+                selected.SelectorOverloadIndex = GetPublishedSelectorIndex(
+                    apiType,
+                    effectiveOptions,
+                    memberName,
+                    selected);
                 bool explicitAccessorSelector =
                     target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
                     && target.OverloadIndex.HasValue
@@ -358,7 +414,7 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
-                && TryGetSelectedSingleOverloadSections(effectiveOptions, out var singleOverloadSections))
+                && TryGetSelectedSingleOverloadSections(authoredSelection, out var singleOverloadSections))
             {
                 var memberName = effectiveOptions.MemberFilter.First();
                 var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
@@ -373,6 +429,25 @@ public static class MemberCommand
                 }
             }
 
+            if (ApiMemberSectionPipelines.ShouldAggregateCallers(
+                    apiType,
+                    effectiveOptions))
+            {
+                var callerTokens = GetAggregatedCallerMembers(apiType, effectiveOptions)
+                    .SelectMany(member => BodyMethodTokens(apiType, member))
+                    .ToHashSet();
+                effectiveOptions = effectiveOptions with
+                {
+                    AggregatedCallerMemberTokens = callerTokens
+                };
+            }
+            else if (effectiveOptions.CallerScopeSectionImplicitlySelected
+                && effectiveOptions.OverloadIndex is null
+                && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest))
+            {
+                effectiveOptions = ExcludeCallersSection(effectiveOptions);
+            }
+
             if (effectiveOptions.OverloadIndex is null
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
                 && effectiveOptions.MemberGenericArity.HasValue
@@ -380,15 +455,23 @@ public static class MemberCommand
             {
                 var memberName = effectiveOptions.MemberFilter.First();
                 var arityCandidateTargets = GetTargetCandidates(apiType, effectiveOptions, memberName);
-                var unfilteredSelectorIndices = GetTargetCandidates(
+                var unfilteredCandidates = GetTargetCandidates(
                         apiType,
                         effectiveOptions with { MemberGenericArity = null },
-                        memberName)
+                        memberName);
+                var unfilteredSelectorIndices = unfilteredCandidates
                     .ToDictionary(candidate => candidate.Member, candidate => candidate.SelectorIndex);
                 var arityCandidates = arityCandidateTargets.Select(candidate =>
                 {
-                    if (unfilteredSelectorIndices.TryGetValue(candidate.Member, out var selectorIndex))
+                    if (unfilteredCandidates.Count > 1
+                        && unfilteredSelectorIndices.TryGetValue(candidate.Member, out var selectorIndex))
+                    {
                         candidate.Member.SelectorOverloadIndex = selectorIndex;
+                    }
+                    else
+                    {
+                        candidate.Member.SelectorOverloadIndex = null;
+                    }
                     return candidate.Member;
                 }).ToList();
                 if (arityCandidates.Count == 0)
@@ -405,6 +488,13 @@ public static class MemberCommand
                 && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
             {
                 effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
+            }
+
+            if (IsWholeDocumentJson(effectiveOptions)
+                && ApiCommand.RejectExactCallerAnalysisDocumentJson(
+                    effectiveOptions))
+            {
+                return 1;
             }
 
             // Enrich with local XML docs only (source info is in the source command)
@@ -505,17 +595,24 @@ public static class MemberCommand
                         foundIn, packageName, packageVersion, apiSource, selectedTfm));
             }
 
-            // For caller-scope queries without a specific overload, ensure DllPath is set so we can
-            // open the member's own assembly index for aggregated callers across all overloads.
-            if (effectiveOptions.HasCallerScope && effectiveOptions.DllPath == null && apiDllPath != null)
+            // Aggregated caller queries always inspect the member's own assembly, with any
+            // explicit caller scope contributing additional assemblies below.
+            var callerTargetAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
+            bool aggregateCallerTargets = ApiMemberSectionPipelines.ShouldAggregateCallers(
+                apiType,
+                effectiveOptions);
+            if (callerTargetAssembly != null
+                && (aggregateCallerTargets
+                    || effectiveOptions.HasCallerScope
+                    && effectiveOptions.DllPath == null))
             {
-                effectiveOptions = effectiveOptions with { DllPath = apiDllPath };
+                effectiveOptions = effectiveOptions with { DllPath = callerTargetAssembly };
             }
 
             // Expand --bin/--directory, --project, and --caller-package into assemblies
             // for cross-assembly callers and Call Graph traversal, in addition to the
             // selected member's own assembly.
-            if (effectiveOptions.HasCallerScope)
+            if (RequiresCallerScopeResolution(effectiveOptions))
             {
                 var ownAssembly = effectiveOptions.DllPath ?? runtimeAssemblyPath ?? apiDllPath;
                 callerScopeAssemblySet = await CallerScopeResolver.ResolveAsync(
@@ -527,12 +624,9 @@ public static class MemberCommand
                     context.HttpClient,
                     logger);
 
-                // Supplying a caller scope is an explicit request for the Callers section, so it
-                // renders (with an empty-state note when nothing matches) even at low verbosity.
                 effectiveOptions = effectiveOptions with
                 {
-                    CallerScopeAssemblies = callerScopeAssemblySet.Assemblies,
-                    IncludeSections = IncludeCallersSection(effectiveOptions).IncludeSections
+                    CallerScopeAssemblies = callerScopeAssemblySet.Assemblies
                 };
             }
 
@@ -551,7 +645,11 @@ public static class MemberCommand
                 var schema = ApiCommand.ToQueryableSchema(
                     ApiCommand.GetTypeDocumentSchema(effectiveOptions),
                     effectiveOptions);
-                if (!ProjectionDiagnostics.ValidateProjection(schema, projectionSections, effectiveOptions.Fields, effectiveOptions.Columns))
+                if (!ApiCommand.ValidateTypeProjection(
+                        schema,
+                        projectionSections,
+                        effectiveOptions.Fields,
+                        effectiveOptions.Columns))
                     return 1;
             }
 
@@ -563,6 +661,18 @@ public static class MemberCommand
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
+
+            if ((effectiveOptions.Count || !effectiveOptions.JsonOutput)
+                && (apiType.Members is [{ Kind: "field" }]
+                    || IsSelectedBodyEvidenceUnavailable(
+                        apiType,
+                        effectiveOptions)))
+            {
+                ApiCommand.WarnEmptySelectedSections(
+                    apiType,
+                    effectiveOptions,
+                    ApiMemberSectionPipelines.Create(effectiveOptions));
+            }
 
             if (!effectiveOptions.FormatExplicitlySet && !effectiveOptions.IsRawOutput && effectiveOptions.OverloadIndex == null)
             {
@@ -815,13 +925,185 @@ public static class MemberCommand
         return sections.Count > 0;
     }
 
-    private static MemberOptions IncludeCallersSection(MemberOptions options)
+    private static MemberOptions IncludeCallerScopeSections(
+        MemberOptions options,
+        IReadOnlySet<string> discoveredCallerSections)
     {
         var includeSections = options.IncludeSections is { Count: > 0 } existing
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        includeSections.Add(SectionNames.Callers);
-        return options with { IncludeSections = includeSections };
+        if (discoveredCallerSections.Count > 0)
+            includeSections.UnionWith(discoveredCallerSections);
+        else
+            includeSections.Add(SectionNames.Callers);
+        return options with
+        {
+            IncludeSections = includeSections,
+            CallerScopeSectionImplicitlySelected =
+                includeSections.Contains(SectionNames.Callers)
+        };
+    }
+
+    private static HashSet<string> GetDiscoveredCallerSections(
+        MemberOptions options)
+    {
+        if (options.Discover is not { Length: > 0 } discover)
+            return [];
+
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        var resolved = SelectResolver.ResolveSelectAsSections(
+            discover,
+            pipeline.SelectableSectionNames,
+            pipeline.InfoSectionNames,
+            pipeline.GetCategoryMap());
+        if (resolved.HasError || resolved.Sections is not { } sections)
+            return [];
+
+        return sections
+            .Where(section =>
+                section.Equals(
+                    SectionNames.Callers,
+                    StringComparison.OrdinalIgnoreCase)
+                || section.Equals(
+                    SectionNames.CallGraph,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool RequiresCallerScopeResolution(MemberOptions options)
+        => !IsWholeDocumentJson(options)
+           && options.HasCallerScope
+           && options.IncludeSections is { } sections
+           && (sections.Contains(SectionNames.Callers)
+               || sections.Contains(SectionNames.CallGraph));
+
+    private static MemberOptions ExcludeCallersSection(MemberOptions options)
+    {
+        var includeSections = options.IncludeSections is { } existing
+            ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
+            : [];
+        includeSections.Remove(SectionNames.Callers);
+        HashSet<string>? exactIncludeSections = null;
+        if (options.ExactIncludeSectionsOverride is { } exactExisting)
+        {
+            exactIncludeSections = new HashSet<string>(
+                exactExisting,
+                StringComparer.OrdinalIgnoreCase);
+            exactIncludeSections.Remove(SectionNames.Callers);
+        }
+        return options with
+        {
+            IncludeSections = includeSections,
+            ExactIncludeSectionsOverride = exactIncludeSections,
+            CallerScopeSectionImplicitlySelected = false
+        };
+    }
+
+    private static bool HasAuthoredSectionRequest(MemberOptions options)
+        => options.MemberSectionsPreResolved
+           || options.Select is { Length: > 0 }
+           || options.SelectDefault
+           || options.Discover is { Length: > 0 }
+           || options.BodyKindQuery.HasFilter;
+
+    private static bool IsWholeDocumentJson(MemberOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && options.Discover is null
+           && !options.Print
+           && !options.Value
+           && !options.Urls
+           && !options.Paths;
+
+    private static bool IsSelectedBodyEvidenceUnavailable(
+        ApiType type,
+        MemberOptions options)
+    {
+        if (options.ExactIncludeSections is not { } exactSections)
+            return false;
+
+        var filteredType = ApiCommand.BuildFilteredTypeForSections(
+            type,
+            options);
+        foreach (var section in exactSections.Where(
+                     BodyEvidenceSectionNames.Contains))
+        {
+            IReadOnlySet<string> requestedSection =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    section
+                };
+            if (ApiOutputFormatter.ResolveBodyMethods(
+                    filteredType,
+                    requestedSection,
+                    options).Count == 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static readonly HashSet<string> BodyEvidenceSectionNames =
+    [
+        SectionNames.Calls,
+        SectionNames.ExceptionRegions,
+        SectionNames.AnnotatedSourceDocument,
+        SectionNames.AppliedTaste,
+        SectionNames.AllocationFacts,
+        SectionNames.SafetyFacts,
+        SectionNames.CostFacts,
+        SectionNames.Callers,
+        SectionNames.CallGraph,
+        SectionNames.UnsafeOperations,
+        SectionNames.BodyShapes,
+        SectionNames.TopLeverage,
+        SectionNames.PerformanceTriage,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
+        SectionNames.IL,
+        SectionNames.Facts
+    ];
+
+    internal static bool IsBodyEvidenceSection(string section) =>
+        BodyEvidenceSectionNames.Contains(section);
+
+    private static IEnumerable<int> BodyMethodTokens(
+        ApiType type,
+        ApiMember member)
+    {
+        if (ApiMemberSectionDescriptors.IsMethodLike(member))
+        {
+            if (member.MetadataToken is { } token)
+                yield return token;
+            yield break;
+        }
+
+        if (!ApiMemberSectionDescriptors.HasAccessorTokens(member))
+            yield break;
+
+        foreach (var accessor in ApiOutputFormatter.AccessorMethods(member, type))
+        {
+            if (accessor.MetadataToken is { } token)
+                yield return token;
+        }
+    }
+
+    private static IEnumerable<ApiMember> GetAggregatedCallerMembers(
+        ApiType type,
+        MemberOptions options)
+    {
+        IEnumerable<ApiMember> members = ApiOutputFormatter
+            .GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter)
+            .SelectMany(group => group.Value);
+        if (options.MemberGenericArity.HasValue && options.MemberFilter.Count == 1)
+        {
+            var memberName = options.MemberFilter.First();
+            var arityCandidates = GetCandidateMembers(type, options, memberName).ToHashSet();
+            members = members.Where(arityCandidates.Contains);
+        }
+        return members;
     }
 
     private static readonly string[] SingleOverloadSectionNames =
@@ -851,7 +1133,8 @@ public static class MemberCommand
     ];
 
     private static bool IsPureSelector(string[]? select, string name) =>
-        select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
+        select is { Length: > 0 }
+        && select.All(selector => selector.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => GetTargetCandidates(apiType, options, memberName)
@@ -865,6 +1148,24 @@ public static class MemberCommand
                     ? new MemberTargetSelector(memberName, memberName, GenericArity: arity)
                     : new MemberTargetSelector(memberName, memberName),
                 options.KindFilter);
+
+    private static int? GetPublishedSelectorIndex(
+        ApiType apiType,
+        MemberOptions options,
+        string memberName,
+        ApiMember selected)
+    {
+        var candidates = GetTargetCandidates(
+            apiType,
+            options with { MemberGenericArity = null },
+            memberName);
+        if (candidates.Count <= 1)
+            return null;
+
+        return candidates
+            .Single(candidate => ReferenceEquals(candidate.Member, selected))
+            .SelectorIndex;
+    }
 
     private static string GetMemberSectionName(string kind) => kind switch
     {
