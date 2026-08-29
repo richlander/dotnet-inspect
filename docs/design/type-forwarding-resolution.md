@@ -2778,7 +2778,54 @@ the owning document.
 This contract does not govern acquisition, binding policy, forwarding
 semantics, the evidence model, or anything outside a single signature decode.
 
+### What goes wrong without a bound
+
+A decode reads metadata the caller did not write. The artifact arrives from a
+package feed, and every length, count, and name in it is a number its author
+chose. The decode's job is to turn that into a typed plan; the caller's
+expectation is that reading one member signature costs about what one member
+signature is worth.
+
+Four things break that, and they fail in different directions.
+
+**No bound at all.** Work becomes proportional to author-chosen numbers, so the
+ratio of effort to artifact size has no limit. The probe below builds a method
+with no parameters whose one type reference is scoped to an assembly reference
+carrying a 16 MiB public key: decoding that one signature copies 16 MiB. Work
+is driven by a number in the artifact rather than by the size of the question
+asked, and a caller decoding many members repeats it per member.
+The decode then *succeeds*, which is the worst part -- nothing is reported,
+and the cost surfaces only as a tool that has stopped responding.
+
+**A bound that is too low.** Legitimate signatures are refused, and refusal is
+attributed to the artifact: the tool reports a rejected signature for code that
+is entirely well-formed. A slow tool is a complaint; a tool that calls valid
+input malformed is wrong, and wrong about someone else's work.
+
+**A bound that is too high.** The bound exists, passes review, and never binds,
+so the first failure returns unchanged. Nothing in the code distinguishes this
+from a good ceiling. Only a census does, by showing the distance between the
+ceiling and what real artifacts consume.
+
+**A bound on the wrong quantity.** This is the one that survives review, because
+the budget is visibly present and is charged on every path. A budget that counts
+callbacks is fully satisfied while cost grows without limit, since it cannot
+observe that one callback read a megabyte. The code reads as bounded and is not.
+
+The ceilings therefore need two justifications, and each answers a different
+failure. They must sit far enough above real artifacts that no legitimate
+signature is refused, which the census establishes: the largest real decode
+consumed 1,182 ledger units against a ceiling of 262,144. And they must bind on
+the quantity that actually grows, which is what the classification below is
+for.
+
 ### The two classes of cost
+
+Throughout this section, **materializing** means copying artifact bytes into a
+managed object -- a string, a byte array, or a typed identity built from them.
+The cost is proportional to the size of what is copied. Reading how large
+something is, without copying it, is not materializing and costs nothing
+comparable.
 
 Every quantity a decode consumes falls into exactly one class, and the class
 determines what the decode owes it.
@@ -2806,11 +2853,57 @@ bounding *repetition*, not magnitude: a name capped at
 then charging it is sound. Requiring charge-before-read for Class A would be a
 correctness claim the code does not need and does not make.
 
-For **Class B**, the charge **must** precede the materialization, and must be
-computed without performing it. A single author-sized blob can exceed any
-aggregate ceiling on its own, so charging afterwards is charging a bill already
-paid. `MetadataReader.GetBlobReader(handle).Length` reports storage length
-without copying and is the sanctioned way to price a Class B read.
+For **Class B**, the charge **must** precede the materialization. A single
+author-sized blob can exceed any aggregate ceiling on its own, so charging
+afterwards charges a bill already paid: by the time the copy has happened, the
+work the ledger exists to refuse has been done, and the ledger can only report
+it.
+
+That requires knowing what a read will cost before performing it, which sounds
+circular but is not: metadata records how large a thing is separately from the
+thing, so the size can be read without producing the value.
+
+`MetadataReader.GetBlobReader(handle)` positions a reader over one heap entry
+and exposes its byte count as `Length`, allocating nothing and decoding
+nothing. What that costs depends on the heap, because ECMA-335 stores the two
+differently. A `#Blob` entry is length-prefixed, so its size is a compressed
+integer read at a known offset. A `#Strings` entry is null-terminated, so its
+size is found by scanning for the terminator.
+
+Measured against entries from 16 bytes to 16 MiB:
+
+| Entry | `.Length` at 16 B | `.Length` at 16 MiB | Allocated |
+| --- | ---: | ---: | ---: |
+| `#Blob` -- public key | 13.5 ns | 6.5 ns | 0 bytes |
+| `#Strings` -- name, culture | 25.0 ns | 278,354.0 ns | 0 bytes |
+
+Pricing a blob is constant. Pricing a string is not: the scan grows with the
+string. Both are still sound prices, for the reason that matters -- neither
+allocates, neither decodes UTF-8, and neither produces a value the decode
+retains. The scan reads bytes the artifact already contains, so it cannot
+amplify: at worst it examines each byte once. Materializing amplifies, because
+a managed copy is allocated and retained, UTF-8 becomes wider UTF-16, and the
+same entry is reached once per occurrence.
+
+The concrete contrast at a Class B site is therefore:
+
+| Call | Produces | Allocates | Can amplify |
+| --- | --- | --- | --- |
+| `reader.GetBlobReader(handle).Length` | a byte count | nothing | no |
+| `reader.GetString(handle)`, or a typed identity built from the blob | the value | a managed copy | yes |
+
+So the decode reads the price, charges the ledger that amount, and performs the
+copy only if the ledger accepted. `Length` decides nothing -- it is a
+measurement, and the ledger is what refuses. Ordering is the entire point: the
+same two calls in the opposite order compute the same numbers and bound
+nothing.
+
+One residual follows from the string scan and is accepted rather than hidden.
+Pricing an author-sized name does work proportional to that name before any
+charge is made. It is bounded by the image, allocation-free, and orders of
+magnitude below materializing, so it cannot be amplified into the failure this
+contract prevents -- but it is not zero, and a future quantity whose price
+cannot be read this cheaply would need a different treatment.
 
 Misclassifying a Class B quantity as Class A permits unbounded work on an
 accepted decode, and is the failure this classification exists to prevent.
@@ -2972,6 +3065,15 @@ A census run also checks the cost model for completeness: charges that no
 classified site accounts for are recorded against an unmapped bucket, which was
 zero across all 2,750,623 decodes. A non-zero unmapped count means the table
 above is missing a quantity.
+
+The pricing costs in *The two classes of cost* are measured separately and need
+no product code. Emit an assembly whose single `AssemblyRef` carries a name and
+a public key of a chosen size, then time and measure allocations for
+`GetBlobReader(reference.Name).Length` and
+`GetBlobReader(reference.PublicKeyOrToken).Length` in Release across sizes from
+16 bytes to 16 MiB. The blob figure must stay flat and both allocation figures
+must stay zero; a regression in either invalidates the charge-before-read rule
+for that quantity.
 
 ### Charging bounds; caching does not
 
