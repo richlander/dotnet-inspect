@@ -2954,7 +2954,7 @@ introduces a new quantity must extend this table in the same change.
 | Resolution-scope chain length | walking a `TypeRef` resolution-scope chain | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
 | Declaring-type chain length | walking a `TypeDef` declaring-type chain to project a nested type's full name | A | `MaxRelationshipNodes` per walk; length charged to the ledger |
 | `TypeSpec` blob bytes scanned | completeness scan, re-entered once per occurrence | A | `TypeSpecGuard.MaxCumulativeBytes` across the active re-entry closure, not per `TypeSpec`; repetition charged to the ledger |
-| Array shape bounds | array shape materialization | A | the node budget, enforced by `SignatureBlobGuard` before decoding begins: it charges the declared size and lower-bound counts against `remainingTypeNodes`, because a byte-length check alone does not bound this work |
+| Array shape bounds | array shape materialization | A | the guard's shape allowance, enforced by `SignatureBlobGuard` before decoding begins: it charges the declared size and lower-bound counts against its own `remainingTypeNodes`, because a byte-length check alone does not bound this work |
 | `AssemblyRef` public-key **token** | terminal scope projection | A | exactly 8 bytes, enforced before the token is projected |
 | `AssemblyRef` **full public key** | terminal scope projection, when `AssemblyFlags.PublicKey` is set | **B** | charged from storage length before materializing |
 | `AssemblyRef` name and culture storage | terminal scope projection | **B** | charged from storage length before materializing |
@@ -3092,8 +3092,11 @@ reached through a custom modifier, where `TypeDefOrRefOrSpecEncoded` admits a
 
 #### What the census cannot show
 
-The census bounds Class A. It cannot bound Class B, because the largest Class B
-value in any corpus is a fact about the authors who happened to produce it.
+The census bounds the Class A quantities it measured. It does not bound the two
+Class A quantities disclosed above as unmeasured: each is structurally bounded
+by its guard, but neither has an observed margin. And it cannot bound Class B
+at all, because the largest Class B value in any corpus is a fact about the
+authors who happened to produce it.
 
 A single method taking no parameters, whose one `TypeRef` is scoped to an
 `AssemblyRef` carrying a full public key, consumes ledger units equal to that
