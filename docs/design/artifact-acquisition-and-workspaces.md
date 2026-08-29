@@ -457,11 +457,12 @@ One focused context shape composes:
 
 This section owns acquisition, role assignment, lifetime, and atomic workspace
 publication for that shape. It consumes shared local-path admission from #5096
+and admission-scoped assembly projection from #5143,
 and the platform closure and overlay policy from
 [platform composition and overlays](platform-composition-and-overlays.md);
 it does not redefine local path normalization or entry classification,
-assembly-identity matching, designated-over-platform precedence, or
-request-level compatibility.
+assembly identity/MVID construction, assembly-identity matching,
+designated-over-platform precedence, or request-level compatibility.
 
 #### Typed request and outcome
 
@@ -533,18 +534,33 @@ and mediates their query operations. The caller never mints or supplies a raw
 `ArtifactQueryLease`. A changed, revoked, incompatible, or ended plan rejects
 view acquisition.
 
-Every participant projected from an artifact preserves the artifact's
-`ArtifactAcquisitionRegistration`. A query-authorized
-`ArtifactContentReference` is the internal handoff from the artifact owner to
-Metadata projection and group-owned image acquisition; neither `Realized` nor
-its context view returns that reference, a `ResolvedAssemblyReference`, a
-readable path, or a `Stream`.
+Before publication, the artifact owner issues one admission-scoped guarded
+content projection for each required artifact. The realizer passes that
+projection to #5143 and receives Metadata-owned assembly registration,
+identity, and bound-MVID facts with no retained opener or lease. Each fact
+preserves the exact `ArtifactAcquisitionRegistration`; the admission
+capability expires on group publication or abort and is never retained by a
+participant.
 
-The lease-bound context view instead mediates bounded image operations for its
-participant identities. The group opens retained content under the view's
-query lease, validates and snapshots the image, closes the internal stream, and
-only then invokes the consumer with its existing callback-scoped
-`AssemblyImageView`. A foreign participant is rejected before content access.
+After publication, a query-authorized `ArtifactContentReference` is an internal
+handoff from the artifact owner to group-owned image acquisition. Neither
+`Realized` nor its context view returns that reference, a
+`ResolvedAssemblyReference`, a readable path, or a `Stream`.
+
+The lease-bound context view mediates bounded image operations using
+context-specific `ExplicitAssemblyImageView` and
+`ExplicitAssemblyImageAccessResult<TResult>` types. The view is stack-only and
+contains only an opaque `AssemblyContextParticipantIdentity` and immutable
+content span. A rejected result contains that same opaque identity and a typed
+open failure. Neither type, including its complete public property and generic
+result closure, exposes an assembly descriptor or content capability.
+
+The group opens retained content under the view's query lease, validates and
+snapshots the image, closes the internal stream, and only then invokes the
+consumer callback. It may adapt its existing `AssemblyImageView` internally,
+but that descriptor-bearing view and the existing descriptor-bearing rejection
+result do not cross this context boundary. A foreign participant is rejected
+before content access.
 
 The workspace remains the sole owner of the group and artifact session.
 Disposing a context view revokes that query access but does not release the
@@ -572,11 +588,12 @@ admission for each local coordinate, coalesces equal admitted identities, and
 invokes the exact-file local adapter and installed-platform adapter within one
 `ArtifactSetSession`. Every supplied local coordinate and every selected
 platform member is required. It projects managed assembly participants only
-after all acquisitions succeed, then atomically publishes the sealed session
-and group. An invalid managed image, missing required platform member, failed
-acquisition, projection failure, role conflict, or budget exhaustion publishes
-neither a shortened group nor a partial session. Cancellation remains
-cancellation and follows the session cleanup contract.
+after all acquisitions succeed, using #5143's admission-scoped assembly facts,
+then atomically publishes the sealed session and group. An invalid managed
+image, missing required platform member, failed acquisition, projection
+failure, role conflict, or budget exhaustion publishes neither a shortened
+group nor a partial session. Cancellation remains cancellation and follows the
+session cleanup contract.
 
 Workspace admission, rather than an adapter or downstream assembly consumer,
 assigns these roles:
@@ -748,6 +765,10 @@ These properties remain unverified until the named Release gates land:
 - `ExplicitAssemblyContext_RoleProjectionPreservesEveryGrant` proves the
   context generation preserves each participant registration and exact
   workspace-role set without provenance translation;
+- `ExplicitAssemblyContext_AdmissionProjectionRetainsNoContentAuthority`
+  proves #5143 projection runs before publication under the exact admission
+  authority and returns matching artifact/assembly registration, identity, and
+  MVID facts without retaining a path, opener, content reference, or lease;
 - `ExplicitAssemblyContext_PlatformRoleRequiresCurrentOwnerEvidence` proves
   only matching current-generation platform realization evidence can mint
   `PlatformAuthorized`; foreign, stale, ended, mismatched, or replayed evidence
@@ -778,9 +799,10 @@ These properties remain unverified until the named Release gates land:
   source after realization and proves selected image access uses the admitted
   immutable bytes;
 - `ExplicitAssemblyContext_ViewExposesOnlyBoundedImageAccess` proves the public
-  context surface returns no `ArtifactContentReference`,
-  `ResolvedAssemblyReference`, readable path, or `Stream`, and closes its
-  internal stream before invoking the image callback;
+  context surface and the transitive public closure of its callback and result
+  types return no `ArtifactContentReference`, `ResolvedAssemblyReference`,
+  descriptor-bearing `AssemblyImageView`, readable path, or `Stream`, and
+  closes its internal stream before invoking the image callback;
 - `ExplicitAssemblyContext_RetainedHandoffRejectsForeignAuthority` proves the
   participant-to-image operation rejects a foreign participant, query lease,
   or ended generation;
@@ -1375,6 +1397,10 @@ Several current types are migration inputs, not target precedent:
   `PlatformAuthorized`; no package-free installed-platform adapter contributes
   a validated closure to an `ArtifactSetSession`; and #5139 has not yet defined
   the exact implementation-closure membership proof.
+- Current artifact-backed Metadata projection requires a query-authorized
+  `ArtifactContentReference` from an already published session and returns a
+  descriptor with public path/opener compatibility surfaces. #5143 owns the
+  missing admission-scoped, opener-free projection used by this context.
 - `AssemblyContextSourceQueryContext` exposes package-owned `IPdbStore`,
   `IPackageSourceAuthorization`, and `NuGetSourceOptions` even for
   assembly-authored-source queries.
