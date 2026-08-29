@@ -33,8 +33,15 @@ docs-only change.
   changes every subsequent path, containment, and clear decision without any
   `Initialize` call at all (see the trust-boundary and initialization-lifecycle
   sections below for the concrete consequences);
-- a collision-resistant, filesystem-safe path for a caller-chosen key within
-  a category;
+- a collision-resistant, filesystem-safe path for a caller-chosen
+  well-formed key within a category — `GetFilePath` hashes
+  `Encoding.UTF8.GetBytes(key)` using the standard replacement-fallback
+  `Encoding.UTF8` instance, so a *malformed* UTF-16 key (for example, one
+  containing a lone surrogate) is not rejected but is silently
+  replacement-normalized before hashing; two distinct malformed keys that
+  normalize to the same UTF-8 bytes collide. Containment still holds (the
+  guarantee stays inside the hash bucket), but collision resistance is a
+  claim about well-formed Unicode input, not every .NET string;
 - read, write, and background-maintenance operations whose *filesystem-access*
   failures are swallowed and observed only as a miss or as maintenance making
   no progress. This is not a blanket best-effort guarantee, and it is not
@@ -85,11 +92,19 @@ differently, but the difference is enforced for only one of them:
   every platform's default base path (`GetDefaultBasePath`'s
   `Path.Combine(..., AppName)` on each branch); `Initialize` only rejects a
   null or all-whitespace value. The current production caller passes one
-  fixed literal at process startup.
+  fixed literal at process startup. `appName` also, independently of any
+  `basePath` override, controls a *second* root `IsPathInCacheContext`
+  anchors to: on non-Windows platforms `GetLegacyBasePath` builds
+  `{LocalApplicationData}/{AppName}` and `IsPathInCacheContext` accepts a
+  descendant of that legacy root unconditionally — even when an explicit
+  `basePath` override is active — so `appName` is not merely a default-path
+  input; it is a live containment anchor of its own.
 - **`basePath`** (`Initialize`'s second, optional parameter) is returned
   verbatim by `GetBasePath()` with no validation at all — not even the
-  null/whitespace check `appName` gets — and becomes the trusted root that
-  `IsPathInCacheContext` anchors every containment decision to. Unlike
+  null/whitespace check `appName` gets — and becomes the *active-root* anchor
+  `IsPathInCacheContext` checks a candidate path against; it is not the sole
+  anchor, though — the legacy root derived from `appName` above is checked
+  too, unconditionally. Unlike
   `category`/`extension`/`appName`, this is **not** a fixed-literal value in
   production today: `dotnet-inspect`'s CLI entry point
   (`src/dotnet-inspect/Program.cs`) resolves it with explicit precedence —
@@ -107,12 +122,21 @@ differently, but the difference is enforced for only one of them:
   `category` or `extension` — and it is exercised in production, not merely
   hypothetical. `basePath` is not the only environment-controlled root
   input, either: when no override is supplied at all,
-  `GetDefaultBasePath`'s Linux branch reads `XDG_CACHE_HOME` directly and
-  uses it verbatim as the parent of `appName`, with the same absence of
-  validation. It is a narrower concession than an explicit `basePath`
-  override (since `appName` is still appended beneath it), but it is a
-  second, always-live environment-controlled root selector on Linux, not a
-  hypothetical one.
+  `GetDefaultBasePath`'s Linux branch reads `XDG_CACHE_HOME` directly and,
+  when it is non-empty (`!string.IsNullOrEmpty`, so a whitespace-only value
+  still counts as set), uses it verbatim as the parent of `appName` with no
+  further validation — this is not quite "the same absence of validation" as
+  `basePath`, though: an explicit `basePath` override is accepted whenever it
+  is non-null, including an empty string, while a `null` or empty
+  `XDG_CACHE_HOME` is treated as unset and falls back to `~/.cache`; only a
+  non-empty value receives XDG's verbatim, unvalidated treatment. It is a
+  narrower concession than an explicit `basePath` override (since `appName`
+  is still appended beneath it), but it is a second, always-live
+  environment-controlled root selector on Linux, not a hypothetical one.
+  Neither environment-controlled root is the sole anchor `IsPathInCacheContext`
+  checks against, either — see the `appName` bullet above and
+  [Path-context containment](#path-context-containment) for the
+  independently-anchored legacy root.
 
 The contract is: **`category`, `extension`, and `appName` are caller-owned
 values that every current producer restricts to a fixed literal or a
@@ -177,7 +201,21 @@ other owners call it directly, but not exclusively before deletion —
 operation begins (`Directory.CreateDirectory`, copying staged contents in);
 that same single guard call also covers the staging path's later, separate
 best-effort cleanup delete in a `finally` block once publication succeeds or
-fails, since the guarded local variable is reused rather than re-derived.
+fails, since the guarded local variable is reused rather than re-derived —
+this coverage is point-in-time, though, not a re-verified guarantee at
+delete time: `IsPathInCacheContext` resolves the guarded string with
+`Path.GetFullPath` internally but returns only a `bool`, not the resolved
+absolute path, so the *original*, possibly-relative string is what the
+later delete actually uses. `GetBasePath()`/`basePath` are not guaranteed
+absolute — production accepts `DOTNET_INSPECT_CACHE_DIR` verbatim with no
+rootedness check (see the trust-boundary section above) — so if a relative
+root or staging path is in play and the process's current directory changes
+between the guard call and the later delete, the same string can resolve to
+a different location than the one actually checked. No current caller
+changes the working directory during a commit/cleanup cycle, but the guard
+does not itself close this window; it assumes a stable current directory
+and an absolute (or effectively unchanging) resolved path across the reused
+call.
 Only `PlatformPackService`'s separate `destDir` guard (inside its
 content-copy helper, before overwriting an existing destination
 subdirectory) and `PackageCacheService`'s legacy-cache guard are dedicated
@@ -257,6 +295,22 @@ partially-written file — and is distinct from
 protocol (stage into a temp directory, then `Directory.Move` the whole tree
 into place), which that document owns.
 
+Publication is atomic per file, but `CoreCache` provides no serialization
+*between* operations on the same category/key: `TryGet`/`TryGetBytes`/`Set`/
+`SetBytes` take no lock of any kind (`s_maintenanceLock` guards only the
+maintenance-related methods listed above). Two concurrent `Set` calls for
+the same path each write their own temp file and each call
+`File.Move(..., overwrite: true)`; whichever move lands last wins, and it is
+not necessarily the call that was invoked last — only the call whose move
+completes last. A concurrent reader can therefore observe either publisher's
+complete content, never a mix of the two (each move is a single atomic
+rename), but a `maxAge` read is not itself one atomic observation: the
+existence/freshness check (`FileInfo.Exists`/`LastWriteTimeUtc`) and the
+subsequent content read are two separate filesystem operations, so a
+concurrent `Set` between them can mean the freshness decision was made
+against one generation of the file while the bytes actually returned came
+from a different, newer one.
+
 ## Initialization lifecycle
 
 `Initialize(appName, basePath)` is not an idempotent no-op past the first
@@ -268,15 +322,24 @@ path resolves to the same location as the old one (`IsSamePath` — subject to
 the case-sensitivity gap in
 [Path-context containment](#path-context-containment)); otherwise they reset,
 because the counters describe one cache root's history and a root change
-starts a new one. Both sides of that comparison are *recomputed live* at the
-moment of the second `Initialize` call, not the location actually recorded
-against by the earlier maintenance: the "old" root is `GetBasePath()`
-evaluated with the previous `appName`/`basePath` but the *current* process
-environment, and the "new" root is `GetBasePath()` evaluated with the new
-values and that same current environment. If `appName` is unchanged across
+starts a new one. Both sides of that comparison are *recomputed live*, not
+the location actually recorded against by the earlier maintenance — but not
+at the *same instant*, either: the "old" root (`GetBasePath()` evaluated
+with the previous `appName`/`basePath`) is read first, before the
+cancellation and best-effort drain of in-flight maintenance tasks; the
+"new" root (`GetBasePath()` evaluated with the new values) is read only
+afterward, once `_appName`/`_basePathOverride` have already been updated.
+The description below treats both reads as observing one shared snapshot of
+"the current process environment" — that holds only when no ambient input
+`GetDefaultBasePath` reads (for example `XDG_CACHE_HOME`) changes *during*
+the drain window between the two reads; if one does, the "old" and "new"
+sides can genuinely disagree about the environment even with `appName`
+unchanged, independent of the environment-change scenario discussed next.
+If `appName` is unchanged across
 the two calls, and no explicit `basePath` override was ever given, and
 `XDG_CACHE_HOME` (or another ambient input `GetDefaultBasePath` reads)
-changes between the first and second `Initialize` call, both sides of the
+changes between the first and second `Initialize` call (and stays stable
+across the drain window in between), both sides of the
 comparison observe the *same* changed environment and so still compare equal
 — counters can carry forward across an actual root change that neither
 `Initialize` call's caller intended, and conversely cannot be relied on to
@@ -316,9 +379,16 @@ throws, the already-consumed counters are lost with no return value to
 carry them.
 
 `RegisterVersionedCategory` may be called before or after `Initialize`, and
-repeated registration of the same prefix is idempotent only when `current`
-is unchanged; a second registration with a different `current` for a
-known prefix throws. Registered categories are never forgotten across a later
+repeated registration of the same prefix is idempotent when `current`
+is unchanged, comparing both `prefix` (the registry's dictionary key) and
+`current` case-insensitively (`StringComparer.OrdinalIgnoreCase` and
+`string.Equals(..., StringComparison.OrdinalIgnoreCase)` respectively) — so
+a repeat registration that differs from the first only in casing is treated
+as the same registration, not a conflicting one; a second registration
+whose `current` differs in any other way (a different suffix, or a
+different leading-zero spelling that parses to the same integer but is not
+an exact case-insensitive string match) for a known prefix throws. Registered
+categories are never forgotten across a later
 `Initialize` call — re-initializing to a different root replays cleanup for
 every previously registered category under that new root.
 
@@ -403,15 +473,58 @@ later consumes into its return value (see
 undercount real reclaimed space for a reason distinct from the concurrent-write
 undercounting already described there.
 
+**Gap:** `CleanupVersionedCategory`'s own deletion step is not transactional
+either — `Directory.Delete(directory, recursive: true)` and the subsequent
+`progress.RecordDeletion(size)` are both wrapped in one blanket `catch` that
+swallows any exception silently ("Cache cleanup is best-effort and retried
+on the next initialization"). If the recursive delete removes some files
+before encountering one it cannot remove (a concurrent writer holding the
+file, a permissions error partway through), the directory is left
+*partially* deleted and `RecordDeletion` never runs — no bytes, no
+directory count, and no indication that the directory was touched at all;
+the next `Initialize`/registration cycle will reattempt it (the surviving
+directory still matches the retirement rule), but until then the on-disk
+state is neither the pre-cleanup directory nor a cleanly retired one.
+`Clear`'s own `Directory.Delete(targetPath, recursive: true)` (see
+[Clear and concurrent writers](#clear-and-concurrent-writers)) has the
+equivalent exposure in the opposite direction: it catches only
+`DirectoryNotFoundException` (and only when the directory no longer
+exists), so any other exception from a partially-completed recursive delete
+propagates out of `Clear` to the caller — a caller that catches and ignores
+that exception, or does not catch it at all, cannot tell from the exception
+alone whether the target survived untouched or was partially removed.
+
+**Gap:** the two counters `CacheMaintenanceProgress` tracks —
+`_bytesFreed` and `_directoriesDeleted` — are each individually
+thread-safe (`Interlocked.Add`/`Increment`/`Exchange`/`Read`), but the pair
+is not updated or read atomically together. `RecordDeletion` performs two
+separate `Interlocked` operations (bytes, then count), and both
+`Snapshot()`/`TakeSnapshot()` likewise read or reset the two fields with two
+separate `Interlocked` calls. Background cleanup (`CleanupVersionedCategory`)
+calls `RecordDeletion` without holding `s_maintenanceLock`, while
+`WaitForMaintenance` reads the pair via `Snapshot()`/`TakeSnapshot()` while
+holding that lock — the lock does not prevent a concurrent, lock-free
+`RecordDeletion` call from executing between the two `Interlocked`
+operations inside `Snapshot()`/`TakeSnapshot()`. A caller can therefore
+observe a `CacheMaintenanceResult` where one field reflects a deletion that
+just completed and the other does not yet (or, symmetrically, where
+`TakeSnapshot()`'s reset of one field races a deletion recorded between the
+two exchanges) — the returned `(BytesFreed, DirectoriesDeleted)` pair is not
+guaranteed to describe one consistent point in time.
+
 **Gap:** the retirement rule above is scoped to one registered family (one
 `prefix`) at a time; nothing prevents two *different* registered prefixes
 from overlapping, and a directory that is the current member of one family
 can parse as an obsolete member of another. For example, registering
 `("foo-v", "foo-v20")` and `("foo-v2", "foo-v21")` both succeed —
-`s_versionedCategories` keys by the literal prefix string, so `"foo-v"` and
-`"foo-v2"` are distinct entries — but the second family's cleanup sees
-directory `foo-v20`, matches its `"foo-v2"` prefix, parses suffix `0`, and
-deletes it as obsolete (`0 < 21`), even though `foo-v20` is the *current*,
+`s_versionedCategories` keys the registry case-insensitively
+(`StringComparer.OrdinalIgnoreCase`), but `"foo-v"` and `"foo-v2"` still
+compare as distinct entries — but the second family's cleanup sees
+directory `foo-v20`, matches its `"foo-v2"` prefix, parses the remainder
+after the 6-character prefix (`"0"`) as suffix `0`, and deletes it as
+obsolete (`0 < 1`, since `"foo-v21"`'s own suffix after that same
+6-character prefix is `"1"`, making the second family's current version 1,
+not 21) — even though `foo-v20` is the *current*,
 still-referenced directory for the first family. `prefix`/`current` are
 therefore not just validated strings but caller-controlled deletion
 selectors whose safety depends on every registered family's prefix language
@@ -567,6 +680,19 @@ overload observed it:
   subscriber (or another) also throws on the miss observation, the exception
   propagates out of the method — unlike the non-`maxAge` overloads, a
   throwing hit subscriber does not reliably degrade to a silent `null` here.
+  This path also double-counts the `InfoTracker` counters, independent of
+  whether the *hit* telemetry subscriber itself is what throws:
+  `InfoTracker.RecordCacheHit()` runs, unconditionally, *before*
+  `CacheTelemetry.Record(..., Hit)` inside the same `try`; if that
+  `CacheTelemetry.Record` call throws for any reason (a hit subscriber, or
+  the `Activity.Current?.AddEvent` call itself), the already-incremented hit
+  counter is not rolled back, and control falls through to the shared
+  miss-path code below, which unconditionally calls
+  `InfoTracker.RecordCacheMiss()` too — so one logical read increments both
+  the hit and the miss counter. (If the miss-telemetry call *also* throws,
+  `RecordCacheMiss()` — which runs immediately after it, unguarded — never
+  executes, and the exception propagates as described above; in that case
+  only the hit counter is incremented, not both.)
 - **`Set`/`SetBytes`:** the telemetry call is inside the method's own blanket
   `catch`, so a throwing subscriber is swallowed the same way any other write
   failure is — the activity event (if any) and any subscribers up to and
