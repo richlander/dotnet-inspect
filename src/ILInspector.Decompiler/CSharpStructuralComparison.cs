@@ -705,7 +705,21 @@ public static partial class CSharpBodyDiff
         AnnotatedSourceNode? beforeNode,
         AnnotatedSourceDocument? afterDocument,
         AnnotatedSourceNode? afterNode)
-        => new(
+    {
+        ImmutableArray<AnnotatedSourceSpan> beforeSpans;
+        ImmutableArray<AnnotatedSourceSpan> afterSpans;
+        if (beforeNode is not null && afterNode is not null)
+        {
+            (beforeSpans, afterSpans) = NarrowToChangedHeader(
+                beforeDocument!, beforeNode, afterDocument!, afterNode);
+        }
+        else
+        {
+            beforeSpans = beforeNode is null ? [] : [.. beforeNode.Spans];
+            afterSpans = afterNode is null ? [] : [.. afterNode.Spans];
+        }
+
+        return new(
             change,
             beforeNode?.Id,
             afterNode?.Id,
@@ -715,8 +729,102 @@ public static partial class CSharpBodyDiff
             afterNode is null ? null : AnnotatedSourceNodeKinds.GetDisplayLabel(afterNode.Kind),
             beforeNode is null ? null : EnclosingRegion(beforeDocument!, beforeNode),
             afterNode is null ? null : EnclosingRegion(afterDocument!, afterNode),
-            beforeNode is null ? [] : [.. beforeNode.Spans],
-            afterNode is null ? [] : [.. afterNode.Spans]);
+            beforeSpans,
+            afterSpans);
+    }
+
+    // Items 2 and 7 (issue #5022): a matched pair's full node spans (e.g. an
+    // entire `using (...) { ... }` statement) over-attribute the caret to
+    // every line the node touches, even when only the header clause differs.
+    // Rather than a blanket text diff -- which would corrupt item 3's
+    // full-call-text requirement for InvocationExpression rows -- this narrows
+    // only wrapper constructs that the printer already records a `Header`
+    // sub-region for (see `HasNamedRegions` in CSharpPrinter.cs), and only
+    // when everything outside that header (indentation, body, closing brace)
+    // is byte-for-byte identical on both sides. That second check is what
+    // also resolves item 7: once the row's spans no longer cover the
+    // unchanged body lines, RenderAnnotatedBody stops annotating them.
+    static (ImmutableArray<AnnotatedSourceSpan> BeforeSpans, ImmutableArray<AnnotatedSourceSpan> AfterSpans)
+        NarrowToChangedHeader(
+            AnnotatedSourceDocument beforeDocument,
+            AnnotatedSourceNode beforeNode,
+            AnnotatedSourceDocument afterDocument,
+            AnnotatedSourceNode afterNode)
+    {
+        ImmutableArray<AnnotatedSourceSpan> unnarrowedBefore = [.. beforeNode.Spans];
+        ImmutableArray<AnnotatedSourceSpan> unnarrowedAfter = [.. afterNode.Spans];
+        var fallback = (unnarrowedBefore, unnarrowedAfter);
+
+        if (beforeNode.Spans.Count != 1 || afterNode.Spans.Count != 1)
+            return fallback;
+
+        var beforeHeader = FindSoleContainedHeaderRegion(beforeDocument, beforeNode);
+        var afterHeader = FindSoleContainedHeaderRegion(afterDocument, afterNode);
+        if (beforeHeader is not { } beforeHeaderSpan || afterHeader is not { } afterHeaderSpan)
+            return fallback;
+
+        var beforeNodeSpan = beforeNode.Spans[0];
+        var afterNodeSpan = afterNode.Spans[0];
+
+        if (!SideTextEqual(
+                beforeDocument, PrefixOutsideHeader(beforeNodeSpan, beforeHeaderSpan),
+                afterDocument, PrefixOutsideHeader(afterNodeSpan, afterHeaderSpan))
+            || !SideTextEqual(
+                beforeDocument, SuffixOutsideHeader(beforeNodeSpan, beforeHeaderSpan),
+                afterDocument, SuffixOutsideHeader(afterNodeSpan, afterHeaderSpan)))
+        {
+            return fallback;
+        }
+
+        return ([beforeHeaderSpan], [afterHeaderSpan]);
+    }
+
+    static AnnotatedSourceSpan? FindSoleContainedHeaderRegion(
+        AnnotatedSourceDocument document,
+        AnnotatedSourceNode node)
+    {
+        AnnotatedSourceSpan? found = null;
+        foreach (var region in document.Regions)
+        {
+            if (region.Role != PrintedRegionRole.Header
+                || region.Spans.Count != 1
+                || !ContainsAll(node.Spans, region.Spans))
+            {
+                continue;
+            }
+            if (found is not null)
+                return null; // Ambiguous: more than one contained header region.
+            found = region.Spans[0];
+        }
+        return found;
+    }
+
+    static AnnotatedSourceSpan? PrefixOutsideHeader(AnnotatedSourceSpan node, AnnotatedSourceSpan header)
+    {
+        int length = header.Start - node.Start;
+        return length <= 0 ? null : new AnnotatedSourceSpan(node.Start, length);
+    }
+
+    static AnnotatedSourceSpan? SuffixOutsideHeader(AnnotatedSourceSpan node, AnnotatedSourceSpan header)
+    {
+        int headerEnd = header.Start + header.Length;
+        int length = node.Start + node.Length - headerEnd;
+        return length <= 0 ? null : new AnnotatedSourceSpan(headerEnd, length);
+    }
+
+    static bool SideTextEqual(
+        AnnotatedSourceDocument beforeDocument,
+        AnnotatedSourceSpan? beforeSpan,
+        AnnotatedSourceDocument afterDocument,
+        AnnotatedSourceSpan? afterSpan)
+    {
+        if (beforeSpan is null || afterSpan is null)
+            return beforeSpan is null && afterSpan is null;
+        if (beforeSpan.Value.Length != afterSpan.Value.Length)
+            return false;
+        return beforeDocument.Text.AsSpan(beforeSpan.Value.Start, beforeSpan.Value.Length)
+            .SequenceEqual(afterDocument.Text.AsSpan(afterSpan.Value.Start, afterSpan.Value.Length));
+    }
 
     static PrintedRegionRole? EnclosingRegion(
         AnnotatedSourceDocument document,

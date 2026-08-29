@@ -461,6 +461,103 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void CompareStructure_NarrowsUsingStatementSpanToHeaderAndStopsAnnotatingUnchangedBody()
+    {
+        // Reproduces the #4113 shape recorded in #4952 (issue #5022, items 2
+        // and 7): a disposed-only `using` resource is raised to the
+        // variable-less form. Only the header line's variable declaration
+        // changes; the body (`{`, `n = 1;`, `}`) is untouched. Previously the
+        // matched UsingStatement row's spans covered the whole construct, so
+        // RenderAnnotatedBody repeated a "construct; text changed"
+        // annotation on all four lines. Narrowing the row's spans to the
+        // printer's own recorded Header sub-region (a) confines the caret to
+        // the header line (item 2) and (b) stops annotating the unchanged
+        // body lines as a side effect, with no separate propagation step to
+        // suppress (item 7).
+        const string beforeText = """
+            int n = 0;
+            using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+        const string afterText = """
+            int n = 0;
+            using (DisposableFromObjectSpan([a, b]))
+            {
+                n = 1;
+            }
+            return n;
+            """;
+
+        var before = UsingStatementDocument(beforeText);
+        var after = UsingStatementDocument(afterText);
+
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        var row = Assert.Single(comparison.Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
+        var beforeSpan = Assert.Single(row.BeforeSpans);
+        var afterSpan = Assert.Single(row.AfterSpans);
+        Assert.Equal(
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            before.Text.Substring(beforeSpan.Start, beforeSpan.Length));
+        Assert.Equal(
+            "using (DisposableFromObjectSpan([a, b]))",
+            after.Text.Substring(afterSpan.Start, afterSpan.Length));
+
+        string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.Before);
+        string afterBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison,
+            CSharpStructuralSide.After);
+
+        AssertCaret(
+            beforeBody,
+            "using (IDisposable iDisposable = DisposableFromObjectSpan([a, b]))",
+            "raise: UsingStatement;");
+        AssertCaret(
+            afterBody,
+            "using (DisposableFromObjectSpan([a, b]))",
+            "raise: UsingStatement;");
+        Assert.DoesNotContain("raise: UsingStatement construct", beforeBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("raise: UsingStatement construct", afterBody, StringComparison.Ordinal);
+        foreach (string unchangedLine in new[] { "{", "n = 1;", "}" })
+        {
+            Assert.DoesNotContain($"raise: {unchangedLine}", beforeBody, StringComparison.Ordinal);
+            Assert.DoesNotContain($"raise: {unchangedLine}", afterBody, StringComparison.Ordinal);
+        }
+    }
+
+    static AnnotatedSourceDocument UsingStatementDocument(string text)
+    {
+        int headerStart = text.IndexOf("using (", StringComparison.Ordinal);
+        int headerEnd = text.IndexOf('\n', headerStart);
+        int bodyStart = text.IndexOf('{', headerEnd);
+        int bodyEnd = text.IndexOf('}', bodyStart) + 1;
+
+        var node = new AnnotatedSourceNode(
+            0,
+            "UsingStatement",
+            SourceLineKind.CSharp,
+            [new AnnotatedSourceSpan(headerStart, bodyEnd - headerStart)]);
+        var regions = (AnnotatedSourceRegion[])
+        [
+            new(PrintedRegionRole.Header, [new AnnotatedSourceSpan(headerStart, headerEnd - headerStart)]),
+            new(PrintedRegionRole.Body, [new AnnotatedSourceSpan(bodyStart, bodyEnd - bodyStart)]),
+        ];
+        return new AnnotatedSourceDocument(text, [node], regions, [], []);
+    }
+
+    [Fact]
     public void RenderAnnotatedBody_DescribesQualifierArgumentRoleTransition()
     {
         // Item 3 (issue #5022): once item 1 collapses #4942's stacked rows to
