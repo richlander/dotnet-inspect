@@ -120,11 +120,13 @@ or more lower-case ASCII alphanumeric words separated by `-`, begins with a
 letter, and ends with a letter or digit. The complete grammar is:
 
 ```text
-^(root|library|type|member)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*$
+\A(root|library|type|member)\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z
 ```
 
-The complete ID is at most 80 ASCII characters. Examples are `type.api`,
-`library.references`, and `member.call-graph`.
+The `\A` and `\z` anchors require an absolute full-string match under .NET
+regular-expression semantics; in particular, a terminal line feed is not
+accepted. The complete ID is at most 80 ASCII characters. Examples are
+`type.api`, `library.references`, and `member.call-graph`.
 
 The prefix makes issued IDs globally unambiguous and human-writable. It agrees
 with the descriptor's structural subject kind, but consumers do not parse,
@@ -194,10 +196,14 @@ The descriptor does not expose implementation types, delegates, CLI spellings,
 browser data, target counts, target availability, selection, acquisition,
 network, cost, output-shape, or rendering policy.
 
-One registration contains the descriptor, stable purpose, pure applicability
-classifier, availability evaluator, and either an execution binding or a
-tombstone. Applicability consumes typed structural-subject facts, not display
-text, and runs before availability.
+A registration is an explicit active-or-tombstone sum type. An active
+registration contains the descriptor, stable purpose, pure applicability
+classifier, and availability evaluator; its ID has exactly one private
+execution binding. A tombstone contains the descriptor, stable purpose, and
+fixed `Retired` result but no evaluator or execution binding. The type shape
+makes one registration being both active and tombstoned unrepresentable.
+Applicability consumes typed structural-subject facts, not display text, and
+runs before availability.
 
 ## Discovery and exact resolution
 
@@ -323,15 +329,18 @@ artifact-open/acquisition, cache, alias, dynamic-provider, filesystem, and
 network access.
 
 - `ViewFacetRegistryTests.Catalog_IsCompleteUniqueAndDeterministicallyOrdered`:
-  valid bounded IDs, ID uniqueness, prefix/kind agreement, nonempty
-  presentation, unique per-kind order, Root-to-Member complete order, and
-  role-to-descriptor coverage and per-kind uniqueness;
+  valid bounded absolute-match IDs, including rejection of a terminal line
+  feed; ID uniqueness; prefix/kind agreement; nonempty presentation; unique
+  per-kind order; Root-to-Member complete order; and role-to-descriptor
+  coverage and per-kind uniqueness;
 - `ViewFacetRegistryCompatibilityTests.ShippedFacets_RetainIdentityKindAndPurpose`:
   current registrations compared with the append-only compatibility manifest;
 - `ViewFacetRegistryTests.RegistrationsAndBindingsAgree`: descriptor IDs equal
   the disjoint union of active- and tombstone-registration IDs;
-  active-registration IDs equal active-binding IDs; every tombstone has no
-  binding and the fixed `Retired` shape;
+  active-registration IDs equal the independently declared active-binding IDs;
+  every tombstone has no binding and the fixed `Retired` shape; and a synthetic
+  tombstone fixture exercises those assertions before the product has a
+  retired facet;
 - `ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire`: throwing
   execution, artifact-open/acquisition, cache, alias, dynamic-provider,
   filesystem, and network sentinels all remain untouched;
@@ -349,9 +358,14 @@ network access.
 - `ViewFacetRegistryTests.InitialInspectionLensInventory_MatchesContract`: the
   initial IDs, kinds, titles, summaries, order, roles, and applicability.
 
-The registration-and-binding equality test is the wiring non-vacuity gate:
-removing any registration or active binding, overlapping active and tombstone
-sets, or attaching a binding to a tombstone must fail it.
+No single gate claims every catalog wiring property. Before the first release,
+the independent expected set in
+`InitialInspectionLensInventory_MatchesContract` makes registration omission
+observable; after issuance, the compatibility manifest makes removal or
+repurposing observable. `RegistrationsAndBindingsAgree` is the execution-wiring
+non-vacuity gate: removing an active binding or attaching one to its synthetic
+tombstone must fail it. The registration sum type makes active/tombstone overlap
+unrepresentable, so this contract does not claim a runtime overlap mutation.
 
 No TLA+ model accompanies this owner. It is an immutable catalog plus pure
 lookup and classification over one explicit snapshot, with no retained,
