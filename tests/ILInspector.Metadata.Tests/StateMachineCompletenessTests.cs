@@ -262,10 +262,6 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Type rows in an image, used to show this gate reaches past the two
-    /// hand-picked specimens rather than asserting a bare number.
-    /// </summary>
-    /// <summary>
     /// The two assemblies OwnBuildOutputs already covers, excluded from the
     /// neighbour gate's own non-vacuity counts so that gate cannot pass on
     /// evidence the other one already supplies.
@@ -341,6 +337,10 @@ public sealed class StateMachineCompletenessTests
         }
     }
 
+    /// <summary>
+    /// Type rows in an image, used to show this gate reaches past the two
+    /// hand-picked specimens rather than asserting a bare number.
+    /// </summary>
     static int TypeRowCount(string path)
     {
         using var stream = File.OpenRead(path);
@@ -533,11 +533,12 @@ public sealed class StateMachineCompletenessTests
                 ({totals.Structural} structural, {totals.Resolved} resolved,
                 {totals.Absent} absent).
 
-                A refusal has two possible causes, distinguished by the failure kinds
-                listed below. Either an attribute claimed the type and the claim
-                failed its role requirements, or the module failed to index at all,
-                in which case every structural machine in it reports Rejected
-                regardless of whether anything claimed it (see #4833).
+                A refusal has two possible causes, and the failure kinds listed
+                below do not reliably distinguish them. Either an attribute
+                claimed the type and the claim failed its role requirements, or
+                the module failed to index at all, in which case every structural
+                machine in it reports Rejected regardless of whether anything
+                claimed it (see #4833).
 
                 A known cause of the first is trimming: ILLink removes
                 SetStateMachine, which both ClassicAsync and AsyncIterator require,
@@ -882,9 +883,11 @@ public sealed class StateMachineCompletenessTests
     /// pinned only a lower digit. The survey is one line in a fixed format, so
     /// comparing all of it is both exact and the smallest thing that can be:
     /// four counters, one assertion, no room for a prefix to pass for a whole.
+    /// The comparison is on the whole string rather than a trimmed one, so
+    /// added surrounding whitespace fails too.
     /// </summary>
     static void AssertSurvey(string expected, string surveyed) =>
-        Assert.Equal(expected, surveyed.Trim());
+        Assert.Equal(expected, surveyed);
 
     static byte[] Damage(byte[] image, DamageKind kind)
     {
