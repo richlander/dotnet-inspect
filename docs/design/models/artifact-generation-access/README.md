@@ -23,7 +23,7 @@ gated by
 "Ended while an admitted stream remains open" is therefore a documented-safe
 state in every mode, and no invariant forbids it. The lifetime defect the
 model targets is **release**: disposing the backing acquisition leases while
-an admitted read or stream is still live.
+a registered opener, admitted read, or returned stream is still live.
 
 ## Boundary with the admission model
 
@@ -31,9 +31,10 @@ an admitted read or stream is still live.
 models demand admission, single-flight joining, and disposal-forced draining,
 and treats "the dependent group reports quiescent" as an abstract given event
 (its `GroupBecomesQuiescent` action). This model is about what quiescence must
-mean for content access — in-flight opens and open streams — and shows that
-the current mechanics have no way to observe it. The two models share no
-state; each names the other's scope as a non-claim.
+mean for content access — registered opener callbacks, materialization reads,
+and returned streams — and shows that the current mechanics have no way to
+observe it. The two models share no state; each names the other's scope as a
+non-claim.
 
 ## Current mechanics versus target design
 
@@ -48,28 +49,32 @@ design intent:
   gate (`ArtifactAccessLease.EnsureAccess`, `ArtifactAccess.cs:568`) and then
   run the opener unconditionally, so an open can complete strictly after
   `EndGeneration` (`ArtifactAccess.cs:399`) despite its contract to reject
-  "every future open or mint". `"Gated"` (target): admitting an open is
-  atomic with the ended decision.
+  "every future open or mint". `"Gated"` (target): registering an open is
+  atomic with the ended decision; the potentially blocking opener runs after
+  registration and before a stream is returned.
 - **`ReleaseMode`.** `"Immediate"` (current):
   `ArtifactSetSession.TerminateAsync` (`ArtifactSetSession.cs:627`) sets the
   disposed state, calls `EndGeneration` (line 654), and disposes every
   acquisition lease (line 657) without waiting for an in-flight sealing read
   (`MaterializeAsync`, `ArtifactSetSession.cs:577`) or an open query stream.
   `"AwaitQuiescence"` (target): termination ends the generation immediately
-  — closing new access, exactly as `EndGeneration` documents — cancels an
-  in-flight materialization read it owns, and releases acquisition leases
-  only once no in-flight read or open stream remains.
+  — closing new access, exactly as `EndGeneration` documents — cancels
+  registered opener callbacks and an in-flight materialization read it owns,
+  and releases acquisition leases only once no registered opener, read, or
+  returned stream remains.
 
-A third constant, `PublishMode = "Unguarded"`, is a mutation that removes
+`OpeningCancelMode = "Disabled"` is a mutation that removes target owner
+cancellation of registered openers. `PublishMode = "Unguarded"` removes
 publication's sealing-state guard, mirroring the existing product test
 `ArtifactSetSession_DisposalDuringSealCannotPublish`.
 
 The structural root is that nothing reports content quiescence:
 `ArtifactAccessLease.Dispose` (`ArtifactAccess.cs:596`) only latches a local
-flag and never informs the authority, and returned streams are untracked, so
-`TerminateAsync` has nothing it could wait on even if it wanted to. The
-session's own remarks (`ArtifactSetSession.cs:80`) state the slice "does not
-yet implement … dependent-group quiescence".
+flag and never informs the authority, opener callbacks run after validation
+without registration, and returned streams are untracked. `TerminateAsync`
+therefore has nothing it could wait on even if it wanted to. The session's own
+remarks (`ArtifactSetSession.cs:80`) state the slice "does not yet implement …
+dependent-group quiescence".
 
 ## Files
 
@@ -77,12 +82,13 @@ Positive configurations (must pass with no errors):
 
 - [`Safety.cfg`](Safety.cfg) — target design (`Gated` +
   `AwaitQuiescence`): `TypeOK`, `OpensNeverCompleteAfterEnd`,
-  `ReadsSeeLiveLeases`, `ReleaseImpliesContentQuiescent`,
-  `ReleaseQuiescenceWitnessHolds`, `QueryStreamReleaseWitnessHolds`,
-  `PublishRequiresActiveSealing`, `SessionTermCoherence`.
+  `ReadsSeeLiveLeases`, `AccessRegistrationsMatchLiveContent`,
+  `ReleaseImpliesContentQuiescent`, `ReleaseQuiescenceWitnessHolds`,
+  `QueryStreamReleaseWitnessHolds`, `PublishRequiresActiveSealing`,
+  `SessionTermCoherence`.
 - [`Liveness.cfg`](Liveness.cfg) — target design:
   `TerminationEventuallyCompletes`, `TerminationSettlesMaterialization`,
-  `ReadersEventuallySettle`.
+  `TerminationSettlesReaders`.
 
 Current-mechanics configurations (**each is expected to report a
 violation**; the counterexample is the finding):
@@ -105,13 +111,17 @@ Broken-policy mutations of the target (**each is expected to report a
 violation**, proving the corresponding rule is load-bearing):
 
 - [`BrokenUngatedOpen.cfg`](BrokenUngatedOpen.cfg) — drain-wait without
-  gate-atomic opens: an unregistered in-flight open is invisible to
-  quiescence, so `OpensNeverCompleteAfterEnd` still fails.
+  gate-atomic registration: an unregistered opener is invisible to
+  termination, so `OpensNeverCompleteAfterEnd` still fails.
 - [`BrokenImmediateRelease.cfg`](BrokenImmediateRelease.cfg) — gate-atomic
   opens without the drain-wait: an admitted read is still torn by immediate
   lease release, so `ReadsSeeLiveLeases` fails. Together with
   `BrokenUngatedOpen` this shows the two target rules are independently
   necessary.
+- [`BrokenOpeningCancellation.cfg`](BrokenOpeningCancellation.cfg) — keeps
+  gate-atomic registration and quiescence-awaiting release but removes owner
+  cancellation of registered openers, so `TerminationEventuallyCompletes`
+  fails when an opener stalls.
 - [`BrokenUnguardedPublish.cfg`](BrokenUnguardedPublish.cfg) — removes the
   sealing-state guard: `PublishRequiresActiveSealing` fails.
 
@@ -129,23 +139,25 @@ TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../../../runbooks/tla-plus-setup.md))
 with two query readers:
 
-- `Safety.cfg`: 206 states generated, 139 distinct, depth 16, no errors; every
-  target-mode action fires, including the owner cancellation
-  (`MatReadCancelled`), while `Recheck`/`Immediate` actions and `MatReadTorn`
-  are correctly unreachable.
+- `Safety.cfg`: 427 states generated, 256 distinct, depth 19, no errors; all
+  nine invariants pass, and every target-mode action fires, including owner
+  cancellation of registered openers and the materialization read. The
+  `Recheck`/`Immediate` actions and `MatReadTorn` are correctly unreachable.
 - `Liveness.cfg`: same graph, all three temporal properties pass.
-- A neighboring three-reader safety run also passes (965 states generated,
-  521 distinct, depth 19), so the properties are not fitted to the two-reader
-  bound.
-- All three `Current*` and all three `Broken*` configurations fail on exactly
-  their intended invariant; both probes are reachable.
+- A neighboring three-reader safety run also passes (3,038 states generated,
+  1,356 distinct, depth 23), so the properties are not fitted to the
+  two-reader bound.
+- All three `Current*` configurations and all four `Broken*` configurations
+  fail on exactly their intended invariant or temporal property; both probes
+  are reachable.
 
-The shortest torn-materialization counterexample is nine states: seal
+The shortest torn-materialization counterexample is ten states: seal
 begins, the contribution open validates, the owner's disposal runs to
-completion (disposed state → `EndGeneration` → leases disposed), the opener
-then runs anyway, and the next read chunk observes released leases. The
-query-stream counterexample publishes the generation, lets `q1` validate and
-open its stream, and then releases the leases under that open stream.
+completion (disposed state → `EndGeneration` → leases disposed), the
+unregistered opener starts and returns anyway, and the next read chunk
+observes released leases. The query-stream counterexample is fifteen states:
+it publishes the generation, lets `q1` validate and open its stream, and then
+releases the leases under that open stream.
 
 Run any configuration with:
 
@@ -173,18 +185,19 @@ java -cp /path/to/tla2tools.jar tlc2.TLC \
   stream surviving `EndGeneration` is not a defect — it is the documented
   access contract — which is why the target design waits for streams at
   release rather than revoking them at the end.
-- The target design's liveness carries two obligations the owning document
-  does not state today. First, an in-flight materialization read must be
-  interruptible by its owner: the implementation awaits `Stream.ReadAsync`
-  with only the caller token, so without owner-triggered cancellation (or a
-  timeout policy) a stalled adapter read blocks quiescence-awaiting
-  termination forever; the model includes that cancellation
-  (`MatReadCancelled`) and makes no fairness assumption that adapter reads
-  complete on their own. Second, a policy for abandoned query streams
-  (bound the wait, or invalidate visibly): termination completes only
-  because every consumer eventually closes its stream, which the model
-  encodes as a fairness assumption the authority cannot enforce today. Both
-  belong in the owning document's termination contract.
+- The target design's liveness carries three obligations the owning document
+  does not state today. First, a registered opener must be interruptible by
+  its owner: `OpenReadable` invokes a synchronous `Func<Stream>` with no
+  cancellation or bounded-completion contract, so a stalled callback can
+  otherwise block termination. Second, an in-flight materialization read must
+  likewise be owner-interruptible: the implementation awaits
+  `Stream.ReadAsync` with only the caller token. The model includes both
+  cancellation paths and makes no fairness assumption that an opener or
+  adapter read completes on its own. Third, abandoned returned query streams
+  need a policy (bound the wait, or invalidate visibly): termination completes
+  only because every consumer eventually closes its stream, encoded as a
+  fairness assumption the authority cannot enforce today. All three belong in
+  the owning document's termination contract.
 
 ## Assumptions and simplifications
 
@@ -198,9 +211,9 @@ java -cp /path/to/tla2tools.jar tlc2.TLC \
 - The owner's `TermRequest`, `StartSeal`, `Publish`, and the `MatValidate`
   and `ReaderValidate` arrivals are unfair environment actions; no liveness
   claim depends on them.
-- `MatReadOk` is deliberately unfair (adapter-backed reads may stall);
-  `ReaderClose` fairness encodes the consumer obligation to eventually
-  dispose a returned stream.
+- Opener completion/failure and `MatReadOk` are deliberately unfair
+  (callbacks and adapter-backed reads may stall). `ReaderClose` fairness
+  encodes the consumer obligation to eventually dispose a returned stream.
 
 ## Non-claims
 

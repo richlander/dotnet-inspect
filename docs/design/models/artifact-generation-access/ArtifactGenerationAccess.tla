@@ -39,18 +39,19 @@
 (*                                                                         *)
 (*   ReleaseMode = "AwaitQuiescence"                                       *)
 (*                         target: termination ends the generation         *)
-(*                         immediately (closing new access), cancels an    *)
-(*                         in-flight materialization read it owns, and     *)
-(*                         releases acquisition leases only after no       *)
-(*                         in-flight read or open stream remains.          *)
+(*                         immediately (closing new access), cancels       *)
+(*                         registered openers and a materialization read   *)
+(*                         it owns, and releases acquisition leases only   *)
+(*                         after no registered access remains.             *)
 (*   ReleaseMode = "Immediate"                                             *)
 (*                         current: `TerminateAsync` sets the disposed     *)
 (*                         state, calls `EndGeneration`, and disposes      *)
 (*                         every acquisition lease without waiting for an  *)
 (*                         in-flight sealing read or open stream.          *)
 (*                                                                         *)
-(* PublishMode = "Unguarded" is a mutation that removes publication's      *)
-(* sealing-state check (the guard the existing test                        *)
+(* OpeningCancelMode = "Disabled" is a mutation that removes target owner  *)
+(* cancellation of registered openers. PublishMode = "Unguarded" removes  *)
+(* publication's sealing-state check (the guard the existing test          *)
 (* `ArtifactSetSession_DisposalDuringSealCannotPublish` gates).            *)
 (*                                                                         *)
 (* Product concept                              Model state                *)
@@ -59,8 +60,8 @@
 (*   `TerminateAsync` progress                   term                      *)
 (*   authority `_ended` after `EndGeneration`    Ended (derived)           *)
 (*   acquisition leases disposed                 LeasesReleased (derived)  *)
-(*   sealing materialization read                mat                       *)
-(*   query consumers opening retained content    readers                   *)
+(*   sealing materialization open/read           mat, matRegistered        *)
+(*   query consumers opening retained content    readers, readerRegistered *)
 (*                                                                         *)
 (* Guard witnesses are latching booleans initialized TRUE; the step that   *)
 (* completes an open, performs a read, releases leases, or publishes       *)
@@ -83,15 +84,14 @@
 (* or budget-charged release, both contemplated by the owning design.      *)
 (*                                                                         *)
 (* Fairness is calibrated to what the product can actually guarantee.      *)
-(* `MatReadOk` is NOT fair: the implementation awaits `Stream.ReadAsync`   *)
-(* with only the caller token (`ArtifactSetSession.cs:577-596`), so an     *)
-(* adapter-backed read may stall indefinitely. The target design           *)
-(* therefore includes owner-triggered cancellation of an in-flight         *)
-(* materialization read (`MatReadCancelled`); without it, a stalled read   *)
-(* blocks quiescence-awaiting termination forever. `ReaderClose` IS fair,  *)
-(* which encodes the assumption that every query consumer eventually       *)
-(* disposes its stream; that assumption is a stated obligation on the      *)
-(* owning design, not something the authority can enforce today.           *)
+(* `MatOpenComplete`, `ReaderOpenComplete`, and `MatReadOk` are NOT fair:   *)
+(* the synchronous `Func<Stream>` opener and adapter-backed read have no   *)
+(* bounded-completion contract. The target design therefore includes      *)
+(* owner-triggered cancellation of a registered opener and materialization *)
+(* read. `ReaderClose` IS fair, which encodes the assumption that every    *)
+(* query consumer eventually disposes its returned stream; that assumption *)
+(* is a stated obligation on the owning design, not something the authority*)
+(* can enforce today.                                                      *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets, TLC
 
@@ -99,11 +99,13 @@ CONSTANTS
   QueryReaders,  \* finite set of concurrent query consumers
   OpenMode,      \* "Gated" (target) or "Recheck" (current)
   ReleaseMode,   \* "AwaitQuiescence" (target) or "Immediate" (current)
+  OpeningCancelMode, \* "Enabled" (target) or "Disabled" (mutation)
   PublishMode    \* "StateGuarded" (product) or "Unguarded" (mutation)
 
 ASSUME Cardinality(QueryReaders) >= 2
 ASSUME OpenMode \in {"Gated", "Recheck"}
 ASSUME ReleaseMode \in {"AwaitQuiescence", "Immediate"}
+ASSUME OpeningCancelMode \in {"Enabled", "Disabled"}
 ASSUME PublishMode \in {"StateGuarded", "Unguarded"}
 
 VARIABLES
@@ -111,10 +113,14 @@ VARIABLES
   everPublished,  \* latched: publication committed at least once
   term,           \* "idle" | "begun" | "ended" | "released" | "done"
   termRequested,  \* the owner has requested disposal
-  mat,            \* materialization read: "idle" | "validated" | "reading"
-                  \*   | "done" | "failed" | "rejected"
+  mat,            \* materialization access: "idle" | "validated"
+                  \*   | "opening" | "reading" | "done" | "failed"
+                  \*   | "rejected"
+  matRegistered,  \* the target authority admitted this materializer
   readers,        \* [QueryReaders -> "idle" | "validated" | "checking"
-                  \*   | "open" | "closed" | "rejected"]
+                  \*   | "opening" | "open" | "closed" | "failed"
+                  \*   | "rejected"]
+  readerRegistered,\* [QueryReaders -> BOOLEAN], target admissions
   wOpenAfterEnd,  \* witness: no open completed after the generation ended
   wLiveRead,      \* witness: no read step observed released leases
   wReleaseQuiet,  \* witness: release happened only at content quiescence
@@ -123,9 +129,10 @@ VARIABLES
   pQueryClosed,   \* probe: some query open/close round trip completed
   pOverlap        \* probe: termination began during a live read or stream
 
-vars == << session, everPublished, term, termRequested, mat, readers,
-           wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams,
-           wPublishGuard, pQueryClosed, pOverlap >>
+vars == << session, everPublished, term, termRequested, mat, matRegistered,
+           readers, readerRegistered, wOpenAfterEnd, wLiveRead,
+           wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
+           pOverlap >>
 
 (***************************************************************************)
 (* Derived authority flags. In current mechanics, `TerminateAsync` orders  *)
@@ -143,15 +150,22 @@ Ended ==
 
 LeasesReleased == term \in {"released", "done"}
 
-\* No in-flight materialization read and no open query stream.
-Quiescent ==
-  /\ mat # "reading"
-  /\ \A r \in QueryReaders : readers[r] # "open"
+\* No opener, materialization read, or returned query stream is live.
+ContentQuiescent ==
+  /\ mat \notin {"opening", "reading"}
+  /\ \A r \in QueryReaders : readers[r] \notin {"opening", "open"}
+
+\* What the authority can await. In target mode every live access registers
+\* before invoking its opener; Recheck mode intentionally does not.
+RegisteredQuiescent ==
+  /\ ~matRegistered
+  /\ \A r \in QueryReaders : ~readerRegistered[r]
 
 MatStates ==
-  {"idle", "validated", "reading", "done", "failed", "rejected"}
+  {"idle", "validated", "opening", "reading", "done", "failed", "rejected"}
 ReaderStates ==
-  {"idle", "validated", "checking", "open", "closed", "rejected"}
+  {"idle", "validated", "checking", "opening", "open", "closed", "failed",
+   "rejected"}
 
 TypeOK ==
   /\ session \in {"constructing", "sealing", "published", "disposed"}
@@ -159,7 +173,9 @@ TypeOK ==
   /\ term \in {"idle", "begun", "ended", "released", "done"}
   /\ termRequested \in BOOLEAN
   /\ mat \in MatStates
+  /\ matRegistered \in BOOLEAN
   /\ readers \in [QueryReaders -> ReaderStates]
+  /\ readerRegistered \in [QueryReaders -> BOOLEAN]
   /\ wOpenAfterEnd \in BOOLEAN
   /\ wLiveRead \in BOOLEAN
   /\ wReleaseQuiet \in BOOLEAN
@@ -168,13 +184,22 @@ TypeOK ==
   /\ pQueryClosed \in BOOLEAN
   /\ pOverlap \in BOOLEAN
 
+RegistrationCoherence ==
+  /\ (matRegistered
+        <=> (OpenMode = "Gated" /\ mat \in {"opening", "reading"}))
+  /\ \A r \in QueryReaders :
+       (readerRegistered[r]
+         <=> (OpenMode = "Gated" /\ readers[r] \in {"opening", "open"}))
+
 Init ==
   /\ session = "constructing"
   /\ everPublished = FALSE
   /\ term = "idle"
   /\ termRequested = FALSE
   /\ mat = "idle"
+  /\ matRegistered = FALSE
   /\ readers = [r \in QueryReaders |-> "idle"]
+  /\ readerRegistered = [r \in QueryReaders |-> FALSE]
   /\ wOpenAfterEnd = TRUE
   /\ wLiveRead = TRUE
   /\ wReleaseQuiet = TRUE
@@ -191,9 +216,10 @@ Init ==
 StartSeal ==
   /\ session = "constructing"
   /\ session' = "sealing"
-  /\ UNCHANGED << everPublished, term, termRequested, mat, readers,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+  /\ UNCHANGED << everPublished, term, termRequested, mat, matRegistered,
+                  readers, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
+                  pOverlap >>
 
 Publish ==
   /\ mat = "done"
@@ -203,9 +229,9 @@ Publish ==
   /\ session' = "published"
   /\ everPublished' = TRUE
   /\ wPublishGuard' = (wPublishGuard /\ (session = "sealing"))
-  /\ UNCHANGED << term, termRequested, mat, readers, wOpenAfterEnd,
-                  wLiveRead, wReleaseQuiet, wReleaseStreams, pQueryClosed,
-                  pOverlap >>
+  /\ UNCHANGED << term, termRequested, mat, matRegistered, readers,
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, pQueryClosed, pOverlap >>
 
 (***************************************************************************)
 (* Termination. The owner may request disposal at any time, including      *)
@@ -217,9 +243,9 @@ Publish ==
 TermRequest ==
   /\ termRequested = FALSE
   /\ termRequested' = TRUE
-  /\ UNCHANGED << session, everPublished, term, mat, readers, wOpenAfterEnd,
-                  wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+  /\ UNCHANGED << session, everPublished, term, mat, matRegistered, readers,
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 TermBegin ==
   /\ termRequested = TRUE
@@ -228,129 +254,168 @@ TermBegin ==
   /\ session' = "disposed"
   /\ pOverlap' =
       (\/ pOverlap
-       \/ mat = "reading"
-       \/ \E r \in QueryReaders : readers[r] = "open")
-  /\ UNCHANGED << everPublished, termRequested, mat, readers, wOpenAfterEnd,
-                  wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed >>
+       \/ mat \in {"opening", "reading"}
+       \/ \E r \in QueryReaders : readers[r] \in {"opening", "open"})
+  /\ UNCHANGED << everPublished, termRequested, mat, matRegistered, readers,
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed >>
 
 TermEnd ==
   /\ ReleaseMode = "Immediate"
   /\ term = "begun"
   /\ term' = "ended"
-  /\ UNCHANGED << session, everPublished, termRequested, mat, readers,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+  /\ UNCHANGED << session, everPublished, termRequested, mat, matRegistered,
+                  readers, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
+                  pOverlap >>
 
 TermRelease ==
   /\ ReleaseMode = "Immediate"
   /\ term = "ended"
   /\ term' = "released"
-  /\ wReleaseQuiet' = (wReleaseQuiet /\ Quiescent)
+  /\ wReleaseQuiet' = (wReleaseQuiet /\ ContentQuiescent)
   /\ wReleaseStreams' =
       (wReleaseStreams /\ \A r \in QueryReaders : readers[r] # "open")
-  /\ UNCHANGED << session, everPublished, termRequested, mat, readers,
-                  wOpenAfterEnd, wLiveRead, wPublishGuard, pQueryClosed,
-                  pOverlap >>
+  /\ UNCHANGED << session, everPublished, termRequested, mat, matRegistered,
+                  readers, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wPublishGuard, pQueryClosed, pOverlap >>
 
 TermSettle ==
   /\ ReleaseMode = "AwaitQuiescence"
   /\ term = "begun"
-  /\ Quiescent
+  /\ RegisteredQuiescent
   /\ term' = "released"
-  /\ wReleaseQuiet' = (wReleaseQuiet /\ Quiescent)
+  /\ wReleaseQuiet' = (wReleaseQuiet /\ ContentQuiescent)
   /\ wReleaseStreams' =
       (wReleaseStreams /\ \A r \in QueryReaders : readers[r] # "open")
-  /\ UNCHANGED << session, everPublished, termRequested, mat, readers,
-                  wOpenAfterEnd, wLiveRead, wPublishGuard, pQueryClosed,
-                  pOverlap >>
+  /\ UNCHANGED << session, everPublished, termRequested, mat, matRegistered,
+                  readers, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wPublishGuard, pQueryClosed, pOverlap >>
 
 TermDone ==
   /\ term = "released"
   /\ term' = "done"
-  /\ UNCHANGED << session, everPublished, termRequested, mat, readers,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+  /\ UNCHANGED << session, everPublished, termRequested, mat, matRegistered,
+                  readers, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
+                  pOverlap >>
 
 (***************************************************************************)
 (* Sealing materialization. Validation models `ArtifactContribution.       *)
-(* OpenRead`'s `EnsureAccess` flag checks passing; in Recheck mode the     *)
-(* opener then runs unconditionally, while in Gated mode admitting the     *)
-(* open is atomic with the ended decision. The read step models the copy   *)
-(* loop's next chunk against the adapter-lease-backed stream. In the       *)
-(* target design, termination cancels an in-flight read it owns; the       *)
-(* current mechanics have no such interruption.                            *)
+(* OpenRead`'s `EnsureAccess` flag checks passing. In Recheck mode the      *)
+(* opener begins without registration; in Gated mode registration is       *)
+(* atomic with the ended decision. Opener completion is a separate, unfair *)
+(* environment step because `Func<Stream>` has no bounded-completion       *)
+(* contract. The read step models the copy loop's next chunk. Target       *)
+(* termination cancels registered opening and reading phases; current      *)
+(* mechanics have no such interruption.                                    *)
 (***************************************************************************)
 MatValidate ==
   /\ session = "sealing"
   /\ mat = "idle"
   /\ ~Ended
   /\ mat' = "validated"
-  /\ UNCHANGED << session, everPublished, term, termRequested, readers,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+  /\ UNCHANGED << session, everPublished, term, termRequested, matRegistered,
+                  readers, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
+                  pOverlap >>
 
 MatOpenRecheck ==
   /\ OpenMode = "Recheck"
   /\ mat = "validated"
-  /\ mat' = "reading"
-  /\ wOpenAfterEnd' = (wOpenAfterEnd /\ ~Ended)
+  /\ mat' = "opening"
+  /\ matRegistered' = FALSE
   /\ UNCHANGED << session, everPublished, term, termRequested, readers,
-                  wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 MatOpenGated ==
   /\ OpenMode = "Gated"
   /\ mat = "validated"
   /\ ~Ended
-  /\ mat' = "reading"
-  /\ wOpenAfterEnd' = (wOpenAfterEnd /\ ~Ended)
+  /\ mat' = "opening"
+  /\ matRegistered' = TRUE
   /\ UNCHANGED << session, everPublished, term, termRequested, readers,
-                  wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 MatRejectClosed ==
   /\ OpenMode = "Gated"
   /\ mat = "validated"
   /\ Ended
   /\ mat' = "rejected"
+  /\ matRegistered' = FALSE
   /\ UNCHANGED << session, everPublished, term, termRequested, readers,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
+
+MatOpenComplete ==
+  /\ mat = "opening"
+  /\ mat' = "reading"
+  /\ wOpenAfterEnd' = (wOpenAfterEnd /\ (~Ended \/ matRegistered))
+  /\ UNCHANGED << session, everPublished, term, termRequested, matRegistered,
+                  readers, readerRegistered, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
+
+MatOpenFailed ==
+  /\ mat = "opening"
+  /\ mat' = "failed"
+  /\ matRegistered' = FALSE
+  /\ UNCHANGED << session, everPublished, term, termRequested, readers,
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
+
+MatOpenCancelled ==
+  /\ ReleaseMode = "AwaitQuiescence"
+  /\ OpeningCancelMode = "Enabled"
+  /\ mat = "opening"
+  /\ matRegistered
+  /\ Ended
+  /\ mat' = "failed"
+  /\ matRegistered' = FALSE
+  /\ UNCHANGED << session, everPublished, term, termRequested, readers,
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 MatReadOk ==
   /\ mat = "reading"
   /\ ~LeasesReleased
   /\ mat' = "done"
+  /\ matRegistered' = FALSE
   /\ wLiveRead' = (wLiveRead /\ ~LeasesReleased)
   /\ UNCHANGED << session, everPublished, term, termRequested, readers,
-                  wOpenAfterEnd, wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
-                  pOverlap >>
+                  readerRegistered, wOpenAfterEnd, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 MatReadTorn ==
   /\ mat = "reading"
   /\ LeasesReleased
   /\ mat' = "failed"
+  /\ matRegistered' = FALSE
   /\ wLiveRead' = (wLiveRead /\ ~LeasesReleased)
   /\ UNCHANGED << session, everPublished, term, termRequested, readers,
-                  wOpenAfterEnd, wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
-                  pOverlap >>
+                  readerRegistered, wOpenAfterEnd, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 MatReadCancelled ==
   /\ ReleaseMode = "AwaitQuiescence"
   /\ mat = "reading"
+  /\ matRegistered
   /\ Ended
   /\ mat' = "failed"
+  /\ matRegistered' = FALSE
   /\ UNCHANGED << session, everPublished, term, termRequested, readers,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  readerRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 (***************************************************************************)
 (* Query opens. Validation models `ValidateQueryLease` under the           *)
-(* authority gate; the Recheck path then models `RetainedArtifactContent.  *)
-(* OpenRead`'s flag-only `EnsureAccess` followed by the unconditional      *)
-(* opener. A returned stream stays readable until its consumer closes it,  *)
-(* per the product's documented open-stream contract; that is why no       *)
-(* action forces an open reader shut when the generation ends.             *)
+(* authority gate. Recheck begins the opener without registration; Gated   *)
+(* registers before invoking it. Completion is an unfair environment step  *)
+(* because `Func<Stream>` has no bounded-completion contract. Target        *)
+(* termination can cancel a registered opener. A returned stream stays     *)
+(* readable until its consumer closes it, so no action forces an open       *)
+(* reader shut when the generation ends.                                   *)
 (***************************************************************************)
 ReaderValidate(r) ==
   /\ session = "published"
@@ -358,8 +423,9 @@ ReaderValidate(r) ==
   /\ ~Ended
   /\ readers' = [readers EXCEPT ![r] = "validated"]
   /\ UNCHANGED << session, everPublished, term, termRequested, mat,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  matRegistered, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
+                  pOverlap >>
 
 ReaderRecheck(r) ==
   /\ OpenMode = "Recheck"
@@ -367,43 +433,81 @@ ReaderRecheck(r) ==
   /\ ~Ended
   /\ readers' = [readers EXCEPT ![r] = "checking"]
   /\ UNCHANGED << session, everPublished, term, termRequested, mat,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  matRegistered, readerRegistered, wOpenAfterEnd, wLiveRead,
+                  wReleaseQuiet, wReleaseStreams, wPublishGuard, pQueryClosed,
+                  pOverlap >>
 
 ReaderOpenRecheck(r) ==
   /\ OpenMode = "Recheck"
   /\ readers[r] = "checking"
-  /\ readers' = [readers EXCEPT ![r] = "open"]
-  /\ wOpenAfterEnd' = (wOpenAfterEnd /\ ~Ended)
+  /\ readers' = [readers EXCEPT ![r] = "opening"]
+  /\ readerRegistered' =
+      [readerRegistered EXCEPT ![r] = FALSE]
   /\ UNCHANGED << session, everPublished, term, termRequested, mat,
-                  wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  matRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 ReaderOpenGated(r) ==
   /\ OpenMode = "Gated"
   /\ readers[r] = "validated"
   /\ ~Ended
-  /\ readers' = [readers EXCEPT ![r] = "open"]
-  /\ wOpenAfterEnd' = (wOpenAfterEnd /\ ~Ended)
+  /\ readers' = [readers EXCEPT ![r] = "opening"]
+  /\ readerRegistered' =
+      [readerRegistered EXCEPT ![r] = TRUE]
   /\ UNCHANGED << session, everPublished, term, termRequested, mat,
-                  wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  matRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
+
+ReaderOpenComplete(r) ==
+  /\ readers[r] = "opening"
+  /\ readers' = [readers EXCEPT ![r] = "open"]
+  /\ wOpenAfterEnd' =
+      (wOpenAfterEnd /\ (~Ended \/ readerRegistered[r]))
+  /\ UNCHANGED << session, everPublished, term, termRequested, mat,
+                  matRegistered, readerRegistered, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
+
+ReaderOpenFailed(r) ==
+  /\ readers[r] = "opening"
+  /\ readers' = [readers EXCEPT ![r] = "failed"]
+  /\ readerRegistered' =
+      [readerRegistered EXCEPT ![r] = FALSE]
+  /\ UNCHANGED << session, everPublished, term, termRequested, mat,
+                  matRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
+
+ReaderOpenCancelled(r) ==
+  /\ ReleaseMode = "AwaitQuiescence"
+  /\ OpeningCancelMode = "Enabled"
+  /\ readers[r] = "opening"
+  /\ readerRegistered[r]
+  /\ Ended
+  /\ readers' = [readers EXCEPT ![r] = "failed"]
+  /\ readerRegistered' =
+      [readerRegistered EXCEPT ![r] = FALSE]
+  /\ UNCHANGED << session, everPublished, term, termRequested, mat,
+                  matRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 ReaderRejected(r) ==
   /\ readers[r] = "validated"
   /\ Ended
   /\ readers' = [readers EXCEPT ![r] = "rejected"]
+  /\ readerRegistered' =
+      [readerRegistered EXCEPT ![r] = FALSE]
   /\ UNCHANGED << session, everPublished, term, termRequested, mat,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pQueryClosed, pOverlap >>
+                  matRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pQueryClosed, pOverlap >>
 
 ReaderClose(r) ==
   /\ readers[r] = "open"
   /\ readers' = [readers EXCEPT ![r] = "closed"]
+  /\ readerRegistered' =
+      [readerRegistered EXCEPT ![r] = FALSE]
   /\ pQueryClosed' = TRUE
   /\ UNCHANGED << session, everPublished, term, termRequested, mat,
-                  wOpenAfterEnd, wLiveRead, wReleaseQuiet, wReleaseStreams, wPublishGuard,
-                  pOverlap >>
+                  matRegistered, wOpenAfterEnd, wLiveRead, wReleaseQuiet,
+                  wReleaseStreams, wPublishGuard, pOverlap >>
 
 Next ==
   \/ StartSeal
@@ -418,6 +522,9 @@ Next ==
   \/ MatOpenRecheck
   \/ MatOpenGated
   \/ MatRejectClosed
+  \/ MatOpenComplete
+  \/ MatOpenFailed
+  \/ MatOpenCancelled
   \/ MatReadOk
   \/ MatReadTorn
   \/ MatReadCancelled
@@ -426,15 +533,19 @@ Next ==
        \/ ReaderRecheck(r)
        \/ ReaderOpenRecheck(r)
        \/ ReaderOpenGated(r)
+       \/ ReaderOpenComplete(r)
+       \/ ReaderOpenFailed(r)
+       \/ ReaderOpenCancelled(r)
        \/ ReaderRejected(r)
        \/ ReaderClose(r)
 
 \* Weak fairness on rejection, cancellation, close, and termination
 \* progress. Unfair by design: `TermRequest`, `StartSeal`, `Publish`,
 \* `MatValidate`, and `ReaderValidate` (the owner and consumers may simply
-\* never act), and `MatReadOk` (the product awaits `Stream.ReadAsync` with
-\* only the caller token, so an adapter-backed read may stall forever; the
-\* target design compensates with the fair `MatReadCancelled`).
+\* never act), opener completion/failure (the synchronous callback has no
+\* bounded-completion contract), and `MatReadOk` (an adapter-backed read may
+\* stall forever). Target termination compensates with fair cancellation of
+\* registered opening and reading phases.
 \* `ReaderClose` fairness encodes the consumer obligation to eventually
 \* dispose a returned stream.
 Fairness ==
@@ -446,11 +557,13 @@ Fairness ==
   /\ WF_vars(MatOpenRecheck)
   /\ WF_vars(MatOpenGated)
   /\ WF_vars(MatRejectClosed)
+  /\ WF_vars(MatOpenCancelled)
   /\ WF_vars(MatReadTorn)
   /\ WF_vars(MatReadCancelled)
   /\ \A r \in QueryReaders : WF_vars(ReaderRecheck(r))
   /\ \A r \in QueryReaders : WF_vars(ReaderOpenRecheck(r))
   /\ \A r \in QueryReaders : WF_vars(ReaderOpenGated(r))
+  /\ \A r \in QueryReaders : WF_vars(ReaderOpenCancelled(r))
   /\ \A r \in QueryReaders : WF_vars(ReaderRejected(r))
   /\ \A r \in QueryReaders : WF_vars(ReaderClose(r))
 
@@ -461,10 +574,10 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (***************************************************************************)
 
 \* The contract `EndGeneration` documents: it "rejects every future open
-\* or mint". Re-derived at every open-completing step independently of
-\* that step's own guard. An already-returned stream surviving the end is
-\* deliberately NOT a violation of anything; only completing a new open
-\* after the end is.
+\* or mint". Re-derived at every open-completing step. A target open
+\* registered before the end may complete after it; an unregistered Recheck
+\* opener may not. An already-returned stream surviving the end is also not
+\* a violation.
 OpensNeverCompleteAfterEnd == wOpenAfterEnd
 
 \* No materialization read chunk is served while the acquisition leases
@@ -472,12 +585,18 @@ OpensNeverCompleteAfterEnd == wOpenAfterEnd
 \* under an active callback".
 ReadsSeeLiveLeases == wLiveRead
 
+\* Every live target opener, read, and returned stream is represented by an
+\* authority registration, and Recheck mode has no such registrations.
+\* This is the connection that makes `RegisteredQuiescent` sufficient for
+\* target release while exposing the current mechanics' observation gap.
+AccessRegistrationsMatchLiveContent == RegistrationCoherence
+
 \* Backing-resource release happens only at content quiescence -- no
 \* in-flight materialization read and no open query stream. This is the
 \* design's "releases all child leases after every dependent group is
 \* quiescent" specialized to content access. Both the structural form and
 \* the witness re-derived at the release step are checked.
-ReleaseImpliesContentQuiescent == LeasesReleased => Quiescent
+ReleaseImpliesContentQuiescent == LeasesReleased => ContentQuiescent
 
 ReleaseQuiescenceWitnessHolds == wReleaseQuiet
 
@@ -520,18 +639,21 @@ ProbeNoOverlappedTermination == ~(pOverlap /\ term = "done")
 \* completes on its own.
 TerminationEventuallyCompletes == termRequested ~> (term = "done")
 
-\* Once termination is requested, an admitted or in-flight materialization
-\* read eventually settles. Without termination the product has nothing
-\* that interrupts a stalled adapter read, so no unconditional settlement
-\* claim is made.
+\* Once termination is requested, a validated, registered opener, or
+\* materialization read eventually settles. Without termination the product
+\* has nothing that interrupts a stalled opener or adapter read, so no
+\* unconditional settlement claim is made.
 TerminationSettlesMaterialization ==
-  (termRequested /\ mat \in {"validated", "reading"}) ~>
+  (termRequested /\ mat \in {"validated", "opening", "reading"}) ~>
     (mat \in {"done", "failed", "rejected"})
 
-\* Every consumer past validation eventually closes or is rejected.
-ReadersEventuallySettle ==
+\* Once termination is requested, every consumer past validation eventually
+\* closes, fails, or is rejected. No unconditional opener-completion claim is
+\* made.
+TerminationSettlesReaders ==
   \A r \in QueryReaders :
-    (readers[r] \in {"validated", "checking", "open"}) ~>
-      (readers[r] \in {"closed", "rejected"})
+    (termRequested
+      /\ readers[r] \in {"validated", "checking", "opening", "open"}) ~>
+      (readers[r] \in {"closed", "failed", "rejected"})
 
 =============================================================================
