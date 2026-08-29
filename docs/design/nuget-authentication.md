@@ -150,7 +150,8 @@ Two details are easy to get wrong:
 - **`Progress` messages restart the request timer.** They are the plugin saying "still working"
   during a slow sign-in. A host that ignores them times out a request that is progressing fine.
   `ProgressRenewsOnlyItsRequest` checks the design interaction; implementation correspondence is
-  unverified.
+  unverified. Progress may continue renewing the request indefinitely; the model's request
+  liveness guarantee begins once those renewals stop.
 
 The request timeout covers the whole admitted operation: registration, waiting for the serialized
 writer, and waiting for a response. If timeout or caller cancellation preempts the request that

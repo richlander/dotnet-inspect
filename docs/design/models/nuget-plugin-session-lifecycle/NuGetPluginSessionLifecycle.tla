@@ -66,21 +66,23 @@ VARIABLES
     requestState,
     requestOutcome,
     deadlineRemaining,
-    progressSent,
+    responseReceived,
+    progressOpen,
+    progressMessageParity,
+    deadlineRenewalParity,
     completionCount,
     shutdownPhase,
     shutdownSnapshot,
     readyWitness,
-    admissionWitness,
-    responseWitness,
-    progressWitness
+    admissionWitness
 
 vars ==
     <<hostHandshakeSucceeds, inboundHandshakeValid, claimsAuthentication,
       connection, readLoop, admissionOpen, hostHandshake, pluginHandshake,
       writeOwner, requestState, requestOutcome, deadlineRemaining,
-      progressSent, completionCount, shutdownPhase, shutdownSnapshot,
-      readyWitness, admissionWitness, responseWitness, progressWitness>>
+      responseReceived, progressOpen, progressMessageParity,
+      deadlineRenewalParity, completionCount, shutdownPhase,
+      shutdownSnapshot, readyWitness, admissionWitness>>
 
 LiveRequest(request) ==
     requestState[request] \in {"Registered", "Writing", "Waiting"}
@@ -108,6 +110,21 @@ InboundHandshakeSettled ==
     pluginHandshake \in
         {"RespondedSuccess", "RespondedError", "Aborted"}
 
+OtherRequest(request) ==
+    IF request = RequestCount
+    THEN 1
+    ELSE request + 1
+
+ResponseTarget(messageId) ==
+    IF ResponseMode = "Correlated"
+    THEN messageId
+    ELSE OtherRequest(messageId)
+
+ProgressTarget(messageId) ==
+    IF ProgressMode = "Correlated"
+    THEN messageId
+    ELSE OtherRequest(messageId)
+
 Init ==
     /\ hostHandshakeSucceeds \in BOOLEAN
     /\ inboundHandshakeValid \in BOOLEAN
@@ -124,16 +141,20 @@ Init ==
         [request \in Requests |-> "Pending"]
     /\ deadlineRemaining =
         [request \in Requests |-> 0]
-    /\ progressSent =
-        [request \in Requests |-> 0]
+    /\ responseReceived =
+        [request \in Requests |-> FALSE]
+    /\ progressOpen =
+        [request \in Requests |-> TRUE]
+    /\ progressMessageParity =
+        [request \in Requests |-> FALSE]
+    /\ deadlineRenewalParity =
+        [request \in Requests |-> FALSE]
     /\ completionCount =
         [request \in Requests |-> 0]
     /\ shutdownPhase = "None"
     /\ shutdownSnapshot = {}
     /\ readyWitness = TRUE
     /\ admissionWitness = TRUE
-    /\ responseWitness = TRUE
-    /\ progressWitness = TRUE
 
 DeliverHostHandshake ==
     /\ connection = "Handshaking"
@@ -148,9 +169,9 @@ DeliverHostHandshake ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           pluginHandshake, writeOwner, requestState, requestOutcome,
-          deadlineRemaining, progressSent, completionCount,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, responseWitness, progressWitness>>
+          deadlineRemaining, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 DeliverPluginHandshake ==
     /\ connection = "Handshaking"
@@ -166,17 +187,18 @@ DeliverPluginHandshake ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, writeOwner, requestState, requestOutcome,
-          deadlineRemaining, progressSent, completionCount,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, responseWitness, progressWitness>>
+          deadlineRemaining, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 AcquirePluginHandshakeWrite ==
     /\ connection = "Handshaking"
     /\ readLoop = "Running"
     /\ shutdownPhase = "None"
-    /\ pluginHandshake \in
-        {"ValidWaitingWrite", "InvalidWaitingWrite",
-         "MalformedWaitingWrite"}
+    /\ (pluginHandshake \in
+            {"ValidWaitingWrite", "InvalidWaitingWrite"}
+        \/ /\ pluginHandshake = "MalformedWaitingWrite"
+           /\ InboundFailureMode = "Contain")
     /\ writeOwner = NoWriter
     /\ writeOwner' = PluginHandshakeWriter
     /\ pluginHandshake' =
@@ -190,8 +212,24 @@ AcquirePluginHandshakeWrite ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, requestState, requestOutcome, deadlineRemaining,
-          progressSent, completionCount, shutdownPhase, shutdownSnapshot,
-          readyWitness, admissionWitness, responseWitness, progressWitness>>
+          responseReceived, progressOpen, progressMessageParity,
+          deadlineRenewalParity, completionCount, shutdownPhase,
+          shutdownSnapshot, readyWitness, admissionWitness>>
+
+DropMalformedInbound ==
+    /\ connection = "Handshaking"
+    /\ readLoop = "Running"
+    /\ shutdownPhase = "None"
+    /\ pluginHandshake = "MalformedWaitingWrite"
+    /\ InboundFailureMode = "Drop"
+    /\ pluginHandshake' = "Dropped"
+    /\ UNCHANGED
+        <<hostHandshakeSucceeds, inboundHandshakeValid,
+          claimsAuthentication, connection, readLoop, admissionOpen,
+          hostHandshake, writeOwner, requestState, requestOutcome,
+          deadlineRemaining, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 FinishPluginHandshakeWrite ==
     /\ connection = "Handshaking"
@@ -203,20 +241,15 @@ FinishPluginHandshakeWrite ==
     /\ pluginHandshake' =
         IF pluginHandshake = "ValidWriting"
         THEN "RespondedSuccess"
-        ELSE
-            IF pluginHandshake = "InvalidWriting"
-            THEN "RespondedError"
-            ELSE
-                IF InboundFailureMode = "Contain"
-                THEN "RespondedError"
-                ELSE "Dropped"
+        ELSE "RespondedError"
     /\ writeOwner' = NoWriter
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, requestState, requestOutcome, deadlineRemaining,
-          progressSent, completionCount, shutdownPhase, shutdownSnapshot,
-          readyWitness, admissionWitness, responseWitness, progressWitness>>
+          responseReceived, progressOpen, progressMessageParity,
+          deadlineRenewalParity, completionCount, shutdownPhase,
+          shutdownSnapshot, readyWitness, admissionWitness>>
 
 FailHostInitialization ==
     /\ connection = "Handshaking"
@@ -234,9 +267,10 @@ FailHostInitialization ==
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, hostHandshake, requestState,
-          requestOutcome, deadlineRemaining, progressSent,
+          requestOutcome, deadlineRemaining, responseReceived,
+          progressOpen, progressMessageParity, deadlineRenewalParity,
           completionCount, shutdownPhase, shutdownSnapshot,
-          readyWitness, admissionWitness, responseWitness, progressWitness>>
+          readyWitness, admissionWitness>>
 
 TimeoutInitialization ==
     /\ connection = "Handshaking"
@@ -254,9 +288,10 @@ TimeoutInitialization ==
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, hostHandshake,
-          requestState, requestOutcome, deadlineRemaining, progressSent,
-          completionCount, shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, responseWitness, progressWitness>>
+          requestState, requestOutcome, deadlineRemaining,
+          responseReceived, progressOpen, progressMessageParity,
+          deadlineRenewalParity, completionCount, shutdownPhase,
+          shutdownSnapshot, readyWitness, admissionWitness>>
 
 ResolveAuthenticationClaim ==
     /\ connection = "Handshaking"
@@ -282,8 +317,9 @@ ResolveAuthenticationClaim ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, hostHandshake, pluginHandshake,
           writeOwner, requestState, requestOutcome, deadlineRemaining,
-          progressSent, completionCount, shutdownPhase, shutdownSnapshot,
-          admissionWitness, responseWitness, progressWitness>>
+          responseReceived, progressOpen, progressMessageParity,
+          deadlineRenewalParity, completionCount, shutdownPhase,
+          shutdownSnapshot, admissionWitness>>
 
 BeginRequest(request) ==
     /\ request \in Requests
@@ -296,8 +332,8 @@ BeginRequest(request) ==
         [requestOutcome EXCEPT ![request] = "Pending"]
     /\ deadlineRemaining' =
         [deadlineRemaining EXCEPT ![request] = 1]
-    /\ progressSent' =
-        [progressSent EXCEPT ![request] = 0]
+    /\ progressOpen' =
+        [progressOpen EXCEPT ![request] = TRUE]
     /\ admissionWitness' =
         (admissionWitness
          /\ readLoop = "Running"
@@ -305,9 +341,9 @@ BeginRequest(request) ==
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
-          hostHandshake, pluginHandshake, writeOwner, completionCount,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          responseWitness, progressWitness>>
+          hostHandshake, pluginHandshake, writeOwner, responseReceived,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness>>
 
 AcquireRequestWrite(request) ==
     /\ request \in Requests
@@ -322,9 +358,9 @@ AcquireRequestWrite(request) ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, pluginHandshake, requestOutcome,
-          deadlineRemaining, progressSent, completionCount,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, responseWitness, progressWitness>>
+          deadlineRemaining, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 FinishRequestWrite(request) ==
     /\ request \in Requests
@@ -339,61 +375,70 @@ FinishRequestWrite(request) ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, pluginHandshake, requestOutcome,
-          deadlineRemaining, progressSent, completionCount,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, responseWitness, progressWitness>>
+          deadlineRemaining, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
-ReceiveResponse(messageId, target) ==
+ReceiveResponse(messageId) ==
     /\ messageId \in Requests
-    /\ target \in Requests
     /\ connection = "Ready"
     /\ readLoop = "Running"
     /\ requestState[messageId] = "Waiting"
-    /\ requestState[target] = "Waiting"
-    /\ IF ResponseMode = "Correlated"
-       THEN target = messageId
-       ELSE target # messageId
-    /\ requestState' =
-        [requestState EXCEPT ![target] = "Done"]
-    /\ requestOutcome' =
-        [requestOutcome EXCEPT ![target] = "Success"]
-    /\ deadlineRemaining' =
-        [deadlineRemaining EXCEPT ![target] = 0]
-    /\ completionCount' =
-        [completionCount EXCEPT ![target] = @ + 1]
-    /\ responseWitness' =
-        (responseWitness /\ target = messageId)
+    /\ LET target == ResponseTarget(messageId)
+       IN
+        /\ requestState[target] = "Waiting"
+        /\ requestState' =
+            [requestState EXCEPT ![target] = "Done"]
+        /\ requestOutcome' =
+            [requestOutcome EXCEPT ![target] = "Success"]
+        /\ deadlineRemaining' =
+            [deadlineRemaining EXCEPT ![target] = 0]
+        /\ completionCount' =
+            [completionCount EXCEPT ![target] = @ + 1]
+    /\ responseReceived' =
+        [responseReceived EXCEPT ![messageId] = TRUE]
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
-          hostHandshake, pluginHandshake, writeOwner, progressSent,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, progressWitness>>
+          hostHandshake, pluginHandshake, writeOwner, progressOpen,
+          progressMessageParity, deadlineRenewalParity, shutdownPhase,
+          shutdownSnapshot, readyWitness, admissionWitness>>
 
-ReceiveProgress(messageId, target) ==
+ReceiveProgress(messageId) ==
     /\ messageId \in Requests
-    /\ target \in Requests
     /\ connection = "Ready"
     /\ readLoop = "Running"
     /\ requestState[messageId] = "Waiting"
-    /\ requestState[target] = "Waiting"
-    /\ progressSent[messageId] = 0
-    /\ IF ProgressMode = "Correlated"
-       THEN target = messageId
-       ELSE target # messageId
-    /\ deadlineRemaining' =
-        [deadlineRemaining EXCEPT ![target] = 1]
-    /\ progressSent' =
-        [progressSent EXCEPT ![messageId] = 1]
-    /\ progressWitness' =
-        (progressWitness /\ target = messageId)
+    /\ progressOpen[messageId]
+    /\ LET target == ProgressTarget(messageId)
+       IN
+        /\ requestState[target] = "Waiting"
+        /\ deadlineRemaining' =
+            [deadlineRemaining EXCEPT ![target] = 1]
+        /\ deadlineRenewalParity' =
+            [deadlineRenewalParity EXCEPT ![target] = ~@]
+    /\ progressMessageParity' =
+        [progressMessageParity EXCEPT ![messageId] = ~@]
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, pluginHandshake, writeOwner, requestState,
-          requestOutcome, completionCount, shutdownPhase,
-          shutdownSnapshot, readyWitness, admissionWitness,
-          responseWitness>>
+          requestOutcome, responseReceived, progressOpen, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
+
+StopProgress(request) ==
+    /\ request \in Requests
+    /\ LiveRequest(request)
+    /\ progressOpen[request]
+    /\ progressOpen' =
+        [progressOpen EXCEPT ![request] = FALSE]
+    /\ UNCHANGED
+        <<hostHandshakeSucceeds, inboundHandshakeValid,
+          claimsAuthentication, connection, readLoop, admissionOpen,
+          hostHandshake, pluginHandshake, writeOwner, requestState,
+          requestOutcome, deadlineRemaining, responseReceived,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 ReceiveFault(request) ==
     /\ request \in Requests
@@ -411,9 +456,9 @@ ReceiveFault(request) ==
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
-          hostHandshake, pluginHandshake, writeOwner, progressSent,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, responseWitness, progressWitness>>
+          hostHandshake, pluginHandshake, writeOwner, responseReceived,
+          progressOpen, progressMessageParity, deadlineRenewalParity,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 TickDeadline(request) ==
     /\ request \in Requests
@@ -425,9 +470,9 @@ TickDeadline(request) ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, pluginHandshake, writeOwner, requestState,
-          requestOutcome, progressSent, completionCount, shutdownPhase,
-          shutdownSnapshot, readyWitness, admissionWitness,
-          responseWitness, progressWitness>>
+          requestOutcome, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 TimeoutRequest(request) ==
     /\ request \in Requests
@@ -488,12 +533,19 @@ TimeoutRequest(request) ==
             IF abortConnection
             THEN NoWriter
             ELSE writeOwner
+        /\ shutdownPhase' =
+            IF abortConnection
+            THEN "Settled"
+            ELSE shutdownPhase
+        /\ shutdownSnapshot' =
+            IF abortConnection
+            THEN LiveRequests
+            ELSE shutdownSnapshot
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, hostHandshake, pluginHandshake,
-          progressSent, shutdownPhase,
-          shutdownSnapshot, readyWitness, admissionWitness,
-          responseWitness, progressWitness>>
+          responseReceived, progressOpen, progressMessageParity,
+          deadlineRenewalParity, readyWitness, admissionWitness>>
 
 CancelCaller(request) ==
     /\ request \in Requests
@@ -553,12 +605,19 @@ CancelCaller(request) ==
             IF abortConnection
             THEN NoWriter
             ELSE writeOwner
+        /\ shutdownPhase' =
+            IF abortConnection
+            THEN "Settled"
+            ELSE shutdownPhase
+        /\ shutdownSnapshot' =
+            IF abortConnection
+            THEN LiveRequests
+            ELSE shutdownSnapshot
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, hostHandshake, pluginHandshake,
-          progressSent, shutdownPhase,
-          shutdownSnapshot, readyWitness, admissionWitness,
-          responseWitness, progressWitness>>
+          responseReceived, progressOpen, progressMessageParity,
+          deadlineRenewalParity, readyWitness, admissionWitness>>
 
 ObservePipeClosed ==
     /\ readLoop = "Running"
@@ -574,24 +633,26 @@ ObservePipeClosed ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, hostHandshake,
           pluginHandshake, writeOwner, requestState, requestOutcome,
-          deadlineRemaining, progressSent, completionCount,
-          shutdownSnapshot, readyWitness, admissionWitness,
-          responseWitness, progressWitness>>
+          deadlineRemaining, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownSnapshot, readyWitness, admissionWitness>>
 
 CaptureShutdownSnapshot ==
     /\ shutdownPhase = "Observed"
+    /\ connection # "Closed"
     /\ shutdownPhase' = "Captured"
     /\ shutdownSnapshot' = LiveRequests
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, connection, readLoop, admissionOpen,
           hostHandshake, pluginHandshake, writeOwner, requestState,
-          requestOutcome, deadlineRemaining, progressSent,
-          completionCount, readyWitness, admissionWitness,
-          responseWitness, progressWitness>>
+          requestOutcome, deadlineRemaining, responseReceived,
+          progressOpen, progressMessageParity, deadlineRenewalParity,
+          completionCount, readyWitness, admissionWitness>>
 
 SettleShutdownSnapshot ==
     /\ shutdownPhase = "Captured"
+    /\ connection # "Closed"
     /\ shutdownPhase' = "Settled"
     /\ connection' = "Closing"
     /\ admissionOpen' = FALSE
@@ -622,9 +683,9 @@ SettleShutdownSnapshot ==
     /\ writeOwner' = NoWriter
     /\ UNCHANGED
         <<hostHandshakeSucceeds, inboundHandshakeValid,
-          claimsAuthentication, readLoop, hostHandshake, progressSent,
-          shutdownSnapshot, readyWitness, admissionWitness,
-          responseWitness, progressWitness>>
+          claimsAuthentication, readLoop, hostHandshake, responseReceived,
+          progressOpen, progressMessageParity, deadlineRenewalParity,
+          shutdownSnapshot, readyWitness, admissionWitness>>
 
 FinishClose ==
     /\ connection = "Closing"
@@ -635,14 +696,15 @@ FinishClose ==
         <<hostHandshakeSucceeds, inboundHandshakeValid,
           claimsAuthentication, readLoop, admissionOpen, hostHandshake,
           pluginHandshake, writeOwner, requestState, requestOutcome,
-          deadlineRemaining, progressSent, completionCount,
-          shutdownPhase, shutdownSnapshot, readyWitness,
-          admissionWitness, responseWitness, progressWitness>>
+          deadlineRemaining, responseReceived, progressOpen,
+          progressMessageParity, deadlineRenewalParity, completionCount,
+          shutdownPhase, shutdownSnapshot, readyWitness, admissionWitness>>
 
 Next ==
     \/ DeliverHostHandshake
     \/ DeliverPluginHandshake
     \/ AcquirePluginHandshakeWrite
+    \/ DropMalformedInbound
     \/ FinishPluginHandshakeWrite
     \/ FailHostInitialization
     \/ TimeoutInitialization
@@ -650,10 +712,9 @@ Next ==
     \/ \E request \in Requests : BeginRequest(request)
     \/ \E request \in Requests : AcquireRequestWrite(request)
     \/ \E request \in Requests : FinishRequestWrite(request)
-    \/ \E messageId, target \in Requests :
-        ReceiveResponse(messageId, target)
-    \/ \E messageId, target \in Requests :
-        ReceiveProgress(messageId, target)
+    \/ \E messageId \in Requests : ReceiveResponse(messageId)
+    \/ \E messageId \in Requests : ReceiveProgress(messageId)
+    \/ \E request \in Requests : StopProgress(request)
     \/ \E request \in Requests : ReceiveFault(request)
     \/ \E request \in Requests : TickDeadline(request)
     \/ \E request \in Requests : TimeoutRequest(request)
@@ -667,7 +728,7 @@ Spec ==
     /\ Init
     /\ [][Next]_vars
     /\ WF_vars(AcquirePluginHandshakeWrite)
-    /\ WF_vars(FinishPluginHandshakeWrite)
+    /\ WF_vars(DropMalformedInbound)
     /\ WF_vars(FailHostInitialization)
     /\ WF_vars(TimeoutInitialization)
     /\ WF_vars(ResolveAuthenticationClaim)
@@ -692,14 +753,15 @@ TypeOK ==
     /\ requestState \in [Requests -> RequestStates]
     /\ requestOutcome \in [Requests -> RequestOutcomes]
     /\ deadlineRemaining \in [Requests -> 0..1]
-    /\ progressSent \in [Requests -> 0..1]
+    /\ responseReceived \in [Requests -> BOOLEAN]
+    /\ progressOpen \in [Requests -> BOOLEAN]
+    /\ progressMessageParity \in [Requests -> BOOLEAN]
+    /\ deadlineRenewalParity \in [Requests -> BOOLEAN]
     /\ completionCount \in [Requests -> 0..2]
     /\ shutdownPhase \in ShutdownPhases
     /\ shutdownSnapshot \in SUBSET Requests
     /\ readyWitness \in BOOLEAN
     /\ admissionWitness \in BOOLEAN
-    /\ responseWitness \in BOOLEAN
-    /\ progressWitness \in BOOLEAN
 
 RequestCompletionIsExact ==
     \A request \in Requests:
@@ -729,10 +791,12 @@ RequestAdmissionHasLiveReceiver ==
     admissionWitness
 
 ResponsesCompleteOnlyTheirRequest ==
-    responseWitness
+    \A request \in Requests:
+        responseReceived[request]
+            = (requestOutcome[request] = "Success")
 
 ProgressRenewsOnlyItsRequest ==
-    progressWitness
+    progressMessageParity = deadlineRenewalParity
 
 InboundFailureIsContained ==
     pluginHandshake # "Dropped"
@@ -747,6 +811,9 @@ ClosedConnectionIsQuiescent ==
         /\ ~admissionOpen
         /\ readLoop = "Stopped"
 
+ClosedConnectionIsAbsorbing ==
+    [][connection = "Closed" => connection' = "Closed"]_vars
+
 InitializationEventuallySettles ==
     connection = "Handshaking"
         ~> connection \in {"Ready", "Failed", "Closing", "Closed"}
@@ -755,6 +822,11 @@ InboundHandshakeEventuallySettles ==
     InboundHandshakeLive
         ~> (InboundHandshakeSettled
             \/ connection \in {"Failed", "Closing", "Closed"})
+
+EveryRequestSettlesAfterProgressStops ==
+    \A request \in Requests:
+        (LiveRequest(request) /\ ~progressOpen[request])
+            ~> requestState[request] = "Done"
 
 EveryAdmittedRequestSettles ==
     \A request \in Requests:
