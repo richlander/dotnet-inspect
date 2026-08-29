@@ -275,15 +275,28 @@ public sealed class PluginProtocolTests : IDisposable
         Assert.Equal("p", credential.Password);
     }
 
-    [Fact]
-    public async Task MalformedInboundHandshakeReceivesAnErrorResponse()
+    [Theory]
+    [InlineData(
+        "mistyped-version",
+        """{"ProtocolVersion":123,"MinimumProtocolVersion":"1.0.0"}""")]
+    [InlineData(
+        "missing-minimum",
+        """{"ProtocolVersion":"2.0.0"}""")]
+    [InlineData(
+        "invalid-version",
+        """{"ProtocolVersion":"current","MinimumProtocolVersion":"1.0.0"}""")]
+    [InlineData(
+        "reversed-range",
+        """{"ProtocolVersion":"1.0.0","MinimumProtocolVersion":"2.0.0"}""")]
+    public async Task MalformedInboundHandshakeReceivesAnErrorResponse(
+        string name,
+        string payload)
     {
         FakePlugin plugin = CreatePlugin(
-            "malformed-inbound-handshake",
+            $"malformed-inbound-handshake-{name}",
             username: "u",
             password: "p",
-            inboundHandshakePayload:
-                """{"ProtocolVersion":123,"MinimumProtocolVersion":"1.0.0"}""");
+            inboundHandshakePayload: payload);
 
         await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
         PackageSourceCredential? credential = await provider.GetCredentialsAsync(
@@ -301,14 +314,56 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
-    public async Task MalformedInboundLogReceivesAnErrorResponse()
+    public async Task CompatibleInboundHandshakeNegotiatesTheSharedVersion()
     {
         FakePlugin plugin = CreatePlugin(
-            "malformed-inbound-log",
+            "compatible-inbound-handshake",
+            username: "u",
+            password: "p",
+            inboundHandshakePayload:
+                """{"ProtocolVersion":"1.0.0","MinimumProtocolVersion":"1.0.0"}""");
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
+        PackageSourceCredential? credential = await provider.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"),
+            isRetry: false,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(credential);
+
+        ReceivedMessage response = plugin.WaitForMessage("fake-handshake", MessageTypes.Response);
+        Assert.Equal(MessageMethods.Handshake, response.Method);
+        Assert.Equal(
+            ResponseCodes.Success,
+            response.Payload.GetProperty("ResponseCode").GetString());
+        Assert.Equal(
+            "1.0.0",
+            response.Payload.GetProperty("ProtocolVersion").GetString());
+    }
+
+    [Theory]
+    [InlineData(
+        "mistyped-level",
+        """{"LogLevel":123,"Message":"ignored"}""")]
+    [InlineData(
+        "missing-message",
+        """{"LogLevel":"Information"}""")]
+    [InlineData(
+        "empty-message",
+        """{"LogLevel":"Information","Message":""}""")]
+    [InlineData(
+        "invalid-level",
+        """{"LogLevel":"Bogus","Message":"ignored"}""")]
+    public async Task MalformedInboundLogReceivesAnErrorResponse(
+        string name,
+        string payload)
+    {
+        FakePlugin plugin = CreatePlugin(
+            $"malformed-inbound-log-{name}",
             username: "u",
             password: "p",
             afterSetLogLevel:
-                """emit '{"RequestId":"malformed-log","Type":"Request","Method":"Log","Payload":{"LogLevel":123,"Message":"ignored"}}'""");
+                $"emit '{{\"RequestId\":\"malformed-log\",\"Type\":\"Request\",\"Method\":\"Log\",\"Payload\":{payload}}}'");
 
         await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
         PackageSourceCredential? credential = await provider.GetCredentialsAsync(
@@ -322,6 +377,35 @@ public sealed class PluginProtocolTests : IDisposable
         Assert.Equal(MessageMethods.Log, response.Method);
         Assert.Equal(
             ResponseCodes.Error,
+            response.Payload.GetProperty("ResponseCode").GetString());
+    }
+
+    [Fact]
+    public async Task ValidInboundLogIsSurfacedAndAcknowledged()
+    {
+        var log = new List<string>();
+        FakePlugin plugin = CreatePlugin(
+            "valid-inbound-log",
+            username: "u",
+            password: "p",
+            afterSetLogLevel:
+                """emit '{"RequestId":"valid-log","Type":"Request","Method":"Log","Payload":{"LogLevel":"Information","Message":"hello"}}'""");
+
+        await using var provider = new PluginCredentialProvider(log.Add, [plugin.Executable]);
+        PackageSourceCredential? credential = await provider.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"),
+            isRetry: false,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(credential);
+        Assert.Contains(
+            "Credential plugin [Information]: hello",
+            log);
+
+        ReceivedMessage response = plugin.WaitForMessage("valid-log", MessageTypes.Response);
+        Assert.Equal(MessageMethods.Log, response.Method);
+        Assert.Equal(
+            ResponseCodes.Success,
             response.Payload.GetProperty("ResponseCode").GetString());
     }
 
