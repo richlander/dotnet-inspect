@@ -1,6 +1,8 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Tests;
 
@@ -76,6 +78,53 @@ public class MemberCallsSectionTests
         Assert.Contains("Calls\tsection", result.Output);
     }
 
+    [Fact]
+    public void EmptyImplicitCallerTokenScope_DoesNotResolveSolePropertyAccessor()
+    {
+        var type = SolePropertyType();
+        var options = ImplicitCallerOptions();
+
+        var methods = ApiOutputFormatter.ResolveBodyMethods(
+            type, new HashSet<string> { SectionNames.Callers }, options);
+
+        Assert.Empty(methods);
+    }
+
+    [Fact]
+    public void EmptyImplicitCallerTokenScope_DoesNotMakeCallersEffective()
+    {
+        var type = SolePropertyType();
+        var options = ImplicitCallerOptions();
+
+        Assert.False(ApiMemberSectionPipelines.ShouldAggregateCallers(type, options));
+    }
+
+    static ApiType SolePropertyType()
+        => new()
+        {
+            Namespace = "Samples",
+            Name = "Properties",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Solo",
+                    Kind = "property",
+                    ReturnType = "int",
+                    GetterToken = 0x06000001
+                }
+            ]
+        };
+
+    static MemberOptions ImplicitCallerOptions()
+        => new()
+        {
+            CallerScopeSectionImplicitlySelected = true,
+            IncludeSections = [SectionNames.Callers],
+            AggregatedCallerMemberTokens = new HashSet<int>()
+        };
+
     static Task<(int ExitCode, string Output, string Error)> RunMemberCallsAsync(string memberName, bool tsv = false, bool discover = false, int? overloadIndex = null)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -132,6 +181,20 @@ public static class MemberCallsFixture
         Console.WriteLine(value);
     }
 
+    public static void CallsOverloaded()
+    {
+        Overloaded(1);
+        Overloaded("value");
+    }
+
+    public static void UnusedOverloaded(int value)
+    {
+    }
+
+    public static void UnusedOverloaded(string value)
+    {
+    }
+
     // Non-public member: only selectable under --all. Regression coverage for #1323,
     // where the body-load path counted overloads public-only and so reported "no IL body"
     // for a method that the Calls/IL index reads fine.
@@ -155,4 +218,53 @@ public static class MemberAbstractCallerUseFixture
         target.Invoke();
         _ = target.Value;
     }
+}
+public sealed class MemberPropertyCallsFixture
+{
+    public int this[int index] => index;
+    public int this[string key] => key.Length;
+
+    public static void CallsIndexers()
+    {
+        var fixture = new MemberPropertyCallsFixture();
+        _ = fixture[1];
+        _ = fixture["one"];
+    }
+}
+
+public abstract class MemberAbstractCallsFixture
+{
+    public abstract void Mixed(int value);
+    public void Mixed(string value) { }
+
+    public static void CallsMixed(MemberAbstractCallsFixture fixture)
+    {
+        fixture.Mixed(1);
+        fixture.Mixed("one");
+    }
+}
+
+public abstract class MemberAbstractPropertyCallsFixture
+{
+    public abstract int this[int index] { get; }
+    public abstract int this[string key] { get; }
+
+    public static void CallsIndexers(MemberAbstractPropertyCallsFixture fixture)
+    {
+        _ = fixture[1];
+        _ = fixture["one"];
+    }
+}
+
+public static class MemberOnlyPropertyCallsFixture
+{
+    public static int Solo { get; set; }
+}
+
+public static class MemberOnlyPropertyCallerFixture
+{
+    public static int CallsSolo() => MemberOnlyPropertyCallsFixture.Solo;
+
+    public static void WritesSolo() =>
+        MemberOnlyPropertyCallsFixture.Solo = 1;
 }

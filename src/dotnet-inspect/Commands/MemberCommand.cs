@@ -308,7 +308,13 @@ public static class MemberCommand
                     effectiveOptions,
                     discoveredCallerSections);
             }
-            var authoredSelection = effectiveOptions;
+            var aggregateCallers =
+                ApiMemberSectionPipelines.ShouldAggregateCallers(
+                    apiType,
+                    effectiveOptions);
+            var authoredSelection = aggregateCallers
+                ? ExcludeCallersSection(effectiveOptions)
+                : effectiveOptions;
 
             // Keep member-name lookups as overload inventories. Only auto-select the lone
             // overload when the user explicitly asks for a selected-overload detail section.
@@ -356,7 +362,12 @@ public static class MemberCommand
                             detailPipeline)
                         is not { } detailOptions)
                         return 1;
-                    effectiveOptions = detailOptions;
+                    effectiveOptions = aggregateCallers
+                        ? IncludeCallerScopeSections(
+                            detailOptions,
+                            discoveredCallerSections,
+                            callersImplicitlySelected)
+                        : detailOptions;
                 }
             }
 
@@ -927,7 +938,8 @@ public static class MemberCommand
 
     private static MemberOptions IncludeCallerScopeSections(
         MemberOptions options,
-        IReadOnlySet<string> discoveredCallerSections)
+        IReadOnlySet<string> discoveredCallerSections,
+        bool implicitlySelected = true)
     {
         var includeSections = options.IncludeSections is { Count: > 0 } existing
             ? new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase)
@@ -940,7 +952,8 @@ public static class MemberCommand
         {
             IncludeSections = includeSections,
             CallerScopeSectionImplicitlySelected =
-                includeSections.Contains(SectionNames.Callers)
+                implicitlySelected
+                && includeSections.Contains(SectionNames.Callers)
         };
     }
 
