@@ -209,6 +209,17 @@ both can satisfy the same reference.
 The precedence rule for this case is simple: **when resolving a reference that
 can bind to both, the binding policy selects the participant backed by the
 designated artifact over the participant backed by the platform artifact**.
+For a designated participant in this arbitration, assembly version is
+descriptive rather than an eligibility barrier, including when no matching
+platform participant is present. Platform participants retain the resolver's
+existing version policy, and an enabled installed-platform fallback
+participates under that policy. The existing assembly-name, culture, and
+public-key-token constraints remain binding, including their existing omitted
+value semantics; identity comes from metadata rather than the designated
+file's name. This exception is limited to the designated/platform name-owning
+domain; it does not weaken identity matching or promote package, project,
+sibling, discovered, or other non-designated candidates.
+
 The selection answer retains every other eligible entitled candidate as typed
 shadow evidence, so consumers can explain the composition without reconstructing
 policy from enumeration order. A shadowed candidate is evidence, not an active
@@ -216,8 +227,16 @@ participant.
 That gives every acquisition system the same well-defined graph to compose
 with; it does not require specifying the current resolver's case-by-case
 accidents. Any other tie between entitled candidates needs its own stated rule
-or a diagnostic rather than a silent pick. The current resolver does not yet
-enforce this contract; tracked as **#4593**.
+or a diagnostic rather than a silent pick. Multiple eligible designated
+candidates remain ambiguous rather than being chosen by registration order.
+
+The designated-precedence cases in `AssemblyDependencyResolverTests` gate
+version and registration-order independence, identity constraints, typed
+ambiguity and shadow evidence, same-path provenance, and preservation of
+unrelated name-owning tiers. The
+`SharedCatalog_ReusesBindingManifestAndShadowsAcrossGenerations` and
+`BindingFailure_PreservesShadowsWithoutOpeningThem` tests gate shadow
+propagation without activating the shadow descriptor.
 
 ### Executable interaction model
 
