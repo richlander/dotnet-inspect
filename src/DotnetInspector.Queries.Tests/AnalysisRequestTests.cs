@@ -219,6 +219,7 @@ public sealed class AnalysisRequestTests
         Assert.Equal(
             AnalysisRequestRejectionReason.InvalidMode,
             rejected.Reason);
+        Assert.Equal([domain.FallbackAnchor], rejected.TargetRoles);
     }
 
     [Fact]
@@ -363,6 +364,31 @@ public sealed class AnalysisRequestTests
                 new AnalysisProjectionSupport(
                     rows,
                     [AnalysisQuestionMode.Targeted]),
+            ]));
+        Assert.Throws<ArgumentException>(() => new AnalysisDescriptor(
+            new AnalysisDeclarationId("analysis.missing-surface"),
+            revision: 1,
+            InspectionCost.NetworkFree,
+            [
+                AnalysisQuestionMode.Targeted,
+                AnalysisQuestionMode.Census,
+            ],
+            [
+                new AnalysisReportSurfaceSupport(
+                    AnalysisReportSurfaceKind.Member,
+                    AnalysisQuestionMode.Targeted,
+                    [anchor]),
+            ],
+            [],
+            [],
+            [],
+            [
+                new AnalysisProjectionSupport(
+                    rows,
+                    [
+                        AnalysisQuestionMode.Targeted,
+                        AnalysisQuestionMode.Census,
+                    ]),
             ]));
     }
 
@@ -598,8 +624,16 @@ public sealed class AnalysisRequestTests
 
         Assert.Equal([requiredDomain], missingRejection.TargetRoles);
         Assert.Equal(
+            AnalysisRequestRejectionReason.UnsupportedTargetRole,
+            missingRejection.Reason);
+        Assert.Equal(
             [fixture.WorkspaceDomain],
             duplicateRejection.TargetRoles);
+        Assert.Equal(
+            AnalysisRequestRejectionReason.UnsupportedTargetRole,
+            duplicateRejection.Reason);
+        Assert.Contains("minimum and maximum counts", missingRejection.Guidance);
+        Assert.Contains("minimum and maximum counts", duplicateRejection.Guidance);
     }
 
     [Fact]
@@ -630,6 +664,33 @@ public sealed class AnalysisRequestTests
         Assert.Equal(
             Enum.GetValues<AnalysisRequestRejectionReason>().Order(),
             seen.Order());
+    }
+
+    [Fact]
+    public void AnalysisCapability_RejectsStructurallyInvalidRequestsBeforeProducerExecution()
+    {
+        Fixture fixture = new();
+        Fixture other = new();
+        AnalysisRequest valid = fixture.Request();
+        AnalysisRequest[] invalidRequests =
+        [
+            valid with { Analysis = null },
+            valid with { ReportSurface = null },
+            valid with { Projection = null },
+            valid with { Mode = (AnalysisQuestionMode)int.MaxValue },
+            valid with { Analysis = other.Analysis },
+        ];
+
+        foreach (AnalysisRequest request in invalidRequests)
+        {
+            AnalysisRequestRejection rejection = fixture.Rejected(request);
+            Assert.Equal(
+                AnalysisRequestRejectionReason.InvalidRequest,
+                rejection.Reason);
+        }
+
+        Assert.Equal(0, fixture.ProducerExecutions);
+        Assert.Equal(0, other.ProducerExecutions);
     }
 
     [Fact]

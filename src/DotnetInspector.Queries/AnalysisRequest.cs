@@ -700,7 +700,8 @@ public sealed class AnalysisRequestRejection
         AnalysisRequestRejectionReason.UnsupportedSurface =>
             "Select a report surface supported for this analysis and mode.",
         AnalysisRequestRejectionReason.UnsupportedTargetRole =>
-            "Bind targets only to the owner-issued roles declared for this surface.",
+            "Bind targets only to owner-issued roles and satisfy each role's "
+            + "declared minimum and maximum counts.",
         AnalysisRequestRejectionReason.InvalidMode =>
             "Targeted requests require a privileged anchor; "
             + "Census requests require a report-domain target and forbid privileged anchors.",

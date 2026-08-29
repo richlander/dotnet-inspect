@@ -385,6 +385,7 @@ The runtime implementation is verified by these named gates:
 - `AnalysisCapability_RejectsMissingStructuralPrerequisiteBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedProjectionBeforeProducerExecution`
 - `AnalysisCapability_AllDeclaredRejectionsPrecedeProducerExecution`
+- `AnalysisCapability_RejectsStructurallyInvalidRequestsBeforeProducerExecution`
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
 - `AnalysisCapability_RequiresConfiguredOwnerIssuedDescriptorIdentity`
 - `AnalysisCapability_SelectsReportSurfaceDeclarationByMode`
