@@ -14,13 +14,11 @@ defined here.
 ## Claim
 
 A structured C# declaration is composed only from explicitly classified input
-slots. Every slot preserves whether its value is:
-
-- a raw metadata identifier;
-- a model-bound type expression;
-- a closed C# syntax choice;
-- an already-rendered C# fragment; or
-- opaque compatibility text.
+slots. Every slot selects exactly one class from the closed
+[slot value taxonomy](#slot-value-classes): raw identifier, qualified-name
+spelling, type declaration name, type expression, bound generic reference,
+closed syntax, rendered fragment, raw literal value, composite subplan, or
+opaque compatibility.
 
 The CSharp owner prepares each non-opaque slot according to that classification
 before composition. It never recovers a slot boundary or provenance fact by
@@ -79,9 +77,12 @@ The containment invariant is:
 > visible according to its declared C# slot without changing the source model.
 
 CSharp consumes the identifier and textual-containment policy owned by
-CSharpText; it does not create a competing scalar policy. Structured punctuation
-comes only from fixed product syntax. Rendered fragments must arrive under a
-typed fragment contract or remain compatibility input.
+CSharpText; it does not create a competing scalar policy. Current
+`CSharpIdentifierCore` does not enforce the full scalar set above, so that part
+of the target is pending on
+[#5134](https://github.com/richlander/dotnet-inspect/issues/5134).
+Structured punctuation comes only from fixed product syntax. Rendered fragments
+must arrive under a typed fragment contract or remain compatibility input.
 
 `CSharpDeclarationProvenanceTests.StructuredOutputContainsTheMetadataConfusionFixture`,
 `CompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`, and the
@@ -196,7 +197,8 @@ during migration. New consumers that require the structured guarantee consume
   mutate them or derive identity from their display text.
 - **CSharpText** supplies model-free lexical operations. It may tokenize one
   declared type-expression or compatibility slot, but it does not decide which
-  semantic slot a substring occupies.
+  semantic slot a substring occupies. Issue #5134 owns the additional
+  declaration-containment policy required by this target.
 - **CLI and other hosts** choose where to display or serialize the result. They
   do not repeat CSharp preparation.
 - **Decompiler and Research** may request or compose declarations but do not
@@ -241,6 +243,7 @@ enter composition without a catalog entry and handler.
 | Type kind, accessibility, and modifiers | Closed syntax | `ApiType.Kind`, accessibility, and modifier flags |
 | Type generic-parameter name | Raw identifier | `ApiType.TypeParameters[].Name` |
 | Type generic-parameter variance | Closed syntax | `ApiType.TypeParameters[].Variance` |
+| Type-owned generic-parameter reference | Bound generic reference | owner/ordinal evidence within base, interface, constraint, and other type expressions |
 | Primary-constructor parameter | Composite subplan | caller-supplied `ApiParameter` values |
 | Enum underlying type | Type expression | `ApiType.EnumUnderlyingType`; absent/default `int` emits no clause |
 | Base type | Type expression | `ApiType.BaseType` and typed reference evidence |
@@ -262,7 +265,7 @@ enter composition without a catalog entry and handler.
 | Simple member name | Raw identifier | exact `ApiMember.Name` or a separately issued simple-name slot |
 | Explicit-interface qualifier | Type expression | requires an owner-issued qualifier separate from the simple name |
 | Method generic-parameter declaration | Raw identifier | `ApiSignature.TypeParameters` or an explicitly paired caller override |
-| Method generic-parameter reference | Bound generic reference | owner/ordinal type-expression evidence; equal rendered text is insufficient |
+| Type- or method-owned generic-parameter reference | Bound generic reference | owner kind plus ordinal in member type-expression evidence; equal rendered text is insufficient |
 | Method special constraint | Closed syntax | non-type entries in `TypeParameter.StructuredConstraints`; inherited-restatement policy remains CSharp-owned |
 | Method constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints` |
 | Parameter | Composite subplan | ordered parameter child slots |
@@ -279,6 +282,11 @@ enter composition without a catalog entry and handler.
 | Constructor initializer | Composite subplan | optional `CSharpConstructorInitializer` |
 | Constructor initializer kind | Closed syntax | `CSharpConstructorInitializer.Kind` |
 | Constructor initializer argument | Rendered fragment | `CSharpConstructorInitializer.Arguments` |
+| Fixed-buffer declaration | Composite subplan | typed `CSharpFixedBufferField` before compatibility flattening |
+| Fixed-buffer keyword and length | Closed syntax | fixed keyword plus validated integer length |
+| Fixed-buffer element type | Type expression | `CSharpFixedBufferField.ElementType` |
+| Fixed-buffer name | Raw identifier | owning field `ApiMember.Name` |
+| Finalizer spelling mode | Closed syntax | `SuppressFinalizerSpelling` body-fidelity choice |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
 
 ### Declaration-form requirements
@@ -287,7 +295,9 @@ enter composition without a catalog entry and handler.
 | --- | --- |
 | Assembly or module attribute declaration | Rendered attribute body plus closed target and punctuation |
 | Constructor | Exact declaring-type leaf name plus parameters and optional initializer subplan |
-| Static constructor or finalizer | Exact declaring-type leaf name; punctuation and destructor marker are closed syntax |
+| Static constructor | Exact declaring-type leaf name and closed punctuation |
+| Finalizer with destructor spelling | Exact declaring-type leaf name and closed destructor marker |
+| Finalizer with destructor spelling suppressed | Closed body-fidelity selector plus structured `void Finalize()` method head |
 | Ordinary or extension method | Return type, simple name, method generic parameters, parameters, and constraints; extension `this` is closed syntax |
 | Explicit-interface method | Separate qualifier type expression and simple member name; pending #5114, a combined dotted string is compatibility input |
 | Property | Property type, simple name, and accessor list |
@@ -295,6 +305,7 @@ enter composition without a catalog entry and handler.
 | Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, and accessors; structured mode is pending #5114 |
 | Event | Event type, simple name, and optional explicit-interface qualifier; structured explicit forms are pending #5114 |
 | Field or constant | Field type, simple name, and optional initializer fragment |
+| Fixed-buffer field | Fixed keyword, element type, simple name, and validated length; flattened `ApiMember.Signature` remains compatibility input |
 | Enum member | Simple name and optional initializer fragment; no field-type slot |
 | Unary, binary, conversion, or checked operator | Metadata operator kind mapped through a closed catalog, typed return/conversion target, and parameters |
 | Delegate | Return type, type name, generic parameters, parameters, and constraints |
@@ -413,13 +424,15 @@ properties remain unverified:
   remains pending on #5114, then exercises a real compiled or persisted metadata
   artifact and verifies both `I<@class>.Map` and unchanged raw names.
 - `CSharpDeclarationProvenanceTests.PrimitiveAndSameNamedGenericRemainDistinct`
-  is the #5076 gate and remains pending until that issue supplies provenance.
+  is the #5076 gate and remains pending until that issue supplies provenance;
+  it covers type- and method-owned references in bases, interfaces, constraints,
+  fields, returns, and parameters.
 - `CSharpDeclarationProvenanceTests.EveryDeclarationFormHasExpectedModeAndNeighborCases`
   derives every row of the form inventory and verifies its expected
   `Structured`, `Compatibility`, or `Unavailable` outcome, including
   assembly/module attributes, constructors and their initializers, properties,
-  indexers, events, operators, enum members, field initializers, bases,
-  interfaces, and constraints.
+  indexers, events, operators, enum members, fixed buffers, field initializers,
+  both finalizer spellings, bases, interfaces, and constraints.
 - `CSharpDeclarationProvenanceTests.LegacyFlattenedTypeNameWithLiteralPunctuationIsNotStructured`
   proves that `ApiType.Name` cannot stand in for exact definition-name segments.
 - `CSharpDeclarationProvenanceTests.TypeNameArityOwnershipIsRequiredForStructuredNestedGenerics`
@@ -432,6 +445,7 @@ properties remain unverified:
   proves that each target failure selects `Compatibility` or `Unavailable`,
   never `Structured` or success-shaped empty output.
 - `CSharpDeclarationProvenanceTests.StructuredOutputContainsTheMetadataConfusionFixture`
+  remains pending on #5134's scalar policy, then
   resolves the immutable version named by
   `PackageFixtures.proj`'s `MetadataConfusionFixtureVersion` property and runs
   it through the public CSharp seam. The implementation must advance that
@@ -440,16 +454,24 @@ properties remain unverified:
   before checking inert, single-declaration output. #5114 adds
   explicit-interface specimens in its owner effort.
 - `CSharpDeclarationProvenanceTests.CompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`
-  forces opaque compatibility declarations and artifact-derived diagnostics,
-  then verifies that both are inert and line-safe.
+  remains pending on #5134, then forces opaque compatibility declarations and
+  artifact-derived diagnostics and verifies that both are inert and line-safe.
 - `CSharpDeclarationProvenanceTests.GlobalAttributesAndInitializersHaveExpectedModeAndContainment`
   covers assembly/module attributes, field and enum initializers, and
   constructor `this`/`base` initializer arguments, including hostile fragments.
+- `CSharpDeclarationProvenanceTests.FixedBuffersUseTypedSlotsOrVisibleCompatibility`
+  proves that `CSharpFixedBufferField` reaches structured keyword, element,
+  identifier, and length slots while a flattened signature cannot be promoted.
+- `CSharpDeclarationProvenanceTests.FinalizerSpellingModePreservesBodyFidelity`
+  covers destructor syntax and the structured literal-`Finalize` alternative
+  selected when body fidelity suppresses destructor reconstruction.
 
 The implementation PR must run the non-pending gates in Release and show the
 CSharp-owned demo's actual output beside a neighboring clean declaration. A
 synthetic unit case may isolate a slot handler, but the explicit-interface claim
-remains pending until #5114 supplies real Metadata evidence.
+remains pending until #5114 supplies real Metadata evidence, and the full
+scalar-containment claim remains pending until #5134 supplies its CSharpText
+contract.
 
 ## Non-claims
 
@@ -462,6 +484,8 @@ This owner does not define:
 - Decompiler body fidelity or compile-back admission;
 - CSharpText's lexical grammar; or
 - the missing primitive-versus-generic provenance tracked by #5076.
+
+The full scalar-containment policy is likewise not defined here; #5134 owns it.
 
 It also does not promise that every ECMA-335 declaration is representable in
 C#. `Compatibility` and `Unavailable` are intentional outcomes where the input
