@@ -99,9 +99,9 @@ point after which no further Progress arrives are environment actions and are
 not required to occur.
 
 The positive model makes request timeout effective from registration through
-the serialized write and response wait. `CurrentStalledWrite.cfg` instead
-matches the current control flow, where the timer may expire but `SendAsync`
-does not observe it until `WriteAsync` returns. With no fairness assumption that
+the serialized write and response wait. `CurrentStalledWrite.cfg` mutates that
+rule to defer timeout observation until the serialized write returns. With no
+fairness assumption that
 the plugin drains stdin, TLC finds that a request can remain in the writer
 forever after Progress has stopped. The positive rule does not abandon that
 writer and reuse the pipe: timeout or caller cancellation while a request owns
