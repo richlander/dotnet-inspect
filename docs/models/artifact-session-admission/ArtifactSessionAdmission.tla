@@ -5,9 +5,10 @@
 (*                                                                         *)
 (* The model checks single-flight admission across concurrent demands,     *)
 (* an incompatible-generation demand's inability to join or start          *)
-(* duplicate work while a prior admission is active, voluntary and         *)
-(* disposal-forced cancellation, and the rule that a late adapter result   *)
-(* never publishes a session or group once disposal has begun. It says     *)
+(* duplicate work while a prior admission is active, cancellation before   *)
+(* join and while in-flight or draining, disposal-forced cancellation, and *)
+(* the rule that a late adapter result never publishes a session or group  *)
+(* once disposal has begun. It says                                        *)
 (* nothing about which adapter runs, budget arithmetic, content identity,  *)
 (* assembly projection, or query-lease authorization.                     *)
 (*                                                                         *)
@@ -26,6 +27,7 @@
 (*   admitted context+policy generation      generation                   *)
 (*   demands attached to the operation       waiters                      *)
 (*   a demand's requested generation         pendingGeneration             *)
+(*   caller cancellation requested            cancelRequested             *)
 (*   reserved admission budget                reserved                    *)
 (*   workspace disposal begun                disposed                    *)
 (*   per-demand delivered outcome            outcomeOf                    *)
@@ -56,16 +58,21 @@ EXTENDS Naturals, FiniteSets, TLC
 
 CONSTANTS
   Demands,      \* finite set of concurrent demand identifiers
-  Generations   \* finite set of distinct (context, policy) generations
+  Generations,  \* finite set of distinct (context, policy) generations
+  EnablePendingCancellation,
+  EnableDrainingCancellation
 
 ASSUME Cardinality(Demands) >= 2
 ASSUME Cardinality(Generations) >= 2
+ASSUME EnablePendingCancellation \in BOOLEAN
+ASSUME EnableDrainingCancellation \in BOOLEAN
 
 VARIABLES
   admission,
   generation,
   waiters,
   pendingGeneration,
+  cancelRequested,
   reserved,
   disposed,
   outcomeOf,
@@ -75,12 +82,15 @@ VARIABLES
   publishSafetyWitness,
   leaseSafetyWitness,
   outcomeStableWitness,
-  authorizedOutcomeWitness
+  authorizedOutcomeWitness,
+  pendingCancellationWitness,
+  drainingCancellationWitness
 
-vars == << admission, generation, waiters, pendingGeneration, reserved,
-           disposed, outcomeOf, groupActive, groupQuiescent, leaseReleased,
-           publishSafetyWitness, leaseSafetyWitness, outcomeStableWitness,
-           authorizedOutcomeWitness >>
+vars == << admission, generation, waiters, pendingGeneration, cancelRequested,
+           reserved, disposed, outcomeOf, groupActive, groupQuiescent,
+           leaseReleased, publishSafetyWitness, leaseSafetyWitness,
+           outcomeStableWitness, authorizedOutcomeWitness,
+           pendingCancellationWitness, drainingCancellationWitness >>
 
 \* A demand's outcome may change only away from "none"; once terminal it
 \* never changes again. Re-derived on every step that touches outcomeOf.
@@ -102,6 +112,7 @@ TypeOK ==
   /\ generation \in Generations \cup {NoGeneration}
   /\ waiters \subseteq Demands
   /\ pendingGeneration \in [Demands -> Generations \cup {NoGeneration}]
+  /\ cancelRequested \subseteq Demands
   /\ reserved \in BOOLEAN
   /\ disposed \in BOOLEAN
   /\ outcomeOf \in [Demands -> Outcomes]
@@ -112,6 +123,8 @@ TypeOK ==
   /\ leaseSafetyWitness \in BOOLEAN
   /\ outcomeStableWitness \in BOOLEAN
   /\ authorizedOutcomeWitness \in BOOLEAN
+  /\ pendingCancellationWitness \subseteq Demands
+  /\ drainingCancellationWitness \subseteq Demands
 
 \* Idle admission holds no generation, no waiters, and no reservation; any
 \* active admission holds exactly a reservation and a real generation.
@@ -130,6 +143,7 @@ Init ==
   /\ generation = NoGeneration
   /\ waiters = {}
   /\ pendingGeneration = [d \in Demands |-> NoGeneration]
+  /\ cancelRequested = {}
   /\ reserved = FALSE
   /\ disposed = FALSE
   /\ outcomeOf = [d \in Demands |-> "none"]
@@ -140,6 +154,8 @@ Init ==
   /\ leaseSafetyWitness = TRUE
   /\ outcomeStableWitness = TRUE
   /\ authorizedOutcomeWitness = TRUE
+  /\ pendingCancellationWitness = {}
+  /\ drainingCancellationWitness = {}
 
 (***************************************************************************)
 (* Demand arrival. A demand fixes the generation it requests once, before  *)
@@ -151,10 +167,11 @@ DemandArrives(d, g) ==
   /\ pendingGeneration[d] = NoGeneration
   /\ outcomeOf[d] = "none"
   /\ pendingGeneration' = [pendingGeneration EXCEPT ![d] = g]
-  /\ UNCHANGED << admission, generation, waiters, reserved, disposed,
-                  outcomeOf, groupActive, groupQuiescent, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness,
-                  outcomeStableWitness, authorizedOutcomeWitness >>
+  /\ UNCHANGED << admission, generation, waiters, cancelRequested, reserved,
+                  disposed, outcomeOf, groupActive, groupQuiescent,
+                  leaseReleased, publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness,
+                  pendingCancellationWitness, drainingCancellationWitness >>
 
 (***************************************************************************)
 (* Demand admission.                                                      *)
@@ -172,53 +189,101 @@ DemandStartsAdmission(d) ==
   /\ admission = "Idle"
   /\ pendingGeneration[d] # NoGeneration
   /\ outcomeOf[d] = "none"
+  /\ d \notin cancelRequested
   /\ admission' = "InFlight"
   /\ generation' = pendingGeneration[d]
   /\ waiters' = {d}
   /\ reserved' = TRUE
-  /\ UNCHANGED << pendingGeneration, disposed, outcomeOf, groupActive,
-                  groupQuiescent, leaseReleased, publishSafetyWitness,
-                  leaseSafetyWitness, outcomeStableWitness,
-                  authorizedOutcomeWitness >>
+  /\ UNCHANGED << pendingGeneration, cancelRequested, disposed, outcomeOf,
+                  groupActive, groupQuiescent, leaseReleased,
+                  publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness,
+                  pendingCancellationWitness, drainingCancellationWitness >>
 
 DemandJoinsAdmission(d) ==
   /\ admission = "InFlight"
   /\ pendingGeneration[d] = generation
   /\ outcomeOf[d] = "none"
+  /\ d \notin cancelRequested
   /\ d \notin waiters
   /\ waiters' = waiters \cup {d}
-  /\ UNCHANGED << admission, generation, pendingGeneration, reserved,
-                  disposed, outcomeOf, groupActive, groupQuiescent,
+  /\ UNCHANGED << admission, generation, pendingGeneration, cancelRequested,
+                  reserved, disposed, outcomeOf, groupActive, groupQuiescent,
                   leaseReleased, publishSafetyWitness, leaseSafetyWitness,
-                  outcomeStableWitness, authorizedOutcomeWitness >>
+                  outcomeStableWitness, authorizedOutcomeWitness,
+                  pendingCancellationWitness, drainingCancellationWitness >>
 
 DemandRejectedWhileDisposed(d) ==
   /\ disposed = TRUE
   /\ pendingGeneration[d] # NoGeneration
   /\ d \notin waiters
   /\ outcomeOf[d] = "none"
+  /\ d \notin cancelRequested
   /\ outcomeOf' = [outcomeOf EXCEPT ![d] = "rejected"]
   /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
-  /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
-                  disposed, groupActive, groupQuiescent, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness,
-                  authorizedOutcomeWitness >>
+  /\ UNCHANGED << admission, generation, waiters, pendingGeneration,
+                  cancelRequested, reserved, disposed, groupActive,
+                  groupQuiescent, leaseReleased, publishSafetyWitness,
+                  leaseSafetyWitness, authorizedOutcomeWitness,
+                  pendingCancellationWitness, drainingCancellationWitness >>
 
 (***************************************************************************)
-(* Voluntary cancellation. Detaching the last waiter asks the owner to     *)
-(* cancel the adapter and enter the draining state, which never publishes. *)
+(* Voluntary cancellation. The caller first records cancellation under the *)
+(* same owner gate used by start/join. Once recorded, that demand can no    *)
+(* longer start or join admission and an adapter cannot resolve it first.   *)
+(* An unattached demand cancels directly. An attached in-flight demand      *)
+(* detaches; if it was the last waiter, the owner enters draining. A waiter *)
+(* overtaken by disposal can still detach from the draining operation.      *)
 (***************************************************************************)
-WaiterCancels(d) ==
-  /\ admission = "InFlight"
-  /\ d \in waiters
-  /\ waiters' = waiters \ {d}
-  /\ admission' = IF waiters \ {d} = {} THEN "Draining" ELSE "InFlight"
+CallerRequestsCancellation(d) ==
+  /\ pendingGeneration[d] # NoGeneration
+  /\ outcomeOf[d] = "none"
+  /\ d \notin cancelRequested
+  /\ cancelRequested' = cancelRequested \cup {d}
+  /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
+                  disposed, outcomeOf, groupActive, groupQuiescent,
+                  leaseReleased, publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness,
+                  pendingCancellationWitness, drainingCancellationWitness >>
+
+PendingDemandCancels(d) ==
+  /\ EnablePendingCancellation
+  /\ d \in cancelRequested
+  /\ d \notin waiters
+  /\ outcomeOf[d] = "none"
+  /\ pendingGeneration[d] # NoGeneration
+  /\ pendingGeneration' = [pendingGeneration EXCEPT ![d] = NoGeneration]
   /\ outcomeOf' = [outcomeOf EXCEPT ![d] = "cancelled"]
-  /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
-  /\ UNCHANGED << generation, pendingGeneration, reserved, disposed,
+  /\ pendingCancellationWitness' = pendingCancellationWitness \cup {d}
+  /\ outcomeStableWitness' =
+       outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
+  /\ UNCHANGED << admission, generation, waiters, cancelRequested, reserved,
+                  disposed, groupActive, groupQuiescent, leaseReleased,
+                  publishSafetyWitness, leaseSafetyWitness,
+                  authorizedOutcomeWitness, drainingCancellationWitness >>
+
+AttachedDemandCancels(d) ==
+  /\ d \in cancelRequested
+  /\ d \in waiters
+  /\ admission \in {"InFlight", "Draining"}
+  /\ admission = "InFlight" \/ EnableDrainingCancellation
+  /\ waiters' = waiters \ {d}
+  /\ admission' =
+       IF admission = "InFlight" /\ waiters \ {d} = {}
+       THEN "Draining"
+       ELSE admission
+  /\ pendingGeneration' = [pendingGeneration EXCEPT ![d] = NoGeneration]
+  /\ outcomeOf' = [outcomeOf EXCEPT ![d] = "cancelled"]
+  /\ drainingCancellationWitness' =
+       IF admission = "Draining"
+       THEN drainingCancellationWitness \cup {d}
+       ELSE drainingCancellationWitness
+  /\ outcomeStableWitness' =
+       outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf')
+  /\ UNCHANGED << generation, cancelRequested, reserved, disposed,
                   groupActive, groupQuiescent, leaseReleased,
                   publishSafetyWitness, leaseSafetyWitness,
-                  authorizedOutcomeWitness >>
+                  authorizedOutcomeWitness, pendingCancellationWitness >>
 
 (***************************************************************************)
 (* Disposal closes admission to new demands and forces any in-flight       *)
@@ -228,10 +293,11 @@ DisposalBegins ==
   /\ disposed = FALSE
   /\ disposed' = TRUE
   /\ admission' = IF admission = "InFlight" THEN "Draining" ELSE admission
-  /\ UNCHANGED << generation, waiters, pendingGeneration, reserved, outcomeOf,
-                  groupActive, groupQuiescent, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness,
-                  outcomeStableWitness, authorizedOutcomeWitness >>
+  /\ UNCHANGED << generation, waiters, pendingGeneration, cancelRequested,
+                  reserved, outcomeOf, groupActive, groupQuiescent,
+                  leaseReleased, publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness,
+                  pendingCancellationWitness, drainingCancellationWitness >>
 
 (***************************************************************************)
 (* Adapter completion. A successful result publishes only from "InFlight", *)
@@ -245,6 +311,7 @@ DisposalBegins ==
 AdapterSucceeds ==
   /\ admission = "InFlight"
   /\ groupActive = FALSE
+  /\ waiters \cap cancelRequested = {}
   /\ admission' = "Idle"
   /\ generation' = NoGeneration
   /\ reserved' = FALSE
@@ -256,10 +323,13 @@ AdapterSucceeds ==
   /\ groupQuiescent' = FALSE
   /\ leaseReleased' = FALSE
   /\ publishSafetyWitness' = (publishSafetyWitness /\ (disposed = FALSE))
-  /\ UNCHANGED << pendingGeneration, disposed, leaseSafetyWitness >>
+  /\ UNCHANGED << pendingGeneration, cancelRequested, disposed,
+                  leaseSafetyWitness, pendingCancellationWitness,
+                  drainingCancellationWitness >>
 
 AdapterFails ==
   /\ admission = "InFlight"
+  /\ waiters \cap cancelRequested = {}
   /\ admission' = "Idle"
   /\ generation' = NoGeneration
   /\ reserved' = FALSE
@@ -267,11 +337,14 @@ AdapterFails ==
   /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
   /\ authorizedOutcomeWitness' = (authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf'))
   /\ waiters' = {}
-  /\ UNCHANGED << pendingGeneration, disposed, groupActive, groupQuiescent,
-                  leaseReleased, publishSafetyWitness, leaseSafetyWitness >>
+  /\ UNCHANGED << pendingGeneration, cancelRequested, disposed, groupActive,
+                  groupQuiescent, leaseReleased, publishSafetyWitness,
+                  leaseSafetyWitness, pendingCancellationWitness,
+                  drainingCancellationWitness >>
 
 AdapterDrains ==
   /\ admission = "Draining"
+  /\ waiters \cap cancelRequested = {}
   /\ admission' = "Idle"
   /\ generation' = NoGeneration
   /\ reserved' = FALSE
@@ -279,8 +352,10 @@ AdapterDrains ==
   /\ outcomeStableWitness' = (outcomeStableWitness /\ OutcomeChangeIsGuarded(outcomeOf, outcomeOf'))
   /\ authorizedOutcomeWitness' = (authorizedOutcomeWitness /\ ResolvedOnlyAttachedDemands(waiters, outcomeOf, outcomeOf'))
   /\ waiters' = {}
-  /\ UNCHANGED << pendingGeneration, disposed, groupActive, groupQuiescent,
-                  leaseReleased, publishSafetyWitness, leaseSafetyWitness >>
+  /\ UNCHANGED << pendingGeneration, cancelRequested, disposed, groupActive,
+                  groupQuiescent, leaseReleased, publishSafetyWitness,
+                  leaseSafetyWitness, pendingCancellationWitness,
+                  drainingCancellationWitness >>
 
 (***************************************************************************)
 (* Group quiescence and lease release. Disposal disposes published groups; *)
@@ -293,10 +368,11 @@ GroupBecomesQuiescent ==
   /\ groupActive = TRUE
   /\ groupQuiescent = FALSE
   /\ groupQuiescent' = TRUE
-  /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
-                  disposed, outcomeOf, groupActive, leaseReleased,
-                  publishSafetyWitness, leaseSafetyWitness,
-                  outcomeStableWitness, authorizedOutcomeWitness >>
+  /\ UNCHANGED << admission, generation, waiters, pendingGeneration,
+                  cancelRequested, reserved, disposed, outcomeOf, groupActive,
+                  leaseReleased, publishSafetyWitness, leaseSafetyWitness,
+                  outcomeStableWitness, authorizedOutcomeWitness,
+                  pendingCancellationWitness, drainingCancellationWitness >>
 
 ReleaseLeases ==
   /\ groupActive = TRUE
@@ -305,16 +381,20 @@ ReleaseLeases ==
   /\ leaseReleased' = TRUE
   /\ groupActive' = FALSE
   /\ leaseSafetyWitness' = (leaseSafetyWitness /\ (groupQuiescent = TRUE) /\ (disposed = TRUE))
-  /\ UNCHANGED << admission, generation, waiters, pendingGeneration, reserved,
-                  disposed, outcomeOf, groupQuiescent, publishSafetyWitness,
-                  outcomeStableWitness, authorizedOutcomeWitness >>
+  /\ UNCHANGED << admission, generation, waiters, pendingGeneration,
+                  cancelRequested, reserved, disposed, outcomeOf,
+                  groupQuiescent, publishSafetyWitness, outcomeStableWitness,
+                  authorizedOutcomeWitness, pendingCancellationWitness,
+                  drainingCancellationWitness >>
 
 Next ==
   \/ \E d \in Demands, g \in Generations : DemandArrives(d, g)
   \/ \E d \in Demands : DemandStartsAdmission(d)
   \/ \E d \in Demands : DemandJoinsAdmission(d)
   \/ \E d \in Demands : DemandRejectedWhileDisposed(d)
-  \/ \E d \in Demands : WaiterCancels(d)
+  \/ \E d \in Demands : CallerRequestsCancellation(d)
+  \/ \E d \in Demands : PendingDemandCancels(d)
+  \/ \E d \in Demands : AttachedDemandCancels(d)
   \/ DisposalBegins
   \/ AdapterSucceeds
   \/ AdapterFails
@@ -335,6 +415,8 @@ Fairness ==
   /\ \A d \in Demands : WF_vars(DemandStartsAdmission(d))
   /\ \A d \in Demands : WF_vars(DemandJoinsAdmission(d))
   /\ \A d \in Demands : WF_vars(DemandRejectedWhileDisposed(d))
+  /\ \A d \in Demands : WF_vars(PendingDemandCancels(d))
+  /\ \A d \in Demands : WF_vars(AttachedDemandCancels(d))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -365,6 +447,39 @@ AuthorizedOutcomeWitnessHolds == authorizedOutcomeWitness
 \* An attached demand always requested the admitted generation.
 WaiterGenerationInvariant == WaiterGenerationMatches
 
+\* A recorded cancellation request either still awaits owner processing or
+\* has reached the one terminal outcome that request may produce.
+CancellationRequestCoherence ==
+  \A d \in cancelRequested :
+    outcomeOf[d] \in {"none", "cancelled"}
+
+\* Cancellation removes both pending and attached eligibility permanently.
+CancelledDemandsAreDetached ==
+  \A d \in Demands :
+    outcomeOf[d] = "cancelled"
+      => /\ pendingGeneration[d] = NoGeneration
+         /\ d \notin waiters
+
+\* Independent witnesses prove both newly modeled cancellation paths preserve
+\* the terminal detached state at the step that takes each path.
+PendingCancellationWitnessHolds ==
+  \A d \in pendingCancellationWitness :
+    /\ outcomeOf[d] = "cancelled"
+    /\ pendingGeneration[d] = NoGeneration
+    /\ d \notin waiters
+
+DrainingCancellationWitnessHolds ==
+  \A d \in drainingCancellationWitness :
+    /\ outcomeOf[d] = "cancelled"
+    /\ pendingGeneration[d] = NoGeneration
+    /\ d \notin waiters
+
+\* Reachability probes negate these predicates in dedicated configurations.
+PendingCancellationReached == pendingCancellationWitness # {}
+DrainingCancellationReached == drainingCancellationWitness # {}
+PendingCancellationNotReached == ~PendingCancellationReached
+DrainingCancellationNotReached == ~DrainingCancellationReached
+
 (***************************************************************************)
 (* Liveness.                                                               *)
 (***************************************************************************)
@@ -384,6 +499,14 @@ PendingDemandsEventuallyAttachOrResolve ==
   \A d \in Demands :
     (pendingGeneration[d] # NoGeneration /\ outcomeOf[d] = "none")
       ~> (d \in waiters \/ outcomeOf[d] # "none")
+
+\* Once a caller records cancellation under the owner gate, that demand
+\* eventually reaches cancelled whether it was pending, in flight, or
+\* overtaken by disposal into draining.
+CancellationRequestsEventuallyCancel ==
+  \A d \in Demands :
+    (d \in cancelRequested /\ outcomeOf[d] = "none")
+      ~> (outcomeOf[d] = "cancelled")
 
 \* Once disposal begins and a group is still active, its leases eventually
 \* release; lease release is scoped to the disposal cleanup path.

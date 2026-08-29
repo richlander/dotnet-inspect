@@ -40,13 +40,16 @@ claiming implementation or browser conformance.
 ## ArtifactSessionAdmission
 
 [`ArtifactSessionAdmission.tla`](models/artifact-session-admission/ArtifactSessionAdmission.tla)
-and its [configuration](models/artifact-session-admission/ArtifactSessionAdmission.cfg)
+and its [model guide](models/artifact-session-admission/README.md)
 model `ArtifactSetSession` admission for
 [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md#artifactsetsession).
 
 The model demonstrates single-flight admission, incompatible-generation
-exclusion, voluntary and disposal-forced draining, late-result suppression,
-guard witnesses, and weak-fairness progress.
+exclusion, cancellation before attachment and after disposal enters draining,
+voluntary and disposal-forced draining, late-result suppression, guard
+witnesses, and weak-fairness progress. Focused broken-policy configurations
+prove both cancellation paths are required for progress, while reachability
+configurations prove each path executes.
 
 ## Inspection subject navigation
 

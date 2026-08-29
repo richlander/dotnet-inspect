@@ -275,12 +275,19 @@ reauthorizes that exact admission generation, joins the operation, observes
 its typed outcome, and consumes no second reservation. It receives no catalog
 or participant detail until its own query lease later authorizes selection.
 
-Caller cancellation detaches that wait. When no authorized waiter remains, the
-owner requests cancellation and enters a draining state. A new demand does not
-join a draining operation; after cleanup it may start a fresh admission if the
-workspace remains open. An incompatible policy generation likewise cannot join
-or start duplicate work for the same context while the prior admission is
-active; it waits for the terminal transition and replans.
+Caller cancellation is first recorded by the owner, then resolves that demand
+as cancellation before any later admission action can use it. A demand still
+pending behind an incompatible generation is removed and cannot later replan,
+reserve, or acquire. An attached demand detaches even if workspace disposal has
+already moved its admission from in-flight to draining. Adapter completion
+cannot resolve a demand whose cancellation request is recorded.
+
+When no authorized waiter remains, the owner requests adapter cancellation and
+enters a draining state. A new demand does not join a draining operation; after
+cleanup it may start a fresh admission if the workspace remains open. An
+incompatible policy generation likewise cannot join or start duplicate work for
+the same context while the prior admission is active; absent cancellation, it
+waits for the terminal transition and replans.
 
 Workspace disposal first closes admission, rejects new demands, requests
 cancellation of in-flight operations, and prevents a late result from
@@ -302,18 +309,24 @@ with, and never replace, the active operation failure.
 [`docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
 model-checks the admission lifecycle described above: single-flight admission
 across concurrent demands, an incompatible-generation demand's inability to
-join or start duplicate work while a prior admission is active, voluntary
-cancellation draining, disposal-forced draining, the rule that a late adapter
-result must never publish a session or group, and that a published group's
-artifact leases release only as part of the disposal cleanup path once the
-group is quiescent. It abstracts away budget arithmetic, adapter identity,
-content digests, and query-lease authorization, and it bounds the state space
-to one outstanding published group's lease lifecycle at a time (a fresh
-admission cannot publish while the previous group awaits lease release); this
-is a scope-bounding simplification of the model, not a claim about real
-concurrent groups. A demand's requested generation is also fixed once it
-arrives; the model does not represent a caller re-deriving a different
-generation when it replans after an incompatible admission terminates.
+join or start duplicate work while a prior admission is active, cancellation
+before attachment, attached cancellation before or after disposal enters
+draining, voluntary cancellation draining, disposal-forced draining, the rule
+that a late adapter result must never publish a session or group, and that a
+published group's artifact leases release only as part of the disposal cleanup
+path once the group is quiescent. Its
+[model guide](../models/artifact-session-admission/README.md) records the
+checked properties, focused negative controls, reachability probes, commands,
+and results.
+
+The model abstracts away budget arithmetic, adapter identity, content digests,
+and query-lease authorization, and it bounds the state space to one outstanding
+published group's lease lifecycle at a time (a fresh admission cannot publish
+while the previous group awaits lease release); this is a scope-bounding
+simplification of the model, not a claim about real concurrent groups. A
+demand's requested generation is also fixed once it arrives; the model does not
+represent a caller re-deriving a different generation when it replans after an
+incompatible admission terminates.
 
 The model checks the design intent stated in the prose above, not the current
 `ArtifactSetSession` implementation. `ArtifactSetSession`'s own doc comment
@@ -326,15 +339,24 @@ tracked as future implementation work, not a defect this model found.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
-checked the model with 3 demands and 2 admission generations: 16,790 states
-generated, 8,292 distinct states, no invariant violations, and no
-counterexamples for the checked liveness properties. The invariants include
-the headline `DisposalPreventsPublication` (`disposed => admission #
-"InFlight"`, since only `"InFlight"` can transition to a published outcome)
-and independent guard-witness invariants that re-derive, at the point of
-action, the exact condition each of `DisposalPreventsPublication`, the
-lease-release ordering, and outcome authorization (only a demand attached to
-the admission immediately beforehand may receive its outcome) depends on.
+checked the target model with 3 demands and 2 admission generations: 49,508
+states generated, 18,395 distinct states, maximum depth 16, no invariant
+violations, and no counterexamples for the checked liveness properties. The
+invariants include the headline `DisposalPreventsPublication` (`disposed =>
+admission # "InFlight"`, since only `"InFlight"` can transition to a published
+outcome), cancellation coherence and detachment, and independent guard-witness
+invariants that re-derive, at the point of action, the exact condition each of
+disposal publication safety, lease-release ordering, outcome authorization,
+pending cancellation, and draining cancellation depends on.
+
+Disabling pending cancellation explored 38,431 generated and 15,609 distinct
+states before violating `CancellationRequestsEventuallyCancel`; disabling
+draining cancellation explored 40,086 generated and 15,248 distinct states
+before violating the same property. Dedicated reachability configurations
+violated only their intentional `PendingCancellationNotReached` and
+`DrainingCancellationNotReached` invariants, proving that both corrected paths
+execute. These results establish the bounded model properties, not
+implementation conformance.
 
 The companion model
 [`docs/design/models/artifact-generation-access/ArtifactGenerationAccess.tla`](models/artifact-generation-access/ArtifactGenerationAccess.tla)
@@ -519,13 +541,17 @@ The realization outcome is one of:
 - `NotRealized`, carrying typed invalid-input, unavailable, rejected, failed,
   unsupported-capability, budget, projection, or role-conflict evidence.
 
-Caller cancellation safely detaches that waiter, then throws
-`OperationCanceledException`; it does not occupy `NotRealized` or become an
-acquisition failure. Other compatible waiters keep the shared admission alive.
-When the final waiter detaches, the workspace requests cancellation and enters
-draining, but the detached caller does not wait for that owner-managed cleanup
-to finish. Reservation release still waits for cleanup, and a new demand cannot
-join the draining operation.
+Caller cancellation first records an owner-visible request, then throws
+`OperationCanceledException` after that demand is detached; it does not occupy
+`NotRealized` or become an acquisition failure. A demand cancelled while
+pending behind an incompatible generation is removed from pending state and
+cannot later replan, reserve, or acquire. Other compatible waiters keep the
+shared admission alive. When the final waiter detaches, the workspace requests
+adapter cancellation and enters draining, but the detached caller does not wait
+for that owner-managed cleanup to finish. If workspace disposal has already
+moved an attached admission to draining, the caller still detaches and returns
+cancellation without waiting for adapter cleanup. Reservation release still
+waits for cleanup, and a new demand cannot join the draining operation.
 
 The root participant is reference-identical to exactly one member of the
 group. A successful outcome never asks a consumer to rediscover the root by
@@ -711,8 +737,9 @@ This design introduces no incremental admission, independently disposable
 context, cross-spelling convergence, mutable candidate set, or publication
 schedule beyond the existing workspace admission lifecycle. The existing
 [artifact-session admission model](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
-covers one demand generation's single-flight lifecycle, waiter cancellation,
-draining, and aggregate publication ordering, while the
+covers one demand generation's single-flight lifecycle, pending cancellation,
+attached cancellation before and after disposal enters draining, and aggregate
+publication ordering, while the
 [generation-access model](models/artifact-generation-access/README.md) covers
 one generation's content-access and workspace-disposal handoff.
 `ExplicitAssemblyContext_FailurePublishesNoPartialGroup`, not the admission
@@ -777,6 +804,15 @@ These properties remain unverified until the named Release gates land:
   joined waiter throws after detachment without stopping or waiting for the
   shared admission, while final-waiter cancellation enters draining and blocks
   a new join until owner cleanup releases the reservation;
+- `ExplicitAssemblyContext_PendingCancellationCannotReplan` holds one demand
+  pending behind an incompatible active generation, records cancellation, lets
+  the active generation terminate, and proves the cancelled demand cannot
+  later replan, reserve, invoke either adapter, or publish;
+- `ExplicitAssemblyContext_DrainingCancellationDetachesWaiter` begins
+  workspace disposal with an attached waiter, records that waiter's
+  cancellation after admission enters draining, and proves the caller detaches
+  and throws without waiting for adapter cleanup or receiving a late adapter
+  outcome;
 - `ExplicitAssemblyContext_SyntacticGenerationKeyIsSingleFlight` proves
   identical framed requests join one admission while different path spellings
   remain different generations even when #5096 later assigns equal canonical
