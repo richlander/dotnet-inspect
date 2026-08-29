@@ -309,7 +309,12 @@ gate.
 `ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition` gates the
 filter-before-match-limit ordering, while
 `ExecuteAsync_PreservesCandidateLimitAfterFiltering` gates honest
-candidate-bound completion. Promoted-tier ordering remains proposal-only.
+candidate-bound completion. Reaching the semantic match limit is deliberately
+conservative: execution stops without acquiring another manifest, so
+`MatchLimitReached` means more matches may exist even when the last emitted row
+also happened to exhaust the source. This behavior is gated by
+`ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative`. Promoted-tier
+ordering remains proposal-only.
 
 ## Shared request/outcome shape with the browser
 

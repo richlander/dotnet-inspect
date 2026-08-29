@@ -43,16 +43,20 @@ public enum PackageQueryRequestFailureReason
     InvalidPrefix,
     InvalidCandidateLimit,
     InvalidMatchLimit,
+    TooManyFacets,
     InvalidFacetId,
     UnknownFacet,
     DuplicateFacet,
     IncompatibleFacets,
 }
 
-/// <summary>A typed, content-free package-query planning failure.</summary>
+/// <summary>
+/// A typed, content-safe package-query planning failure. Returned facet IDs
+/// are always product-issued.
+/// </summary>
 public sealed record PackageQueryRequestFailure
 {
-    public PackageQueryRequestFailure(
+    internal PackageQueryRequestFailure(
         PackageQueryRequestFailureReason reason,
         IEnumerable<string>? facetIds = null,
         int? value = null)
@@ -74,6 +78,8 @@ public sealed record PackageQueryRequestFailure
             $"The package-query candidate limit must be between 1 and {PackageProfileQuery.MaximumPackageLimit}.",
         PackageQueryRequestFailureReason.InvalidMatchLimit =>
             $"The package-query match limit must be between 1 and {PackageProfileQuery.MaximumPackageLimit}.",
+        PackageQueryRequestFailureReason.TooManyFacets =>
+            "The package-query request selected more facets than the product offers.",
         PackageQueryRequestFailureReason.InvalidFacetId =>
             "A package-query facet ID is empty or invalid.",
         PackageQueryRequestFailureReason.UnknownFacet =>
@@ -191,6 +197,7 @@ public static class PackageQuery
 {
     public const int DefaultMaximumCandidates = 200;
     public const int DefaultMaximumMatches = 100;
+    public const int MaximumFacetIdLength = 100;
 
     public const string PrefixEvidenceId = "package.query.scope.prefix";
     public const string VerifiedFacetId = "package.query.source-verified";
@@ -321,11 +328,26 @@ public static class PackageQuery
                 value: request.MaximumMatches);
         }
 
-        ImmutableArray<string> requestedIds =
-            request.FacetIds is null ? [] : [.. request.FacetIds];
-        if (requestedIds.Any(string.IsNullOrWhiteSpace))
+        IReadOnlyCollection<string> requested =
+            request.FacetIds ?? [];
+        if (requested.Count > Definitions.Length)
+        {
+            return Rejected(PackageQueryRequestFailureReason.TooManyFacets);
+        }
+
+        if (requested.Any(id =>
+            string.IsNullOrWhiteSpace(id)
+            || id.Length > MaximumFacetIdLength
+            || !InertString.IsPermitted(TextPolicy.Field, id)))
         {
             return Rejected(PackageQueryRequestFailureReason.InvalidFacetId);
+        }
+
+        ImmutableArray<string> requestedIds = [.. requested];
+        var selectedIds = requestedIds.ToHashSet(StringComparer.Ordinal);
+        if (selectedIds.Any(id => !DefinitionsById.ContainsKey(id)))
+        {
+            return Rejected(PackageQueryRequestFailureReason.UnknownFacet);
         }
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -341,20 +363,6 @@ public static class PackageQuery
             return Rejected(
                 PackageQueryRequestFailureReason.DuplicateFacet,
                 duplicates);
-        }
-
-        var selectedIds = requestedIds.ToHashSet(StringComparer.Ordinal);
-        string[] unknown =
-        [
-            .. selectedIds
-                .Where(id => !DefinitionsById.ContainsKey(id))
-                .Order(StringComparer.Ordinal),
-        ];
-        if (unknown.Length > 0)
-        {
-            return Rejected(
-                PackageQueryRequestFailureReason.UnknownFacet,
-                unknown);
         }
 
         ImmutableArray<PackageQueryFacetDefinition> selected =
@@ -418,6 +426,7 @@ public static class PackageQuery
         int candidates = 0;
         int matches = 0;
         int failures = 0;
+        cancellationToken.ThrowIfCancellationRequested();
         await foreach (PackageProfileEvent profileEvent
             in PackageProfileQuery.ExecuteAsync(
                 source,
@@ -427,6 +436,7 @@ public static class PackageQuery
                     plan.IncludePrerelease),
                 cancellationToken).ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             switch (profileEvent)
             {
                 case PackageProfileEvent.Match match:
@@ -440,6 +450,7 @@ public static class PackageQuery
                             match.Value,
                             PackageQueryFacetTier.Nuspec,
                             evidence));
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (matches >= plan.MaximumMatches)
                     {
                         yield return Completed(
@@ -455,7 +466,8 @@ public static class PackageQuery
 
                 case PackageProfileEvent.Failure failure:
                     failures++;
-                    if (failure.Value.PackageId is not null)
+                    if (failure.Value.Kind
+                        is not PackageProfileFailureKind.Search)
                     {
                         candidates++;
                     }

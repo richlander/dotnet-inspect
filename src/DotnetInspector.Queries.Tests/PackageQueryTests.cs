@@ -11,12 +11,12 @@ public sealed class PackageQueryTests
     {
         Assert.Equal(
             [
-                (PackageQuery.VerifiedFacetId, 100),
-                (PackageQuery.ToolFacetId, 200),
-                (PackageQuery.HasDependenciesFacetId, 300),
-                (PackageQuery.NoDependenciesFacetId, 400),
-                (PackageQuery.MillionDownloadsFacetId, 500),
-                (PackageQuery.EmbeddedReadmeFacetId, 600),
+                ("package.query.source-verified", 100),
+                ("package.query.dotnet-tool", 200),
+                ("package.query.has-dependencies", 300),
+                ("package.query.no-dependencies", 400),
+                ("package.query.downloads-1m", 500),
+                ("package.query.embedded-readme", 600),
             ],
             PackageQuery.Facets.Select(facet =>
                 (facet.Id, facet.Weight)));
@@ -42,7 +42,9 @@ public sealed class PackageQueryTests
     [InlineData(" Contoso.", PackageQueryRequestFailureReason.InvalidPrefix)]
     [InlineData("\u202EContoso.", PackageQueryRequestFailureReason.InvalidPrefix)]
     [InlineData("Contoso.", PackageQueryRequestFailureReason.InvalidCandidateLimit, 0, 1)]
+    [InlineData("Contoso.", PackageQueryRequestFailureReason.InvalidCandidateLimit, PackageProfileQuery.MaximumPackageLimit + 1, 1)]
     [InlineData("Contoso.", PackageQueryRequestFailureReason.InvalidMatchLimit, 1, 0)]
+    [InlineData("Contoso.", PackageQueryRequestFailureReason.InvalidMatchLimit, 1, PackageProfileQuery.MaximumPackageLimit + 1)]
     public void Plan_RejectsInvalidScopeAndBoundsWithoutThrowing(
         string prefix,
         PackageQueryRequestFailureReason expected,
@@ -87,6 +89,24 @@ public sealed class PackageQueryTests
     }
 
     [Fact]
+    public void Plan_AcceptsMaximumBounds()
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: PackageProfileQuery.MaximumPackageLimit,
+                    MaximumMatches: PackageProfileQuery.MaximumPackageLimit)));
+
+        Assert.Equal(
+            PackageProfileQuery.MaximumPackageLimit,
+            plan.MaximumCandidates);
+        Assert.Equal(
+            PackageProfileQuery.MaximumPackageLimit,
+            plan.MaximumMatches);
+    }
+
+    [Fact]
     public void Plan_RejectsInvalidUnknownDuplicateAndIncompatibleFacets()
     {
         PackageQueryRequestFailure invalid = Rejected(
@@ -104,7 +124,7 @@ public sealed class PackageQueryTests
         Assert.Equal(
             PackageQueryRequestFailureReason.UnknownFacet,
             unknown.Reason);
-        Assert.Equal(["package.query.unknown"], unknown.FacetIds);
+        Assert.Empty(unknown.FacetIds);
 
         PackageQueryRequestFailure duplicate = Rejected(
             PackageQuery.Plan(
@@ -136,6 +156,42 @@ public sealed class PackageQueryTests
                 PackageQuery.NoDependenciesFacetId,
             ],
             incompatible.FacetIds);
+    }
+
+    [Fact]
+    public void Plan_RejectsUnsafeOrExcessiveFacetSelectionsWithoutEchoingThem()
+    {
+        PackageQueryRequestFailure unsafeId = Rejected(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    ["package.query.\u202Eunsafe"])));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidFacetId,
+            unsafeId.Reason);
+        Assert.Empty(unsafeId.FacetIds);
+
+        PackageQueryRequestFailure longId = Rejected(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [new string('a', PackageQuery.MaximumFacetIdLength + 1)])));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidFacetId,
+            longId.Reason);
+        Assert.Empty(longId.FacetIds);
+
+        PackageQueryRequestFailure tooMany = Rejected(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    Enumerable.Repeat(
+                        PackageQuery.ToolFacetId,
+                        PackageQuery.Facets.Length + 1).ToArray())));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.TooManyFacets,
+            tooMany.Reason);
+        Assert.Empty(tooMany.FacetIds);
     }
 
     [Fact]
@@ -325,6 +381,83 @@ public sealed class PackageQueryTests
                 PackageQuery.ToolFacetId,
             ],
             match.Evidence.Select(evidence => evidence.Id));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsCloseFacetNegatives()
+    {
+        await AssertNoMatchesAsync(
+            new FakePackageSource(
+                [Match("Contoso.Downloads", totalDownloads: 999_999)],
+                new Dictionary<string, byte[]>
+                {
+                    ["contoso.downloads@1.0.0"] =
+                        Manifest("Contoso.Downloads"),
+                }),
+            PackageQuery.MillionDownloadsFacetId);
+
+        await AssertNoMatchesAsync(
+            SourceFor(Manifest("Contoso.NoReadme"), "Contoso.NoReadme"),
+            PackageQuery.EmbeddedReadmeFacetId);
+
+        await AssertNoMatchesAsync(
+            SourceFor(
+                Manifest(
+                    "Contoso.BlankReadme",
+                    readme: "<readme> </readme>"),
+                "Contoso.BlankReadme"),
+            PackageQuery.EmbeddedReadmeFacetId);
+
+        await AssertNoMatchesAsync(
+            SourceFor(
+                Manifest(
+                    "Contoso.Dependent",
+                    dependencies:
+                    """
+                    <dependency id="Example.Dependency" version="[1.0.0]" />
+                    """),
+                "Contoso.Dependent"),
+            PackageQuery.NoDependenciesFacetId);
+
+        await AssertNoMatchesAsync(
+            SourceFor(
+                Manifest(
+                    "Contoso.NotTool",
+                    packageTypes:
+                    """
+                    <packageTypes>
+                      <packageType name="DotnetTooling" />
+                    </packageTypes>
+                    """),
+                "Contoso.NotTool"),
+            PackageQuery.ToolFacetId);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MillionDownloadsIncludesExactThreshold()
+    {
+        var source = new FakePackageSource(
+            [Match("Contoso.Downloads", totalDownloads: 1_000_000)],
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.downloads@1.0.0"] =
+                    Manifest("Contoso.Downloads"),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.MillionDownloadsFacetId],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        Assert.Single(events.OfType<PackageQueryEvent.Match>());
     }
 
     [Fact]
@@ -530,6 +663,71 @@ public sealed class PackageQueryTests
         Assert.Equal(0, summary.Matches);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_CountsMalformedCandidateBeforeMatchLimit()
+    {
+        PackageSearchMatch malformed = new(
+            new SearchResult(null!, "1.0.0"),
+            new PackageCandidateObservation(
+                PackageSourceCoordinate.Create(
+                    "Contoso.Malformed",
+                    "1.0.0"),
+                PackageSourceIdentity.NuGetOrg,
+                PackageDiscoveryContract.KeywordSearch,
+                PackageListingState.Listed));
+        var source = new FakePackageSource(
+            [
+                malformed,
+                Match("Contoso.Valid"),
+            ],
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.valid@1.0.0"] = Manifest("Contoso.Valid"),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 2,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQuerySummary summary =
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
+        Assert.Equal(PackageQueryCompletionKind.MatchLimitReached, summary.Completion);
+        Assert.Equal(2, summary.Candidates);
+        Assert.Equal(1, summary.Failures);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative()
+    {
+        var source = SourceFor(Manifest("Contoso.Package"));
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 2,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageQueryCompletionKind.MatchLimitReached,
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1])
+                .Value.Completion);
+        Assert.Single(source.ManifestRequests);
+    }
+
     [Theory]
     [InlineData(
         PackageSearchTruncationReason.SourcePageLimit,
@@ -600,6 +798,35 @@ public sealed class PackageQueryTests
 
         Assert.Single(source.ManifestRequests);
         Assert.Equal(0, source.PackageRequests);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task ExecuteAsync_CancellationAfterMatchSuppressesCompletion(
+        int maximumMatches)
+    {
+        var source = SourceFor(Manifest("Contoso.Package"));
+        using var cancellation = new CancellationTokenSource();
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    MaximumCandidates: 2,
+                    MaximumMatches: maximumMatches)));
+        await using IAsyncEnumerator<PackageQueryEvent> events =
+            PackageQuery.ExecuteAsync(
+                    source,
+                    plan,
+                    cancellation.Token)
+                .GetAsyncEnumerator(cancellation.Token);
+
+        Assert.True(await events.MoveNextAsync());
+        Assert.IsType<PackageQueryEvent.Match>(events.Current);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await events.MoveNextAsync());
     }
 
     private static PackageQueryPlan Accepted(PackageQueryPlanResult result) =>
@@ -674,6 +901,31 @@ public sealed class PackageQueryTests
         await foreach (PackageQueryEvent item in source)
             events.Add(item);
         return events;
+    }
+
+    private static async Task AssertNoMatchesAsync(
+        FakePackageSource source,
+        string facetId)
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [facetId],
+                    MaximumCandidates: 1,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.Equal(
+            PackageQueryCompletionKind.Exhausted,
+            Assert.IsType<PackageQueryEvent.Completed>(events[^1])
+                .Value.Completion);
     }
 
     private sealed class FakePackageSource(
