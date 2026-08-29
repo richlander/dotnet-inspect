@@ -87,6 +87,18 @@ public enum CSharpUnmatchedNodeReason
 
     /// <summary>The unique evidence key exists on this side only.</summary>
     NoCounterpart,
+
+    /// <summary>
+    /// The node has no IL provenance of its own (a declaration header, e.g. a
+    /// local-function signature, whose only IL-bearing content is its body),
+    /// but it is the sole such declaration in its document, alongside a
+    /// matched call-site rewrite. Identity here is inferred from structural
+    /// uniqueness, not IL evidence — this is <em>not</em> an evidence-backed
+    /// match, and must not be treated as equivalent in strength to
+    /// <see cref="NoCounterpart"/> for any claim beyond "this declaration
+    /// participates in the diff instead of being silently dropped."
+    /// </summary>
+    InferredDeclaration,
 }
 
 /// <summary>One product-issued cross-document node match.</summary>
@@ -201,10 +213,12 @@ public sealed record CSharpStructuralComparison(
 
     /// <summary>Whether every C# node had enough unique evidence for a verdict.</summary>
     public bool IsCorrespondenceComplete => Correspondence is null
-        || Correspondence.UnmatchedBefore.All(static node =>
-            node.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
-        && Correspondence.UnmatchedAfter.All(static node =>
-            node.Reason == CSharpUnmatchedNodeReason.NoCounterpart);
+        || Correspondence.UnmatchedBefore.All(static node => HasVerdict(node.Reason))
+        && Correspondence.UnmatchedAfter.All(static node => HasVerdict(node.Reason));
+
+    static bool HasVerdict(CSharpUnmatchedNodeReason reason)
+        => reason is CSharpUnmatchedNodeReason.NoCounterpart
+            or CSharpUnmatchedNodeReason.InferredDeclaration;
 }
 
 public static partial class CSharpBodyDiff
@@ -251,7 +265,11 @@ public static partial class CSharpBodyDiff
             var identity = new CSharpDocumentNodeIdentity(beforeRevision, node.Id);
             if (node.Provenance is null)
             {
-                unmatchedBefore.Add(new(identity, CSharpUnmatchedNodeReason.Unsupported));
+                // Classified in a later pass, once every match below is known:
+                // whether this qualifies as an honestly-scoped inferred
+                // declaration (see ClassifyUnprovenancedDeclarations) depends
+                // on whether a call-site rewrite elsewhere in this document
+                // matched, which is not yet decided partway through this loop.
                 continue;
             }
 
@@ -286,7 +304,7 @@ public static partial class CSharpBodyDiff
             var identity = new CSharpDocumentNodeIdentity(afterRevision, node.Id);
             if (node.Provenance is null)
             {
-                unmatchedAfter.Add(new(identity, CSharpUnmatchedNodeReason.Unsupported));
+                // See the matching comment in the before-nodes loop above.
                 continue;
             }
 
@@ -307,6 +325,15 @@ public static partial class CSharpBodyDiff
                 node.Provenance));
         }
 
+        ClassifyUnprovenancedDeclarations(
+            beforeNodes,
+            afterNodes,
+            beforeRevision,
+            afterRevision,
+            matches,
+            unmatchedBefore,
+            unmatchedAfter);
+
         return new CSharpNodeCorrespondenceResult(
             before.Source.Subject,
             before,
@@ -320,6 +347,85 @@ public static partial class CSharpBodyDiff
             unmatchedAfter
                 .OrderBy(static unmatched => unmatched.Node.NodeId)
                 .ToImmutableArray());
+    }
+
+    /// <summary>
+    /// Declaration-shaped node kind eligible for the <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/>
+    /// carve-out: a local-function signature legitimately has no IL provenance
+    /// of its own (only its body statements do), so it is <c>Unsupported</c>
+    /// by construction, not by a matching failure (issue #5022 item 5,
+    /// evidence #3902 and #4116).
+    /// </summary>
+    const string InferredDeclarationKind = "LocalFunctionStatement";
+
+    /// <summary>
+    /// Classifies null-provenance nodes deferred by the two matching loops
+    /// above. Most remain <see cref="CSharpUnmatchedNodeReason.Unsupported"/>;
+    /// a narrow exception is honestly inferred, not evidence-backed: a
+    /// declaration-shaped node (see <see cref="InferredDeclarationKind"/>) is
+    /// the <em>only</em> such null-provenance declaration in its document,
+    /// and a call-site rewrite (an <c>InvocationExpression</c> match) exists
+    /// somewhere in that same document. Both conditions must hold, or the
+    /// node stays <c>Unsupported</c> like any other correspondence gap.
+    /// </summary>
+    /// <remarks>
+    /// Every current document this comparison sees describes exactly one
+    /// member body, so "its document" already is the narrowest enclosing
+    /// scope for these fixtures; a document spanning multiple independent
+    /// scopes would need this narrowed further to a genuine per-scope check
+    /// before this carve-out could keep the same honesty guarantee.
+    /// </remarks>
+    static void ClassifyUnprovenancedDeclarations(
+        IReadOnlyList<AnnotatedSourceNode> beforeNodes,
+        IReadOnlyList<AnnotatedSourceNode> afterNodes,
+        CSharpDocumentRevision beforeRevision,
+        CSharpDocumentRevision afterRevision,
+        ImmutableArray<CSharpNodeMatch>.Builder matches,
+        ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedBefore,
+        ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedAfter)
+    {
+        var beforeById = beforeNodes.ToDictionary(static node => node.Id);
+        var afterById = afterNodes.ToDictionary(static node => node.Id);
+
+        bool beforeCallSiteRewriteMatched = matches.Any(match =>
+            beforeById.TryGetValue(match.Before.NodeId, out var beforeCallNode)
+            && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal));
+        bool afterCallSiteRewriteMatched = matches.Any(match =>
+            afterById.TryGetValue(match.After.NodeId, out var afterCallNode)
+            && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal));
+
+        int beforeDeclarationCandidates = beforeNodes.Count(static node =>
+            node.Provenance is null
+            && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
+        int afterDeclarationCandidates = afterNodes.Count(static node =>
+            node.Provenance is null
+            && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
+
+        foreach (var node in beforeNodes)
+        {
+            if (node.Provenance is not null)
+                continue;
+
+            bool inferred = string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
+                && beforeDeclarationCandidates == 1
+                && beforeCallSiteRewriteMatched;
+            unmatchedBefore.Add(new(
+                new CSharpDocumentNodeIdentity(beforeRevision, node.Id),
+                inferred ? CSharpUnmatchedNodeReason.InferredDeclaration : CSharpUnmatchedNodeReason.Unsupported));
+        }
+
+        foreach (var node in afterNodes)
+        {
+            if (node.Provenance is not null)
+                continue;
+
+            bool inferred = string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
+                && afterDeclarationCandidates == 1
+                && afterCallSiteRewriteMatched;
+            unmatchedAfter.Add(new(
+                new CSharpDocumentNodeIdentity(afterRevision, node.Id),
+                inferred ? CSharpUnmatchedNodeReason.InferredDeclaration : CSharpUnmatchedNodeReason.Unsupported));
+        }
     }
 
     static ImmutableArray<CSharpNodeMatch> ClassifyMovement(
@@ -387,14 +493,14 @@ public static partial class CSharpBodyDiff
         [
             .. correspondence.Matches.Select(match => before.NodeIds[match.Before.NodeId]),
             .. correspondence.UnmatchedBefore
-                .Where(static unmatched => unmatched.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
+                .Where(static unmatched => IsSelected(unmatched.Reason))
                 .Select(unmatched => before.NodeIds[unmatched.Node.NodeId])
         ];
         int[] afterNodeIds =
         [
             .. correspondence.Matches.Select(match => after.NodeIds[match.After.NodeId]),
             .. correspondence.UnmatchedAfter
-                .Where(static unmatched => unmatched.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
+                .Where(static unmatched => IsSelected(unmatched.Reason))
                 .Select(unmatched => after.NodeIds[unmatched.Node.NodeId])
         ];
         CSharpNodeCorrespondence[] matches =
@@ -415,6 +521,16 @@ public static partial class CSharpBodyDiff
             fidelity));
         return comparison with { Correspondence = correspondence };
     }
+
+    /// <summary>
+    /// Whether an unmatched node carries enough of a verdict — evidence-backed
+    /// or the narrow, honestly-scoped declaration inference — to participate
+    /// in Added/Removed row generation below, instead of being dropped as a
+    /// correspondence gap.
+    /// </summary>
+    static bool IsSelected(CSharpUnmatchedNodeReason reason)
+        => reason is CSharpUnmatchedNodeReason.NoCounterpart
+            or CSharpUnmatchedNodeReason.InferredDeclaration;
 
     /// <summary>
     /// Compares selected C# nodes using owner-issued cross-document

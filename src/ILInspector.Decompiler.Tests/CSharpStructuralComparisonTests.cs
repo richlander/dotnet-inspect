@@ -1521,6 +1521,127 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_InfersAddedLocalFunctionDeclarationAlongsideMatchedCallSite()
+    {
+        // #4116's shape (issue #5022 item 5): an undeclared synthesized call
+        // is rewritten to call a declared local function. The call site keeps
+        // the same IL origin on both sides (matched, Changed); the new
+        // declaration header has no IL origin of its own (only its body
+        // would), and is the only such declaration in the document.
+        var before = TrustedDocument(
+            "return __NoTypeParameter_g__Own_0_0(value);",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]));
+        var after = TrustedDocument(
+            "return Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.InferredDeclaration, declaration.Reason);
+
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.True(comparison.IsCorrespondenceComplete);
+        Assert.Equal(2, comparison.Rows.Length);
+        var changed = Assert.Single(comparison.Rows, row => row.Change == CSharpStructuralChangeKind.Changed);
+        Assert.Equal("InvocationExpression", changed.BeforeKind);
+        var added = Assert.Single(comparison.Rows, row => row.Change == CSharpStructuralChangeKind.Added);
+        Assert.Equal("LocalFunctionStatement", added.AfterKind);
+
+        // End-to-end: the declaration gets its own Added display row and
+        // detail, instead of being silently dropped (#3902's "zero matched
+        // structural-diff rows" / #4116's "declaration falls into the gap
+        // bucket" problem).
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+        Assert.Contains(display, row =>
+            row.Change == "Added" && row.Detail == "+ static int Own(int input) => input + 1;");
+    }
+
+    [Fact]
+    public void IssueCorrespondence_InfersRemovedLocalFunctionDeclarationAlongsideMatchedCallSite()
+    {
+        // Symmetric removal direction: a declared local function is inlined
+        // back to an undeclared synthesized call. The declaration disappears
+        // from the before side with no IL origin of its own.
+        var before = TrustedDocument(
+            "F();\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+        var after = TrustedDocument(
+            "__CallsEmpty_g__F_0_0();",
+            new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedBefore);
+        Assert.Equal(CSharpUnmatchedNodeReason.InferredDeclaration, declaration.Reason);
+        Assert.Empty(issued.UnmatchedAfter);
+
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.True(comparison.IsCorrespondenceComplete);
+        Assert.Equal(2, comparison.Rows.Length);
+        var removed = Assert.Single(comparison.Rows, row => row.Change == CSharpStructuralChangeKind.Removed);
+        Assert.Equal("LocalFunctionStatement", removed.BeforeKind);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
+    {
+        // Close negative: a new local-function declaration with no IL origin
+        // of its own, but with no matched InvocationExpression call-site
+        // rewrite anywhere in the document. This is the general "declaration
+        // appears out of nowhere" case item 5 deliberately excludes (no
+        // paired call-site evidence to key structural uniqueness off of), so
+        // it must stay Unsupported like any other correspondence gap.
+        var before = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var after = TrustedDocument(
+            "return;\nstatic void F()\n{\n}",
+            new NodeSpec("ReturnStatement", "return;", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationWhenMultipleCandidatesShareScope()
+    {
+        // Close negative: two new local-function declarations with no IL
+        // origin, in the same document. Structural uniqueness is the only
+        // thing this carve-out keys identity off of, so ambiguity between
+        // multiple candidates must leave both Unsupported rather than
+        // guessing which is "the" added declaration.
+        var before = TrustedDocument(
+            "F(); G();",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("InvocationExpression", "G()", [0x20]));
+        var after = TrustedDocument(
+            "F(); G();\nstatic void F()\n{\n}\nstatic void G()\n{\n}",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("InvocationExpression", "G()", [0x20]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null),
+            new NodeSpec("LocalFunctionStatement", "static void G()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Equal(2, issued.Matches.Length);
+        Assert.All(
+            issued.UnmatchedAfter,
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, node.Reason));
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
     public void IssuedCorrespondence_RoundTripsDocumentNodeProvenanceAndUnmatchedNodes()
     {
         var before = TrustedDocument(
@@ -2068,7 +2189,9 @@ public class CSharpStructuralComparisonTests
                     node.Kind,
                     SourceLineKind.CSharp,
                     [new AnnotatedSourceSpan(start, node.Text.Length)],
-                    Provenance: new AnnotatedSourceNodeProvenance(node.IlOffsets));
+                    Provenance: node.IlOffsets is null
+                        ? null
+                        : new AnnotatedSourceNodeProvenance(node.IlOffsets));
             })
             .ToArray();
         return new AnnotatedSourceDocument(text, sourceNodes, [], [], [], Source());
@@ -2085,7 +2208,7 @@ public class CSharpStructuralComparisonTests
     readonly record struct NodeSpec(
         string Kind,
         string Text,
-        IReadOnlyList<int> IlOffsets,
+        IReadOnlyList<int>? IlOffsets,
         int Occurrence = 0);
 
     static void AppendFingerprintBytes(IncrementalHash hash, ReadOnlySpan<byte> bytes)
