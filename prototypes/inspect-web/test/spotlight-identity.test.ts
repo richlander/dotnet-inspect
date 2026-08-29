@@ -2490,7 +2490,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
   assert.match(sync, /state\.atPackageRoot/);
   assert.match(
     sync,
-    /workspaceLocation\.replace\(buildStateUrl\(\)/);
+    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
   assert.match(
     stateUrl,
     /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
@@ -2776,6 +2776,15 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.match(
     appSource,
     /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending[\s\S]*focusLevelOneHeading\(\)[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
+  assert.match(
+    appSource,
+    /function afterCurrentNavigationFrame\(action: \(\) => void\) \{\s*const navigationSeq = navigationSequence\.current\(\);[\s\S]*if \(navigationSequence\.isCurrent\(navigationSeq\)\) action\(\)/);
+  assert.match(
+    appSource,
+    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
+  assert.match(
+    appSource,
+    /workspaceLocation\.sync\(snapshot, history\.state\)/);
   assert.equal(
     appSource.match(
       /\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)/g)

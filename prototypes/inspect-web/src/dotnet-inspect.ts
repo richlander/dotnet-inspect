@@ -6316,13 +6316,15 @@ function syncUrl() {
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-      workspaceLocation.replace(buildStateUrl().toString());
+      workspaceLocation.replace(
+        buildStateUrl().toString(),
+        history.state);
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-    workspaceLocation.sync(snapshot);
+    workspaceLocation.sync(snapshot, history.state);
   } catch {
     // Keep the last canonical URL while the active Browser state is not projectable.
   }
@@ -6877,7 +6879,7 @@ function bindHomeEvents() {
   bindSettingsPanelEvents();
   bindHomeShell(document, homeShellActions);
   spotlight.bind(document, "inline");
-  requestAnimationFrame(() => {
+  afterCurrentNavigationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
     if (input
@@ -6972,8 +6974,15 @@ function renderCreditsView() {
 }
 
 function focusPackageQueryInput() {
-  requestAnimationFrame(() =>
+  afterCurrentNavigationFrame(() =>
     document.querySelector<HTMLInputElement>("#package-query-prefix")?.focus());
+}
+
+function afterCurrentNavigationFrame(action: () => void) {
+  const navigationSeq = navigationSequence.current();
+  requestAnimationFrame(() => {
+    if (navigationSequence.isCurrent(navigationSeq)) action();
+  });
 }
 
 function focusLevelOneHeading(): boolean {
@@ -6987,7 +6996,7 @@ function focusLevelOneHeading(): boolean {
 function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending
     || state.packageQueryReturnFocus !== "package-search") return;
-  requestAnimationFrame(() => {
+  afterCurrentNavigationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#package-query-input");
     if (input) {
@@ -7154,7 +7163,7 @@ async function openPackageQueryRow(
     state.packageQueryOpen = true;
     state.packageQueryNavigationError = failure;
     render();
-    requestAnimationFrame(() =>
+    afterCurrentNavigationFrame(() =>
       document.querySelector<HTMLElement>(
         `[data-query-row-open="${cssEscape(packageId)}"][data-query-row-version="${cssEscape(version)}"]`)
         ?.focus());

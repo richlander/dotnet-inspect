@@ -1113,7 +1113,7 @@ test("location persistence contains sync failures but leaves direct build failur
     encode,
   });
 
-  persistence.sync(workspaceState());
+  persistence.sync(workspaceState(), { entry: "workspace" });
   persistence.push("/", { route: "query" });
   assert.equal(persistence.replace("/valid"), true);
   const replacedEntry = replaced[0];
@@ -1121,7 +1121,7 @@ test("location persistence contains sync failures but leaves direct build failur
   assert.equal(
     new URL(replacedEntry.url).searchParams.get("package"),
     "Example.Second");
-  assert.equal(replacedEntry.state, null);
+  assert.deepEqual(replacedEntry.state, { entry: "workspace" });
   assert.deepEqual(pushed, [{
     url: "/",
     state: { route: "query" },

@@ -955,7 +955,7 @@ export interface WorkspaceLocationPersistence {
   parseCurrent(): ParsedWorkspaceLocation;
   preflightCurrent(): WorkspaceLocationPreflight;
   build(state: WorkspaceUrlState, base?: string): URL;
-  sync(state: WorkspaceUrlState): void;
+  sync(state: WorkspaceUrlState, historyState?: unknown): void;
   replace(url: string, historyState?: unknown): boolean;
   push(url: string, historyState?: unknown): void;
 }
@@ -994,9 +994,9 @@ export function createWorkspaceLocationPersistence(
     },
     preflightCurrent,
     build,
-    sync(state) {
+    sync(state, historyState = null) {
       try {
-        dependencies.replace(build(state).toString(), null);
+        dependencies.replace(build(state).toString(), historyState);
       } catch {
         // Sandboxed frames and overlong state can reject address-bar persistence.
       }
