@@ -146,13 +146,13 @@ between 1 and..."). `-S` and `--where` are also not yet wired (there is
 currently exactly one section, `Packages`, so `-S` selection is moot until the
 facet layer adds more to select between).
 
-**Interaction concern for the next slice:** the Sections migration and the
+**Interaction concern for the next CLI slice:** the Sections migration and the
 `-t`→`-n` flag rename were assumed to be one atomic step; in practice they
-decoupled, and the migration landed first. The next slice (wiring nuspec-tier
-`--where`, [Landing sequence](#landing-sequence) step 3) should not silently
-inherit `-t` as precedent — it should either retire `-t` for `-n` itself, or
-explicitly hand that retirement to whatever implements #4677 across the CLI,
-naming which PR owns it so it does not fall through the gap a second time.
+decoupled, and the migration landed first. The CLI facet wiring in
+[Landing sequence](#landing-sequence) step 4 should not silently inherit `-t`
+as precedent — it should either retire `-t` for `-n` itself, or explicitly
+hand that retirement to whatever implements #4677 across the CLI, naming
+which PR owns it so it does not fall through the gap a second time.
 
 ### `-t` is the wrong flag to build on; `-n` owns the corpus limit
 
@@ -331,9 +331,9 @@ the CLI's named facets as canonical for the browser's facet rail.
 
 ## Non-goals (v1)
 
-- No new expression grammar. `--where`'s existing `Field op Value` syntax is
-  the vocabulary for both tiers; this document does not propose a richer
-  predicate language.
+- No new general expression grammar in the L1 contract. The finite
+  product-issued facet IDs are canonical; any future CLI grammar must lower
+  through product-owned bindings rather than defining another predicate set.
 - No relational query surface here. Package-to-capability or
   package-to-integration questions route through the existing inspection
   graph, not through a new edge concept invented for this document.
