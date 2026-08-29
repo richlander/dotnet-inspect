@@ -87,13 +87,13 @@ wc -l | tr -d ' '
 > `--rows` carries its own count, so it needs no `-n`. Add `--tail` for the last N instead, or give `--rows` a range such as `2..10` to name the rows directly.
 
 ```bash
-dotnet-inspect System.Private.CoreLib -S "Async*" --rows 6
+dotnet-inspect System.Text.Json -S "Async*" --rows 6
 ```
 
 ```expect
 ## Async Methods
 | Name | Declaring Type | Kind | Signature |
-WriteAsync
+ParseAsync
 ```
 
 ```query
@@ -174,7 +174,7 @@ Tips:
 ```
 
 ```query
-grep -c '^| Json'
+grep '^|' | tail -n +3 | wc -l | tr -d ' '
 ```
 
 ```expect
