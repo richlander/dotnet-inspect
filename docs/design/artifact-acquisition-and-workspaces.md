@@ -501,13 +501,151 @@ snapshot.
 The ordinary retained snapshot does not compute a digest eagerly. The target
 owner-mediated on-demand digest remains unverified.
 
-Shared local-path admission is tracked by
-[#5096](https://github.com/richlander/dotnet-inspect/issues/5096). It owns
-expected entry kind, path normalization, link and reparse-point policy,
-non-regular entries, supported-host behavior, and pre-open classification for
-both explicit-file and directory coordinates. The directory contract below
-consumes admitted directory roots and regular-file entries; it does not
-define a second path classifier.
+#### Shared local-path admission
+
+`DotnetInspector.Artifacts.Local` owns one package-free admission contract for
+every path coordinate it consumes. The contract is internal to the local
+adapter; it does not add filesystem policy to source-neutral artifact
+contracts. Its input is a non-empty path and one required kind:
+
+- `RegularFile` for an explicit-file coordinate or a selected directory entry;
+  or
+- `Directory` for a bounded-directory root.
+
+There is no "any filesystem entry" kind. Admission proves that the coordinate
+currently resolves to the kind the consuming operation requires.
+
+The adapter converts the input once with `Path.GetFullPath`. The result is the
+canonical requested path used by diagnostics and provenance. This is lexical
+normalization: it makes the coordinate absolute and removes relative path
+segments, but it does not resolve links, normalize case, or mint physical file
+identity. A non-empty path that cannot be normalized is rejected rather than
+escaping as a platform exception.
+
+All local coordinates follow symbolic links and traversable reparse points to
+their final target. The same policy preserves existing explicit-file behavior
+and supports symlinked build outputs without making directory acquisition a
+second policy domain. A dangling link is unavailable. A link whose final target
+has the wrong kind is rejected. A reparse point whose final target cannot be
+classified by the supported link API is rejected rather than opened as an
+unknown entry.
+
+The canonical requested path remains the coordinate after link resolution. The
+adapter does not publish a physical target path or require the target to remain
+beneath the lexical parent. Consequently, a top-level directory entry that is a
+link may resolve outside the requested root and still contribute the regular
+file named by that entry. This is coordinate behavior, not a containment
+boundary: the caller selected the local location, and local actors are outside
+the hostile-input model. Hard links are ordinary regular files and are not
+collapsed.
+
+Admission has these semantic results. Exact implementation type names are
+deferred, but consumers cannot replace them with exception-message matching:
+
+| Condition | Result |
+| --- | --- |
+| The path is missing, a link is dangling, or the entry disappears before the file open | `Unavailable` |
+| The path cannot be normalized | `Rejected` with an invalid-path reason |
+| The final target has the wrong expected kind | `Rejected` with a kind-mismatch reason |
+| The final target is a FIFO, socket, block device, character device, Windows device or pipe coordinate, or an unclassifiable reparse point | `Rejected` with a non-regular or unsupported-entry reason |
+| Metadata inspection, native classification, or the file open fails for a reason other than absence | `Failed` with an admission-failed reason |
+| The current host has no supported classifier | `Failed` with a classification-unsupported reason |
+| Cancellation is observed | `OperationCanceledException` |
+
+The shared result carries a typed reason and canonical path, not a
+source-neutral artifact outcome. The explicit-file and directory operations
+project it into their existing `LocalArtifactDiagnostic` surface. Equivalent
+reasons must retain the same result arm and meaning across coordinates;
+coordinate-specific context may refine the diagnostic code and summary. The
+existing explicit-file missing projection remains `local.file.missing`.
+Failures after a regular file is admitted, including bounded snapshot-copy
+failures, remain read failures owned by the consuming acquisition rather than
+being relabeled as path admission.
+
+Admission occurs before any operation known to block on a stable non-regular
+entry. Managed attributes are insufficient on Unix: a FIFO, a character device,
+and an empty regular file can all appear as normal zero-length files. Supported
+non-Windows hosts therefore classify the final target with the .NET runtime's
+normalized `SystemNative_Stat` ABI. `stat` follows links and exposes the stable
+mode mask needed to distinguish directories, regular files, FIFOs, sockets,
+and block or character devices without opening the entry.
+
+Windows admission first rejects device and pipe namespaces and reserved DOS
+device coordinates. Extended-length paths to disk files are not rejected merely
+for using the `\\?\` prefix. Ordinary filesystem paths are inspected through
+managed attributes. A final symbolic link or traversable reparse point is
+resolved and its target attributes are inspected; an unsupported reparse kind
+is rejected. This step must prove a file or directory target before a
+file-content open.
+
+Regular-file admission then opens the canonical requested path exactly once and
+returns that owned read-only stream or handle to the consuming acquisition.
+Before returning it, the adapter classifies the handle again:
+
+- non-Windows hosts use `SystemNative_FStat` and require regular-file mode; and
+- Windows requires `GetFileType` to report `FILE_TYPE_DISK` and handle-based
+  attributes not to report a directory.
+
+A post-open kind mismatch is rejected and the handle is disposed. The explicit
+file and future directory-entry copy therefore consume the same verified open
+generation; neither reopens the path after admission. Size limits, last-write
+observation, copying, provenance construction, and contribution registration
+remain with the consuming acquisition.
+
+Directory-root admission performs the same normalization, link policy, and
+pre-open expected-kind classification, then returns the canonical requested
+path for enumeration. It does not promise handle-relative or transactional
+enumeration. If the root changes after classification, ordinary enumeration
+failure remains visible through the directory contract below.
+
+This contract prevents a stable non-regular entry from predictably reaching a
+blocking content open. It does not make path classification and open atomic. A
+local process can replace a regular file with a FIFO after classification and
+before open, or replace a directory before enumeration. Defending against that
+same-machine mutation would require a native nonblocking or handle-relative
+filesystem protocol and is outside the local-actor threat model. Once file
+admission returns an open regular-file handle, later link retargeting or path
+replacement cannot change the generation that is copied; immutable retained
+snapshot lifetime remains owned by
+[#4816](https://github.com/richlander/dotnet-inspect/issues/4816).
+
+The implementation remains package-free, source-generated-interop compatible,
+and NativeAOT-friendly. `LibraryImport` of the runtime-normalized `Stat` and
+`FStat` entry points works on ordinary Unix hosts and Browser/Wasm; Windows uses
+managed file APIs plus source-generated `kernel32` interop. No currently
+supported target is intentionally excluded. A missing native library or entry
+point is a visible classification-unsupported failure, never permission to
+open an unclassified path.
+
+The implementation is complete when focused gates prove:
+
+- canonicalization, expected-kind mismatches, final-target link following,
+  dangling links, unsupported reparse points, and hard-link non-deduplication
+  have the same semantics for every consuming local coordinate;
+- stable FIFOs, sockets, devices, and their link aliases are rejected before a
+  blocking content open, while an empty regular file remains admissible;
+- a regular-file consumer receives the once-opened, post-classified handle and
+  cannot reopen the coordinate;
+- unavailable, rejected, failed, and cancellation results remain distinct; and
+- the normalized `Stat` and `FStat` classifier compiles and runs under both
+  NativeAOT and Browser/Wasm, while Windows gates cover disk files,
+  directories, traversable links, reserved device names, and named-pipe
+  coordinates.
+
+These properties are represented by
+`LocalPathAdmission_ExpectedKindsAndLinksAreShared`,
+`LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
+`LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
+`LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
+`LocalPathAdmission_PlatformClassifiersRemainPortable`. They are unverified
+until those gates exist. The bounded-directory implementation must exercise
+the same contract through its public root and selected-entry outcomes rather
+than adding another classifier.
+
+Admission is sequential and adds no publication, interleaving, or concurrent
+ownership state. A new TLA+ model would duplicate the existing artifact-session
+model without checking a new state machine. Native classification and
+cross-platform executable canaries are the evidence this contract needs.
 
 #### Bounded directory coordinate
 
@@ -551,7 +689,8 @@ a later contract.
 Acquisition follows this order:
 
 1. Validate and copy options before filesystem work.
-2. Admit the requested root as a directory through #5096. Preserve its visible
+2. Admit the requested root as a directory through the
+   [shared contract](#shared-local-path-admission). Preserve its visible
    unavailable, rejected, failed, and cancellation outcomes.
 3. Enumerate top-level entries incrementally. Count every observed entry before
    classifying it and stop with a typed rejection as soon as
@@ -562,9 +701,9 @@ Acquisition follows this order:
 5. Ignore ordinary directories before filename selection, apply the extension
    allow list and exclusions, and reject the batch if `MaxSelectedFiles` is
    exceeded.
-6. In sorted order, admit each selected entry as a regular file through #5096,
-   then copy it into an adapter-private snapshot while enforcing
-   `MaxFileBytes` and the remaining `MaxTotalBytes`.
+6. In sorted order, admit each selected entry as a regular file through the
+   shared contract, then copy it into an adapter-private snapshot while
+   enforcing `MaxFileBytes` and the remaining `MaxTotalBytes`.
 7. Register the complete batch in one contribution scope only after every
    selected snapshot succeeds. Any enumeration, selected-entry, limit,
    registration, or outcome-construction failure publishes no contribution
@@ -581,7 +720,7 @@ to an optional source coordinate, not a shortened successful batch. Required
 workspace acquisition retains its existing empty-batch failure; #5010 owns the
 supplemental path that can compose this result.
 
-Root and selected-entry admission outcomes remain those of #5096.
+Root and selected-entry admission outcomes remain those of the shared contract.
 Directory-specific enumeration and snapshot-copy diagnostics use the canonical
 root and, when applicable, the observed relative name:
 
@@ -611,9 +750,9 @@ and bytes do not establish media or semantic kind.
 The adapter establishes an immutable batch of the bytes it actually copied,
 not a transactional filesystem snapshot. A file created after enumeration is
 outside that acquisition. Any selected-entry failure rejects the whole batch
-rather than shortening it. #5096 owns the residual local-path race and
-classification guarantees; mutation after copying cannot change the retained
-snapshot.
+rather than shortening it. Shared admission owns the residual local-path race
+and classification guarantees; mutation after copying cannot change the
+retained snapshot.
 
 The implementation is complete when focused gates prove:
 
@@ -653,12 +792,13 @@ duplicate that owner without checking a new interaction. Parallel directory
 copying, directory-level single-flight, or independent partial publication
 would reopen that decision and require a focused interaction model.
 
-After #5096 defines shared local-path admission, one local-adapter PR adds this
-API, options, provenance, directory-specific diagnostics, and outcome-level
-gates without changing `AssemblySetResolver`, CLI defaults, assembly
-projection, workspace admission, or binding policy. Adoption follows #5010 and
-may choose which directories a scenario authorizes; it may not weaken adapter
-bounds or reinterpret directory provenance as caller designation.
+After shared local-path admission is implemented, one local-adapter PR adds
+this API, options, provenance, directory-specific diagnostics, and
+outcome-level gates without changing `AssemblySetResolver`, CLI defaults,
+assembly projection, workspace admission, or binding policy. Adoption follows
+[#5010](https://github.com/richlander/dotnet-inspect/issues/5010) and may choose
+which directories a scenario authorizes; it may not weaken adapter bounds or
+reinterpret directory provenance as caller designation.
 
 This adapter is the proof that the abstraction is independently useful. The
 package-free fixture composes:
@@ -1221,8 +1361,9 @@ remaining cancellation. The three named `LocalDirectoryAcquisition_*` gates
 remain unverified. Together they require bounded deterministic top-level
 selection, source-neutral exclusions, atomic empty and failure outcomes,
 directory provenance, immutable batch snapshots, and cancellation
-preservation. Shared local-path admission remains with #5096 rather than these
-directory gates.
+preservation. Shared local-path admission remains with the
+[local adapter](#shared-local-path-admission) rather than these directory
+gates.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
