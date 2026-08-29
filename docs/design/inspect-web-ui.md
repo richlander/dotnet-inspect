@@ -505,10 +505,12 @@ product action ID, and uses `aria-controls` to identify the Member choices
 surface. It is neither `aria-current` nor `aria-disabled`; at a narrow viewport
 it also uses `aria-haspopup="dialog"` for the shared modal navigation drawer.
 Activation is a local presentation action: it closes the hierarchy menu and
-moves focus to the first owner-ordered Member row in the visible navigation
-pane, or opens the Member drawer and focuses that row at a narrow viewport.
-The row's product-issued activation state governs any later commit. Opening the
-choices changes no snapshot, URL, or history and does not invent a default
+moves focus to the first owner-ordered visible Member row in the navigation
+pane. If host filters hide every row, focus moves to the Member text filter
+instead. At a narrow viewport the UI opens the Member drawer before applying
+the same row-or-filter focus rule, so focus remains contained in the modal.
+Each row's product-issued activation state governs any later commit. Opening
+the choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
 The inspection command, Workspace, lens strip, and content region all render
@@ -769,14 +771,17 @@ Validation performed for installation is not continuing authority for a later
 effect. A callback that finds stale or foreign authority changes neither
 focus, visible status, nor the active panel.
 
-Each navigation destination surface owns one persistent polite live region
-with `role="status"`, `aria-live="polite"`, and `aria-atomic="true"`. An applied
-result announces the returned active subject and effective lens. An
-unavailable, rejected, failed, or aborted result announces the same visible
-reason or diagnostic shown by the surface. Superseded work reaches no consumer
-and announces nothing. A no-effective-lens region remains visible content; the
-live region announces its exact heading and evidence rather than a different
-hidden explanation.
+The persistent `dotnet-inspect` shell owns one polite live region outside
+replaceable destination renderers, with `role="status"`, `aria-live="polite"`,
+and `aria-atomic="true"`. It is mounted empty before a destination renderer and
+survives renderer replacement; a current-authority announcement callback
+changes its text only after any required installation. An applied result
+announces the returned active subject and effective lens. An unavailable,
+rejected, failed, or aborted result announces the same visible reason or
+diagnostic shown by the surface. Superseded work reaches no consumer and
+announces nothing. A no-effective-lens region remains visible content; the
+shell live region announces its exact heading and evidence rather than a
+different hidden explanation.
 
 After all required installation, focus, and announcement effects complete, the
 UI acknowledges the authority, including current aborted authority after its
@@ -1202,8 +1207,8 @@ these named Inspect Web tests:
   proves exact snapshot, canonical URL, and history handling, including
   replacement for reconciliation-driven unavailable snapshots. It also proves
   that such replacement resolves menu-result focus in the new renderer, with
-  destination-heading and persistent-shell fallbacks, before acknowledgement
-  or abandonment.
+  destination-heading and persistent-shell fallbacks, and announces through
+  the pre-existing shell live region before acknowledgement or abandonment.
 - `navigation-consumer.test.ts`:
   `maintenance snapshots replace history without stealing focus` covers
   authority validation, canonical URL replacement, selective announcement,
@@ -1230,8 +1235,9 @@ these named Inspect Web tests:
   `selection required renders guidance without committing a Member` proves
   that `Choose a member` is an enabled local presentation action with no
   product action ID. It verifies `aria-controls`, narrow-layout dialog
-  disclosure, focus on the first owner-ordered Member row, no snapshot or
-  history mutation, and no locally selected default.
+  disclosure, focus on the first owner-ordered visible Member row, fallback to
+  the Member text filter when filters hide every row, modal containment, no
+  snapshot or history mutation, and no locally selected default.
 - `navigation-focus.test.ts`:
   `lens tabs and Library options separate focus from committed selection`
   covers roving tabs, disabled-option discoverability, manual listbox commit,
@@ -1272,6 +1278,8 @@ outcomes:
    enabled `Choose a member` guidance without an action ID. Activate it in wide
    and narrow layouts and confirm that it focuses or opens the product-issued
    Member choices without selecting one or changing snapshot, URL, or history.
+   Apply filters that hide every Member row and confirm that the same action
+   focuses the Member text filter, remaining inside the narrow modal drawer.
 7. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject and that focus returns to the subject
    menu-button invoker.
@@ -1316,7 +1324,9 @@ outcomes:
    replaces history rather than pushing the unrequested subject change. Confirm
    that focus reaches the corresponding menu button in the new renderer, or its
    destination-heading or persistent-shell fallback, and never the outgoing
-   invoker node.
+   invoker node. Confirm that its deferred announcement changes the pre-existing
+   shell live region after installation rather than inserting an already-filled
+   destination-owned region.
 4. Return an unavailable outcome without a replacement snapshot, then rejected
    and failed outcomes. Confirm that each retains the prior snapshot, URL, and
    history while presenting its exact evidence.

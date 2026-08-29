@@ -38,11 +38,13 @@ callbacks to the new surface lifetime.
 The model collapses the UI into one logical navigation-authority holder and one
 current destination-surface lifetime. Actual modals and routed components may
 coexist, but they do not independently consume the same returned navigation
-authority. A persistent shell focus anchor remains mounted outside those
-lifetimes. The session-scoped consumer applies the modeled rule to the
-destination lifetime associated with each result. The bounded model
-conservatively parks that anchor when an intent begins; the UI prose requires
-parking only when the focused element may be removed.
+authority. A persistent shell focus anchor and polite status region remain
+mounted outside those lifetimes. The model represents the announcement effect
+abstractly rather than encoding its DOM target. The session-scoped consumer
+applies the modeled rule to the destination lifetime associated with each
+result. The bounded model conservatively parks that anchor when an intent
+begins; the UI prose requires parking only when the focused element may be
+removed.
 
 ## Checked properties
 
