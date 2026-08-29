@@ -326,6 +326,8 @@ public static partial class CSharpBodyDiff
         }
 
         ClassifyUnprovenancedDeclarations(
+            before,
+            after,
             beforeNodes,
             afterNodes,
             beforeRevision,
@@ -362,20 +364,33 @@ public static partial class CSharpBodyDiff
     /// Classifies null-provenance nodes deferred by the two matching loops
     /// above. Most remain <see cref="CSharpUnmatchedNodeReason.Unsupported"/>;
     /// a narrow exception is honestly inferred, not evidence-backed: a
-    /// declaration-shaped node (see <see cref="InferredDeclarationKind"/>) is
-    /// the <em>only</em> such null-provenance declaration in its document,
-    /// and a call-site rewrite (an <c>InvocationExpression</c> match) exists
-    /// somewhere in that same document. Both conditions must hold, or the
-    /// node stays <c>Unsupported</c> like any other correspondence gap.
+    /// declaration-shaped node (see <see cref="InferredDeclarationKind"/>)
+    /// that is present as the <em>sole</em> such null-provenance declaration
+    /// on one side and entirely absent as a candidate on the other (a
+    /// genuine appear/disappear, not a declaration retained unchanged on both
+    /// sides), alongside a call-site rewrite: a matched
+    /// <c>InvocationExpression</c> pair whose selected text actually differs
+    /// between before and after, not merely an unrelated call whose IL
+    /// evidence happens to still match. All three conditions must hold, or
+    /// the node stays <c>Unsupported</c> like any other correspondence gap.
     /// </summary>
     /// <remarks>
     /// Every current document this comparison sees describes exactly one
     /// member body, so "its document" already is the narrowest enclosing
     /// scope for these fixtures; a document spanning multiple independent
     /// scopes would need this narrowed further to a genuine per-scope check
-    /// before this carve-out could keep the same honesty guarantee.
+    /// before this carve-out could keep the same honesty guarantee. Even at
+    /// this granularity, this remains a heuristic, not a proof: two
+    /// independent, unrelated changes in the same member body (an unrelated
+    /// call rewrite alongside an unrelated new/removed declaration) could
+    /// still coincidentally satisfy it. This is the same residual risk
+    /// inherent to any evidence short of full IL provenance, and is why this
+    /// carve-out stays scoped to the single declaration-shaped kind actually
+    /// evidenced by #3902 and #4116, rather than generalizing further.
     /// </remarks>
     static void ClassifyUnprovenancedDeclarations(
+        AnnotatedSourceDocument beforeDocument,
+        AnnotatedSourceDocument afterDocument,
         IReadOnlyList<AnnotatedSourceNode> beforeNodes,
         IReadOnlyList<AnnotatedSourceNode> afterNodes,
         CSharpDocumentRevision beforeRevision,
@@ -387,12 +402,16 @@ public static partial class CSharpBodyDiff
         var beforeById = beforeNodes.ToDictionary(static node => node.Id);
         var afterById = afterNodes.ToDictionary(static node => node.Id);
 
-        bool beforeCallSiteRewriteMatched = matches.Any(match =>
+        // A genuine call-site rewrite: both sides are InvocationExpression
+        // nodes whose selected text actually differs. An unchanged call that
+        // merely happens to retain matching IL evidence does not count --
+        // that is not evidence that anything was rewritten alongside it.
+        bool callSiteRewriteMatched = matches.Any(match =>
             beforeById.TryGetValue(match.Before.NodeId, out var beforeCallNode)
-            && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal));
-        bool afterCallSiteRewriteMatched = matches.Any(match =>
-            afterById.TryGetValue(match.After.NodeId, out var afterCallNode)
-            && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal));
+            && afterById.TryGetValue(match.After.NodeId, out var afterCallNode)
+            && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+            && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+            && !SelectedTextEqual(beforeDocument, beforeCallNode, afterDocument, afterCallNode));
 
         int beforeDeclarationCandidates = beforeNodes.Count(static node =>
             node.Provenance is null
@@ -401,14 +420,20 @@ public static partial class CSharpBodyDiff
             node.Provenance is null
             && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
 
+        // A declaration retained unchanged on both sides has one candidate on
+        // each side, and qualifies for neither direction below -- it must not
+        // be reported as simultaneously Added and Removed.
+        bool declarationAdded = afterDeclarationCandidates == 1 && beforeDeclarationCandidates == 0;
+        bool declarationRemoved = beforeDeclarationCandidates == 1 && afterDeclarationCandidates == 0;
+
         foreach (var node in beforeNodes)
         {
             if (node.Provenance is not null)
                 continue;
 
-            bool inferred = string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
-                && beforeDeclarationCandidates == 1
-                && beforeCallSiteRewriteMatched;
+            bool inferred = declarationRemoved
+                && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
+                && callSiteRewriteMatched;
             unmatchedBefore.Add(new(
                 new CSharpDocumentNodeIdentity(beforeRevision, node.Id),
                 inferred ? CSharpUnmatchedNodeReason.InferredDeclaration : CSharpUnmatchedNodeReason.Unsupported));
@@ -419,9 +444,9 @@ public static partial class CSharpBodyDiff
             if (node.Provenance is not null)
                 continue;
 
-            bool inferred = string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
-                && afterDeclarationCandidates == 1
-                && afterCallSiteRewriteMatched;
+            bool inferred = declarationAdded
+                && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
+                && callSiteRewriteMatched;
             unmatchedAfter.Add(new(
                 new CSharpDocumentNodeIdentity(afterRevision, node.Id),
                 inferred ? CSharpUnmatchedNodeReason.InferredDeclaration : CSharpUnmatchedNodeReason.Unsupported));

@@ -1642,6 +1642,70 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationRetainedUnchangedOnBothSides()
+    {
+        // Close negative (round-1 review, both reviewers, same root cause): a
+        // local-function declaration with no IL origin of its own is present
+        // on both sides, unchanged. Before this fix, "only such declaration
+        // on its own side" was checked independently per side, so this
+        // unrelated retained declaration would wrongly qualify as both
+        // Removed (from the before-side check) and Added (from the
+        // after-side check) merely because some unrelated call-site elsewhere
+        // in the document was rewritten. The declaration must stay
+        // Unsupported on both sides: presence must be genuinely asymmetric
+        // (absent from one side entirely), not merely "the only one on its
+        // own side."
+        var before = TrustedDocument(
+            "__NoTypeParameter_g__Own_0_0(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+        var after = TrustedDocument(
+            "Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.Unsupported,
+            Assert.Single(issued.UnmatchedBefore).Reason);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.Unsupported,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationFromUnrelatedUnchangedCallSite()
+    {
+        // Close negative (round-1 review, both reviewers, same root cause): a
+        // new local-function declaration with no IL origin appears alongside
+        // a matched InvocationExpression call site elsewhere in the document
+        // whose selected text is unchanged (an unrelated, pre-existing call).
+        // Before this fix, "any matched InvocationExpression anywhere in the
+        // document" was enough to satisfy the call-site-rewrite check, so
+        // this unrelated unchanged call would wrongly license inferring the
+        // new declaration. The matched call site must actually be rewritten
+        // (its selected text differs before/after), not merely present.
+        var before = TrustedDocument(
+            "Log();",
+            new NodeSpec("InvocationExpression", "Log()", [0x10]));
+        var after = TrustedDocument(
+            "Log();\nstatic void Unrelated()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void Unrelated()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
     public void IssuedCorrespondence_RoundTripsDocumentNodeProvenanceAndUnmatchedNodes()
     {
         var before = TrustedDocument(
