@@ -187,7 +187,8 @@ then descriptor `Order`. Kind-scoped and target-aware discovery use descriptor
 
 `Role` is optional semantic metadata for an adjacent product policy. The
 registry owns which descriptor carries a role; it does not define how
-Navigation chooses or falls back from that role.
+Navigation chooses or falls back from that role. Within one structural kind,
+at most one descriptor carries a given role.
 
 The descriptor does not expose implementation types, delegates, CLI spellings,
 browser data, target counts, target availability, selection, acquisition,
@@ -324,12 +325,13 @@ network access.
 - `ViewFacetRegistryTests.Catalog_IsCompleteUniqueAndDeterministicallyOrdered`:
   valid bounded IDs, ID uniqueness, prefix/kind agreement, nonempty
   presentation, unique per-kind order, Root-to-Member complete order, and
-  role-to-descriptor coverage;
+  role-to-descriptor coverage and per-kind uniqueness;
 - `ViewFacetRegistryCompatibilityTests.ShippedFacets_RetainIdentityKindAndPurpose`:
   current registrations compared with the append-only compatibility manifest;
-- `ViewFacetRegistryTests.RegistrationsAndBindingsAgree`: set equality among
-  descriptors, active or tombstone registrations, and active bindings, with
-  the fixed tombstone shape;
+- `ViewFacetRegistryTests.RegistrationsAndBindingsAgree`: descriptor IDs equal
+  the disjoint union of active- and tombstone-registration IDs;
+  active-registration IDs equal active-binding IDs; every tombstone has no
+  binding and the fixed `Retired` shape;
 - `ViewFacetRegistryTests.StaticDiscovery_DoesNotExecuteOrAcquire`: throwing
   execution, artifact-open/acquisition, cache, alias, dynamic-provider,
   filesystem, and network sentinels all remain untouched;
@@ -338,8 +340,9 @@ network access.
   order and evidence; inapplicable facets are omitted before evaluation; the
   complete no-work sentinel set remains untouched;
 - `ViewFacetRegistryTests.Lookup_DistinguishesEveryOutcome`: all five outcomes,
-  syntactically valid and invalid unknown values, and wrong-subject lookup
-  before availability or any no-work sentinel;
+  syntactically valid and invalid unknown values, and wrong-subject lookup;
+  both unknown fixtures and the wrong-subject fixture return before
+  availability or any complete no-work sentinel;
 - `ViewFacetRegistryTests.RootApplicability_PartitionsPackageAndNonPackageFacets`:
   exact package and non-package Root descriptor sets and opposite
   `Inapplicable` lookups; and
@@ -347,7 +350,8 @@ network access.
   initial IDs, kinds, titles, summaries, order, roles, and applicability.
 
 The registration-and-binding equality test is the wiring non-vacuity gate:
-removing one registration or binding must fail it.
+removing any registration or active binding, overlapping active and tombstone
+sets, or attaching a binding to a tombstone must fail it.
 
 No TLA+ model accompanies this owner. It is an immutable catalog plus pure
 lookup and classification over one explicit snapshot, with no retained,

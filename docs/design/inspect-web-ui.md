@@ -51,15 +51,18 @@ This document does not own:
 
 ## Product dependencies
 
-This document composes three adjacent owner contracts without defining them:
+This document composes four adjacent owner contracts without defining them:
 
 - [#4794](https://github.com/richlander/dotnet-inspect/issues/4794) owns
   inspection-subject descriptors, availability, initial recommendation, and
   reconciliation. The Type-first default and tools-v2 root fallback belong to
   that focused effort.
+- [View Facet Registry](view-facet-registry.md) owns stable facet IDs,
+  descriptors, structural applicability, order, and facet-availability
+  outcomes.
 - [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns stable
-  portable view identities, per-coordinate view state, and canonical packet
-  projection.
+  portable fields, versioning, migration, valid combinations, per-coordinate
+  view state, canonical packet projection, and restoration.
 - [#4788](https://github.com/richlander/dotnet-inspect/issues/4788) owns any
   default-feed or acquisition-preference semantics within multi-source package
   resolution.
