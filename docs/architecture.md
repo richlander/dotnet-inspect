@@ -838,6 +838,14 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
   `OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate the shared
   behavior.
+  `LibraryBodyGeneratedProvenanceClassifier` owns acquisition-scoped,
+  primary-image source-generated type/enclosing-type classification and its
+  ancestry cache. It consumes the primary resolver's generated-code attribute
+  judgment; the assembly builder and async-source resolver consume the
+  resulting type provenance without duplicating attribute policy.
+  `OptimizationOpportunities_SuppressesSourceGeneratedTypes` and
+  `OptimizationOpportunities_SourceGeneratedAncestryIsClassifiedOncePerType`
+  gate suppression and shared classification.
   `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate

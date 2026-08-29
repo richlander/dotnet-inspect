@@ -334,6 +334,14 @@ selection or opportunity policy.
 `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
 `OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
 judgments.
+`LibraryBodyGeneratedProvenanceClassifier` owns primary-image
+source-generated type/enclosing-type classification and its acquisition-scoped
+ancestry cache. It consumes the primary resolver's generated-code attribute
+judgment, while the assembly builder retains scheduling and the async-source
+resolver retains source mapping.
+`OptimizationOpportunities_SuppressesSourceGeneratedTypes` and
+`OptimizationOpportunities_SourceGeneratedAncestryIsClassifiedOncePerType`
+gate suppression and shared classification.
 `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
