@@ -376,10 +376,16 @@ The model establishes these design guarantees:
   of its outcome label;
 - every current result carries the complete installed snapshot and identifies
   whether the retained consumer must synchronize it before acknowledgement;
-- acknowledgement cannot advance the consumer receipt while its installed
-  snapshot lags the session;
-- abandonment preserves synchronization debt instead of making lag look
-  consumed;
+- consumer installation and product acknowledgement are separate state
+  transitions, and each authority must be installed under its exact effect
+  epoch before acknowledgement;
+- acknowledgement advances the product-owned receipt only after that current
+  installation;
+- abandonment never advances the receipt, including when the consumer
+  installed the snapshot but lost authority before acknowledgement;
+- every bounded model synchronization request is settled by dedicated fresh
+  authority or by acknowledgement of an intervening current result, without a
+  product-side retry ceiling;
 - stale or foreign authority cannot authorize a consumer-visible effect;
 - prerequisite failure terminates the explicit operation without inventing a
   navigation result; and
@@ -401,6 +407,11 @@ last acknowledged by its retained consumer. This is a product-owned receipt,
 not a caller-supplied prior snapshot. The consumer neither orders revisions nor
 uses them as command identity.
 
+Consumer installation is separate from that receipt. Applying a result records
+the complete snapshot and exact effect epoch installed by the consumer, but
+does not advance the product-owned receipt. Acknowledgement requires that the
+consumer installed the result under the current authority's exact epoch.
+
 Every current explicit or maintenance result carries the session's complete
 installed snapshot and one typed disposition:
 
@@ -420,7 +431,8 @@ Acknowledgement confirms consumption of the result snapshot named by the
 current authority and advances the product-owned consumer receipt. The session
 rejects acknowledgement while synchronization is required and incomplete.
 Abandonment releases the current authority but does not advance the receipt;
-the debt survives supersession, destination destruction, and remount.
+the debt survives supersession, destination destruction, and remount, including
+when destruction occurs after installation but before acknowledgement.
 
 A retained consumer may request synchronization without submitting a subject,
 lens, coordinate, or restoration command. The session returns the latest
@@ -428,7 +440,8 @@ complete installed snapshot with fresh current authority and no semantic
 navigation change. If standalone maintenance is already queued, its eventual
 current result may discharge the same debt without changing request order;
 otherwise the dedicated synchronization result is admitted after the queue
-drains. Repeated remounts may request fresh authority again after abandonment.
+drains. Repeated remounts may request fresh authority again after abandonment;
+the product contract imposes no retry ceiling.
 
 A newer current result is also a synchronization vehicle. Product-side discard
 of older superseded work publishes no authority, but the current result's
@@ -525,11 +538,15 @@ The eventual subject-navigation implementation must include named gates for:
 - `StaleBasisMaintenance_SameRequestRebuildsRegathersAndIsAdmitted`
 - `EffectAuthority_RequiresExactCurrentSessionRevisionIntentAndEpoch`
 - `ConsumerSynchronization_DispositionComesFromAcknowledgedRevision`
+- `ConsumerSynchronization_DispositionIsIndependentOfSemanticOutcome`
 - `ConsumerSynchronization_NonInstallingSuccessorCarriesCurrentSnapshot`
+- `ConsumerSynchronization_InstallationDoesNotAdvanceReceipt`
+- `ConsumerSynchronization_AcknowledgementRequiresCurrentEffectInstallation`
 - `ConsumerSynchronization_AcknowledgementRequiresInstalledResult`
 - `ConsumerSynchronization_AbandonmentPreservesDebt`
 - `ConsumerSynchronization_RequestReturnsLatestSnapshotWithFreshAuthority`
 - `ConsumerSynchronization_RemountCanRequestAgainAfterAbandonment`
+- `ConsumerSynchronization_EveryRequestSettlesByCurrentResult`
 - `ConsumerSynchronization_MaintenanceOrderAndLivenessArePreserved`
 - `ExternalIntentAbort_ReleasesMaintenanceAfterAcknowledgement`
 - `CanonicalRestoration_PreparedPairEqualsExactRequest`
@@ -553,6 +570,7 @@ The eventual subject-navigation implementation must include named gates for:
 | Coordinate acquisition fails | Prior snapshot retained; abort effect visible; maintenance eventually resumes |
 | Canonical subject plus non-default lens | One prepared snapshot returns the exact requested pair with no partial result |
 | Applied result is abandoned before consumer install | Product retains the applied snapshot; consumer receipt remains behind |
+| Applied result is installed then abandoned before acknowledgement | Consumer-installed state advances, but the product-owned receipt and synchronization debt do not |
 | Non-installing successor follows an abandoned applied result | Successor carries the complete current snapshot with `Synchronization required` |
 | Maintenance completes while the consumer lags | Current maintenance result carries the complete current snapshot and may discharge the lag without bypassing request order |
 | Consumer requests synchronization after abandonment | Latest complete snapshot returns under fresh current authority with no semantic navigation change |

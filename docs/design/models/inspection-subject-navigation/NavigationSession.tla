@@ -10,8 +10,11 @@
 (* Product concept                    Model variable                       *)
 (*   installed navigation snapshot      installedSnapshot                  *)
 (*   installed snapshot revision        installedRev                       *)
-(*   consumer-visible snapshot           consumerSnapshot                   *)
-(*   consumer-acknowledged revision      consumerRev                        *)
+(*   consumer-installed snapshot         consumerSnapshot                   *)
+(*   consumer-installed revision         consumerRev                        *)
+(*   authority epoch used for install    consumerInstalledEpoch             *)
+(*   acknowledged consumer snapshot      acknowledgedSnapshot               *)
+(*   acknowledged consumer revision      acknowledgedRev                    *)
 (*   product-issued explicit intent     currentIntent                      *)
 (*   unresolved explicit operation      explicit                           *)
 (*   superseded explicit operation      superseded                         *)
@@ -23,6 +26,9 @@
 (*   effect epoch                       effectEpoch                        *)
 (*   unconsumed effect authority        effect                             *)
 (*   authority held by a consumer       hostAuthority                      *)
+(*   next synchronization request       nextSynchronization                *)
+(*   pending synchronization request    synchronizationRequest             *)
+(*   settled synchronization requests   settledSynchronizations            *)
 (*                                                                         *)
 (* Guard witnesses are latching booleans.  Each guarded result, admission, *)
 (* or visible effect re-derives the condition the design requires rather   *)
@@ -33,7 +39,7 @@ EXTENDS Naturals, Sequences, FiniteSets
 CONSTANTS
   MaxIntent,        \* how many explicit intents one behaviour may issue
   MaxMaintenance,   \* how many standalone maintenance requests it may issue
-  MaxEffectEpoch,   \* bounds repeated synchronization attempts
+  MaxSynchronization, \* how many external synchronization requests may issue
   IntentKinds,      \* subject, lens, coordinate, and canonical restoration
   SnapshotValues,   \* finite complete-snapshot contents
   InitialSnapshot,  \* content retained before the first modelled result
@@ -41,7 +47,7 @@ CONSTANTS
   ForeignSessionId  \* some other session, used only for foreign authority
 
 ASSUME MaxIntent \in Nat /\ MaxMaintenance \in Nat
-ASSUME MaxEffectEpoch > MaxIntent + MaxMaintenance
+ASSUME MaxSynchronization \in Nat /\ MaxSynchronization > 1
 ASSUME InitialSnapshot \in SnapshotValues /\ Cardinality(SnapshotValues) > 1
 ASSUME SessionId # ForeignSessionId
 
@@ -50,6 +56,9 @@ VARIABLES
   installedRev,
   consumerSnapshot,
   consumerRev,
+  consumerInstalledEpoch,
+  acknowledgedSnapshot,
+  acknowledgedRev,
   currentIntent,
   explicit,
   superseded,
@@ -61,20 +70,30 @@ VARIABLES
   effectEpoch,
   effect,
   hostAuthority,
+  nextSynchronization,
+  synchronizationRequest,
+  settledSynchronizations,
   admissionWitness,
   regatherWitness,
   revisionWitness,
   orderWitness,
   visibleWitness,
   consumerSyncWitness,
-  consumerAckWitness
+  consumerAckWitness,
+  dispositionWitness,
+  synchronizationWitness
 
 vars == << installedSnapshot, installedRev, consumerSnapshot, consumerRev,
+           consumerInstalledEpoch,
+           acknowledgedSnapshot, acknowledgedRev,
            currentIntent, explicit,
            superseded, nextMaintenance, maintenanceQueue, lastAdmitted,
            admittedRequests, lastResult, effectEpoch, effect, hostAuthority,
+           nextSynchronization, synchronizationRequest,
+           settledSynchronizations,
            admissionWitness, regatherWitness, revisionWitness, orderWitness,
-           visibleWitness, consumerSyncWitness, consumerAckWitness >>
+           visibleWitness, consumerSyncWitness, consumerAckWitness,
+           dispositionWitness, synchronizationWitness >>
 
 (***************************************************************************)
 (* Currencies.                                                             *)
@@ -87,22 +106,46 @@ Outcomes == {"applied", "retained", "aborted", "maintenance", "synchronize"}
 SemanticOutcomes ==
   {"applied", "unavailable", "rejected", "failed", "aborted", "maintenance",
    "synchronize"}
+Dispositions == {"current", "synchronizationRequired"}
 
 NoResult ==
   [ outcome         |-> "none",
+    disposition     |-> "none",
+    receiptSnapshot |-> InitialSnapshot,
+    receiptRev      |-> 0,
     snapshotChanged |-> FALSE,
     priorSnapshot   |-> InitialSnapshot,
     resultSnapshot  |-> InitialSnapshot,
     priorRev        |-> 0,
     resultRev       |-> 0 ]
 
-Result(outcome, priorSnapshot, resultSnapshot, priorRev, resultRev) ==
+ConsumerDisposition(resultSnapshot, resultRev) ==
+  IF acknowledgedRev = resultRev /\ acknowledgedSnapshot = resultSnapshot
+    THEN "current"
+    ELSE "synchronizationRequired"
+
+Result(outcome, disposition, receiptSnapshot, receiptRev,
+       priorSnapshot, resultSnapshot, priorRev, resultRev) ==
   [ outcome         |-> outcome,
+    disposition     |-> disposition,
+    receiptSnapshot |-> receiptSnapshot,
+    receiptRev      |-> receiptRev,
     snapshotChanged |-> resultSnapshot # priorSnapshot,
     priorSnapshot   |-> priorSnapshot,
     resultSnapshot  |-> resultSnapshot,
     priorRev        |-> priorRev,
     resultRev       |-> resultRev ]
+
+CorrectDisposition(result) ==
+  result.disposition =
+    IF result.receiptRev = result.resultRev /\
+         result.receiptSnapshot = result.resultSnapshot
+      THEN "current"
+      ELSE "synchronizationRequired"
+
+ConsumerAcknowledgementLags ==
+  acknowledgedRev # installedRev \/
+    acknowledgedSnapshot # installedSnapshot
 
 Authority(outcome, rev, intent, epoch) ==
   [ session |-> SessionId,
@@ -136,6 +179,11 @@ TypeOK ==
   /\ installedRev \in Nat
   /\ consumerSnapshot \in SnapshotValues
   /\ consumerRev \in Nat
+  /\ consumerInstalledEpoch \in Nat
+  /\ consumerInstalledEpoch <= effectEpoch
+  /\ acknowledgedSnapshot \in SnapshotValues
+  /\ acknowledgedRev \in Nat
+  /\ acknowledgedRev <= consumerRev
   /\ consumerRev <= installedRev
   /\ currentIntent \in 0 .. MaxIntent
   /\ explicit.token \in 0 .. MaxIntent
@@ -145,6 +193,9 @@ TypeOK ==
   /\ lastAdmitted \in 0 .. MaxMaintenance
   /\ admittedRequests \subseteq 1 .. MaxMaintenance
   /\ lastResult.outcome \in SemanticOutcomes \cup {"none"}
+  /\ lastResult.disposition \in Dispositions \cup {"none"}
+  /\ lastResult.receiptSnapshot \in SnapshotValues
+  /\ lastResult.receiptRev \in Nat
   /\ lastResult.snapshotChanged \in BOOLEAN
   /\ lastResult.priorSnapshot \in SnapshotValues
   /\ lastResult.resultSnapshot \in SnapshotValues
@@ -153,6 +204,13 @@ TypeOK ==
   /\ effectEpoch \in Nat
   /\ effect.outcome \in Outcomes \cup {"none"}
   /\ hostAuthority.outcome \in Outcomes \cup {"none"}
+  /\ nextSynchronization \in 1 .. (MaxSynchronization + 1)
+  /\ synchronizationRequest \in 0 .. MaxSynchronization
+  /\ settledSynchronizations \subseteq 1 .. MaxSynchronization
+  /\ (synchronizationRequest # 0 =>
+        /\ synchronizationRequest < nextSynchronization
+        /\ synchronizationRequest \notin settledSynchronizations)
+  /\ \A n \in settledSynchronizations : n < nextSynchronization
   /\ \A i \in DOMAIN maintenanceQueue :
        /\ maintenanceQueue[i].seq \in 1 .. MaxMaintenance
        /\ maintenanceQueue[i].ready \in BOOLEAN
@@ -162,12 +220,17 @@ TypeOK ==
   /\ revisionWitness \in BOOLEAN
   /\ consumerSyncWitness \in BOOLEAN
   /\ consumerAckWitness \in BOOLEAN
+  /\ dispositionWitness \in BOOLEAN
+  /\ synchronizationWitness \in BOOLEAN
 
 Init ==
   /\ installedSnapshot = InitialSnapshot
   /\ installedRev = 0
   /\ consumerSnapshot = InitialSnapshot
   /\ consumerRev = 0
+  /\ consumerInstalledEpoch = 0
+  /\ acknowledgedSnapshot = InitialSnapshot
+  /\ acknowledgedRev = 0
   /\ currentIntent = 0
   /\ explicit = NoExplicitWork
   /\ superseded = {}
@@ -179,6 +242,9 @@ Init ==
   /\ effectEpoch = 0
   /\ effect = NoAuthority
   /\ hostAuthority = NoAuthority
+  /\ nextSynchronization = 1
+  /\ synchronizationRequest = 0
+  /\ settledSynchronizations = {}
   /\ admissionWitness = TRUE
   /\ regatherWitness = TRUE
   /\ revisionWitness = TRUE
@@ -186,6 +252,8 @@ Init ==
   /\ visibleWitness = TRUE
   /\ consumerSyncWitness = TRUE
   /\ consumerAckWitness = TRUE
+  /\ dispositionWitness = TRUE
+  /\ synchronizationWitness = TRUE
 
 (***************************************************************************)
 (* Explicit intent.                                                        *)
@@ -208,12 +276,15 @@ BeginExplicitIntent(kind) ==
        [ i \in DOMAIN maintenanceQueue |->
            [maintenanceQueue[i] EXCEPT !.ready = FALSE] ]
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, nextMaintenance,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev, nextMaintenance,
                   lastAdmitted, admittedRequests, lastResult, effectEpoch,
-                  hostAuthority,
+                  hostAuthority, nextSynchronization,
+                  synchronizationRequest, settledSynchronizations,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness >>
 
 \* An `Applied` outcome installs a semantically changed replacement snapshot
 \* and returns fresh authority under its own intent token.
@@ -227,15 +298,25 @@ ExplicitResultInstalls(returnedSnapshot) ==
   /\ effect' = Authority("applied", installedRev + 1, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("applied", installedSnapshot, returnedSnapshot,
+       Result("applied",
+              ConsumerDisposition(returnedSnapshot, installedRev + 1),
+              acknowledgedSnapshot, acknowledgedRev,
+              installedSnapshot, returnedSnapshot,
               installedRev, installedRev + 1)
+  /\ dispositionWitness' =
+       /\ dispositionWitness
+       /\ CorrectDisposition(lastResult')
   /\ explicit' = NoExplicitWork
-  /\ UNCHANGED << consumerSnapshot, consumerRev,
+  /\ UNCHANGED << consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
                   currentIntent, superseded, nextMaintenance,
                   maintenanceQueue, lastAdmitted, admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
                   admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
-                  visibleWitness, consumerSyncWitness, consumerAckWitness >>
+                  visibleWitness, consumerSyncWitness, consumerAckWitness,
+                  synchronizationWitness >>
 
 \* An unavailable request returns a complete snapshot value.  Change is
 \* derived by comparing that value with the installed snapshot, not supplied
@@ -252,8 +333,14 @@ ExplicitUnavailable(returnedSnapshot) ==
                       installedRev', currentIntent, effectEpoch + 1)
        /\ hostAuthority' = effect'
        /\ lastResult' =
-            Result("unavailable", installedSnapshot, returnedSnapshot,
+            Result("unavailable",
+                   ConsumerDisposition(returnedSnapshot, installedRev'),
+                   acknowledgedSnapshot, acknowledgedRev,
+                   installedSnapshot, returnedSnapshot,
                    installedRev, installedRev')
+       /\ dispositionWitness' =
+            /\ dispositionWitness
+            /\ CorrectDisposition(lastResult')
        /\ revisionWitness' =
             /\ revisionWitness
             /\ installedSnapshot' = lastResult'.resultSnapshot
@@ -261,12 +348,16 @@ ExplicitUnavailable(returnedSnapshot) ==
             /\ lastResult'.priorSnapshot = installedSnapshot
             /\ lastResult'.priorRev = installedRev
   /\ explicit' = NoExplicitWork
-  /\ UNCHANGED << consumerSnapshot, consumerRev,
+  /\ UNCHANGED << consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
                   currentIntent, superseded, nextMaintenance,
                   maintenanceQueue, lastAdmitted, admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
                   admissionWitness,
                   regatherWitness, orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  synchronizationWitness >>
 
 \* Rejected and failed navigation results retain the installed snapshot but
 \* receive a fresh effect epoch so delayed outcome work cannot surface later.
@@ -279,16 +370,27 @@ ExplicitResultRetains(outcome) ==
        Authority("retained", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result(outcome, installedSnapshot, installedSnapshot,
+       Result(outcome,
+              ConsumerDisposition(installedSnapshot, installedRev),
+              acknowledgedSnapshot, acknowledgedRev,
+              installedSnapshot, installedSnapshot,
               installedRev, installedRev)
+  /\ dispositionWitness' =
+       /\ dispositionWitness
+       /\ CorrectDisposition(lastResult')
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, superseded,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
                   admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  synchronizationWitness >>
 
 \* Packet decoding, coordinate realization, or another prerequisite owner
 \* failed before navigation could run.  The intent terminates with a typed
@@ -301,16 +403,27 @@ ExternalPrerequisiteAbort ==
   /\ effect' = Authority("aborted", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("aborted", installedSnapshot, installedSnapshot,
+       Result("aborted",
+              ConsumerDisposition(installedSnapshot, installedRev),
+              acknowledgedSnapshot, acknowledgedRev,
+              installedSnapshot, installedSnapshot,
               installedRev, installedRev)
+  /\ dispositionWitness' =
+       /\ dispositionWitness
+       /\ CorrectDisposition(lastResult')
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, superseded,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
                   admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  synchronizationWitness >>
 
 \* A superseded explicit operation returns late.  It produces no visible
 \* effect and cannot install.
@@ -318,13 +431,18 @@ SupersededResultDiscarded(token) ==
   /\ token \in superseded
   /\ superseded' = superseded \ {token}
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit,
                   nextMaintenance,
                   maintenanceQueue, lastAdmitted, admittedRequests,
                   effectEpoch, effect,
-                  hostAuthority, lastResult, admissionWitness,
+                  hostAuthority, lastResult, nextSynchronization,
+                  synchronizationRequest, settledSynchronizations,
+                  admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
-                  visibleWitness, consumerSyncWitness, consumerAckWitness >>
+                  visibleWitness, consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness >>
 
 (***************************************************************************)
 (* Standalone maintenance.                                                 *)
@@ -344,13 +462,17 @@ RequestMaintenance ==
                 needsRegather |-> FALSE ])
   /\ nextMaintenance' = nextMaintenance + 1
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit,
                   superseded,
                   lastAdmitted, admittedRequests, lastResult, effectEpoch,
-                  effect, hostAuthority,
+                  effect, hostAuthority, nextSynchronization,
+                  synchronizationRequest, settledSynchronizations,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness >>
 
 \* Facts for one queued request finish gathering.  Any request may finish
 \* first; completion timing must not select the final snapshot.
@@ -362,13 +484,18 @@ GatherMaintenanceFacts(n) ==
             [maintenanceQueue EXCEPT ![i].ready = TRUE,
                                      ![i].needsRegather = FALSE]
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit,
                   superseded,
                   nextMaintenance, lastAdmitted, admittedRequests, lastResult,
-                  effectEpoch, effect, hostAuthority, admissionWitness,
+                  effectEpoch, effect, hostAuthority, nextSynchronization,
+                  synchronizationRequest, settledSynchronizations,
+                  admissionWitness,
                   regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness >>
 
 \* A queued request whose basis is no longer the installed snapshot rebuilds
 \* from the then-current snapshot instead of installing an older result.
@@ -384,13 +511,18 @@ RebuildMaintenance(n) ==
             /\ maintenanceQueue'[i].needsRegather
             /\ ~maintenanceQueue'[i].ready
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit,
                   superseded,
                   nextMaintenance, lastAdmitted, admittedRequests, lastResult,
-                  effectEpoch, effect, hostAuthority, admissionWitness,
+                  effectEpoch, effect, hostAuthority, nextSynchronization,
+                  synchronizationRequest, settledSynchronizations,
+                  admissionWitness,
                   revisionWitness,
                   orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness >>
 
 \* The design's admission predicate, stated once: only the oldest outstanding
 \* request, only when it was rebuilt against the installed snapshot, only
@@ -410,8 +542,14 @@ AdmitMaintenance ==
      IN
        /\ installedSnapshot' = replacement
        /\ lastResult' =
-            Result("maintenance", installedSnapshot, replacement,
+            Result("maintenance",
+                   ConsumerDisposition(replacement, installedRev + 1),
+                   acknowledgedSnapshot, acknowledgedRev,
+                   installedSnapshot, replacement,
                    installedRev, installedRev + 1)
+       /\ dispositionWitness' =
+            /\ dispositionWitness
+            /\ CorrectDisposition(lastResult')
   /\ installedRev' = installedRev + 1
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority("maintenance", installedRev + 1, currentIntent,
@@ -432,33 +570,81 @@ AdmitMaintenance ==
        /\ orderWitness
        /\ Head(maintenanceQueue).seq > lastAdmitted
        /\ \A e \in Range(maintenanceQueue) : Head(maintenanceQueue).seq <= e.seq
-  /\ UNCHANGED << consumerSnapshot, consumerRev,
+  /\ UNCHANGED << consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
                   currentIntent, explicit, superseded, nextMaintenance,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
                   revisionWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  synchronizationWitness >>
+
+\* Synchronization demand comes from the retained consumer.  Request identities
+\* are bounded for model exploration; the product response path has no retry
+\* ceiling.
+RequestConsumerSynchronization ==
+  /\ ConsumerAcknowledgementLags
+  /\ nextSynchronization <= MaxSynchronization
+  /\ synchronizationRequest = 0
+  /\ effect = NoAuthority
+  /\ hostAuthority = NoAuthority
+  /\ synchronizationRequest' = nextSynchronization
+  /\ nextSynchronization' = nextSynchronization + 1
+  /\ UNCHANGED << installedSnapshot, installedRev,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit, superseded, nextMaintenance,
+                  maintenanceQueue, lastAdmitted, admittedRequests,
+                  lastResult, effectEpoch, effect, hostAuthority,
+                  settledSynchronizations,
+                  admissionWitness, regatherWitness, revisionWitness,
+                  orderWitness, visibleWitness, consumerSyncWitness,
+                  consumerAckWitness, dispositionWitness,
+                  synchronizationWitness >>
 
 \* A retained consumer that abandoned or lost authority while behind the
-\* session can request the complete current snapshot under fresh authority.
-\* Pending maintenance drains first; any maintenance result is itself a
-\* current complete snapshot that can discharge the same lag.
+\* session can receive the complete current snapshot under fresh authority.
+\* Pending maintenance drains first; any intervening current result can
+\* discharge the same request when that result is acknowledged.
 SynchronizeConsumer ==
-  /\ consumerRev # installedRev
+  /\ synchronizationRequest # 0
+  /\ ConsumerAcknowledgementLags
   /\ explicit = NoExplicitWork
   /\ maintenanceQueue = << >>
   /\ effect = NoAuthority
-  /\ hostAuthority = NoAuthority
-  /\ effectEpoch < MaxEffectEpoch
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' =
        Authority("synchronize", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("synchronize", installedSnapshot, installedSnapshot,
+       Result("synchronize",
+              ConsumerDisposition(installedSnapshot, installedRev),
+              acknowledgedSnapshot, acknowledgedRev,
+              installedSnapshot, installedSnapshot,
               installedRev, installedRev)
+  /\ synchronizationRequest' = 0
+  /\ settledSynchronizations' =
+       settledSynchronizations \cup {synchronizationRequest}
+  /\ dispositionWitness' =
+       /\ dispositionWitness
+       /\ CorrectDisposition(lastResult')
+  /\ synchronizationWitness' =
+       /\ synchronizationWitness
+       /\ synchronizationRequest \notin settledSynchronizations
+       /\ synchronizationRequest < nextSynchronization
+       /\ synchronizationRequest' = 0
+       /\ settledSynchronizations' =
+            settledSynchronizations \cup {synchronizationRequest}
+       /\ lastResult'.resultSnapshot = installedSnapshot
+       /\ lastResult'.resultRev = installedRev
+       /\ lastResult'.disposition = "synchronizationRequired"
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit,
                   superseded, nextMaintenance, maintenanceQueue, lastAdmitted,
-                  admittedRequests, admissionWitness, regatherWitness,
+                  admittedRequests, nextSynchronization,
+                  admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness >>
 
@@ -473,6 +659,7 @@ VisibleEffect ==
   /\ hostAuthority = effect
   /\ consumerSnapshot' = lastResult.resultSnapshot
   /\ consumerRev' = lastResult.resultRev
+  /\ consumerInstalledEpoch' = hostAuthority.epoch
   /\ visibleWitness' =
        /\ visibleWitness
        /\ hostAuthority.session = SessionId
@@ -483,16 +670,20 @@ VisibleEffect ==
        /\ consumerSyncWitness
        /\ consumerSnapshot' = lastResult.resultSnapshot
        /\ consumerRev' = lastResult.resultRev
+       /\ consumerInstalledEpoch' = hostAuthority.epoch
        /\ lastResult.resultSnapshot = installedSnapshot
        /\ lastResult.resultRev = installedRev
        /\ hostAuthority.rev = lastResult.resultRev
   /\ UNCHANGED << installedSnapshot, installedRev, currentIntent, explicit,
-                  superseded,
+                  acknowledgedSnapshot, acknowledgedRev, superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
                   admittedRequests,
                   lastResult, effectEpoch, effect, hostAuthority,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
                   admissionWitness, regatherWitness, revisionWitness,
-                  orderWitness, consumerAckWitness >>
+                  orderWitness, consumerAckWitness, dispositionWitness,
+                  synchronizationWitness >>
 
 \* The consumer completed the authority-guarded effect.  Acknowledgement
 \* releases queued maintenance.
@@ -501,20 +692,43 @@ AcknowledgeEffect ==
   /\ hostAuthority = effect
   /\ consumerRev = installedRev
   /\ consumerSnapshot = installedSnapshot
+  /\ consumerInstalledEpoch = effectEpoch
+  /\ acknowledgedSnapshot' = consumerSnapshot
+  /\ acknowledgedRev' = consumerRev
   /\ effect' = NoAuthority
   /\ hostAuthority' = NoAuthority
+  /\ settledSynchronizations' =
+       IF synchronizationRequest = 0
+         THEN settledSynchronizations
+         ELSE settledSynchronizations \cup {synchronizationRequest}
+  /\ synchronizationRequest' = 0
   /\ consumerAckWitness' =
        /\ consumerAckWitness
        /\ consumerRev = installedRev
        /\ consumerSnapshot = installedSnapshot
+       /\ consumerInstalledEpoch = effectEpoch
+       /\ acknowledgedRev' = consumerRev
+       /\ acknowledgedSnapshot' = consumerSnapshot
+  /\ synchronizationWitness' =
+       /\ synchronizationWitness
+       /\ (synchronizationRequest = 0 \/
+             /\ synchronizationRequest \notin settledSynchronizations
+             /\ synchronizationRequest < nextSynchronization)
+       /\ synchronizationRequest' = 0
+       /\ settledSynchronizations' =
+            IF synchronizationRequest = 0
+              THEN settledSynchronizations
+              ELSE settledSynchronizations \cup {synchronizationRequest}
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
                   admittedRequests,
-                  lastResult, effectEpoch, admissionWitness, regatherWitness,
+                  lastResult, effectEpoch, nextSynchronization,
+                  admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
-                  consumerSyncWitness >>
+                  consumerSyncWitness, dispositionWitness >>
 
 \* A consumer that cannot complete the effect abandons its authority.
 \* Abandonment also releases queued maintenance.
@@ -523,26 +737,36 @@ AbandonEffect ==
   /\ hostAuthority' = NoAuthority
   /\ effect' = IF hostAuthority = effect THEN NoAuthority ELSE effect
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
                   admittedRequests,
-                  lastResult, effectEpoch, admissionWitness, regatherWitness,
+                  lastResult, effectEpoch, nextSynchronization,
+                  synchronizationRequest, settledSynchronizations,
+                  admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness >>
 
 \* A consumer is handed authority minted by a different navigation session.
 ForeignAuthorityOffered ==
   /\ hostAuthority = NoAuthority
   /\ hostAuthority' = ForeignAuthority
   /\ UNCHANGED << installedSnapshot, installedRev,
-                  consumerSnapshot, consumerRev, currentIntent, explicit,
+                  consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
                   admittedRequests,
-                  lastResult, effectEpoch, effect, admissionWitness,
+                  lastResult, effectEpoch, effect, nextSynchronization,
+                  synchronizationRequest, settledSynchronizations,
+                  admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
-                  visibleWitness, consumerSyncWitness, consumerAckWitness >>
+                  visibleWitness, consumerSyncWitness, consumerAckWitness,
+                  dispositionWitness, synchronizationWitness >>
 
 ResolveExplicit ==
   \/ \E returnedSnapshot \in SnapshotValues :
@@ -560,6 +784,7 @@ Next ==
   \/ \E n \in 1 .. MaxMaintenance : GatherMaintenanceFacts(n)
   \/ \E n \in 1 .. MaxMaintenance : RebuildMaintenance(n)
   \/ AdmitMaintenance
+  \/ RequestConsumerSynchronization
   \/ SynchronizeConsumer
   \/ VisibleEffect
   \/ AcknowledgeEffect
@@ -634,11 +859,14 @@ UnavailableRevisionMatchesSnapshotChange ==
              THEN lastResult.resultRev = lastResult.priorRev + 1
              ELSE lastResult.resultRev = lastResult.priorRev)
 
-\* Consumer state may lag product state after abandonment or supersession, but
-\* it never leads the session.  Equality of revisions means equality of the
-\* complete snapshots, not merely matching counters.
+\* Consumer-installed and product-acknowledged state are separate currencies.
+\* Neither may lead its authority source, and equal revisions mean equal
+\* complete snapshots rather than merely matching counters.
 ConsumerSynchronizationShape ==
+  /\ acknowledgedRev <= consumerRev
   /\ consumerRev <= installedRev
+  /\ (acknowledgedRev = consumerRev =>
+        acknowledgedSnapshot = consumerSnapshot)
   /\ (consumerRev = installedRev =>
         consumerSnapshot = installedSnapshot)
 
@@ -650,11 +878,22 @@ ConsumerVisibleEffectSynchronizes == consumerSyncWitness
 \* consumer snapshots differ.
 AcknowledgementRequiresConsumerSynchronization == consumerAckWitness
 
+\* Every result-producing action derives the typed disposition from the
+\* product-owned acknowledgement receipt, independently of semantic outcome.
+CurrentResultDispositionIsExact ==
+  /\ dispositionWitness
+  /\ (lastResult.outcome = "none" \/ CorrectDisposition(lastResult))
+
+\* Each bounded external request retains its exact identity until a current
+\* result settles it; no response-side retry ceiling exists.
+SynchronizationRequestDiscipline == synchronizationWitness
+
 \* A synchronization result and its authority always name the complete current
 \* product snapshot and revision.
 SynchronizationAuthorityIsCurrent ==
   effect.outcome = "synchronize" =>
     /\ lastResult.outcome = "synchronize"
+    /\ lastResult.disposition = "synchronizationRequired"
     /\ lastResult.resultSnapshot = installedSnapshot
     /\ lastResult.resultRev = installedRev
     /\ effect.rev = installedRev
@@ -692,6 +931,13 @@ MaintenanceEventuallyDrains ==
 \* request leaves the queue rather than sitting at the front forever.
 EveryQueuedRequestIsAdmitted ==
   \A n \in 1 .. MaxMaintenance : HasMaintenance(n) ~> (n \in admittedRequests)
+
+\* Every synchronization request that the bounded environment issues receives
+\* dedicated fresh authority or is discharged by acknowledgement of another
+\* current result carrying the complete product snapshot.
+EverySynchronizationRequestSettles ==
+  \A n \in 1 .. MaxSynchronization :
+    (n < nextSynchronization) ~> (n \in settledSynchronizations)
 
 \* Blocked by unresolved explicit work or by an unconsumed effect: the
 \* explicit operation must resolve and the effect must be acknowledged or
