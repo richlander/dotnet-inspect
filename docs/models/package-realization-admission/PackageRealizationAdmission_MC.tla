@@ -10,10 +10,12 @@ EXTENDS Naturals, TLC
 CONSTANTS
     c1, c2, c3,
     g1, g2, g3, g4,
+    s1, s2, s3, s4,
     strictOptions, looseOptions,
     d1, d2, d3,
-    BaseScenario, OptionScenario, ContentScenario, DuplicateScenario,
-    RootOnlyScenario, ReorderedScenario, CancellationScenario,
+    BaseScenario, OptionScenario, ContentScenario, SelectionScenario,
+    DuplicateScenario, RootOnlyScenario, ReorderedScenario,
+    CancellationScenario,
     Scenario,
     AllowLeaseAfterClose,
     AllowReleaseWithActiveLease,
@@ -22,13 +24,14 @@ CONSTANTS
     AllowResurrection,
     AllowInexactReuse,
     AllowPartialPublish,
-    AllowCancellationAbandon
+    AllowCancellationAbandon,
+    AllowCancellationFailure
 
 ASSUME
     Scenario
         \in {BaseScenario, OptionScenario, ContentScenario,
-             DuplicateScenario, RootOnlyScenario, ReorderedScenario,
-             CancellationScenario}
+             SelectionScenario, DuplicateScenario, RootOnlyScenario,
+             ReorderedScenario, CancellationScenario}
 
 VARIABLES
     workspaceState,
@@ -63,7 +66,8 @@ RequestSequenceOfMC ==
         @@ (
             d3 :>
                 CASE Scenario \in {
-                        OptionScenario, ContentScenario, CancellationScenario
+                        OptionScenario, ContentScenario, SelectionScenario,
+                        CancellationScenario
                     } -> <<c1, c2>>
                   [] Scenario = DuplicateScenario -> <<c1, c1>>
                   [] Scenario = RootOnlyScenario -> <<>>
@@ -97,13 +101,31 @@ GenerationOfMC ==
                 ELSE BaseGeneration
         )
 
+BaseSelection ==
+    (c1 :> s1) @@ (c2 :> s2) @@ (c3 :> s3)
+
+AlternateSelection ==
+    (c1 :> s1) @@ (c2 :> s4) @@ (c3 :> s3)
+
+SelectionOfMC ==
+    (d1 :> BaseSelection)
+        @@ (d2 :> BaseSelection)
+        @@ (
+            d3 :>
+                IF Scenario = SelectionScenario
+                THEN AlternateSelection
+                ELSE BaseSelection
+        )
+
 INSTANCE PackageRealizationAdmission WITH
     PackageCoordinates <- {c1, c2, c3},
     Generations <- {g1, g2, g3, g4},
+    Selections <- {s1, s2, s3, s4},
     Options <- {strictOptions, looseOptions},
     Demands <- {d1, d2, d3},
     RequestSequenceOf <- RequestSequenceOfMC,
     GenerationOf <- GenerationOfMC,
+    SelectionOf <- SelectionOfMC,
     OptionsOf <- OptionsOfMC
 
 =============================================================================

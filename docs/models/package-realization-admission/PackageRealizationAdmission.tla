@@ -2,10 +2,10 @@
 (***************************************************************************)
 (* Models the TARGET DESIGN for admission into                             *)
 (* `InspectionWorkspace.RealizePackageAssemblyContextRoles`, keyed by one   *)
-(* exact ordered request of selected package-coordinate/content-generation  *)
-(* bindings and one exact realization-options value. Each package coordinate *)
-(* includes package id, version, target framework, runtime identifier, and   *)
-(* resolved producer (see `RealizedMemberCoordinate.Package` in             *)
+(* exact ordered request of selected package-coordinate/content-generation/ *)
+(* selection bindings and one exact realization-options value. Each package *)
+(* coordinate includes package id, version, target framework, runtime        *)
+(* identifier, and resolved producer (see `RealizedMemberCoordinate.Package` *)
 (* src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs).         *)
 (*                                                                         *)
 (* The whole request is the cache unit because the product creates one      *)
@@ -38,7 +38,8 @@
 (* bypasses this admission cache without a lease or cleanup request. A      *)
 (* duplicate normalized coordinate is rejected before cache lookup. Each    *)
 (* generation token is acquisition-owned proof that equal coordinates still *)
-(* name the same immutable content generation.                              *)
+(* name the same immutable content generation. The selection token proves   *)
+(* that equal entries chose the same ordered surface/implementation assets. *)
 (*                                                                         *)
 (* THE GENERATION TOKEN'S IMMUTABILITY GUARANTEE IS AN ASSUMPTION, NOT A    *)
 (* CLAIM THIS MODEL PROVES. #5121 owns issuing that token and proving that   *)
@@ -57,10 +58,12 @@ EXTENDS FiniteSets, Naturals, Sequences, TLC
 CONSTANTS
     PackageCoordinates,
     Generations,
+    Selections,
     Options,
     Demands,
     RequestSequenceOf,
     GenerationOf,
+    SelectionOf,
     OptionsOf,
     AllowLeaseAfterClose,
     AllowReleaseWithActiveLease,
@@ -69,7 +72,8 @@ CONSTANTS
     AllowResurrection,
     AllowInexactReuse,
     AllowPartialPublish,
-    AllowCancellationAbandon
+    AllowCancellationAbandon,
+    AllowCancellationFailure
 
 NoDemand == "NoDemand_"
 
@@ -77,6 +81,7 @@ ASSUME
     /\ NoDemand \notin Demands
     /\ RequestSequenceOf \in [Demands -> Seq(PackageCoordinates)]
     /\ GenerationOf \in [Demands -> [PackageCoordinates -> Generations]]
+    /\ SelectionOf \in [Demands -> [PackageCoordinates -> Selections]]
     /\ OptionsOf \in [Demands -> Options]
     /\ AllowLeaseAfterClose \in BOOLEAN
     /\ AllowReleaseWithActiveLease \in BOOLEAN
@@ -86,12 +91,15 @@ ASSUME
     /\ AllowInexactReuse \in BOOLEAN
     /\ AllowPartialPublish \in BOOLEAN
     /\ AllowCancellationAbandon \in BOOLEAN
+    /\ AllowCancellationFailure \in BOOLEAN
 
 SequenceSet(s) == {s[i] : i \in 1..Len(s)}
 CoordinateSetOfBoundSequence(s) ==
     {s[i][1] : i \in 1..Len(s)}
 CoordinateSequenceOfBoundSequence(s) ==
     [i \in 1..Len(s) |-> s[i][1]]
+CoordinateGenerationSequenceOfBoundSequence(s) ==
+    [i \in 1..Len(s) |-> <<s[i][1], s[i][2]>>]
 
 HasDuplicateCoordinate(d) ==
     Len(RequestSequenceOf[d]) # Cardinality(SequenceSet(RequestSequenceOf[d]))
@@ -102,7 +110,11 @@ Eligible(d) ==
 
 BoundRequestSequence(d) ==
     [i \in 1..Len(RequestSequenceOf[d]) |->
-        <<RequestSequenceOf[d][i], GenerationOf[d][RequestSequenceOf[d][i]]>>]
+        <<
+            RequestSequenceOf[d][i],
+            GenerationOf[d][RequestSequenceOf[d][i]],
+            SelectionOf[d][RequestSequenceOf[d][i]]
+        >>]
 
 RequestIdentity(d) == <<BoundRequestSequence(d), OptionsOf[d]>>
 EligibleDemands == {d \in Demands : Eligible(d)}
@@ -410,6 +422,38 @@ AbandonOnFinalCancellation(d) ==
             cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
             consistentOutcomeWitness, zeroLeaseRetentionWitness,
             disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            >>
+
+(***************************************************************************)
+(* Deliberate mutation: final-caller cancellation settles the shared        *)
+(* operation as though caller cancellation were an operation failure.       *)
+(***************************************************************************)
+FailOnFinalCancellation(d) ==
+    LET c == CoordinateOf[d]
+        attached ==
+            {e \in Demands :
+                CoordinateOf[e] = c
+                    /\ demandState[e] \in {"Admitting", "Joined"}}
+        operation == cacheOperation[c]
+    IN  /\ AllowCancellationFailure
+        /\ demandState[d] \in {"Admitting", "Joined"}
+        /\ attached = {d}
+        /\ operation # 0
+        /\ demandState' = [demandState EXCEPT ![d] = "Canceled"]
+        /\ canceledOperation' =
+            [canceledOperation EXCEPT ![d] = operation]
+        /\ cacheState' = [cacheState EXCEPT ![c] = "Absent"]
+        /\ cacheOperation' = [cacheOperation EXCEPT ![c] = 0]
+        /\ leader' = [leader EXCEPT ![c] = NoDemand]
+        /\ settledOperations' = settledOperations \union {operation}
+        /\ UNCHANGED <<
+            workspaceState, cacheRealization, demandResult,
+            nextRealizationId, cleanupStarts, cleanupOutcome, returnAttempts,
+            disposedWithLease, drainedSuccess, leaseSafetyWitness,
+            publishSafetyWitness, cleanupSafetyWitness, joinWitness,
+            retryAfterFailureWitness, consistentOutcomeWitness,
+            zeroLeaseRetentionWitness, disposalWaitWitness,
+            drainedSuccessWitness, doubleReturnWitness
             >>
 
 (***************************************************************************)
@@ -756,7 +800,8 @@ Next ==
     \/ \E d \in Demands :
         BypassRootOnly(d) \/ RejectDuplicate(d) \/ Admit(d) \/ Join(d)
             \/ ReuseReady(d) \/ CancelDemand(d)
-            \/ AbandonOnFinalCancellation(d) \/ RejectAfterClose(d)
+            \/ AbandonOnFinalCancellation(d) \/ FailOnFinalCancellation(d)
+            \/ RejectAfterClose(d)
             \/ ReturnLease(d) \/ ReturnLeaseAgain(d)
     \/ \E c \in Coordinates :
         CompleteSuccess(c) \/ PublishPartial(c) \/ CompleteFailure(c)
@@ -857,6 +902,22 @@ CancellationCannotAbandonOperation ==
             \/ canceledOperation[d] = cacheOperation[CoordinateOf[d]]
             \/ canceledOperation[d] \in settledOperations
 
+(* Cancellation of an attached caller changes only caller-local state. It  *)
+(* cannot remove, replace, or settle the workspace-owned operation.         *)
+CallerCancellationCannotSettleOperation ==
+    [][
+        \A d \in Demands :
+            (
+                /\ demandState[d] \in {"Admitting", "Joined"}
+                /\ demandState'[d] = "Canceled"
+            ) =>
+                /\ cacheState'[CoordinateOf[d]] =
+                    cacheState[CoordinateOf[d]]
+                /\ cacheOperation'[CoordinateOf[d]] =
+                    cacheOperation[CoordinateOf[d]]
+                /\ settledOperations' = settledOperations
+    ]_vars
+
 (* A reusable result is issued only from the demand's exact ordered request *)
 (* identity, including exact options.                                      *)
 ExactRequestReuse ==
@@ -932,6 +993,10 @@ EveryDrainingAdmissionEventuallySettles ==
         (cacheState[c] = "Draining")
             ~> (cacheState[c] \in {"Absent", "Closing", "Releasing", "Released"})
 
+EveryInFlightAdmissionEventuallySettles ==
+    \A c \in Coordinates :
+        (cacheState[c] = "InFlight") ~> (cacheState[c] # "InFlight")
+
 (***************************************************************************)
 (* REACHABILITY PROBES (not part of the correctness gate)                 *)
 (*                                                                         *)
@@ -966,6 +1031,15 @@ NoContentGenerationIsolationObserved ==
         /\ c1 # c2
         /\ CoordinateSequenceOfBoundSequence(c1[1])
             = CoordinateSequenceOfBoundSequence(c2[1])
+        /\ c1[1] # c2[1]
+        /\ c1[2] = c2[2]
+        /\ cacheState[c1] = "InFlight"
+        /\ cacheState[c2] = "InFlight"
+NoSelectionIsolationObserved ==
+    ~\E c1, c2 \in Coordinates :
+        /\ c1 # c2
+        /\ CoordinateGenerationSequenceOfBoundSequence(c1[1])
+            = CoordinateGenerationSequenceOfBoundSequence(c2[1])
         /\ c1[1] # c2[1]
         /\ c1[2] = c2[2]
         /\ cacheState[c1] = "InFlight"
