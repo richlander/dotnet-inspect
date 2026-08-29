@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -19,7 +20,9 @@ namespace NuGetFetch.Plugins;
 internal sealed class PluginConnection : IAsyncDisposable
 {
     private const string ProtocolVersion = "2.0.0";
-    private const string MinimumProtocolVersion = "1.0.0";
+    private const string MinimumProtocolVersion = ProtocolVersion;
+    private static readonly string[] LogLevels =
+        ["Debug", "Verbose", "Information", "Minimal", "Warning", "Error"];
 
     // NuGet's defaults, from Plugins/ProtocolConstants.cs and Plugins/PluginConstants.cs.
     // Note the handshake timeout is 30s in code even though the published docs say 5s.
@@ -136,7 +139,8 @@ internal sealed class PluginConnection : IAsyncDisposable
             PluginJsonContext.Default.HandshakeResponse,
             cancellationToken).ConfigureAwait(false);
 
-        if (handshake?.ResponseCode != ResponseCodes.Success)
+        if (handshake?.ResponseCode != ResponseCodes.Success
+            || !string.Equals(handshake.ProtocolVersion, ProtocolVersion, StringComparison.Ordinal))
         {
             _log?.Invoke("Credential plugin declined the protocol handshake.");
             return false;
@@ -422,11 +426,18 @@ internal sealed class PluginConnection : IAsyncDisposable
                     break;
 
                 case MessageMethods.Log:
-                    LogRequest? log = payload?.Deserialize(PluginJsonContext.Default.LogRequest);
+                    LogRequest? log = DeserializeInboundPayload(
+                        payload,
+                        PluginJsonContext.Default.LogRequest,
+                        MessageMethods.Log);
 
-                    if (log is not null && _log is not null)
+                    bool validLog = log is not null
+                        && LogLevels.Contains(log.LogLevel, StringComparer.Ordinal)
+                        && !string.IsNullOrEmpty(log.Message);
+
+                    if (validLog && _log is not null)
                     {
-                        _log($"Credential plugin [{log.LogLevel}]: {log.Message}");
+                        _log($"Credential plugin [{log!.LogLevel}]: {log.Message}");
                     }
 
                     await WriteAsync(
@@ -434,7 +445,10 @@ internal sealed class PluginConnection : IAsyncDisposable
                             requestId,
                             MessageTypes.Response,
                             MessageMethods.Log,
-                            new LogResponse(ResponseCodes.Success)),
+                            new LogResponse(
+                                !validLog
+                                    ? ResponseCodes.Error
+                                    : ResponseCodes.Success)),
                         PluginJsonContext.Default.EnvelopeLogResponse,
                         _shutdown.Token).ConfigureAwait(false);
                     break;
@@ -446,20 +460,62 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
     }
 
-    private static HandshakeResponse NegotiateHandshake(JsonElement? payload)
+    private HandshakeResponse NegotiateHandshake(JsonElement? payload)
     {
-        HandshakeRequest? request = payload?.Deserialize(PluginJsonContext.Default.HandshakeRequest);
+        HandshakeRequest? request = DeserializeInboundPayload(
+            payload,
+            PluginJsonContext.Default.HandshakeRequest,
+            MessageMethods.Handshake);
 
-        // We speak exactly one version, so compatibility reduces to the plugin's floor not
-        // exceeding it. NuGet's rule is the general form of the same test.
-        if (request is null || !string.Equals(request.MinimumProtocolVersion, MinimumProtocolVersion, StringComparison.Ordinal))
+        if (request is null
+            || !TryParseProtocolVersion(request.ProtocolVersion, out Version? pluginVersion)
+            || !TryParseProtocolVersion(request.MinimumProtocolVersion, out Version? pluginMinimum)
+            || pluginMinimum > pluginVersion
+            || !TryParseProtocolVersion(ProtocolVersion, out Version? hostVersion)
+            || !TryParseProtocolVersion(MinimumProtocolVersion, out Version? hostMinimum))
         {
-            return string.Equals(request?.ProtocolVersion, ProtocolVersion, StringComparison.Ordinal)
-                ? new HandshakeResponse(ResponseCodes.Success, ProtocolVersion)
-                : new HandshakeResponse(ResponseCodes.Error, null);
+            return new HandshakeResponse(ResponseCodes.Error, null);
         }
 
-        return new HandshakeResponse(ResponseCodes.Success, ProtocolVersion);
+        Version negotiated = pluginVersion < hostVersion ? pluginVersion : hostVersion;
+
+        return negotiated >= pluginMinimum && negotiated >= hostMinimum
+            ? new HandshakeResponse(ResponseCodes.Success, negotiated.ToString(3))
+            : new HandshakeResponse(ResponseCodes.Error, null);
+    }
+
+    private static bool TryParseProtocolVersion(
+        string? value,
+        [NotNullWhen(true)] out Version? version)
+    {
+        if (value is not null
+            && Version.TryParse(value, out version)
+            && version.Build >= 0
+            && version.Revision < 0
+            && string.Equals(version.ToString(3), value, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        version = null;
+        return false;
+    }
+
+    private T? DeserializeInboundPayload<T>(
+        JsonElement? payload,
+        JsonTypeInfo<T> type,
+        string method)
+        where T : class
+    {
+        try
+        {
+            return payload?.Deserialize(type);
+        }
+        catch (JsonException)
+        {
+            _log?.Invoke($"Credential plugin sent a malformed '{method}' payload.");
+            return null;
+        }
     }
 
     private static TimeSpan ReadTimeoutOverride(string variable, TimeSpan fallback) =>
