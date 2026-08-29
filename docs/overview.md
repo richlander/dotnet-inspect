@@ -107,11 +107,11 @@ substrates, and inspection producers that will extend that space.
   publication to the consumer.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety and fidelity contract for decoding custom-attribute values
-  from untrusted metadata: the byte-exactness invariant binding
-  `CustomAttributeValueGuard` to SRM's decode, the shared enum-width oracle
-  both consult, the two distinct width-resolution paths, and the refusal and
-  charging semantics. `SignatureBlobGuard` retains its structural signature
-  bounds.
+  from untrusted metadata: the alignment and bounding invariants relating
+  `CustomAttributeValueGuard` to SRM's decode, the two width-resolution paths
+  and the distinct mechanism each uses to stay in agreement, and the bound,
+  charging, and refusal semantics. `SignatureBlobGuard` retains its structural
+  signature bounds.
 
 ## Engineering guidance
 
