@@ -91,7 +91,6 @@ binding is unverified pending
 | --- | --- | --- | --- |
 | Current `CSharpFormattedDeclaration` and formatter string results | One model-bound declaration request | Current C# display text, namespace imports, and available diagnostics | Metadata identity, slot provenance, structured-versus-compatibility fidelity, or body correspondence |
 | Target `CSharpDeclarationResult` and `CSharpDeclarationText` | One declaration plan | Whether CSharp rendered classified slots, emitted compatibility text, or refused; carries final presentation text only for rendered outcomes | Metadata extraction, identity, API serialization, call-graph correspondence, or proof that the declaration compiles |
-| Target `CSharpTypePrintOutcome` | One type-printer request and all included child declarations | Whether the complete source aggregate is structured, contains compatibility output, or is unavailable; carries source only for rendered outcomes | Why an adjacent owner omitted evidence, compile-back admission, body correspondence, or metadata identity |
 
 The target currencies and their slot inventory are owned by
 [C# structured declaration provenance](csharp-structured-declaration-provenance.md).

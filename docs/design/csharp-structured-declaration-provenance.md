@@ -4,9 +4,7 @@
 
 This document defines the target declaration-slot contract for
 `ILInspector.CSharp`. `CSharpFormatter` owns model-bound C# declaration
-spelling; `CSharpDeclarationWriter` is its current declaration seam, and
-`CSharpTypePrinter` composes those declarations into type and compilation-unit
-output.
+spelling; `CSharpDeclarationWriter` is its current declaration seam.
 
 The target is **unverified** until the gates in
 [Verification](#verification) exist. Current formatters mix structured
@@ -26,10 +24,6 @@ The CSharp owner prepares each non-opaque slot according to that classification
 before composition. It never recovers a slot boundary or provenance fact by
 scanning the completed declaration. Raw Metadata models and identities remain
 unchanged.
-
-The same provenance follows composition through `CSharpTypePrinter`. A
-type-printer result cannot hide a compatibility or unavailable child behind
-otherwise structured source.
 
 This is one CSharp-owned claim. Metadata continues to own extraction and its
 `ApiType`, `ApiMember`, and `ApiSignature` facts. CSharpText continues to own
@@ -157,14 +151,16 @@ CSharp consumes Metadata-issued declaration facts:
   compatibility signature;
 - `ApiSignature`, `ApiParameter`, `ApiAccessor`, `TypeParameter`, and typed
   type-reference or type-shape evidence; and
-- caller options that select qualification, imports, namespace form,
-  declaration abbreviation, and body-related modifiers; and
-- CSharp-owned placement context that says whether a type declaration is a
-  root or a child of one exact declaring-type plan.
+- caller options that select qualification, imports, declaration abbreviation,
+  and declaration modifiers; and
+- a typed declaration context that says whether a type is a root or a child of
+  one exact declaring-type identity.
 
-These inputs remain owned by Metadata, the caller, or CSharp as named above.
-This document states only the preconditions CSharp requires. It does not define
-how Metadata decodes, validates, persists, or associates them.
+These inputs remain owned by Metadata or the caller. The formatter validates
+the declaration context against exact definition-name segments but does not
+define how a larger source composer constructs its request tree. This document
+states only the preconditions CSharp requires. It does not define how Metadata
+decodes, validates, persists, or associates them.
 
 All target contracts remain SRM-only, Roslyn-free, NativeAOT-friendly, and
 usable from browser/Wasm consumers. Introducing a platform-specific dependency
@@ -172,8 +168,7 @@ would require a separately approved exception.
 
 ### Outputs
 
-The target declaration result is a closed `CSharpDeclarationResult` with two
-arms:
+The target public result is a closed `CSharpDeclarationResult` with two arms:
 
 - **Rendered** carries `CSharpDeclarationText`, any required exact whole
   namespace identities, a `Structured` or `Compatibility` mode, and
@@ -182,11 +177,11 @@ arms:
   success-shaped empty declaration.
 
 An exact whole namespace identity preserves an owner-issued namespace string;
-it does not claim segment identity. `ApiType.Namespace` and an explicitly
+it does not claim segment identity. Typed Metadata evidence or an explicitly
 identified caller namespace may supply one. A qualified-name spelling derived
-from type text cannot mint an identity or introduce a `using`; it remains a
-spelling slot, or the declaration visibly degrades when the selected output
-policy requires an exact namespace.
+from type text cannot mint an identity or enter the result's import set; it
+remains spelling evidence, or the declaration visibly degrades when the
+selected abbreviation requires an exact namespace.
 
 `CSharpDeclarationText` is contained presentation currency, not a string
 identity. Its construction is restricted to the CSharp composer and means that
@@ -204,30 +199,9 @@ Diagnostics carry a closed `CSharpDeclarationDiagnosticReason` and optional
 Raw artifact-controlled text cannot be interpolated into an ordinary diagnostic
 string, and this design does not create another scalar policy.
 
-The target aggregate is a closed `CSharpTypePrintOutcome`:
-
-- **Rendered** carries the source artifact, units, exact required namespace
-  identities, an aggregate `Structured` or `Compatibility` mode, and typed
-  diagnostics.
-- **Unavailable** carries a stable reason and typed diagnostics, but no source,
-  units, or success-shaped empty artifact.
-
-The aggregate is `Structured` only when every included type, member, global
-attribute, and initializer declaration is structured. One compatibility child
-makes the aggregate `Compatibility`. One unavailable child makes the aggregate
-`Unavailable`; the printer does not silently omit it. A caller may obtain a
-different outcome only by making a new request that excludes that declaration.
-Mode and failure are public fields, never facts inferred from diagnostic text.
-Aggregate diagnostics use the same closed reason and `InertString` detail
-contract as declaration diagnostics. An artifact-controlled subject name, when
-included, is contained detail rather than an ordinary `TypeName` string. Exact
-identities remain in the source model rather than doubling as diagnostic
-display text.
-
 Existing string-returning formatter methods may remain compatibility adapters
 during migration. New consumers that require the structured guarantee consume
-`CSharpDeclarationResult` or `CSharpTypePrintOutcome`; they do not infer success
-or mode from text.
+`CSharpDeclarationResult`; they do not infer success or mode from text.
 
 ### Adjacent owners
 
@@ -237,6 +211,10 @@ or mode from text.
   declared type-expression or compatibility slot, but it does not decide which
   semantic slot a substring occupies. Issue #5134 owns the additional
   declaration-containment policy required by this target.
+- **CSharpTypePrinter** composes declarations into complete source. Issue #5142
+  owns unit, namespace/import, body, initializer, global-attribute, nesting,
+  and aggregate outcome mechanics; this formatter contract supplies its
+  declaration result.
 - **CLI and other hosts** choose where to display or serialize the result. They
   do not repeat CSharp preparation.
 - **Decompiler and Research** may request or compose declarations but do not
@@ -272,14 +250,12 @@ The implementation owns one data-driven catalog for this inventory. A slot may
 be absent for declaration forms where it is inapplicable, but a new slot cannot
 enter composition without a catalog entry and handler.
 
-### Compilation-unit and type slots
+### Type slots
 
 | Slot | Value class | Current source |
 | --- | --- | --- |
-| Namespace declaration | Qualified-name spelling | `ApiType.Namespace`, formatter options, or a derived namespace spelling; these strings do not claim exact segment identity |
-| `using` directive name | Qualified-name spelling | an exact whole namespace identity from `ApiType.Namespace` or explicit caller input; a type-text-derived spelling cannot supply this slot |
 | Type declaration name | Type declaration name | `ApiType.DefinitionName`, `IntroducedTypeParameterCounts`, and `TypeParameters`; legacy flattened `Name` is compatibility input |
-| Type declaration placement | Closed syntax | CSharp-owned root or exact parent/child placement from the print request; never inferred by comparing `Name`, `MetadataName`, or rendered text |
+| Type declaration placement | Closed syntax | caller-issued root or exact parent identity; never inferred by comparing `Name`, `MetadataName`, or rendered text |
 | Type kind, accessibility, and modifiers | Closed syntax | `ApiType.Kind`, accessibility, and modifier flags |
 | Type generic-parameter name | Raw identifier | `ApiType.TypeParameters[].Name` |
 | Type generic-parameter variance | Closed syntax | `ApiType.TypeParameters[].Variance` |
@@ -291,8 +267,6 @@ enter composition without a catalog entry and handler.
 | Type special constraint | Closed syntax | non-type entries in `TypeParameter.StructuredConstraints` |
 | Type constraint type | Type expression | type entries in `TypeParameter.StructuredConstraints`; unstructured constraints are compatibility input |
 | Type attribute | Rendered fragment | `ApiType.Attributes` |
-| Assembly attribute | Rendered fragment | `CSharpTypePrintOptions.AssemblyAttributes` |
-| Module attribute | Rendered fragment | `CSharpTypePrintOptions.ModuleAttributes` |
 
 ### Common member slots
 
@@ -317,16 +291,6 @@ enter composition without a catalog entry and handler.
 | Accessor | Composite subplan | ordered accessor child slots |
 | Accessor return attribute | Rendered fragment | `ApiAccessor.ReturnAttributes` |
 | Accessor accessibility and kind | Closed syntax | `ApiAccessor.Accessibility` and `ApiAccessor.Kind` |
-| Enum-member name | Raw identifier | enum `ApiMember.Name` |
-| Field or enum initializer | Rendered fragment | `CSharpFieldInitializer.Source` |
-| Constructor initializer | Composite subplan | optional `CSharpConstructorInitializer` |
-| Constructor initializer kind | Closed syntax | `CSharpConstructorInitializer.Kind` |
-| Constructor initializer argument | Rendered fragment | `CSharpConstructorInitializer.Arguments` |
-| Fixed-buffer declaration | Composite subplan | typed `CSharpFixedBufferField` before compatibility flattening |
-| Fixed-buffer keyword | Closed syntax | product-owned `fixed` keyword |
-| Fixed-buffer length | Raw literal value | positive integer `CSharpFixedBufferField.Length` rendered in the fixed decimal form |
-| Fixed-buffer element type | Type expression | `CSharpFixedBufferField.ElementType` |
-| Fixed-buffer name | Raw identifier | owning field `ApiMember.Name` |
 | Finalizer spelling mode | Closed syntax | `SuppressFinalizerSpelling` body-fidelity choice |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
 
@@ -335,8 +299,7 @@ enter composition without a catalog entry and handler.
 | Form | Additional required structure |
 | --- | --- |
 | Class, struct, interface, record, or enum type | Exact type declaration name, typed root or parent/child placement, closed kind/modifiers, generic parameters, bases/interfaces, and constraints as applicable |
-| Assembly or module attribute declaration | Rendered attribute body plus closed target and punctuation |
-| Constructor | Exact declaring-type leaf name plus parameters and optional initializer subplan |
+| Constructor | Exact declaring-type leaf name and parameters |
 | Static constructor | Exact declaring-type leaf name and closed punctuation |
 | Finalizer with destructor spelling | Exact declaring-type leaf name and closed destructor marker |
 | Finalizer with destructor spelling suppressed | Closed body-fidelity selector plus structured `void Finalize()` method head |
@@ -346,16 +309,14 @@ enter composition without a catalog entry and handler.
 | Indexer | Property type, closed `this` token, index parameters, and accessor list |
 | Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, and accessors; structured mode is pending #5114 |
 | Event | Event type, simple name, and optional explicit-interface qualifier; structured explicit forms are pending #5114 |
-| Field or constant | Field type, simple name, and optional initializer fragment |
-| Fixed-buffer field | Fixed keyword, element type, simple name, and validated length; flattened `ApiMember.Signature` remains compatibility input |
-| Enum member | Simple name and optional initializer fragment; no field-type slot |
+| Field or constant | Field type and simple name |
 | Unary, binary, conversion, or checked operator | Metadata operator kind mapped through a closed catalog, typed return/conversion target, and parameters |
 | Delegate | Return type, exact type declaration name, typed root or parent/child placement, generic parameters, parameters, and constraints |
 
-This table covers the declaration forms CSharp currently emits. Recovered body
-text, initializer recovery mechanics, namespace selection, and member grouping
-remain outside this contract, but an initializer or global attribute becomes a
-declaration slot when `CSharpTypePrinter` composes it into source.
+This table covers the declaration forms `CSharpFormatter` emits. Compilation
+units, namespaces/imports, global attributes, enum-member and fixed-buffer
+special cases, initializers, bodies, and member grouping remain with #5142's
+complete-source composer.
 
 ## Composition rules
 
@@ -370,12 +331,6 @@ declaration slot when `CSharpTypePrinter` composes it into source.
    has crossed either a structured slot handler or the contained compatibility
    boundary. Label the result `Structured` only when the complete form plan used
    structured slots.
-6. Carry each child outcome into type-printer aggregation. Global attributes,
-   type declarations, enum members, field/enum initializers, constructor
-   initializers, and ordinary members all contribute their mode or failure.
-   The aggregate rules above run before `CSharpTypePrintOutcome` can expose
-   source.
-
 The structured path therefore forbids:
 
 - applying identifier substitutions to the complete declaration;
@@ -429,8 +384,7 @@ pass:
 
 1. introduce the result, text currency, slot catalog, and compatibility mode;
 2. route currently structured type, constructor, ordinary method, property,
-   event, field, parameter, constraint, and accessor paths through plans, then
-   propagate those outcomes through `CSharpTypePrintOutcome`;
+   event, field, parameter, constraint, and accessor paths through plans;
 3. consume #5114's owner-issued explicit-interface handoff before promoting
    those forms;
 4. remove a compatibility repair only after its final form has structured
@@ -485,14 +439,14 @@ properties remain unverified:
 - `CSharpDeclarationProvenanceTests.EveryDeclarationFormHasExpectedModeAndNeighborCases`
   derives every row of the form inventory and verifies its expected
   `Structured`, `Compatibility`, or `Unavailable` outcome, including
-  every type kind and root/nested placement, assembly/module attributes,
-  constructors and their initializers, properties, indexers, events, operators,
-  enum members, fixed buffers, field initializers, both finalizer spellings,
-  bases, interfaces, and constraints.
+  every type kind and root/nested placement, constructors, properties, indexers,
+  events, operators, fields, both finalizer spellings, bases, interfaces, and
+  constraints.
 - `CSharpDeclarationProvenanceTests.NestedTypePlacementDoesNotComeFromDisplayText`
   varies only legacy `Name`/`MetadataName` spellings and proves that the typed
-  print-request tree selects an exact child leaf while an unsupported
-  standalone nested request returns `Unavailable`.
+  declaration context selects an exact child leaf while mismatched parent
+  identity, namespace, or segment depth and an unsupported standalone nested
+  request return `Unavailable`.
 - `CSharpDeclarationProvenanceTests.LegacyFlattenedTypeNameWithLiteralPunctuationIsNotStructured`
   proves that `ApiType.Name` cannot stand in for exact definition-name segments.
 - `CSharpDeclarationProvenanceTests.TypeNameArityOwnershipIsRequiredForStructuredNestedGenerics`
@@ -501,7 +455,8 @@ properties remain unverified:
 - `CSharpDeclarationProvenanceTests.NamespaceSpellingDoesNotClaimMetadataSegments`
   exercises keywords, empty components, repeated dots, and literal punctuation,
   preserving an owner-issued exact whole namespace while proving that a
-  type-text-derived spelling cannot enter the identity-bearing import set.
+  type-text-derived spelling cannot enter the declaration result's
+  identity-bearing import set.
 - `CSharpDeclarationProvenanceTests.MissingStructureIsVisible`
   proves that each target failure selects `Compatibility` or `Unavailable`,
   never `Structured` or success-shaped empty output.
@@ -517,24 +472,11 @@ properties remain unverified:
 - `CSharpDeclarationProvenanceTests.CompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`
   remains pending on #5134, then forces opaque compatibility declarations and
   artifact-derived diagnostics and verifies that both are inert and line-safe.
-- `CSharpDeclarationProvenanceTests.GlobalAttributesAndInitializersHaveExpectedModeAndContainment`
-  covers assembly/module attributes, field and enum initializers, and
-  constructor `this`/`base` initializer arguments, including hostile fragments;
-  its full scalar-containment assertion remains pending on #5134.
-- `CSharpDeclarationProvenanceTests.TypePrintOutcomePropagatesChildModeAndFailure`
-  covers structured-only, mixed compatibility, and unavailable child sets
-  across `Print` and `PrintBatch`; it proves that global attributes and
-  initializers participate, unavailable input yields no source, and consumers
-  never infer mode from diagnostics.
-- `CSharpDeclarationProvenanceTests.TypePrintDiagnosticsAreTypedAndContained`
-  remains pending on #5134, then
-  supplies hostile type and member names to aggregate diagnostics and proves
-  that reasons are closed, details are inert and line-safe, and source-model
-  identities remain separate.
-- `CSharpDeclarationProvenanceTests.FixedBuffersUseTypedSlotsOrVisibleCompatibility`
-  proves that `CSharpFixedBufferField` reaches a closed keyword, structured
-  element and identifier slots, and a raw positive integer literal slot while a
-  flattened signature cannot be promoted.
+- `CSharpDeclarationProvenanceTests.DiagnosticsUseClosedReasonsAndInertDetails`
+  proves independently of #5134 that every diagnostic reason is a closed enum,
+  every optional detail is an `InertString` constructed under
+  `TextPolicy.Field`, and no raw artifact name enters an ordinary message
+  string.
 - `CSharpDeclarationProvenanceTests.FinalizerSpellingModePreservesBodyFidelity`
   covers destructor syntax and the structured literal-`Finalize` alternative
   selected when body fidelity suppresses destructor reconstruction.
@@ -555,6 +497,9 @@ This owner does not define:
 - CLI section selection, Markdown/JSON rendering, or Markout behavior;
 - API-to-body, accessor, or call-graph correspondence;
 - Decompiler body fidelity or compile-back admission;
+- `CSharpTypePrinter` request-tree, compilation-unit, namespace/import, global
+  attribute, initializer, body-fragment, or aggregate outcome mechanics tracked
+  by #5142;
 - CSharpText's lexical grammar; or
 - the missing primitive-versus-generic provenance tracked by #5076.
 
