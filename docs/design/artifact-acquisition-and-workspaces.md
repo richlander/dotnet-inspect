@@ -612,8 +612,6 @@ above. An ordinary drive root such as `C:\` is a supported `Directory`
 coordinate; bounded-directory limits still govern its top-level enumeration.
 An ordinary regular file directly beneath that root, such as `C:\foo.dll`, is a
 supported `RegularFile` coordinate. Neither form is a device coordinate.
-`C:` without the trailing separator is instead drive-relative input and follows
-the ordinary `Path.GetFullPath` normalization rule before classification.
 Ordinary filesystem paths are inspected through managed attributes. For a final
 reparse point, a metadata handle opened without following the point queries its
 tag. Classification is tag-semantic rather than based only on the name-surrogate
