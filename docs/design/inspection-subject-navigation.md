@@ -417,7 +417,7 @@ installed snapshot and one typed disposition:
 
 | Disposition | Consumer obligation |
 | --- | --- |
-| Current | The last acknowledged consumer snapshot already equals the result snapshot |
+| Current | The product-owned acknowledged consumer receipt already names this result's complete snapshot revision |
 | Synchronization required | Install the complete result snapshot before acknowledging its authority |
 
 The disposition is independent of semantic outcome. A rejected, failed,
@@ -576,6 +576,7 @@ The eventual subject-navigation implementation must include named gates for:
 | Consumer requests synchronization after abandonment | Latest complete snapshot returns under fresh current authority with no semantic navigation change |
 | Consumer abandons synchronization and remounts | Receipt remains behind and a later request can obtain fresh synchronization authority again |
 | Consumer acknowledges while still lagging | Acknowledgement is rejected and the product-owned consumer receipt does not advance |
+| Snapshot contents return to an earlier value at a newer revision | `Synchronization required`; equal contents do not make generation-scoped state current |
 
 ## Non-goals
 

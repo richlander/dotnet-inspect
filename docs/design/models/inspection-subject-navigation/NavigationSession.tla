@@ -81,7 +81,8 @@ VARIABLES
   consumerSyncWitness,
   consumerAckWitness,
   dispositionWitness,
-  synchronizationWitness
+  synchronizationWitness,
+  abandonmentWitness
 
 vars == << installedSnapshot, installedRev, consumerSnapshot, consumerRev,
            consumerInstalledEpoch,
@@ -93,7 +94,8 @@ vars == << installedSnapshot, installedRev, consumerSnapshot, consumerRev,
            settledSynchronizations,
            admissionWitness, regatherWitness, revisionWitness, orderWitness,
            visibleWitness, consumerSyncWitness, consumerAckWitness,
-           dispositionWitness, synchronizationWitness >>
+           dispositionWitness, synchronizationWitness,
+           abandonmentWitness >>
 
 (***************************************************************************)
 (* Currencies.                                                             *)
@@ -142,6 +144,12 @@ CorrectDisposition(result) ==
          result.receiptSnapshot = result.resultSnapshot
       THEN "current"
       ELSE "synchronizationRequired"
+
+CorrectDispositionAtIssue(result) ==
+  /\ result.receiptSnapshot = acknowledgedSnapshot
+  /\ result.receiptRev = acknowledgedRev
+  /\ result.disposition =
+       ConsumerDisposition(result.resultSnapshot, result.resultRev)
 
 ConsumerAcknowledgementLags ==
   acknowledgedRev # installedRev \/
@@ -222,6 +230,7 @@ TypeOK ==
   /\ consumerAckWitness \in BOOLEAN
   /\ dispositionWitness \in BOOLEAN
   /\ synchronizationWitness \in BOOLEAN
+  /\ abandonmentWitness \in BOOLEAN
 
 Init ==
   /\ installedSnapshot = InitialSnapshot
@@ -254,6 +263,7 @@ Init ==
   /\ consumerAckWitness = TRUE
   /\ dispositionWitness = TRUE
   /\ synchronizationWitness = TRUE
+  /\ abandonmentWitness = TRUE
 
 (***************************************************************************)
 (* Explicit intent.                                                        *)
@@ -284,7 +294,8 @@ BeginExplicitIntent(kind) ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  dispositionWitness, synchronizationWitness >>
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness >>
 
 \* An `Applied` outcome installs a semantically changed replacement snapshot
 \* and returns fresh authority under its own intent token.
@@ -305,7 +316,7 @@ ExplicitResultInstalls(returnedSnapshot) ==
               installedRev, installedRev + 1)
   /\ dispositionWitness' =
        /\ dispositionWitness
-       /\ CorrectDisposition(lastResult')
+       /\ CorrectDispositionAtIssue(lastResult')
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << consumerSnapshot, consumerRev, consumerInstalledEpoch,
                   acknowledgedSnapshot, acknowledgedRev,
@@ -316,7 +327,7 @@ ExplicitResultInstalls(returnedSnapshot) ==
                   admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness >>
+                  synchronizationWitness, abandonmentWitness >>
 
 \* An unavailable request returns a complete snapshot value.  Change is
 \* derived by comparing that value with the installed snapshot, not supplied
@@ -340,7 +351,7 @@ ExplicitUnavailable(returnedSnapshot) ==
                    installedRev, installedRev')
        /\ dispositionWitness' =
             /\ dispositionWitness
-            /\ CorrectDisposition(lastResult')
+            /\ CorrectDispositionAtIssue(lastResult')
        /\ revisionWitness' =
             /\ revisionWitness
             /\ installedSnapshot' = lastResult'.resultSnapshot
@@ -357,7 +368,7 @@ ExplicitUnavailable(returnedSnapshot) ==
                   admissionWitness,
                   regatherWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness >>
+                  synchronizationWitness, abandonmentWitness >>
 
 \* Rejected and failed navigation results retain the installed snapshot but
 \* receive a fresh effect epoch so delayed outcome work cannot surface later.
@@ -377,7 +388,7 @@ ExplicitResultRetains(outcome) ==
               installedRev, installedRev)
   /\ dispositionWitness' =
        /\ dispositionWitness
-       /\ CorrectDisposition(lastResult')
+       /\ CorrectDispositionAtIssue(lastResult')
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << installedSnapshot, installedRev,
                   consumerSnapshot, consumerRev, consumerInstalledEpoch,
@@ -390,7 +401,7 @@ ExplicitResultRetains(outcome) ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness >>
+                  synchronizationWitness, abandonmentWitness >>
 
 \* Packet decoding, coordinate realization, or another prerequisite owner
 \* failed before navigation could run.  The intent terminates with a typed
@@ -410,7 +421,7 @@ ExternalPrerequisiteAbort ==
               installedRev, installedRev)
   /\ dispositionWitness' =
        /\ dispositionWitness
-       /\ CorrectDisposition(lastResult')
+       /\ CorrectDispositionAtIssue(lastResult')
   /\ explicit' = NoExplicitWork
   /\ UNCHANGED << installedSnapshot, installedRev,
                   consumerSnapshot, consumerRev, consumerInstalledEpoch,
@@ -423,7 +434,7 @@ ExternalPrerequisiteAbort ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness >>
+                  synchronizationWitness, abandonmentWitness >>
 
 \* A superseded explicit operation returns late.  It produces no visible
 \* effect and cannot install.
@@ -442,7 +453,8 @@ SupersededResultDiscarded(token) ==
                   admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
-                  dispositionWitness, synchronizationWitness >>
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness >>
 
 (***************************************************************************)
 (* Standalone maintenance.                                                 *)
@@ -472,7 +484,8 @@ RequestMaintenance ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  dispositionWitness, synchronizationWitness >>
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness >>
 
 \* Facts for one queued request finish gathering.  Any request may finish
 \* first; completion timing must not select the final snapshot.
@@ -495,7 +508,8 @@ GatherMaintenanceFacts(n) ==
                   regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  dispositionWitness, synchronizationWitness >>
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness >>
 
 \* A queued request whose basis is no longer the installed snapshot rebuilds
 \* from the then-current snapshot instead of installing an older result.
@@ -522,7 +536,8 @@ RebuildMaintenance(n) ==
                   revisionWitness,
                   orderWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  dispositionWitness, synchronizationWitness >>
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness >>
 
 \* The design's admission predicate, stated once: only the oldest outstanding
 \* request, only when it was rebuilt against the installed snapshot, only
@@ -549,7 +564,7 @@ AdmitMaintenance ==
                    installedRev, installedRev + 1)
        /\ dispositionWitness' =
             /\ dispositionWitness
-            /\ CorrectDisposition(lastResult')
+            /\ CorrectDispositionAtIssue(lastResult')
   /\ installedRev' = installedRev + 1
   /\ effectEpoch' = effectEpoch + 1
   /\ effect' = Authority("maintenance", installedRev + 1, currentIntent,
@@ -577,7 +592,7 @@ AdmitMaintenance ==
                   settledSynchronizations,
                   revisionWitness, visibleWitness,
                   consumerSyncWitness, consumerAckWitness,
-                  synchronizationWitness >>
+                  synchronizationWitness, abandonmentWitness >>
 
 \* Synchronization demand comes from the retained consumer.  Request identities
 \* are bounded for model exploration; the product response path has no retry
@@ -600,7 +615,7 @@ RequestConsumerSynchronization ==
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, visibleWitness, consumerSyncWitness,
                   consumerAckWitness, dispositionWitness,
-                  synchronizationWitness >>
+                  synchronizationWitness, abandonmentWitness >>
 
 \* A retained consumer that abandoned or lost authority while behind the
 \* session can receive the complete current snapshot under fresh authority.
@@ -627,9 +642,12 @@ SynchronizeConsumer ==
        settledSynchronizations \cup {synchronizationRequest}
   /\ dispositionWitness' =
        /\ dispositionWitness
-       /\ CorrectDisposition(lastResult')
+       /\ CorrectDispositionAtIssue(lastResult')
   /\ synchronizationWitness' =
        /\ synchronizationWitness
+       /\ explicit = NoExplicitWork
+       /\ maintenanceQueue = << >>
+       /\ effect = NoAuthority
        /\ synchronizationRequest \notin settledSynchronizations
        /\ synchronizationRequest < nextSynchronization
        /\ synchronizationRequest' = 0
@@ -646,7 +664,8 @@ SynchronizeConsumer ==
                   admittedRequests, nextSynchronization,
                   admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
-                  consumerSyncWitness, consumerAckWitness >>
+                  consumerSyncWitness, consumerAckWitness,
+                  abandonmentWitness >>
 
 (***************************************************************************)
 (* Consumer side.                                                          *)
@@ -683,7 +702,7 @@ VisibleEffect ==
                   settledSynchronizations,
                   admissionWitness, regatherWitness, revisionWitness,
                   orderWitness, consumerAckWitness, dispositionWitness,
-                  synchronizationWitness >>
+                  synchronizationWitness, abandonmentWitness >>
 
 \* The consumer completed the authority-guarded effect.  Acknowledgement
 \* releases queued maintenance.
@@ -728,7 +747,8 @@ AcknowledgeEffect ==
                   lastResult, effectEpoch, nextSynchronization,
                   admissionWitness, regatherWitness,
                   revisionWitness, orderWitness, visibleWitness,
-                  consumerSyncWitness, dispositionWitness >>
+                  consumerSyncWitness, dispositionWitness,
+                  abandonmentWitness >>
 
 \* A consumer that cannot complete the effect abandons its authority.
 \* Abandonment also releases queued maintenance.
@@ -736,9 +756,14 @@ AbandonEffect ==
   /\ hostAuthority # NoAuthority
   /\ hostAuthority' = NoAuthority
   /\ effect' = IF hostAuthority = effect THEN NoAuthority ELSE effect
+  /\ acknowledgedSnapshot' = acknowledgedSnapshot
+  /\ acknowledgedRev' = acknowledgedRev
+  /\ abandonmentWitness' =
+       /\ abandonmentWitness
+       /\ acknowledgedSnapshot' = acknowledgedSnapshot
+       /\ acknowledgedRev' = acknowledgedRev
   /\ UNCHANGED << installedSnapshot, installedRev,
                   consumerSnapshot, consumerRev, consumerInstalledEpoch,
-                  acknowledgedSnapshot, acknowledgedRev,
                   currentIntent, explicit,
                   superseded,
                   nextMaintenance, maintenanceQueue, lastAdmitted,
@@ -766,7 +791,8 @@ ForeignAuthorityOffered ==
                   admissionWitness,
                   regatherWitness, revisionWitness, orderWitness,
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
-                  dispositionWitness, synchronizationWitness >>
+                  dispositionWitness, synchronizationWitness,
+                  abandonmentWitness >>
 
 ResolveExplicit ==
   \/ \E returnedSnapshot \in SnapshotValues :
@@ -877,6 +903,10 @@ ConsumerVisibleEffectSynchronizes == consumerSyncWitness
 \* Acknowledgement is never a success-shaped release while product and
 \* consumer snapshots differ.
 AcknowledgementRequiresConsumerSynchronization == consumerAckWitness
+
+\* Abandonment releases authority but never advances the product-owned
+\* acknowledgement receipt, including after consumer installation.
+AbandonmentPreservesAcknowledgement == abandonmentWitness
 
 \* Every result-producing action derives the typed disposition from the
 \* product-owned acknowledgement receipt, independently of semantic outcome.

@@ -106,8 +106,9 @@ has no modeled retry ceiling.
 | `ConsumerSynchronizationShape` | The acknowledged receipt never leads consumer-installed state, consumer-installed state never leads the product, and equal revisions carry equal complete snapshots |
 | `ConsumerVisibleEffectSynchronizes` | A current visible effect installs the complete result snapshot, revision, and exact effect epoch before acknowledgement |
 | `AcknowledgementRequiresConsumerSynchronization` | Acknowledgement advances the receipt only after the complete current snapshot was installed under the current effect epoch |
-| `CurrentResultDispositionIsExact` | Every current result derives `Current` or `Synchronization required` from the product-owned acknowledged receipt, independently of semantic outcome |
-| `SynchronizationRequestDiscipline` | Every settled synchronization request names one exact issued request and receives a complete current result |
+| `AbandonmentPreservesAcknowledgement` | Abandonment never advances the product-owned acknowledgement receipt, including after consumer installation |
+| `CurrentResultDispositionIsExact` | Every current result copies and derives `Current` or `Synchronization required` from the pre-state product-owned acknowledged receipt, independently of semantic outcome |
+| `SynchronizationRequestDiscipline` | Every settled synchronization request names one exact issued request, receives a complete current result, waits for explicit work to resolve, and follows queued maintenance |
 | `SynchronizationAuthorityIsCurrent` | A dedicated synchronization result and its authority name the complete current product snapshot and revision |
 
 Progress is stated per request and per intent token rather than only for the
@@ -265,7 +266,7 @@ while an effect was unconsumed" is not visible in any single state after the
 fact. Those claims use latching boolean witness variables, named
 `admissionWitness`, `regatherWitness`, `revisionWitness`, `orderWitness`,
 `visibleWitness`, `consumerSyncWitness`, `consumerAckWitness`,
-`dispositionWitness`, `synchronizationWitness`,
+`abandonmentWitness`, `dispositionWitness`, `synchronizationWitness`,
 `readinessWitness`, `payloadWitness`, `basisWitness`,
 `snapshotStabilityWitness`, `rejectionAuthorityWitness`, and `executeWitness`.
 
@@ -403,6 +404,10 @@ records how to reproduce them.
 | NS24 | Drop a synchronization request without recording settlement | `EverySynchronizationRequestSettles` | violated |
 | NS25 | Acknowledge a current snapshot installed under an older effect epoch | `AcknowledgementRequiresConsumerSynchronization` | violated |
 | NS26 | Settle a different synchronization request identity | `SynchronizationRequestDiscipline` | violated |
+| NS27 | Forge both the copied receipt and `Current` disposition from the result snapshot | `CurrentResultDispositionIsExact` | violated |
+| NS28 | Advance the acknowledgement receipt during post-install abandonment | `AbandonmentPreservesAcknowledgement` | violated |
+| NS29 | Admit dedicated synchronization while explicit work is unresolved | `SynchronizationRequestDiscipline` | violated |
+| NS30 | Admit dedicated synchronization before queued maintenance drains | `SynchronizationRequestDiscipline` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -429,13 +434,13 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Fifty-one probes, fifty expected violations and one expected pass. `SA6`
+Fifty-five probes, fifty-four expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Fifteen probes exist specifically because a claim used to be satisfiable by the
+Nineteen probes exist specifically because a claim used to be satisfiable by the
 wrong thing. `NS16` separates installed revision from a self-consistent result,
 `NS17` admits stale work without re-gathering, `NS18` lets a later admission
 stand in for a lost earlier request, `NS19` prevents acknowledgement from
@@ -447,11 +452,14 @@ disabling the result action instead of failing a witness, `NS24` prevents a
 response bound from standing in for per-request progress, `NS25` distinguishes
 current snapshot contents from current-authority installation, and `NS26`
 prevents another request's settlement from discharging the named request.
-`AR2` publishes a payload that differs from the retained request, `SA14`
-applies a later supplied-prior operation after an earlier one was rejected,
-`SA15` adopts only the stale same-session supplied snapshot whose origin and
-lens resemble session data, and `SA18` returns another admissible session lens
-under the correct operation ID.
+`NS27` prevents correlated receipt and disposition fields from replacing the
+product-owned pre-state receipt, `NS28` makes post-install abandonment directly
+observable, and `NS29`/`NS30` protect synchronization admission relative to
+explicit work and queued maintenance. `AR2` publishes a payload that differs
+from the retained request, `SA14` applies a later supplied-prior operation after
+an earlier one was rejected, `SA15` adopts only the stale same-session supplied
+snapshot whose origin and lens resemble session data, and `SA18` returns
+another admissible session lens under the correct operation ID.
 
 ## Changing a model
 
