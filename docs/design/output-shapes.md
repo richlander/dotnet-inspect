@@ -506,14 +506,23 @@ Printing documents (`-S "Package README file" --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
 explicit unary file operation: add `--out <path>` to a selection that resolves
 one payload. An unscoped file export preserves the package bytes exactly,
-including encoding, byte order mark, and line endings; a Markdown scope exports
-that projected text. Terminal-facing output never emits a live control or bidi
-scalar from package content. Multi-item `--print --out` and multi-file or
-multi-package `--content --out` are refused unless a structured JSON shape
-owns the destination; global selection cardinality is resolved before any
-selected payload is read, and a unique exact payload is read from the same
-retained package acquisition that supplied its selection metadata. Narrow it
-with row or path selectors for exact transfer.
+including encoding, byte order mark, and line endings, except for package skill
+documents: skills are agent instructions, so every route, including
+`project -S Skills --print`, `package -S "Package skill files" --print`,
+`--content`, and a package README declaration, classifies through a
+`TextPolicy.Prose` `InertString` and carries one containment-selected value
+through stdout, structured output, and `--out`. The raw scoped skill is
+classified before link normalization; concerning text becomes the standard
+placeholder, safe text retains its full presented spelling, and exact package
+bytes are not retained. A Markdown scope exports projected text.
+Terminal-facing output never emits a live control or bidi scalar from package
+content. Multi-item
+`--print --out` and multi-file or multi-package `--content --out` are refused
+unless a structured JSON shape owns the destination; global selection
+cardinality is resolved before any selected payload is read, and a unique exact
+payload is read from the same retained package acquisition that supplied its
+selection metadata. Narrow it with row
+or path selectors for exact transfer.
 Unstructured exact `--out` rejects line windows because clipping would no
 longer be exact. Every refused export is decided before opening its destination:
 an absent path stays absent, and an existing file remains byte-for-byte
@@ -532,9 +541,11 @@ document to stdout and the `# Info` table to stderr.
 
 Two consequences define the boundary:
 
-- `--jsonl` preserves the payload as a JSON string value. The wire format
-  escapes control characters as required by JSON; parsing the JSON reconstructs
-  the original value.
+- `--jsonl` preserves ordinary payloads as JSON string values. The wire format
+  escapes control characters as required by JSON; parsing reconstructs the
+  original ordinary payload. A package skill document that requires containment
+  is omitted before serialization, so parsing returns
+  `[Text omitted: required containment]`.
 - `--content` and target `--print` write framing to stdout. `--content`
   delimits each matched file with a
   `------------ <package> :: <path> ------------` banner; `--print` uses its
@@ -551,7 +562,9 @@ gates both framed and `--bare` single-file content export with a UTF-16 payload
 that has no trailing newline. The target
 `MultiPrintFrameFieldsAreContained` gate applies the same adversarial coverage
 to every `--print` frame field, and `MultiPrintPayloadCannotForgeFrames` covers
-frame-shaped payload lines and line-ending edge cases.
+frame-shaped payload lines and line-ending edge cases. Package skill output is
+gated separately by `SkillDocuments_OmitPayloadsThatRequireContainment` and
+`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads`.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must

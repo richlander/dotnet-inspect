@@ -504,6 +504,26 @@ public class InertStringTests
     }
 
     [Fact]
+    public void ReplaceIfContainmentRequired_ReplacesConcernedTextOnly()
+    {
+        InertString containmentText = InertString.ContainmentRequiredPlaceholder;
+        InertString ordinary = new(TextPolicy.Field, "ordinary");
+        InertString concerned = new(TextPolicy.Field, Hazard);
+        InertString escapedLiteral = new(TextPolicy.Field, @"literal \u202E text");
+
+        Assert.Equal(
+            "[Text omitted: required containment]",
+            containmentText.ToString());
+        Assert.Equal(ordinary, ordinary.ReplaceIfContainmentRequired(containmentText));
+        Assert.Equal(containmentText, concerned.ReplaceIfContainmentRequired(containmentText));
+        Assert.True(escapedLiteral.WasEncoded);
+        Assert.False(escapedLiteral.RequiredContainment);
+        Assert.Equal(
+            escapedLiteral,
+            escapedLiteral.ReplaceIfContainmentRequired(containmentText));
+    }
+
+    [Fact]
     public void Concerns_RespectThePolicyThatProducedTheValue()
     {
         InertString prose = new(TextPolicy.Prose, "first\nsecond");

@@ -40,7 +40,7 @@ public class UrlRedactionTests
 
         Assert.DoesNotContain(Secret, redacted, StringComparison.Ordinal);
         Assert.Equal(
-            $"https://feed.test/flat/a.nupkg?{UrlRedaction.QueryMarker}",
+            $"https://feed.test/flat/a.nupkg?{UrlRedaction.RedactedMarker}",
             redacted);
     }
 
@@ -313,7 +313,7 @@ public class UrlRedactionTests
         Assert.DoesNotContain(Secret, described, StringComparison.Ordinal);
         Assert.Contains("HttpRequestException", described, StringComparison.Ordinal);
         Assert.Contains(
-            $"https://feed.test/flat/a.nupkg?{UrlRedaction.QueryMarker}",
+            $"https://feed.test/flat/a.nupkg?{UrlRedaction.RedactedMarker}",
             described,
             StringComparison.Ordinal);
     }
