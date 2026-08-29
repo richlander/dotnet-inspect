@@ -104,6 +104,9 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData(
         "AwaitOrdinarySetMethod",
         "return await set_GetTask(task);")]
+    [InlineData(
+        "AwaitConditional",
+        "return flag ? (await a) : 0;")]
     [InlineData("AwaitInTryFinally", "finally")]
     [InlineData(
         "SequentialWithRealizedInitializer",

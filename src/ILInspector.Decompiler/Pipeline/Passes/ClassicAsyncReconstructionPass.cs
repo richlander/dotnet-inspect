@@ -1046,6 +1046,41 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             }
             awaitOccurrence++;
         }
+
+        var predicateOccurrence = 0;
+        foreach (IrNode node
+            in moveNext.DescendantsOutsideNestedFunctions)
+        {
+            IrExpression? condition = node switch
+            {
+                ConditionalBranch branch => branch.Condition,
+                IfStatement statement => statement.Condition,
+                _ => null,
+            };
+            if (condition is null
+                || !TryGetInputPredicateDiscriminator(
+                    condition,
+                    kickoff,
+                    out IrExpression source,
+                    out string discriminator))
+            {
+                continue;
+            }
+
+            if (!TryAddUserRegion(
+                    moveNext,
+                    executionAddress,
+                    source,
+                    ClassicAsyncUserRegionKind.Predicate,
+                    discriminator,
+                    predicateOccurrence,
+                    regions))
+            {
+                regions = [];
+                return false;
+            }
+            predicateOccurrence++;
+        }
         return true;
     }
 
@@ -1138,7 +1173,67 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 awaitOccurrence)));
             awaitOccurrence++;
         }
+
+        var predicateOccurrence = 0;
+        // Capture every rendered condition so an unmodeled one remains an
+        // unmatched output and forces the ledger to decline.
+        foreach (IrNode node
+            in output.DescendantsOutsideNestedFunctions)
+        {
+            IrExpression? condition = node switch
+            {
+                Conditional conditional => conditional.Condition,
+                IfStatement statement => statement.Condition,
+                _ => null,
+            };
+            if (condition is null)
+                continue;
+            if (!TryGetSemanticExpressionKey(
+                    condition,
+                    out string discriminator))
+            {
+                nodes = [];
+                return false;
+            }
+
+            nodes.Add(new(new(
+                ClassicAsyncUserRegionKind.Predicate,
+                discriminator,
+                predicateOccurrence)));
+            predicateOccurrence++;
+        }
         return true;
+    }
+
+    static bool TryGetInputPredicateDiscriminator(
+        IrExpression condition,
+        IrFunction kickoff,
+        out IrExpression source,
+        out string discriminator)
+    {
+        source = condition;
+        discriminator = "";
+        bool usesUserParameter = condition.Descendants
+            .Prepend(condition)
+            .OfType<LoadField>()
+            .Any(field =>
+                field.Instance is LoadArgument { Index: 0 }
+                && TryGetParameter(
+                    kickoff,
+                    field.Field.Name,
+                    out _,
+                    out _));
+        if (!usesUserParameter)
+            return false;
+
+        source = condition is LogicalNot not
+            ? not.Operand
+            : condition;
+        IrExpression? normalized = CloneAndRemap(source, kickoff);
+        return normalized is not null
+            && TryGetSemanticExpressionKey(
+                normalized,
+                out discriminator);
     }
 
     static bool TryGetAwaitedOperandRegion(
@@ -1235,7 +1330,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrExpression? normalized =
             CloneAndRemap(awaitedOperand, kickoff);
         if (normalized is null
-            || !TryGetAwaitedOperandExpressionKey(
+            || !TryGetSemanticExpressionKey(
                 normalized,
                 out discriminator))
         {
@@ -1273,12 +1368,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             }
         }
 
-        return TryGetAwaitedOperandExpressionKey(
+        return TryGetSemanticExpressionKey(
             awaitExpression.Operand,
             out discriminator);
     }
 
-    internal static bool TryGetAwaitedOperandExpressionKey(
+    internal static bool TryGetSemanticExpressionKey(
         IrExpression expression,
         out string key)
     {
@@ -1297,7 +1392,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 var arguments = new List<string>(call.Arguments.Count);
                 foreach (IrExpression argument in call.Arguments)
                 {
-                    if (!TryGetAwaitedOperandExpressionKey(
+                    if (!TryGetSemanticExpressionKey(
                             argument,
                             out string argumentKey))
                     {
@@ -1347,7 +1442,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             case LoadField field:
                 string instanceKey = "";
                 if (field.Instance is { } instance
-                    && !TryGetAwaitedOperandNodeKey(
+                    && !TryGetSemanticNodeKey(
                         instance,
                         out instanceKey))
                 {
@@ -1369,11 +1464,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 key = "";
                 return false;
             default:
-                return TryGetAwaitedOperandNodeKey(expression, out key);
+                return TryGetSemanticNodeKey(expression, out key);
         }
     }
 
-    static bool TryGetAwaitedOperandNodeKey(
+    static bool TryGetSemanticNodeKey(
         IrNode node,
         out string key)
     {
@@ -1384,7 +1479,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
         if (node is LoadArgument or Call or LoadField)
         {
-            return TryGetAwaitedOperandExpressionKey(
+            return TryGetSemanticExpressionKey(
                 (IrExpression)node,
                 out key);
         }
@@ -1392,7 +1487,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var children = new List<string>(node.Children.Count);
         foreach (IrNode child in node.Children)
         {
-            if (!TryGetAwaitedOperandNodeKey(
+            if (!TryGetSemanticNodeKey(
                     child,
                     out string childKey))
             {

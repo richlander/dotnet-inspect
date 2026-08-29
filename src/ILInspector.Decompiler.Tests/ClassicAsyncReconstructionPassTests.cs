@@ -586,6 +586,71 @@ public class ClassicAsyncReconstructionPassTests
                         == operand.Semantics));
     }
 
+    [Fact]
+    public void PredicateRegionHasOnePrimaryRealization()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "AwaitConditional");
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(evidence));
+        ClassicAsyncRegionLedger ledger =
+            reconstruct.Plan.RegionLedger;
+        ClassicAsyncUserRegion predicate = Assert.Single(
+            ledger.UserRegions,
+            static region =>
+                region.Semantics.Kind
+                    == ClassicAsyncUserRegionKind.Predicate);
+        ClassicAsyncUserRegionRealization realization = Assert.Single(
+            ledger.Realizations,
+            realization => realization.UserRegion == predicate.Id);
+
+        Assert.Equal(
+            predicate.Semantics,
+            realization.PrimaryOutputNode.Semantics);
+        Assert.Contains(
+            "4:flag",
+            predicate.Semantics.Discriminator,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            predicate.PhysicalRegion,
+            ledger.ConsumedRegions);
+        Assert.DoesNotContain(
+            predicate.PhysicalRegion,
+            ledger.PreservedRegions);
+    }
+
+    [Fact]
+    public void RegionLedgerRejectsChangedPredicate()
+    {
+        var id = new ClassicAsyncRegionId(
+            ClassicAsyncRegionHost.Execution,
+            "0.0");
+        var predicate = new ClassicAsyncUserRegion(
+            id,
+            PhysicalId(
+                ClassicAsyncRegionHost.Execution,
+                "0.0"),
+            new(
+                ClassicAsyncUserRegionKind.Predicate,
+                "parameter|flag|System.Boolean",
+                Occurrence: 0));
+        var changed = new ClassicAsyncOutputNode(
+            predicate.Semantics with
+            {
+                Discriminator = "parameter|other|System.Boolean",
+            });
+
+        Assert.False(TryCreateRegionLedger(
+            [predicate],
+            [new(id, changed)],
+            out _));
+    }
+
     [Theory]
     [InlineData("AwaitValue", "9:parameter1:01:a", "9:parameter1:01:a")]
     [InlineData(
@@ -762,12 +827,12 @@ public class ClassicAsyncReconstructionPassTests
 
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     first,
                     out string firstKey));
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     new Call(
                         stringInstantiation,
                         isVirtual: false,
@@ -775,7 +840,7 @@ public class ClassicAsyncReconstructionPassTests
                     out string stringKey));
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     new Call(
                         otherAssembly,
                         isVirtual: false,
@@ -783,7 +848,7 @@ public class ClassicAsyncReconstructionPassTests
                     out string assemblyKey));
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     new Call(
                         modifiedSignature,
                         isVirtual: false,
@@ -791,7 +856,7 @@ public class ClassicAsyncReconstructionPassTests
                     out string modifiedKey));
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     otherConstraint,
                     out string constraintKey));
 
@@ -802,17 +867,17 @@ public class ClassicAsyncReconstructionPassTests
 
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     new LoadArgument(0, "value", task),
                     out string firstArgumentKey));
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     new LoadArgument(1, "value", task),
                     out string secondArgumentKey));
         Assert.True(
             ClassicAsyncReconstructionPass
-                .TryGetAwaitedOperandExpressionKey(
+                .TryGetSemanticExpressionKey(
                     new LoadArgument(0, "value", task)
                     {
                         IsDynamic = true,

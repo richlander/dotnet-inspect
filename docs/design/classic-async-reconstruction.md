@@ -10,7 +10,8 @@
 
 ## Status and decision
 
-Design. Tracking: [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
+Implementation in progress. Tracking:
+[#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
 
 This document owns one focused component: the Decompiler inverse for classic
 (`runtime-async=off`) async state machines. It consumes owner-issued method
@@ -25,8 +26,8 @@ cross-owner contracts that accumulated during review. Those contracts are now
 tracked by their owners:
 
 - [#4669](https://github.com/richlander/dotnet-inspect/issues/4669) owns
-  Metadata state-machine relationship facts and remains the implementation
-  prerequisite for slice 0. This design does not claim that issue.
+  Metadata state-machine relationship facts. This component consumes those
+  owner-issued facts and does not claim their construction.
 - [#4716](https://github.com/richlander/dotnet-inspect/issues/4716) owns
   physical C# body projection, render equivalence, and correspondence proof.
 - [#4717](https://github.com/richlander/dotnet-inspect/issues/4717) owns the
@@ -38,8 +39,10 @@ tracked by their owners:
 - Reconstruction correctness measurement remains separately owned as required
   by #4684.
 
-No product behavior changes in this PR. The current
-`ClassicAsyncReconstructionPass` remains fixture-shaped.
+The focused component is being implemented incrementally in
+`ILInspector.Decompiler`. Each behavior change is gated by compiler-produced
+positives, close declines, exact region accounting, and the evidence described
+below.
 
 ## Claim and non-claims
 
@@ -49,8 +52,8 @@ The component claims:
   identities and imported bodies;
 - one stage-neutral `ClassicAsyncDecision` applied independently to Raised and
   Lowered snapshots without re-recognition or mutable aliasing;
-- exact preservation of the existing pass ordering and accepted raise
-  population in honesty slice 0;
+- exact preservation of the existing pass ordering and bounded accepted raise
+  population;
 - visible decline for every healthy classic kickoff that is not reconstructed:
   exact handoff replacement when the kickoff is proven narrow, and
   statement-preserving marking otherwise;
@@ -100,7 +103,7 @@ public static async Task<int> CallsSyncSiblingFromAsync(int value)
 }
 ```
 
-Slice 0 does not pretend to reconstruct that method. The focused component
+The focused component does not pretend to reconstruct that method. It
 produces an honest body result and a typed declaration disposition:
 
 ```text
@@ -111,11 +114,12 @@ Body                     /* Unsupported classic async state machine:
                              unrecognized await protocol. */
 ```
 
-For a non-narrow or hand-written kickoff, slice 0 prepends the marker and keeps
-every original statement. For an already accepted legacy shape, the existing
-raised body remains unchanged. A declaration consumer may compose that body
-with `OmitAsync`, but declaration rendering belongs to its own owner. A
-neighboring async-iterator or runtime-async method never enters this inverse.
+For a non-narrow or hand-written kickoff, the component prepends the marker and
+keeps every original statement. For an accepted shape, reconstruction proceeds
+only when every modeled physical and semantic region is realized. A
+declaration consumer may compose a declined body with `OmitAsync`, but
+declaration rendering belongs to its own owner. A neighboring async-iterator
+or runtime-async method never enters this inverse.
 
 ## Why a structured inverse is required
 
@@ -337,10 +341,19 @@ narrowing reconstruction to calls over parameters. Await order is global
 within the root function, and nested-function awaits cannot be silently counted
 as part of that root realization.
 
+The first predicate realization gate covers the accepted conditional recipe.
+Only a condition carrying the field-to-kickoff-parameter mapping required by
+the accepted recipe enters the input inventory; compiler state and awaiter
+branches do not. The matched branch sense is normalized to the source
+predicate, then paired with the reconstructed conditional by global predicate
+position and the same recursive typed expression identity. Compound and
+guarded predicates remain declines until recipes model their complete control
+and effect regions.
+
 ## Planning and stage application
 
 `ClassicAsyncReconstructionPass` remains the single classic recognizer and
-application owner. Slice 0 separates its work into two phases:
+application owner. It separates its work into two phases:
 
 1. **Plan once.** Run the existing complete
    registered prefix before `ClassicAsyncReconstructionPass` over a detached
@@ -389,10 +402,10 @@ compiler-produced struct and class state machines using:
 - `AsyncValueTaskMethodBuilder<TResult>`
 - `AsyncVoidMethodBuilder`
 
-The accepted raise population in slice 0 remains the current Release-style
-struct population. Debug class state machines, custom classic builders, and
-recognized-but-unsupported await protocols receive honest declines. Runtime
-async and async iterators are not classic inputs.
+The accepted raise population remains the bounded Release-style struct
+population covered by the current recipes. Debug class state machines, custom
+classic builders, and recognized-but-unsupported await protocols receive
+honest declines. Runtime async and async iterators are not classic inputs.
 
 The component does not widen `IsAsyncMethodBuilder` or use that helper as a
 relationship classifier. Doing so would silently expand legacy raise
@@ -512,7 +525,7 @@ A foreign function may independently receive an owner-issued classification
 and relationship and make its own decision. Parent addresses or outcomes never
 stand in for that input.
 
-`NestedFunctionEmbeddingPolicy` consumes the foreign Decompiler result. Slice 0
+`NestedFunctionEmbeddingPolicy` consumes the foreign Decompiler result. It
 does not embed a local function or lambda when:
 
 - its body needs an async declaration carrier the current node model cannot
@@ -538,11 +551,11 @@ The existing importer-crash marker remains owned by the general Decompiler
 pipeline. A DEC0001 import failure cannot acquire a classic decision, marker,
 or reconstructed declaration disposition.
 
-## Slice plan
+## Implementation state
 
-### Slice 0: model and honesty
+### Model and honesty foundation
 
-Blocked on #4669 implementation.
+Implemented:
 
 - consume exact owner-issued classification and relationships;
 - introduce the immutable machine, decision, plan, application, outcome, and
@@ -554,22 +567,26 @@ Blocked on #4669 implementation.
 - isolate foreign-function decisions; and
 - record corpus A/B evidence for the support-body and marker changes.
 
-### Slice 1: void await, then statements
+### Current semantic realization
 
-Blocked on the separately owned correctness measurement required by #4684.
+Implemented:
 
-- model a void `GetResult` statement;
-- preserve subsequent statements and valued completion;
-- map hoisted user parameters through exact machine storage;
-- reject any unproven local-address mapping; and
-- reconstruct the motivating `Task.Yield()` witness plus close negatives.
+- complete physical statement-slot partitioning;
+- checked and unsigned arithmetic plus abrupt-control declines;
+- exact awaited-operand realization; and
+- exact predicate realization for the accepted conditional recipe.
 
-### Later slices
+The remaining guarded effects, result receivers, returns and leaves, and user
+calls and writes are unverified. Until each family has input-derived regions,
+exact output realizations, compiler-produced positives, and close declines, its
+presence prevents reconstruction.
 
-Each later slice names one compiler lowering family and its close negatives.
+### New raises
+
+Each new raise names one compiler lowering family and its close negatives.
 General state dispatch, exception/finally interaction, multiple awaits, custom
 awaiters, Debug class reconstruction, and additional builders are separate
-raises. A slice does not broaden this design's owner or absorb its measurement
+raises. A raise does not broaden this design's owner or absorb its measurement
 consumer.
 
 ## Gates
@@ -585,9 +602,9 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Stage-neutral plan | Raised/Lowered fixtures in both request orders | Recognition runs twice; decisions differ by request order; a plan retains stage-owned nodes/locals; or stage snapshots alias |
 | Registered pipeline preservation | Independent exact pass-list baselines plus accepted classic fixtures | The registered `IrPasses.Default` or `IrPasses.Lowered` sequence or required relative order changes without an intentional baseline update |
 | Planning-sequence derivation | Set/order equality against the registered prefix before `ClassicAsyncReconstructionPass` for kickoff planning and `ForReconstruction<ClassicAsyncReconstructionPass>()` for execution planning | Planning uses a copied list, omits a registered prerequisite, includes the requesting/application pass, replays a post-classic pass over the kickoff, or changes order |
-| Legacy population equality | Existing accepted classic fixture set plus close negatives | Slice 0 adds or removes an accepted reconstruction |
+| Bounded population equality | Existing accepted classic fixture set plus close negatives | A semantic gate unintentionally adds or removes an accepted reconstruction |
 | Plan-region partition | Accepted compiler fixtures plus injected extra-region, external-entry, duplicate-consumption, overlap, and unconsumed-use negatives | A physical kickoff/execution region is neither consumed nor preserved, appears in both sets, is consumed twice, has an unmodeled entry/use, or is rewritten while preserved |
-| User-region realization | Accepted side-effect/call/store/return fixtures plus omitted-region, duplicate-primary, effectful-context, and preserved-material negatives | A user region has no realization or more than one; a primary output effect appears twice; a context node emits the effect; or preserved physical material supplies reconstructed semantics |
+| User-region realization | `CheckedRegionHasOnePrimaryRealization`, `AwaitedOperandsHaveOnePrimaryRealization`, `PredicateRegionHasOnePrimaryRealization`, and the `RegionLedgerRejects*` negatives | A modeled user region has no realization or more than one, its typed semantics or position changes, or preserved physical material supplies reconstructed semantics |
 | Decline honesty | Narrow and non-narrow classic kickoff fixtures for every decline category | A healthy decline lacks a marker/reason; a narrow handoff survives; a non-narrow statement changes or disappears; or a failure fabricates a marker-only success |
 | Narrow ownership non-vacuity | One-machine positives plus mixed-local, extra-call/store/return, duplicate-step, and unmapped-address negatives | Shape resemblance establishes ownership without complete correlation |
 | Support preservation | Classic, runtime, iterator, custom-builder, and unrelated support-like methods | An Execution/Support host is not `NotApplicable`, broad builder-name recognition edits a method, or any support body/local changes |
@@ -597,7 +614,7 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Embedding honesty | Await-bearing/await-free local and lambda fixtures plus failure/marker negatives | A foreign result needing an async carrier, carrying unsupported output, or failing is embedded as plausible synchronous source |
 | Value semantics | Equality/hash/clone tests for every decision and result arm | A behavior-affecting field is omitted or a mutable plan is shared |
 | Support and marker rendering | Exact `ClassicAsyncSupportBodiesRemainPhysical` and `DeclinedClassicKickoffsRenderExpectedMarkers` fixtures | A support body remains hollowed, a marker/disposition is absent, narrow replacement preserves handoff statements, or non-narrow marking changes an original statement |
-| Classic corpus population A/B | `classic-state-machines` base/head snapshots plus `ClassicAsyncCorpusDeltaTests` over the emitted delta | The source-kickoff population moves, the accepted set changes, or expected fidelity/residual movement is absent |
+| Classic corpus population A/B | `classic-state-machines` exact-base/head snapshots plus Render A/B; automated delta enforcement is unverified | The source-kickoff population moves, the accepted set changes unexpectedly, or any rendered method remains unclassified |
 
 The source-inventory gate derives its expected product files and allowed
 owner-issued boundary types from the component declaration, so missing and
@@ -605,8 +622,8 @@ stale entries both fail. Registered pipeline preservation uses an independent
 exact baseline; planning-sequence derivation separately proves that the
 reconstruction sequence is a filtered projection of the registered list.
 
-The legacy-population gate is the slice-0 safety property. A later accepted
-raise changes its expected set only in that raise's separately reviewed slice
+The bounded-population gate is the compatibility property. A new accepted
+raise changes its expected set only in that raise's separately reviewed change
 and only after the named correctness measurement is available.
 
 The classic corpus gate uses the existing Release fixture and profile. In an
@@ -618,12 +635,12 @@ dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
   --corpus-profile classic-state-machines \
-  --emit-corpus-baseline /tmp/pr4473-classic-base.json \
+  --emit-corpus-baseline /tmp/classic-base.json \
   --max-examples 10
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
-  --emit-render-ab /tmp/pr4473-classic-render-base.json \
+  --emit-render-ab /tmp/classic-render-base.json \
   --sequential
 ```
 
@@ -635,35 +652,36 @@ dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
   --corpus-profile classic-state-machines \
-  --diff-corpus-baseline /tmp/pr4473-classic-base.json \
-  --emit-corpus-delta /tmp/pr4473-classic-delta.json \
+  --diff-corpus-baseline /tmp/classic-base.json \
+  --emit-corpus-delta /tmp/classic-delta.json \
   --max-examples 10
 
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
-  --render-ab /tmp/pr4473-classic-render-base.json \
+  --render-ab /tmp/classic-render-base.json \
   --sequential \
   --max-examples 100
 ```
 
-`ClassicAsyncCorpusDeltaTests` reads the emitted method rows and enforces the
-population/fidelity/residual categories; those rows contain no body text and
-are never cited as support-body proof. The Render A/B report is the complete
-body-sensitive changed-method evidence. Record its exact base/head SHAs and
-paste every changed classic method, not only selected examples. The targeted
-support/marker render tests enforce exact expected bodies; any additional
-Render A/B method is unexplained movement and blocks the slice.
+The emitted method rows contain no body text and are never cited as
+support-body proof. Automated delta enforcement remains unverified. The Render
+A/B report is the complete body-sensitive changed-method evidence. Record its
+exact base/head SHAs and classify every changed classic method, not only
+selected examples. The targeted support/marker render tests enforce exact
+expected bodies; any additional Render A/B method is unexplained movement and
+blocks the change.
 
 ## Implementation order
 
-1. Land #4669 and consume its owner-issued relationship result without a
-   temporary Decompiler scanner.
+1. Consume #4669's owner-issued relationship result without a temporary
+   Decompiler scanner.
 2. Add the focused value model and total planning boundary.
 3. Split planning from stage application while preserving pass order.
 4. Implement honest decline and no-edit support-host handling.
 5. Isolate foreign-function state and gate embedding.
-6. Run the focused Release gates and pinned corpus A/B.
-7. Only then begin slice 1 under its correctness prerequisite.
+6. Establish complete physical ownership.
+7. Add semantic families incrementally, with exact realization and declines.
+8. Run the focused Release gates and pinned corpus A/B before review.
 
 Physical C# diff, Research, CLI, and harness work may proceed independently in
 issues #4716–#4719. None is a prerequisite for this design to converge, and

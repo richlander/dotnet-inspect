@@ -197,6 +197,7 @@ internal enum ClassicAsyncRegionHost
 internal enum ClassicAsyncUserRegionKind
 {
     AwaitedOperand,
+    Predicate,
     CheckedArithmetic,
     Throw,
     Break,
