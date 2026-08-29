@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -1180,7 +1181,7 @@ public sealed partial class CSharpPrinter
         while (current.Kind is TypeRefKind.SzArray or TypeRefKind.Array && current.ElementType is { } element)
         {
             suffixes.Add(current.Kind == TypeRefKind.Array
-                ? $"[{new string(',', Math.Max(0, current.Rank - 1))}]"
+                ? $"[{ArrayShapeText.FormatDimensions(current.Rank)}]"
                 : "[]");
             current = element;
         }

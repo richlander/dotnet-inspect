@@ -910,7 +910,7 @@ public static partial class CSharpBodyDiff
                     : $"{type.Namespace}.{type.Name.Replace("+", ".", StringComparison.Ordinal)}",
             TypeRefKind.GenericInstance => $"{CanonicalTypeName(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(CanonicalTypeName))}>",
             TypeRefKind.SzArray => $"{CanonicalTypeName(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{CanonicalTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : new string(',', type.Rank - 1))}]",
+            TypeRefKind.Array => $"{CanonicalTypeName(type.ElementType!)}[{(type.Rank == 1 ? "*" : ArrayShapeText.FormatDimensions(type.Rank))}]",
             TypeRefKind.ByRef => $"{CanonicalTypeName(type.ElementType!)}&",
             TypeRefKind.Pointer => $"{CanonicalTypeName(type.ElementType!)}*",
             TypeRefKind.Pinned => $"pinned {CanonicalTypeName(type.ElementType!)}",

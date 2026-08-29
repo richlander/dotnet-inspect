@@ -984,8 +984,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>
     /// C# writes array ranks left-to-right from the element name
     /// (<c>int[][,]</c>), while metadata nests the other way. Collect suffixes
-    /// from the outside in so mixed SZ/MD ranks keep source order. Rank &lt; 1
-    /// is not valid C#; render it as a diagnostic instead of throwing.
+    /// from the outside in so mixed SZ/MD ranks keep source order. A rank outside
+    /// the loadable range renders as a bounded diagnostic instead of allocating.
     /// </summary>
     string RenderArray(TypeRef? scope)
     {
@@ -995,9 +995,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         {
             suffixes.Add(element.Kind == TypeRefKind.SzArray
                 ? "[]"
-                : element.Rank > 0
-                    ? $"[{new string(',', element.Rank - 1)}]"
-                    : $"[rank:{element.Rank}]");
+                : $"[{ArrayShapeText.FormatDimensions(element.Rank)}]");
             element = element.ElementType!;
         }
         return element.ToDisplayString(scope) + string.Concat(suffixes);
