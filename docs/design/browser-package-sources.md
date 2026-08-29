@@ -1129,13 +1129,15 @@ or marks the answer partial. A pinned payload operation may succeed from one
 authorized authority without proving every peer source readable.
 
 Complete listing-aware Gallery enumeration also depends on registration
-metadata. If registration cannot be read, raw enumeration may expose the
+metadata. If registration is missing, malformed, incomplete, or unavailable
+for a non-timeout transport reason, raw enumeration may expose the
 flat-container versions only as a typed partial result with listing status
 `unknown`; it does not report them as listed and does not populate a complete
-candidate cache. Auto-selecting wildcard or range operations that depend on
-complete enumeration fail closed when the missing listing evidence could change
-the selected coordinate. Search-backed latest selection remains available
-because Gallery search returns listed versions.
+candidate cache. A library-owned timeout remains a terminal source failure
+rather than a partial result. Auto-selecting wildcard or range operations that
+depend on complete enumeration fail closed when the missing listing evidence
+could change the selected coordinate. Search-backed latest selection remains
+available because Gallery search returns listed versions.
 
 The target listing contract is source-relative:
 
@@ -1640,13 +1642,14 @@ cannot grow retained registration state. Inline and external leaf traversal
 checks cancellation and the monotonic operation deadline every 128 observations;
 on single-threaded Browser/Wasm it also yields at those checkpoints so pending
 timer and caller-cancellation work can run. A complete join reports authoritative
-`listed` and `unlisted` candidates. Missing, malformed, incomplete, unavailable,
-or over-budget registration data returns the flat-container candidates as a
-typed partial result with `unknown` state. Duplicate JSON properties are
-malformed rather than allowing one of several possible listing readings to
-become authoritative. Deadline expiry during traversal, coverage, or final
-authority projection also returns the partial result, while caller cancellation
-outranks a concurrent page failure.
+`listed` and `unlisted` candidates. Missing, malformed, incomplete,
+transport-unavailable, or over-budget registration data returns the
+flat-container candidates as a typed partial result with `unknown` state.
+Duplicate JSON properties are malformed rather than allowing one of several
+possible listing readings to become authoritative. Library-owned deadline
+expiry during traversal, coverage, or final authority projection remains a
+terminal source failure, while caller cancellation outranks a concurrent page
+failure.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their
@@ -1750,13 +1753,13 @@ The local-folder descriptor remains modeled without a runtime client.
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 `BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
 gates the Browser's listing-aware dependency range selection, and
-`BrowserEngineBoundaryTests.DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`
-gates that a partial result cannot select an unknown candidate.
-`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration`
+`BrowserEngineBoundaryTests.DependencyRangePreservesGalleryRegistrationTimeout`
+gates that a source timeout cannot become a listing-state fallback.
+`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForSourceTimeout`
 and
-`BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`
-gate the deadline margin that preserves partial version-picker enumeration when
-optional registration stalls.
+`BrowserEngineBoundaryTests.VersionPickerPreservesGalleryRegistrationTimeout`
+gate the deadline margin and terminal timeout behavior when optional
+registration stalls.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
