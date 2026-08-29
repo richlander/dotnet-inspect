@@ -128,7 +128,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
-- [Architecture](architecture.md): command and metadata architecture.
+- [Architecture](architecture.md): host-neutral composition,
+  logical layers, project regions, currencies, and code-navigation map.
+- [CLI host architecture](cli-architecture.md): command-host responsibilities,
+  request lifetime, selection, and presentation composition.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
   L1/L2 binding from one immutable typed-query domain to reusable compiled
@@ -163,6 +166,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Inspect-web TypeScript semantic facts](design/inspect-web-typescript-semantic-facts.md):
   one pinned TypeScript project snapshot exposed through repository-owned
   semantic handles, queries, and explicit failure results.
+- [Inspect-web operation authority](design/inspect-web-operation-authority.md):
+  page-wide operation identity plus per-view logical outcome, cancellation,
+  publication authority, disposal, and producer quiescence.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
