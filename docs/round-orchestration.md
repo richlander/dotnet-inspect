@@ -44,15 +44,16 @@ locked candidate.
 | --- | --- | --- |
 | First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, applicable CI rule below | Mergeability; eligible pending CI |
 | Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
-| Conflict-recovery attempt | Resolution head pushed, round number authorized, applicable CI rule below | Post-push local gates, mergeability; eligible pending CI |
+| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
 | Failed-gate restart | Required fix pushed, one status attempt, applicable CI rule below, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
 A non-Markdown candidate requires green current-head `ci-required` before
-reviewer dispatch unless the user authorized parallel review. A Markdown-only
-candidate (every changed file is `*.md`) substitutes pre-commit `markdownlint`
-at non-boundary rounds. Only those two exceptions make pending CI eligible;
-`ci-required` remains mandatory at six-round boundaries and final merge.
+reviewer dispatch unless the user authorized parallel review or conflict
+recovery applies. A Markdown-only candidate (every changed file is `*.md`)
+substitutes pre-commit `markdownlint` at non-boundary rounds. Only these
+exceptions make pending CI eligible; `ci-required` remains mandatory at
+six-round boundaries and final merge.
 
 ### Review-clean, and recovery
 
@@ -135,32 +136,37 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Head changed | Leave the status wait; route the returned head through candidate formation without inheriting fixed-head evidence. |
 | REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
-| `ci-required` completed without `success` | Leave the status wait; classify the result and apply the applicable recovery transition. |
+| `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
+| `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
 | Green `ci-required` and positive mergeability at the expected head | Leave the status wait and continue when no other predicate remains. |
 | CI or mergeability is pending or missing | Preserve the unresolved status members and apply the round cadence below. |
 | Rate-limited or transient query failure | Record the concrete failure and retry-not-before time, preserve the unresolved status members, and apply the round cadence below. |
 | Terminal query failure | Leave the status wait with `rec=stop`, surface the failure, and end. |
 
-Read the table top-down. Conflict recovery outranks CI, terminal non-green CI
-outranks the remaining merge states, and a documented GraphQL block prevents a
-merge goal. Carry-forward remains a separate pre-merge obligation driven by the
-fetched base tip, not by undocumented REST `mergeable_state` values.
+Read the table top-down. Conflict recovery outranks CI, terminal non-green
+required CI outranks the remaining merge states, and a documented GraphQL block
+prevents a merge goal. Carry-forward remains a separate pre-merge obligation
+driven by the fetched base tip, not by undocumented REST `mergeable_state`
+values.
 
 ### Bounded status waiting
 
 *This section defines repository policy, not GitHub timing guarantees.*
 
-Every round attempts one current-head snapshot. When CI is eligible to remain
-pending, a pending, rate-limited, or transient result is recorded and the next
-round continues. A known conflict, ineligible non-green `ci-required`, or
-terminal query failure still takes its transition.
+Every round attempts one current-head snapshot. When CI is a reviewer-dispatch
+prerequisite, pending, missing, rate-limited, or transient status enters the
+60-minute budget below; expiry publishes the status report and stops without
+dispatch. When CI may remain pending, record that status and continue the
+current review path. A known conflict, required CI completed without success,
+or terminal query failure still takes its transition.
 
-Every third round spends up to a 60-minute status budget before it may advance;
-a merge or readiness goal may use the same bound. Every sixth round uses that
-budget, but fresh green current-head `ci-required` and positive mergeability
-remain prerequisites for the next-block approval prompt. Measure the budget
-from the first scheduled wait and publish `status-deadline=<UTC>`.
+A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
+before dispatch. Every third round, and any merge or readiness goal, may use the
+same bound. Every sixth round uses that budget, but fresh green current-head
+`ci-required` and positive mergeability remain prerequisites for the next-block
+approval prompt. Measure the budget from the first scheduled wait and publish
+`status-deadline=<UTC>`.
 
 Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself

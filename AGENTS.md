@@ -133,9 +133,9 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 
 ### Standing adjustments
 
-- **Review non-Markdown changes in parallel with CI:** requires the user's
-  approval for that PR. A CI failure requiring an author change still
-  supersedes the attempt, and all findings carry forward.
+- **Review ordinary non-Markdown changes in parallel with CI:** requires user
+  approval; conflict recovery is the explicit exception. A CI failure requiring
+  an author change still supersedes the attempt, and all findings carry forward.
 - **Auto-merge on the final push:** once every required review is review-clean,
   or the intended final head/base carries an approved exact-head
   trivial-interaction waiver, the user may authorize auto-merge for that exact
@@ -556,8 +556,8 @@ Put it under `## Demo` above validation in the PR body.
   exact commands and the `-F`/`-f` distinction that matters for PR bodies.
 - For non-Markdown-only PRs, run the focused gate, push promptly, and start
   eligible local suites and CI concurrently. Reviewer dispatch waits for green
-  `ci-required` unless the user approved parallel review. Query GitHub status
-  only when the round cadence requires it; follow
+  `ci-required` unless parallel review is approved or conflict recovery applies.
+  Query GitHub status only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
   instead of polling. If an hour passes without an authored change while an
   independent gate hasn't started, fix the sequencing or record the blocker.
