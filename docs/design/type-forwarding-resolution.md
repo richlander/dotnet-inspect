@@ -2871,8 +2871,8 @@ decode consumed.
 | Corpus | Assemblies | Decodes | Ordered SHA-256 of inputs |
 | --- | ---: | ---: | --- |
 | .NET 11 preview 6 runtime and reference packs (`11.0.0-preview.6.26359.118`) | 490 | 363,322 | `4c0c167ce14db91ca046c44aa038a21d411da7d8b95fe5a18cba6248eaee38cc` |
-| Third-party packages from the restored package cache (178 packages, deduplicated by content) | 3,017 | 4,163,048 | `204ea4a1d49a4d772e6941c2bda98c9721b1631cfa8414aa931342753b1f2d71` |
-| Combined | 3,507 | 4,526,370 | |
+| Third-party packages pinned by `docs/data/nuget-top-packages.lock.json` (90 of the 100 carry a `lib/` assembly), deduplicated by content | 431 | 2,387,301 | `776fd357c28d39124bba1c1d19e858692e2ecbddc23baff8caf02059a1dde97e` |
+| Combined | 921 | 2,750,623 | |
 
 No decode was rejected by a pre-existing guard, so every observation is of a
 complete decode.
@@ -2881,26 +2881,26 @@ Per-decode consumption against each budget:
 
 | Budget | Ceiling | p50 | p99.99 | Observed max | Headroom |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Node budget | 65,536 | 1 | 63 | 166 | 394x |
-| Materialization budget | 524,288 | 1 | 63 | 144 | 3,640x |
-| Work ledger | 262,144 | 63 | 1,023 | 1,371 | 191x |
+| Node budget | 65,536 | 1 | 63 | 72 | 910x |
+| Materialization budget | 524,288 | 1 | 63 | 158 | 3,318x |
+| Work ledger | 262,144 | 63 | 511 | 1,182 | 222x |
 
 Per-quantity consumption, as the largest single charge and the largest total
 within one decode:
 
 | Quantity | Largest single | Largest per decode | Charges | Per-item cap |
 | --- | ---: | ---: | ---: | --- |
-| Type name characters | 193 | 1,301 | 4,242,966 | 4,096 |
-| Resolution-scope chain length | 3 | 17 | 1,830,051 | 256 |
-| `AssemblyRef` name storage | 58 | 292 | 1,521,833 | none |
-| `AssemblyRef` public-key token | 8 | 64 | 1,521,570 | 8 |
+| Type name characters | 175 | 1,078 | 2,574,175 | 4,096 |
+| Resolution-scope chain length | 3 | 19 | 1,465,380 | 256 |
+| `AssemblyRef` name storage | 58 | 292 | 1,232,837 | none |
+| `AssemblyRef` public-key token | 8 | 64 | 1,232,641 | 8 |
 | `AssemblyRef` culture storage | 0 | 0 | 0 | none |
 | `AssemblyRef` full public key | 0 | 0 | 0 | **none** |
 | `ModuleRef` name storage | 0 | 0 | 0 | **none** |
 | `TypeSpec` blob bytes | 0 | 0 | 0 | 4,096 |
 
 Two results set the ceilings. Every Class A quantity stays far below its cap --
-the longest single type name observed is 193 characters against a 4,096
+the longest single type name observed is 175 characters against a 4,096
 ceiling, and the longest resolution-scope chain is 3 against 256 -- so the caps
 constrain nothing real. And no decode approached any budget, which is what
 makes the budgets available to bound repetition rather than typical cost.
@@ -2929,7 +2929,7 @@ key's size:
 | 1,048,576 | 1,048,585 | **4.0x** |
 | 16,777,216 | 16,777,225 | **64.0x** |
 
-Every real decode measured stayed under 1,371 units. One author-chosen field
+Every real decode measured stayed under 1,182 units. One author-chosen field
 reaches four orders of magnitude beyond that, from an artifact small enough to
 mail, and it scales linearly with no upper limit. This is the entire reason the
 ledger exists and the reason charging must precede a Class B read: no census,
@@ -2953,16 +2953,24 @@ the ledger's role for this quantity is bounding how many times a shared
 
 #### Reproducing
 
+Both corpora are pinned. The platform tier is the installed runtime and
+reference packs at the stated version. The third-party tier is every `lib/`
+assembly of the package versions in `docs/data/nuget-top-packages.lock.json`,
+fetched from nuget.org and deduplicated by content; ten of those packages ship
+no `lib/` assembly and contribute nothing. The digests above are over the
+ordered per-file SHA-256 of the inputs, so a corpus that drifts is detectable
+rather than silently different.
+
 The census is a measurement build, not product code: it replaces the three
 budget checks with accumulators, tags each charge site by caller line, and
 decodes every member signature in each input. Rebuild it by instrumenting
-`SignatureOccurrenceWorkBudget` and re-running against the digests above. A
-change that alters what a decode charges must re-run it, because the observed
-maxima are the only evidence that the ceilings clear real artifacts.
+`SignatureOccurrenceWorkBudget`. A change that alters what a decode charges
+must re-run it, because the observed maxima are the only evidence that the
+ceilings clear real artifacts.
 
 A census run also checks the cost model for completeness: charges that no
 classified site accounts for are recorded against an unmapped bucket, which was
-zero across all 4,526,370 decodes. A non-zero unmapped count means the table
+zero across all 2,750,623 decodes. A non-zero unmapped count means the table
 above is missing a quantity.
 
 ### Charging bounds; caching does not
