@@ -797,6 +797,8 @@ public class LibraryCommand
 
                 if (inspections.Count == 0)
                 {
+                    PackageCommand.WriteLibraryInspectionFailures(
+                        collection.InspectionFailures);
                     PackageCommand.WriteIdentifierAuditFailures(
                         collection.IdentifierAuditFailures);
                     CommandError.Write("No libraries could be read from the package.");
@@ -813,11 +815,16 @@ public class LibraryCommand
                     return 1;
                 }
 
+                bool inspectionIncomplete =
+                    PackageCommand.WriteLibraryInspectionFailures(
+                        collection.InspectionFailures);
                 bool identifierAuditIncomplete =
                     PackageCommand.WriteIdentifierAuditFailures(
                         collection.IdentifierAuditFailures);
-                int identifierAuditExitCode =
-                    identifierAuditIncomplete ? 1 : 0;
+                int packageInspectionExitCode =
+                    inspectionIncomplete || identifierAuditIncomplete
+                        ? 1
+                        : 0;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
                     inspections[0], assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
@@ -829,7 +836,7 @@ public class LibraryCommand
                     return heapExitCode;
                 if (discoveryInspection)
                     return Math.Max(
-                        identifierAuditExitCode,
+                        packageInspectionExitCode,
                         WriteEffectiveSections(
                             assemblyPaths[0], inspections[0], options,
                             pipeline, userVerbosity,
@@ -844,7 +851,7 @@ public class LibraryCommand
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
-                            identifierAuditExitCode,
+                            packageInspectionExitCode,
                             await WriteLibraryPrintProjectionAsync(
                                 inspections[0],
                                 options)),
@@ -853,7 +860,7 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return IntegrityExitCode(
                         Math.Max(
-                            identifierAuditExitCode,
+                            packageInspectionExitCode,
                             WriteLibraryShapeProjection(
                                 inspections[0],
                                 options)),
@@ -879,7 +886,7 @@ public class LibraryCommand
 
                 return Math.Max(
                     IntegrityExitCode(
-                        identifierAuditExitCode,
+                        packageInspectionExitCode,
                         !identifierAuditIncomplete,
                         [.. inspections]),
                     SelectedInspectionFailureExitCode(
@@ -2795,6 +2802,7 @@ public class LibraryCommand
 
     private readonly record struct PackageInspectionCollection(
         List<LibraryInspection> Inspections,
+        List<(string FileName, string Reason)> InspectionFailures,
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
@@ -2810,6 +2818,7 @@ public class LibraryCommand
         bool discoveryOnly = false, InspectionTrace? trace = null)
     {
         List<LibraryInspection> inspections = [];
+        List<(string FileName, string Reason)> inspectionFailures = [];
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
@@ -2851,6 +2860,17 @@ public class LibraryCommand
                     (relativePath, ex.FailureKind));
                 continue;
             }
+            catch (Exception ex) when (
+                ex is UnsupportedMetadataFormatException
+                    or MalformedMetadataRootException)
+            {
+                inspectionFailures.Add(
+                    (
+                        relativePath,
+                        PackageCommand
+                            .DescribeLibraryInspectionFormatFailure(ex)));
+                continue;
+            }
             if (inspection == null)
             {
                 logger.LogWarning($"Could not read library: {Path.GetFileName(targetPath)}");
@@ -2879,6 +2899,7 @@ public class LibraryCommand
 
         return new PackageInspectionCollection(
             inspections,
+            inspectionFailures,
             identifierAuditFailures);
     }
 

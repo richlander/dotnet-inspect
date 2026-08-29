@@ -26,7 +26,7 @@ public sealed class MalformedMetadataRootException(
 /// covers direct and alternate reader-construction paths, while
 /// <c>MetadataImageFormatClassifierTests</c> exercises every result arm.
 /// </summary>
-internal static class MetadataFormatAdmission
+public static class MetadataFormatAdmission
 {
     internal static bool AdmitImage(PEReader peReader)
     {
@@ -45,13 +45,13 @@ internal static class MetadataFormatAdmission
         };
     }
 
-    internal static MetadataReader GetMetadataReader(PEReader peReader)
+    public static MetadataReader GetMetadataReader(PEReader peReader)
     {
         EnsureMetadata(peReader);
         return peReader.GetMetadataReader();
     }
 
-    internal static MetadataReader GetMetadataReader(
+    public static MetadataReader GetMetadataReader(
         PEReader peReader,
         MetadataReaderOptions options)
     {

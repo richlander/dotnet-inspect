@@ -951,6 +951,105 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateMetadataAdmissionMixedPackage()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"metadata-admission-package-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string net8Directory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net8.0");
+        string net9Directory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net9.0");
+        string net10Directory = Path.Combine(
+            packageRoot,
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(net8Directory);
+        Directory.CreateDirectory(net9Directory);
+        Directory.CreateDirectory(net10Directory);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(net8Directory, "Lib.dll"));
+        WriteMalformedMetadataRootAssembly(
+            Path.Combine(net9Directory, "Lib.dll"));
+        WriteUnsupportedMetadataAssembly(
+            Path.Combine(net10Directory, "Lib.dll"));
+
+        string packagePath = Path.Combine(
+            tempDir,
+            "Metadata.Admission.Mixed.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static void WriteMalformedMetadataRootAssembly(string path)
+    {
+        WriteReferenceFixtureAssembly(path, "Lib");
+        byte[] image = File.ReadAllBytes(path);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.MetadataStartOffset,
+                sizeof(uint)),
+            0);
+        File.WriteAllBytes(path, image);
+    }
+
+    private static void WriteUnsupportedMetadataAssembly(string path)
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Lib"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 12,
+                sizeof(int)),
+            fixedMetadataRootPrefixLength + versionLength);
+        File.WriteAllBytes(path, image);
+    }
+
     private static (string AssemblyPath, string SourcePath, string FixtureDir)
         CreateNoSourceLinkDiscoveryAssembly()
     {
@@ -19099,12 +19198,17 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Contains("U+0405→S", output);
-            Assert.Equal(
-                "Warning: Identifier audit failed for "
-                + "'lib/net8.0/Root.dll': invalid assembly metadata"
-                + Environment.NewLine,
+            Assert.Contains(
+                "Warning: Library inspection failed for "
+                + "'lib/net8.0/Bridge.dll': malformed metadata root",
                 error);
-            Assert.DoesNotContain("Bridge", error);
+            Assert.Contains(
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata",
+                error);
+            Assert.DoesNotContain(
+                "MalformedMetadataRootException",
+                error);
         }
         finally
         {
@@ -24569,6 +24673,63 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "IdentifierConfusionReferenceTraversalException",
                 error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageInspection_FormatRejectedMembersDoNotHideHealthyResults()
+    {
+        var (packagePath, tempDir) =
+            CreateMetadataAdmissionMixedPackage();
+        try
+        {
+            var library = await RunAppAsync(
+                "library",
+                "Lib.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+            var package = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            foreach (var result in new[] { library, package })
+            {
+                Assert.Equal(1, result.Exit);
+                Assert.Contains("net8.0", result.Output);
+                Assert.Contains(
+                    "Library inspection failed for "
+                    + "'lib/net10.0/Lib.dll': "
+                    + "unsupported metadata format",
+                    result.Error);
+                Assert.Contains(
+                    "Library inspection failed for "
+                    + "'lib/net9.0/Lib.dll': "
+                    + "malformed metadata root",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "UnsupportedMetadataFormatException",
+                    result.Error);
+                Assert.DoesNotContain(
+                    "MalformedMetadataRootException",
+                    result.Error);
+            }
         }
         finally
         {

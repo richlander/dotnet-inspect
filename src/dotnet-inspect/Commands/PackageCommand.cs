@@ -4290,6 +4290,7 @@ public class PackageCommand
                         includeIntegrationOpportunities)
                 : null;
         List<LibraryInspection> inspections = [];
+        List<(string FileName, string Reason)> libraryInspectionFailures = [];
         List<(string FileName, string Reason)> groupedIntegrationsFailures = [];
         List<(string FileName, IdentifierConfusionAuditFailureKind FailureKind)>
             identifierAuditFailures = [];
@@ -4339,6 +4340,16 @@ public class PackageCommand
                         ex.FailureKind));
                 continue;
             }
+            catch (Exception ex) when (
+                ex is UnsupportedMetadataFormatException
+                    or MalformedMetadataRootException)
+            {
+                libraryInspectionFailures.Add(
+                    (
+                        relativePath,
+                        DescribeLibraryInspectionFormatFailure(ex)));
+                continue;
+            }
 
             if (inspection == null)
             {
@@ -4353,6 +4364,8 @@ public class PackageCommand
             inspections.Add(inspection);
         }
 
+        bool libraryInspectionIncomplete =
+            WriteLibraryInspectionFailures(libraryInspectionFailures);
         bool integrationsIncomplete =
             integrationsWorkspace is not null
             && WriteGroupedIntegrationsFailures(
@@ -4371,7 +4384,8 @@ public class PackageCommand
             WriteIdentifierAuditFailures(identifierAuditFailures);
         int completionExitCode =
             AllLibrariesCompletionExitCode(
-                integrationsIncomplete
+                libraryInspectionIncomplete
+                    || integrationsIncomplete
                     || identifierAuditIncomplete,
                 libraryOptions,
                 pipeline,
@@ -4587,6 +4601,37 @@ public class PackageCommand
 
         return failures.Count > 0;
     }
+
+    internal static bool WriteLibraryInspectionFailures(
+        IEnumerable<(string FileName, string Reason)> inspectionFailures)
+    {
+        ArgumentNullException.ThrowIfNull(inspectionFailures);
+
+        var failures = inspectionFailures
+            .Distinct()
+            .ToList();
+
+        foreach (var (fileName, reason) in failures)
+        {
+            CommandError.WriteWarning(
+                $"Library inspection failed for '{fileName}': {reason}");
+        }
+
+        return failures.Count > 0;
+    }
+
+    internal static string DescribeLibraryInspectionFormatFailure(
+        Exception exception) =>
+        exception switch
+        {
+            UnsupportedMetadataFormatException =>
+                "unsupported metadata format",
+            MalformedMetadataRootException =>
+                "malformed metadata root",
+            _ => throw new ArgumentException(
+                "The exception is not a metadata-format failure.",
+                nameof(exception)),
+        };
 
     internal static bool WriteIdentifierAuditFailures(
         IEnumerable<(

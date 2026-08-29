@@ -571,7 +571,7 @@ public sealed partial class AssemblyDependencyResolver :
             ResolvedAssemblyReference result =
                 ResolvedAssemblyReference.Create(
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    reader.GetMetadataReader()),
+                    MetadataFormatAdmission.GetMetadataReader(reader)),
                 Path.GetFullPath(path),
                 () => new MemoryStream(image, writable: false),
                 provenance);

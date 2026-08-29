@@ -1336,10 +1336,12 @@ internal static class LibraryMetadataService
             _ => IdentifierConfusionAuditFailureKind.InspectionFailed,
         };
 
-    private static IdentifierConfusionAuditFailureKind
+    internal static IdentifierConfusionAuditFailureKind
         ClassifyIdentifierConfusionReferenceFailure(Exception exception) =>
         exception switch
         {
+            UnsupportedMetadataFormatException =>
+                IdentifierConfusionAuditFailureKind.InvalidAssemblyMetadata,
             BadImageFormatException
                 or ArgumentOutOfRangeException
                 or OverflowException =>
