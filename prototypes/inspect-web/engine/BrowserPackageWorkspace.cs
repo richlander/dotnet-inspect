@@ -257,8 +257,9 @@ internal static class BrowserPackageWorkspace
     }
 
     /// <summary>
-    /// Resolves one exact package/version/framework identity into a selected, acquirable
-    /// coordinate. The result carries typed participants but performs no inspection.
+    /// Resolves one exact package/version/framework identity into an acquirable package Root.
+    /// The result preserves the product's compile-library outcome and carries assembly
+    /// participants only when compile assets were selected.
     /// </summary>
     public static async Task<BrowserPackageCoordinate> ResolveAsync(
         string packageId,
@@ -270,34 +271,12 @@ internal static class BrowserPackageWorkspace
             packageId,
             version,
             cancellationToken);
-        var assemblyContext = new PackageAssemblyContextSelection(
+        var root = new PackageRootRealization(
             package.Content,
             packageId,
             package.Version,
             targetFramework);
-        PackageCompileAssetSelection selection = assemblyContext.AssetSelection;
-        return selection.Status switch
-        {
-            PackageCompileAssetSelectionStatus.NoCompileAssets =>
-                throw new InvalidOperationException(
-                    $"{package.PackageId} {package.Version} has no compile-time assemblies, so it "
-                    + "has no inspection workspace."),
-            PackageCompileAssetSelectionStatus.EmptyCompileGroup =>
-                throw new InvalidOperationException(
-                    $"{package.PackageId} {package.Version} declares an empty compile group for "
-                    + "the selected framework, so it ships no API surface for that framework."),
-            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework =>
-                throw new InvalidOperationException(
-                    $"Framework '{targetFramework}' is not present in "
-                    + $"{package.PackageId} {package.Version}."),
-            PackageCompileAssetSelectionStatus.InvalidImplementationAssets =>
-                throw new InvalidOperationException(
-                    "The package has an invalid implementation-asset layout."),
-            PackageCompileAssetSelectionStatus.Selected when selection.IsSelected =>
-                new BrowserPackageCoordinate(package, assemblyContext),
-            _ => throw new InvalidOperationException(
-                "Package compile-asset selection returned an unknown outcome."),
-        };
+        return new BrowserPackageCoordinate(package, root);
     }
 
     /// <summary>
@@ -1466,8 +1445,8 @@ internal sealed class BrowserPackage
 }
 
 /// <summary>
-/// One resolved package/version/framework coordinate and the compile assets the product selector
-/// chose for it. This is acquisition state: it names what a workspace would contain, and inspects
+/// One resolved package/version/framework Root and the compile outcome the product selector chose
+/// for it. This is acquisition state: it names what a workspace would contain, and inspects
 /// nothing.
 /// </summary>
 [SupportedOSPlatform("browser")]
@@ -1475,38 +1454,43 @@ internal sealed class BrowserPackageCoordinate
 {
     public BrowserPackageCoordinate(
         BrowserPackage package,
-        PackageAssemblyContextSelection assemblyContext)
+        PackageRootRealization root)
     {
         ArgumentNullException.ThrowIfNull(package);
-        ArgumentNullException.ThrowIfNull(assemblyContext);
+        ArgumentNullException.ThrowIfNull(root);
         if (!package.PackageId.Equals(
-                assemblyContext.PackageId,
+                root.PackageId,
                 StringComparison.OrdinalIgnoreCase)
             || !package.Version.Equals(
-                assemblyContext.PackageVersion,
-                StringComparison.OrdinalIgnoreCase))
+                root.PackageVersion,
+                StringComparison.OrdinalIgnoreCase)
+            || !root.ReferencesContent(package.Content))
         {
             throw new ArgumentException(
-                "The product package selection must describe the acquired Browser package.",
-                nameof(assemblyContext));
+                "The product package Root must describe the acquired Browser package and its "
+                + "exact content.",
+                nameof(root));
         }
 
         Package = package;
-        AssemblyContext = assemblyContext;
+        Root = root;
     }
 
     public BrowserPackage Package { get; }
 
-    public PackageAssemblyContextSelection AssemblyContext { get; }
+    public PackageRootRealization Root { get; }
 
     public PackageCompileAssetSelection Selection =>
-        AssemblyContext.AssetSelection;
+        Root.AssetSelection;
 
     public string PackageId => Package.PackageId;
 
     public string Version => Package.Version;
 
-    public string Framework => Selection.TargetFramework!;
+    public string Framework =>
+        Selection.TargetFramework
+        ?? Root.RequestedTargetFramework
+        ?? "";
 
     /// <summary>
     /// The exact coordinate this workspace answers for. It is the registry key, so two requests
@@ -1516,7 +1500,7 @@ internal sealed class BrowserPackageCoordinate
     public string Key =>
         $"{PackageId.ToLowerInvariant()}@{Version.ToLowerInvariant()}/{Framework.ToLowerInvariant()}";
 
-    public PackageCompileAsset DefaultAsset => Selection.DefaultAsset!;
+    public PackageCompileAsset? DefaultAsset => Selection.DefaultAsset;
 
     /// <summary>Every assembly the package ships for the selected framework.</summary>
     public IReadOnlyList<PackageCompileAsset> FrameworkAssets => Selection.FrameworkAssets;
@@ -1529,6 +1513,12 @@ internal sealed class BrowserPackageCoordinate
     public PackageCompileAsset CompileAsset(string assemblyIdOrName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyIdOrName);
+        if (!Selection.IsSelected)
+        {
+            throw new InvalidOperationException(
+                $"{PackageId} {Version} has no selected compile library "
+                + $"({Selection.Status}).");
+        }
         return Selection.FindAsset(assemblyIdOrName)
             ?? Selection.Assets.FirstOrDefault(asset => MatchesAssembly(asset, assemblyIdOrName))
             ?? throw new InvalidOperationException(

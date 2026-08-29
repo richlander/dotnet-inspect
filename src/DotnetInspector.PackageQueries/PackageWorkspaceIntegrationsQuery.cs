@@ -55,6 +55,12 @@ public static class PackageWorkspaceIntegrationsQuery
         PackageAssemblyContextRealization realization)
     {
         ArgumentNullException.ThrowIfNull(realization);
+        if (!realization.HasAssemblyContexts)
+        {
+            throw new InvalidOperationException(
+                "Package workspace integration analysis requires at least one "
+                + "selected compile asset.");
+        }
 
         var entries =
             ImmutableArray.CreateBuilder<PackageWorkspaceIntegrationsEntry>();

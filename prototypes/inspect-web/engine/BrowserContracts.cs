@@ -21,12 +21,28 @@ namespace InspectWeb.Engine;
 /// The participants the workspace could not project, if any. A partial surface says so rather
 /// than reading as a complete one.
 /// </param>
+public sealed record BrowserCompileLibraryAvailability(
+    BrowserCompileLibraryStatus Status,
+    string? TargetFramework,
+    string? Message);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCompileLibraryStatus>))]
+public enum BrowserCompileLibraryStatus
+{
+    Selected,
+    NoCompileAssets,
+    NoMatchingTargetFramework,
+    EmptyCompileGroup,
+    InvalidImplementationAssets,
+}
+
 public sealed record BrowserPackageSurface(
     string Package,
     string Version,
     string[] Frameworks,
     string ActiveFramework,
-    string DefaultAssemblyId,
+    string? DefaultAssemblyId,
+    BrowserCompileLibraryAvailability CompileLibrary,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
     BrowserAccessibilityDescriptor[] Accessibility,
@@ -414,7 +430,8 @@ public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kin
 
 public sealed record BrowserPackageMetadata(
     BrowserAssemblyMetadata[] Assemblies,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserAssemblyMetadata(
     string Assembly,
@@ -513,11 +530,12 @@ public sealed record BrowserPackageDependencies(
     string Package,
     string Version,
     string ActiveFramework,
-    string Assembly,
+    string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
     BrowserAssemblyReference[] AssemblyReferences,
     string? DependencyGroupError,
-    string? AssemblyReferenceError);
+    string? AssemblyReferenceError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserPackageDependencyGroup(
     int Index,
@@ -612,7 +630,8 @@ public sealed record BrowserPackageIntegrations(
     BrowserIntegrationCategory[] Categories,
     int TotalSignals,
     bool IsComplete,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserIntegrationCategory(
     string Integration,
@@ -632,7 +651,8 @@ public sealed record BrowserPackageOpportunities(
     BrowserOpportunityCategory[] Categories,
     int TotalOpportunities,
     bool IsComplete,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserOpportunityCategory(
     string Integration,
@@ -652,7 +672,8 @@ public sealed record BrowserPackagePerformance(
     BrowserPerformanceMember[] Members,
     string? InspectionError,
     int NonPublicOpportunities,
-    int TotalOpportunities);
+    int TotalOpportunities,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserPerformanceMember(
     string Assembly,

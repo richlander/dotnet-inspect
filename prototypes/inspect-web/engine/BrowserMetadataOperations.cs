@@ -21,6 +21,18 @@ public static partial class InspectionEngine
                 version,
                 targetFramework);
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserCompileLibraryAvailability compileLibrary =
+            CompileLibrary(coordinate.Selection);
+        if (!coordinate.Selection.IsSelected)
+        {
+            return JsonSerializer.Serialize(
+                new BrowserPackageMetadata(
+                    Assemblies: [],
+                    InspectionError: null,
+                    compileLibrary),
+                BrowserJsonContext.Default.BrowserPackageMetadata);
+        }
+
         var assemblies = new List<BrowserAssemblyMetadata>();
         var failures = new List<string>();
         foreach (BrowserWorkspaceParticipant participant
@@ -51,7 +63,8 @@ public static partial class InspectionEngine
         return JsonSerializer.Serialize(
             new BrowserPackageMetadata(
                 [.. assemblies],
-                failures.Count == 0 ? null : string.Join("; ", failures)),
+                failures.Count == 0 ? null : string.Join("; ", failures),
+                compileLibrary),
             BrowserJsonContext.Default.BrowserPackageMetadata);
     }
 
@@ -146,10 +159,12 @@ public static partial class InspectionEngine
             AssemblyContextEntry<MetadataImageOverview>.Available available =>
                 new BrowserPackageMetadata(
                     [ProjectMetadataAssembly(assembly, available.Value)],
-                    null),
+                    null,
+                    SelectedCompileLibrary(resolution.Scope.Framework)),
             _ => new BrowserPackageMetadata(
                 [],
-                MetadataFailure(result)),
+                MetadataFailure(result),
+                SelectedCompileLibrary(resolution.Scope.Framework)),
         };
         return JsonSerializer.Serialize(
             metadata,
@@ -443,6 +458,13 @@ public static partial class InspectionEngine
         BrowserPackageCoordinate coordinate,
         string assemblyFileName)
     {
+        if (!coordinate.Selection.IsSelected)
+        {
+            throw new InvalidOperationException(
+                $"{coordinate.PackageId} {coordinate.Version} has no selected "
+                + $"compile library ({coordinate.Selection.Status}).");
+        }
+
         BrowserWorkspaceParticipant[] matches =
         [
             .. MetadataParticipants(scope, coordinate).Where(participant =>

@@ -60,7 +60,7 @@ internal sealed class BrowserInspectionScope : IDisposable
 
     readonly InspectionWorkspace _workspace = new();
     readonly PackageAssemblyContextRealization _realization;
-    readonly BrowserWorkspaceRole _surface;
+    readonly BrowserWorkspaceRole? _surface;
     readonly BrowserWorkspaceRole? _implementation;
 
     public BrowserInspectionScope(IReadOnlyList<BrowserPackageCoordinate> coordinates)
@@ -72,7 +72,7 @@ internal sealed class BrowserInspectionScope : IDisposable
         try
         {
             realization = _workspace.RealizePackageAssemblyContextRoles(
-                Coordinates.Select(coordinate => coordinate.AssemblyContext),
+                Coordinates.Select(coordinate => coordinate.Root),
                 new PackageAssemblyContextRealizationOptions
                 {
                     MaxAssembliesPerRole = MaxAssembliesPerRole,
@@ -81,15 +81,17 @@ internal sealed class BrowserInspectionScope : IDisposable
                     RequireDeclaredEntryLengths = true,
                 });
             _realization = realization;
-            _surface = new BrowserWorkspaceRole(
-                realization.SurfaceGroup,
-                realization.SurfaceParticipants,
-                Coordinates);
-            _implementation = realization.ImplementationGroup is null
-                ? null
-                : realization.SharesGroup
-                    ? _surface
-                    : new BrowserWorkspaceRole(
+                _surface = realization.HasAssemblyContexts
+                    ? new BrowserWorkspaceRole(
+                        realization.SurfaceGroup,
+                        realization.SurfaceParticipants,
+                        Coordinates)
+                    : null;
+                _implementation = realization.ImplementationGroup is null
+                    ? null
+                    : realization.SharesGroup
+                        ? Surface
+                        : new BrowserWorkspaceRole(
                         realization.ImplementationGroup,
                         realization.ImplementationParticipants,
                         Coordinates);
@@ -112,7 +114,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     public ImmutableArray<BrowserPackageCoordinate> Coordinates { get; }
 
     public ImmutableArray<BrowserWorkspaceParticipant> SurfaceParticipants =>
-        _surface.Participants;
+        _surface?.Participants ?? [];
 
     public ImmutableArray<BrowserWorkspaceParticipant> ImplementationParticipants =>
         _implementation?.Participants ?? [];
@@ -128,7 +130,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     /// authoritative API surface when the package ships them.
     /// </summary>
     public TResult UseSurface<TResult>(Func<AssemblyContextGroup, TResult> query) =>
-        _surface.Use(query);
+        Surface.Use(query);
 
     /// <summary>
     /// Hands one compile-asset participant to a participant-scoped product query.
@@ -136,7 +138,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     public TResult UseSurfaceParticipant<TResult>(
         BrowserWorkspaceParticipant participant,
         Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
-        _surface.UseParticipant(participant, query);
+        Surface.UseParticipant(participant, query);
 
     /// <summary>Hands the implementation group to a body-backed product query.</summary>
     public TResult UseImplementation<TResult>(Func<AssemblyContextGroup, TResult> query) =>
@@ -148,7 +150,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     /// </summary>
     public TResult UseImplementationOrSurface<TResult>(
         Func<AssemblyContextGroup, TResult> query) =>
-        (_implementation ?? _surface).Use(query);
+        (_implementation ?? Surface).Use(query);
 
     /// <summary>
     /// Runs the product-owned Integration roll-up across the complete realized
@@ -170,7 +172,7 @@ internal sealed class BrowserInspectionScope : IDisposable
         if (_implementation?.Participants.Contains(participant) is true)
             return _implementation.UseParticipant(participant, query);
         if (ReferenceOnlySurfaceParticipants.Contains(participant))
-            return _surface.UseParticipant(participant, query);
+            return Surface.UseParticipant(participant, query);
 
         throw new ArgumentException(
             "The participant does not belong to a metadata workspace role.",
@@ -201,7 +203,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     public BrowserWorkspaceParticipant SurfaceParticipant(
         BrowserPackageCoordinate coordinate,
         PackageCompileAsset asset)
-        => _surface.FindParticipant(coordinate, asset);
+        => Surface.FindParticipant(coordinate, asset);
 
     public BrowserWorkspaceParticipant ImplementationParticipant(
         BrowserPackageCoordinate coordinate,
@@ -302,6 +304,11 @@ internal sealed class BrowserInspectionScope : IDisposable
         ?? throw new InvalidOperationException(
             "The selected packages ship no managed implementation assembly for their selected "
             + "frameworks, so this operation has no method bodies to inspect.");
+
+    BrowserWorkspaceRole Surface => _surface
+        ?? throw new InvalidOperationException(
+            "The selected packages have no compile libraries, so this operation has no "
+            + "assembly surface to inspect.");
 }
 
 /// <summary>
@@ -327,7 +334,7 @@ internal sealed class BrowserWorkspaceRole
                 new BrowserWorkspaceParticipant(
                     coordinates.First(coordinate =>
                         ReferenceEquals(
-                            coordinate.AssemblyContext,
+                            coordinate.Root.Identity,
                             participant.Package)),
                     participant)),
         ];
