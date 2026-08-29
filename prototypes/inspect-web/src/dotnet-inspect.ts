@@ -826,6 +826,7 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
 let lastCanonicalWorkspaceHref: string | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
+let packageQueryHandoffInProgress = false;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -7084,6 +7085,7 @@ function openPackageQueryRoute(seed = "") {
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
+  packageQueryHandoffInProgress = false;
   resetPackageQueryState();
   resetPackageQueryAnnouncements();
   state.packageQueryPrefix = validPackageQueryPrefix(seed);
@@ -7182,6 +7184,8 @@ async function openPackageQueryRow(
   version: string,
 ) {
   packageQueryController.cancel();
+  state.packageQueryOpen = false;
+  packageQueryHandoffInProgress = true;
   const navigationSeq = navigationSequence.begin();
   state.packageQueryNavigationError = "";
   packageQueryAnnouncements.beginNavigationAttempt();
@@ -7192,6 +7196,7 @@ async function openPackageQueryRow(
     { navigationSeq });
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!loaded) {
+    packageQueryHandoffInProgress = false;
     const failure = state.error || state.queryNotice
       || `Couldn’t open ${packageId}@${version} in the workspace.`;
     state.loading = false;
@@ -7211,7 +7216,7 @@ async function openPackageQueryRow(
     return;
   }
 
-  state.packageQueryOpen = false;
+  packageQueryHandoffInProgress = false;
   workspaceLocation.push(buildStateUrl().toString());
   render();
   focusTypeList();
@@ -10433,6 +10438,7 @@ window.addEventListener("popstate", () => {
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     applyPackageQueryHistory(history.state);
+    packageQueryHandoffInProgress = false;
     state.packageQueryOpen = true;
     state.credits = false;
     state.home = false;
@@ -10442,8 +10448,9 @@ window.addEventListener("popstate", () => {
     return;
   }
   state.loading = false;
-  if (state.packageQueryOpen) {
+  if (state.packageQueryOpen || packageQueryHandoffInProgress) {
     state.packageQueryOpen = false;
+    packageQueryHandoffInProgress = false;
     packageQueryController.cancel();
     state.packageQueryReturnFocusPending =
       state.packageQueryReturnFocus !== null

@@ -2744,7 +2744,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\)/);
   assert.match(
     handoff,
-    /packageQueryController\.cancel\(\);[\s\S]*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*packageQueryHandoffInProgress = true;\s*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*packageQueryHandoffInProgress = false;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
   assert.match(
     handoff,
     /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
@@ -2779,7 +2779,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.loading = !state\.engineReady;\s*render\(\);\s*if \(state\.engineReady\) focusPackageQueryInput\(\)/);
   assert.match(
     popstate,
-    /state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
+    /if \(state\.packageQueryOpen \|\| packageQueryHandoffInProgress\) \{[\s\S]*packageQueryHandoffInProgress = false;[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null[\s\S]*isPackageQueryPredecessor\(\s*history\.state,\s*state\.packageQueryPredecessorEntryId\)/);
   assert.match(
     appSource,
     /function closePackageQueryRoute\(\) \{\s*navigationSequence\.begin\(\);[\s\S]*history\.back\(\)/);
