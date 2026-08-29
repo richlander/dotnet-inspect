@@ -49,10 +49,10 @@ namespace InertText;
 public static class UrlRedaction
 {
     /// <summary>
-    /// What replaces a query that was present. It keeps "this resource was
-    /// requested with a query" legible without carrying any of it.
+    /// What replaces a query or credential-bearing path segment. It keeps the
+    /// redaction visible without carrying any of the removed text.
     /// </summary>
-    public const string QueryMarker = "REDACTED";
+    public const string RedactedMarker = "REDACTED";
 
     /// <summary>
     /// What replaces text that names an authority but cannot be parsed as a
@@ -122,7 +122,7 @@ public static class UrlRedaction
                     : RedactPath(locator);
         return new InertString(
             TextPolicy.Field,
-            hadQuery ? $"{rendered}?{QueryMarker}" : rendered);
+            hadQuery ? $"{rendered}?{RedactedMarker}" : rendered);
     }
 
     /// <summary>
@@ -140,7 +140,7 @@ public static class UrlRedaction
         string rendered = RenderAuthorityAndPath(uri);
         return new InertString(
             TextPolicy.Field,
-            HasQueryContent(uri.Query) ? $"{rendered}?{QueryMarker}" : rendered);
+            HasQueryContent(uri.Query) ? $"{rendered}?{RedactedMarker}" : rendered);
     }
 
     /// <summary>
@@ -342,7 +342,7 @@ public static class UrlRedaction
             ReadOnlySpan<char> segment =
                 path.AsSpan(segmentStart, index - segmentStart);
             bool redact = segment.Length > 0 && previousWasAuth;
-            builder.Append(redact ? "REDACTED" : segment);
+            builder.Append(redact ? RedactedMarker : segment);
             if (index < path.Length)
                 builder.Append(path[index]);
 
