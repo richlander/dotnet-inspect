@@ -443,8 +443,9 @@ test("query focus snapshots restore semantic controls after a full render", () =
     const documentRoot = root as unknown as Document;
 
     const snapshot = capturePackageQueryFocus(documentRoot);
-    restorePackageQueryFocus(documentRoot, snapshot);
+    const restoration = restorePackageQueryFocus(documentRoot, snapshot);
 
+    assert.equal(restoration, "restored");
     assert.equal(scenario.replacement.focusCount, 1);
   }
 });
@@ -460,8 +461,9 @@ test("query cancel focus restores by rendered position", () => {
 
   const snapshot = capturePackageQueryFocus(documentRoot);
   root.add("[data-query-cancel]", replacement);
-  restorePackageQueryFocus(documentRoot, snapshot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
 
+  assert.equal(restoration, "restored");
   assert.equal(replacement.focusCount, 1);
 });
 
@@ -482,7 +484,7 @@ test("query scroll position survives streamed full renders", () => {
   assert.equal(replacement.scrollTop, 480);
 });
 
-test("unrecognized or vanished query controls fall back to the prefix", () => {
+test("a vanished query control reports prefix fallback", () => {
   const cases = [new FakeElement({
     queryRowOpen: "Vanished.Package",
     queryRowVersion: "1.0.0",
@@ -497,8 +499,9 @@ test("unrecognized or vanished query controls fall back to the prefix", () => {
     const documentRoot = root as unknown as Document;
 
     const snapshot = capturePackageQueryFocus(documentRoot);
-    restorePackageQueryFocus(documentRoot, snapshot);
+    const restoration = restorePackageQueryFocus(documentRoot, snapshot);
 
+    assert.equal(restoration, "fallback");
     assert.equal(prefix.focusCount, 1);
   }
 });
@@ -513,9 +516,10 @@ test("an unfocused query render does not move focus into the prefix", () => {
   const documentRoot = root as unknown as Document;
 
   const snapshot = capturePackageQueryFocus(documentRoot);
-  restorePackageQueryFocus(documentRoot, snapshot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
 
   assert.equal(snapshot, null);
+  assert.equal(restoration, "none");
   assert.equal(prefix.focusCount, 0);
 });
 

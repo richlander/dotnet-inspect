@@ -2752,7 +2752,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryFocus\(document, focus\);\s*restorePackageQueryScroll\(document, scrollTop\)/);
+    /function renderPackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*const focusRestoration = restorePackageQueryFocus\(document, focus\);\s*if \(focusRestoration !== "fallback"\) \{\s*restorePackageQueryScroll\(document, scrollTop\)/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -2814,7 +2814,13 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /announcement: takePackageQueryAnnouncement\(\)/);
   assert.match(
     appSource,
-    /workspaceHref: state\.package \? buildStateUrl\(\)\.toString\(\) : "\/"/);
+    /workspaceHref: packageQueryWorkspaceHref\(\)/);
+  assert.match(
+    appSource,
+    /function packageQueryWorkspaceHref\(\): string \{[\s\S]*lastCanonicalWorkspaceHref[\s\S]*buildPackageRootStateUrl/);
+  assert.match(
+    appSource,
+    /if \(state\.packageQueryOpen\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*workspaceLocation\.push/);
   assert.match(
     appSource,
     /url => workspaceLocation\.replace\(url, history\.state\)/);

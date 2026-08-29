@@ -6,6 +6,7 @@ type PackageQueryAnnouncementInput = {
 };
 
 export type PackageQueryAnnouncementTracker = {
+  beginNavigationAttempt: () => void;
   take: (input: PackageQueryAnnouncementInput) => string;
   reset: () => void;
 };
@@ -18,6 +19,9 @@ export function createPackageQueryAnnouncementTracker():
   let terminalFailure = "";
 
   return {
+    beginNavigationAttempt() {
+      navigationError = "";
+    },
     take(input) {
       const announcement: string[] = [];
       if (input.catalogError && input.catalogError !== catalogError) {

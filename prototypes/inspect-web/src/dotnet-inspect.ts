@@ -824,6 +824,7 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   }
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
+let lastCanonicalWorkspaceHref: string | null = null;
 
 interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
@@ -6326,12 +6327,14 @@ function syncUrl() {
       workspaceLocation.replace(
         buildStateUrl().toString(),
         history.state);
+      lastCanonicalWorkspaceHref = location.href;
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
     workspaceLocation.sync(snapshot, history.state);
+    lastCanonicalWorkspaceHref = location.href;
   } catch {
     // Keep the last canonical URL while the active Browser state is not projectable.
   }
@@ -7164,6 +7167,7 @@ async function openPackageQueryRow(
   packageQueryController.cancel();
   const navigationSeq = navigationSequence.begin();
   state.packageQueryNavigationError = "";
+  packageQueryAnnouncements.beginNavigationAttempt();
   const loaded = await loadPackage(
     packageId,
     version,
@@ -7216,6 +7220,18 @@ const packageQueryActions: PackageQueryBindingActions = {
   onRun: runPackageQuery,
 };
 
+function packageQueryWorkspaceHref(): string {
+  const residentPackage = state.package;
+  if (!residentPackage) return "/";
+  return lastCanonicalWorkspaceHref
+    ?? buildPackageRootStateUrl(location.href, {
+      package: residentPackage.id,
+      version: residentPackage.version,
+      framework: residentPackage.activeFramework,
+      lens: state.packageLens,
+    }).toString();
+}
+
 function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
@@ -7229,12 +7245,14 @@ function renderPackageQueryPage() {
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
     announcement: takePackageQueryAnnouncement(),
-    workspaceHref: state.package ? buildStateUrl().toString() : "/",
+    workspaceHref: packageQueryWorkspaceHref(),
     escapeHtml,
   });
   bindPackageQueryView(document, packageQueryActions);
-  restorePackageQueryFocus(document, focus);
-  restorePackageQueryScroll(document, scrollTop);
+  const focusRestoration = restorePackageQueryFocus(document, focus);
+  if (focusRestoration !== "fallback") {
+    restorePackageQueryScroll(document, scrollTop);
+  }
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
@@ -9958,6 +9976,11 @@ function navigateInAppUrl(url: URL) {
   if (url.pathname === "/" && !url.search && !url.hash) {
     goHome();
     return;
+  }
+  if (state.packageQueryOpen) {
+    state.packageQueryOpen = false;
+    packageQueryController.cancel();
+    state.packageQueryNavigationError = "";
   }
   workspaceLocation.push(url.toString());
   const loc = parseLocation();

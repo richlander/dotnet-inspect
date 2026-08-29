@@ -58,3 +58,18 @@ test("a whole-query failure is announced once", () => {
     "");
   assert.equal(tracker.take(failed), "The query timed out.");
 });
+
+test("a new navigation attempt can repeat the same failure announcement", () => {
+  const tracker = createPackageQueryAnnouncementTracker();
+  const failed = {
+    catalogError: "",
+    navigationError: "Workspace acquisition failed.",
+    failures: [],
+    terminalFailure: "",
+  };
+
+  assert.equal(tracker.take(failed), "Workspace acquisition failed.");
+  assert.equal(tracker.take(failed), "");
+  tracker.beginNavigationAttempt();
+  assert.equal(tracker.take(failed), "Workspace acquisition failed.");
+});

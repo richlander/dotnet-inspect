@@ -96,8 +96,8 @@ export function capturePackageQueryFocus(
 export function restorePackageQueryFocus(
   root: ParentNode,
   snapshot: PackageQueryFocusSnapshot | null,
-): void {
-  if (!snapshot) return;
+): "none" | "restored" | "fallback" {
+  if (!snapshot) return "none";
   let target: Element | null;
   switch (snapshot.kind) {
     case "prefix":
@@ -133,10 +133,12 @@ export function restorePackageQueryFocus(
       target = null;
       break;
   }
+  let usedFallback = false;
   if (!isFocusableQueryElement(target)) {
     target = root.querySelector("#package-query-prefix");
+    usedFallback = true;
   }
-  if (!isFocusableQueryElement(target)) return;
+  if (!isFocusableQueryElement(target)) return "none";
   target.focus();
   if (snapshot.kind === "prefix"
     && supportsSelectionRange(target)
@@ -144,6 +146,7 @@ export function restorePackageQueryFocus(
     && snapshot.selectionEnd !== null) {
     target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
   }
+  return usedFallback ? "fallback" : "restored";
 }
 
 export function capturePackageQueryScroll(root: ParentNode): number | null {
