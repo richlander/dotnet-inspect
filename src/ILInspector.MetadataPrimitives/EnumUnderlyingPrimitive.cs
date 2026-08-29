@@ -178,6 +178,34 @@ static class EnumUnderlyingPrimitive
     }
 
     /// <summary>
+    /// Resolves a signature-named type handle to the definition it denotes in
+    /// this reader, structurally: a definition handle denotes itself, and a
+    /// reference is matched by name and resolution scope rather than by its
+    /// rendered spelling. The guard and the decoder both ask this one question
+    /// about the same handle, so neither can select a different definition --
+    /// and therefore a different width -- than the other. A reference to a type
+    /// this reader does not define has no local definition and resolves
+    /// elsewhere.
+    /// </summary>
+    public static bool TryResolveDefinition(
+        MetadataReader reader,
+        EntityHandle handle,
+        out TypeDefinitionHandle definition)
+    {
+        if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            definition = (TypeDefinitionHandle)handle;
+            return true;
+        }
+
+        if (handle.Kind == HandleKind.TypeReference)
+            return TryFindDefinition(reader, (TypeReferenceHandle)handle, out definition);
+
+        definition = default;
+        return false;
+    }
+
+    /// <summary>
     /// Projects a reflection-serialized name to the exact metadata index key:
     /// assembly qualification is removed, escaped metadata characters are
     /// restored, and nested segments use <c>.</c>.
@@ -326,11 +354,27 @@ static class EnumUnderlyingPrimitive
         return false;
     }
 
+    /// <summary>
+    /// Caps <see cref="Matches"/> recursion. Each step walks outward along two
+    /// chains at once -- a reference's resolution scope and a definition's
+    /// declaring type -- and metadata is untrusted, so neither chain is
+    /// guaranteed to reach an end. A NestedClass table naming two types as each
+    /// other's declaring type, paired with two references naming each other as
+    /// resolution scope, otherwise recurses until the stack is exhausted, and a
+    /// stack overflow cannot be caught. Real nesting is orders of magnitude
+    /// shallower than this bound.
+    /// </summary>
+    const int MaxNestingDepth = 128;
+
     static bool Matches(
         MetadataReader reader,
         TypeReferenceHandle referenceHandle,
-        TypeDefinitionHandle definitionHandle)
+        TypeDefinitionHandle definitionHandle,
+        int depth = 0)
     {
+        if (depth > MaxNestingDepth)
+            return false;
+
         var comparer = reader.StringComparer;
         var reference = reader.GetTypeReference(referenceHandle);
         var definition = reader.GetTypeDefinition(definitionHandle);
@@ -344,7 +388,8 @@ static class EnumUnderlyingPrimitive
                 && Matches(
                     reader,
                     (TypeReferenceHandle)reference.ResolutionScope,
-                    enclosing);
+                    enclosing,
+                    depth + 1);
         }
 
         return definition.GetDeclaringType().IsNil
