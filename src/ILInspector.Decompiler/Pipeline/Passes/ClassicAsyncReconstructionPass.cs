@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 
+using ILInspector.ControlFlow;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -182,6 +184,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var reconstruction = TryReconstruct(
             moveNext,
             kickoffFunction,
+            kickoff,
+            resolved.Relationship.Kickoff,
+            moveNextAddress,
             out var body,
             out var locals,
             out var localNames,
@@ -191,6 +196,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return DeclineDecision(
                 ClassicAsyncDeclineReason.UnconsumedExecutionRegion,
+                narrowHandoff: false);
+        }
+        if (reconstruction
+            == ReconstructionResult.UnconsumedKickoffRegion)
+        {
+            return DeclineDecision(
+                ClassicAsyncDeclineReason.NonNarrowKickoffHandoff,
                 narrowHandoff: false);
         }
         if (reconstruction != ReconstructionResult.Reconstructed)
@@ -348,12 +360,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         int SourceOffset,
         bool IsNarrow,
         ClassicAsyncStorage StateStorage,
-        ClassicAsyncStorage BuilderStorage);
+        ClassicAsyncStorage BuilderStorage,
+        IReadOnlyList<IrNode> HandoffStatementSlots);
 
     enum ReconstructionResult
     {
         NotRecognized,
         Reconstructed,
+        UnconsumedKickoffRegion,
         UnconsumedExecutionRegion,
     }
 
@@ -372,6 +386,37 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         public ImmutableArray<TypeRef> Locals => _locals.ToImmutable();
         public ImmutableArray<string?> Names => _names.ToImmutable();
+    }
+
+    sealed class RecipeOwnership
+    {
+        readonly HashSet<IrNode> _statementSlots =
+            new(ReferenceEqualityComparer.Instance);
+
+        internal IReadOnlyList<IrNode> StatementSlots
+            => [.. _statementSlots];
+
+        internal bool Claim(params IrNode[] nodes)
+        {
+            foreach (IrNode node in nodes)
+            {
+                if (!TryGetStatementSlot(node, out IrNode statement))
+                    return false;
+                _statementSlots.Add(statement);
+            }
+            return true;
+        }
+
+        internal bool Claim(IEnumerable<IrNode> nodes)
+        {
+            foreach (IrNode node in nodes)
+            {
+                if (!TryGetStatementSlot(node, out IrNode statement))
+                    return false;
+                _statementSlots.Add(statement);
+            }
+            return true;
+        }
     }
 
     static bool TryGetKickoff(
@@ -479,7 +524,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 stateStore.Field.Type),
             new(
                 builderStore.Field.Name,
-                builderStore.Field.Type));
+                builderStore.Field.Type),
+            narrowHandoff
+                ? [.. block.Children]
+                : []);
         return true;
     }
 
@@ -626,6 +674,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static ReconstructionResult TryReconstruct(
         IrFunction moveNext,
         IrFunction kickoff,
+        Kickoff kickoffModel,
+        MetadataMethodAddress kickoffAddress,
+        MetadataMethodAddress executionAddress,
         out BlockContainer body,
         out ImmutableArray<TypeRef> locals,
         out ImmutableArray<string?> localNames,
@@ -642,10 +693,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 kickoff,
                 localBuilder,
                 out var statements,
-                out bool recipeHasUnconsumedStore))
+                out bool recipeHasUnconsumedStore,
+                out var consumedExecutionSlots))
         {
             return ReconstructionResult.NotRecognized;
         }
+        if (!kickoffModel.IsNarrow)
+            return ReconstructionResult.UnconsumedKickoffRegion;
         if (recipeHasUnconsumedStore
             || HasUnconsumedExecutionStore(moveNext))
         {
@@ -658,8 +712,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         body = new BlockContainer();
         body.Add(block);
-        if (!TryBuildRegionLedger(moveNext, body, out regionLedger))
+        if (!TryBuildRegionLedger(
+                kickoff,
+                moveNext,
+                kickoffAddress,
+                executionAddress,
+                kickoffModel.HandoffStatementSlots,
+                consumedExecutionSlots,
+                body,
+                out regionLedger))
+        {
             return ReconstructionResult.UnconsumedExecutionRegion;
+        }
 
         locals = localBuilder.Locals;
         localNames = localBuilder.Names;
@@ -667,15 +731,63 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     }
 
     static bool TryBuildRegionLedger(
+        IrFunction kickoff,
         IrFunction moveNext,
+        MetadataMethodAddress kickoffAddress,
+        MetadataMethodAddress executionAddress,
+        IReadOnlyList<IrNode> consumedKickoffSlots,
+        IReadOnlyList<IrNode> consumedExecutionSlots,
         BlockContainer output,
         out ClassicAsyncRegionLedger ledger)
     {
-        if (!TryCaptureUserRegions(moveNext, out var regions))
+        if (!TryCapturePhysicalRegions(
+                kickoff,
+                ClassicAsyncRegionHost.Kickoff,
+                kickoffAddress,
+                out var kickoffRegions)
+            || !TryCapturePhysicalRegions(
+                moveNext,
+                ClassicAsyncRegionHost.Execution,
+                executionAddress,
+                out var executionRegions)
+            || !TryCaptureRegionIds(
+                kickoff,
+                ClassicAsyncRegionHost.Kickoff,
+                kickoffAddress,
+                consumedKickoffSlots,
+                out var consumedKickoff)
+            || !TryCaptureRegionIds(
+                moveNext,
+                ClassicAsyncRegionHost.Execution,
+                executionAddress,
+                consumedExecutionSlots,
+                out var consumedExecution)
+            || !TryCaptureUserRegions(
+                moveNext,
+                executionAddress,
+                out var regions))
         {
             ledger = null!;
             return false;
         }
+        List<ClassicAsyncPhysicalRegion> physical =
+        [
+            .. kickoffRegions,
+            .. executionRegions,
+        ];
+        List<ClassicAsyncPhysicalRegionId> consumed =
+        [
+            .. consumedKickoff,
+            .. consumedExecution,
+        ];
+        HashSet<ClassicAsyncPhysicalRegionId> consumedSet =
+            consumed.ToHashSet();
+        List<ClassicAsyncPhysicalRegionId> preserved =
+        [
+            .. physical
+                .Select(static region => region.Id)
+                .Where(region => !consumedSet.Contains(region)),
+        ];
         List<ClassicAsyncOutputNode> outputs =
             CaptureOutputNodes(output);
         var available = new List<ClassicAsyncOutputNode>(outputs);
@@ -704,20 +816,168 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         return ClassicAsyncRegionLedger.TryCreate(
+            kickoffAddress,
+            executionAddress,
+            physical,
+            consumed,
+            preserved,
             regions,
             realizations,
             out ledger);
     }
 
+    internal static bool TryCapturePhysicalRegions(
+        IrFunction function,
+        ClassicAsyncRegionHost host,
+        MetadataMethodAddress method,
+        out List<ClassicAsyncPhysicalRegion> regions)
+    {
+        regions = [];
+        List<Block> blocks =
+        [
+            .. function.DescendantsOutsideNestedFunctions.OfType<Block>(),
+        ];
+        var blockEdges = new Dictionary<Block, BlockEdges>(
+            ReferenceEqualityComparer.Instance);
+        var predecessorCounts = new Dictionary<Block, int>(
+            ReferenceEqualityComparer.Instance);
+        var regionEntries = new HashSet<Block>(
+            ReferenceEqualityComparer.Instance);
+        var containers = new HashSet<BlockContainer>(
+            ReferenceEqualityComparer.Instance);
+        foreach (Block block in blocks)
+        {
+            if (block.Parent is BlockContainer container)
+                containers.Add(container);
+        }
+
+        foreach (BlockContainer container in containers)
+        {
+            IReadOnlyList<Block> containerBlocks = container.Blocks;
+            IReadOnlyList<BlockEdges> edges = Cfg.Build(containerBlocks);
+            if (containerBlocks.Count > 0)
+                regionEntries.Add(containerBlocks[0]);
+            for (var i = 0; i < containerBlocks.Count; i++)
+            {
+                blockEdges.Add(containerBlocks[i], edges[i]);
+                predecessorCounts.TryAdd(containerBlocks[i], 0);
+            }
+            foreach (BlockEdges edge in edges)
+            {
+                foreach (int successor in edge.Successors)
+                {
+                    if ((uint)successor < (uint)containerBlocks.Count)
+                    {
+                        Block target = containerBlocks[successor];
+                        predecessorCounts[target]++;
+                    }
+                }
+            }
+        }
+
+        foreach (Block block in blocks)
+        {
+            if (blockEdges.ContainsKey(block))
+                continue;
+            blockEdges.Add(block, Cfg.Build([block])[0]);
+            predecessorCounts.Add(block, 0);
+            regionEntries.Add(block);
+        }
+
+        ILookup<int, Block> blocksByOffset =
+            blocks.ToLookup(static block => block.StartOffset);
+        var externalEntryCounts = new Dictionary<Block, int>(
+            ReferenceEqualityComparer.Instance);
+        foreach ((Block source, BlockEdges edge) in blockEdges)
+        {
+            foreach (int targetOffset in edge.ExternalTargets)
+            {
+                foreach (Block target in blocksByOffset[targetOffset])
+                {
+                    if (ReferenceEquals(source, target))
+                        continue;
+                    externalEntryCounts[target] =
+                        externalEntryCounts.GetValueOrDefault(target) + 1;
+                }
+            }
+        }
+
+        foreach (Block block in blocks)
+        {
+            BlockEdges edge = blockEdges[block];
+            for (var statementIndex = 0;
+                statementIndex < block.Children.Count;
+                statementIndex++)
+            {
+                IrNode statement = block.Children[statementIndex];
+                if (!TryStructuralPath(
+                        function,
+                        statement,
+                        out string structuralPath))
+                {
+                    regions = [];
+                    return false;
+                }
+
+                bool terminal =
+                    statementIndex == block.Children.Count - 1;
+                int entries = statementIndex > 0
+                    ? 1
+                    : predecessorCounts[block]
+                        + externalEntryCounts.GetValueOrDefault(block)
+                        + (regionEntries.Contains(block) ? 1 : 0);
+                int successors = terminal
+                    ? edge.Successors.Count
+                    : 1;
+                regions.Add(new(
+                    new(host, method, structuralPath),
+                    entries,
+                    successors,
+                    statementIndex == 0
+                        && externalEntryCounts.ContainsKey(block),
+                    terminal
+                        && edge.ExternalTargets.Count > 0,
+                    terminal && edge.LeavesRegion));
+            }
+        }
+        return true;
+    }
+
+    static bool TryCaptureRegionIds(
+        IrFunction function,
+        ClassicAsyncRegionHost host,
+        MetadataMethodAddress method,
+        IEnumerable<IrNode> statementSlots,
+        out List<ClassicAsyncPhysicalRegionId> regions)
+    {
+        regions = [];
+        foreach (IrNode statement in statementSlots)
+        {
+            if (statement.Parent is not Block
+                || !TryStructuralPath(
+                    function,
+                    statement,
+                    out string structuralPath))
+            {
+                regions = [];
+                return false;
+            }
+            regions.Add(new(host, method, structuralPath));
+        }
+        return true;
+    }
+
     static bool TryCaptureUserRegions(
         IrFunction moveNext,
+        MetadataMethodAddress executionAddress,
         out List<ClassicAsyncUserRegion> regions)
     {
         regions = [];
         var occurrences = new Dictionary<
             (ClassicAsyncUserRegionKind Kind, string Discriminator),
             int>();
-        foreach (IrNode node in moveNext.Descendants)
+        foreach (IrNode node
+            in moveNext.DescendantsOutsideNestedFunctions)
         {
             if (!TryGetUserRegion(
                     node,
@@ -733,7 +993,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             if (!TryStructuralPath(
                     moveNext,
                     node,
-                    out string structuralPath))
+                    out string structuralPath)
+                || !TryGetStatementSlot(
+                    node,
+                    out IrNode physicalStatement)
+                || !TryStructuralPath(
+                    moveNext,
+                    physicalStatement,
+                    out string physicalPath))
             {
                 regions = [];
                 return false;
@@ -742,6 +1009,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 new(
                     ClassicAsyncRegionHost.Execution,
                     structuralPath),
+                new(
+                    ClassicAsyncRegionHost.Execution,
+                    executionAddress,
+                    physicalPath),
                 new(kind, discriminator, occurrence)));
         }
         return true;
@@ -754,7 +1025,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var occurrences = new Dictionary<
             (ClassicAsyncUserRegionKind Kind, string Discriminator),
             int>();
-        foreach (IrNode node in output.Descendants)
+        foreach (IrNode node
+            in output.DescendantsOutsideNestedFunctions)
         {
             if (!TryGetUserRegion(
                     node,
@@ -831,6 +1103,25 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
         path = string.Join(".", indices);
         return true;
+    }
+
+    static bool TryGetStatementSlot(
+        IrNode node,
+        out IrNode statement)
+    {
+        IrNode? current = node;
+        while (current is not null)
+        {
+            if (current.Parent is Block)
+            {
+                statement = current;
+                return true;
+            }
+            current = current.Parent;
+        }
+
+        statement = null!;
+        return false;
     }
 
     static bool HasUnconsumedExecutionStore(IrFunction moveNext)
@@ -938,10 +1229,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction kickoff,
         LocalBuilder locals,
         out List<IrNode> statements,
-        out bool hasUnconsumedStore)
+        out bool hasUnconsumedStore,
+        out IReadOnlyList<IrNode> consumedStatementSlots)
     {
         statements = [];
         hasUnconsumedStore = false;
+        consumedStatementSlots = [];
 
         var setResult = FinalSetResult(moveNext);
         var getResults = GetResultCalls(moveNext);
@@ -954,10 +1247,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 setResult,
                 getResults,
                 out var tryFinally,
-                out hasUnconsumedStore))
+                out hasUnconsumedStore,
+                out var tryFinallyOwnership))
         {
             if (!hasUnconsumedStore)
+            {
                 statements.Add(tryFinally);
+                consumedStatementSlots =
+                    tryFinallyOwnership.StatementSlots;
+            }
             return true;
         }
 
@@ -967,10 +1265,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 setResult,
                 locals,
                 out var loopStatements,
-                out hasUnconsumedStore))
+                out hasUnconsumedStore,
+                out var loopOwnership))
         {
             if (!hasUnconsumedStore)
+            {
                 statements.AddRange(loopStatements);
+                consumedStatementSlots =
+                    loopOwnership.StatementSlots;
+            }
             return true;
         }
 
@@ -980,10 +1283,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 setResult,
                 getResults,
                 out var conditionalReturn,
-                out hasUnconsumedStore))
+                out hasUnconsumedStore,
+                out var conditionalOwnership))
         {
             if (!hasUnconsumedStore)
+            {
                 statements.Add(conditionalReturn);
+                consumedStatementSlots =
+                    conditionalOwnership.StatementSlots;
+            }
             return true;
         }
 
@@ -994,22 +1302,41 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 getResults,
                 locals,
                 out var sequential,
-                out hasUnconsumedStore))
+                out hasUnconsumedStore,
+                out var sequentialOwnership))
         {
             if (!hasUnconsumedStore)
+            {
                 statements.AddRange(sequential);
+                consumedStatementSlots =
+                    sequentialOwnership.StatementSlots;
+            }
             return true;
         }
 
-        if (TryBuildSingleAwaitVoid(moveNext, kickoff, setResult, getResults, out var voidStatements))
+        if (TryBuildSingleAwaitVoid(
+                moveNext,
+                kickoff,
+                setResult,
+                getResults,
+                out var voidStatements,
+                out var voidOwnership))
         {
             statements.AddRange(voidStatements);
+            consumedStatementSlots = voidOwnership.StatementSlots;
             return true;
         }
 
-        if (TryBuildSingleAwaitReturn(moveNext, kickoff, setResult, getResults, out var ret))
+        if (TryBuildSingleAwaitReturn(
+                moveNext,
+                kickoff,
+                setResult,
+                getResults,
+                out var ret,
+                out var returnOwnership))
         {
             statements.Add(ret);
+            consumedStatementSlots = returnOwnership.StatementSlots;
             return true;
         }
 
@@ -1028,9 +1355,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
-        out Return ret)
+        out Return ret,
+        out RecipeOwnership ownership)
     {
         ret = null!;
+        ownership = new();
         if (setResult.Arguments is not [_, LoadLocal result]
             || getResults.Count != 1)
         {
@@ -1050,6 +1379,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (value is null)
             return false;
 
+        if (!ownership.Claim(setResult, store)
+            || !TryClaimAwaitSource(
+                moveNext,
+                getResults[0],
+                ownership))
+        {
+            return false;
+        }
         ret = new Return(value);
         return true;
     }
@@ -1059,9 +1396,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
-        out List<IrNode> statements)
+        out List<IrNode> statements,
+        out RecipeOwnership ownership)
     {
         statements = [];
+        ownership = new();
         if (setResult.Arguments.Count != 1 || getResults.Count != 1)
             return false;
         if (HasHoistedUserState(moveNext))
@@ -1075,6 +1414,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return false;
         if (HasUnexpectedStore(moveNext))
             return false;
+        if (!ownership.Claim(setResult, getResultStatement)
+            || !TryClaimAwaitSource(
+                moveNext,
+                getResults[0],
+                ownership))
+        {
+            return false;
+        }
 
         statements.Add(new ExpressionStatement(awaited));
         statements.Add(new Return(null));
@@ -1088,10 +1435,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IReadOnlyList<Call> getResults,
         LocalBuilder locals,
         out List<IrNode> statements,
-        out bool hasUnconsumedStore)
+        out bool hasUnconsumedStore,
+        out RecipeOwnership ownership)
     {
         statements = [];
         hasUnconsumedStore = false;
+        ownership = new();
         if (setResult.Arguments.Count != 1 || getResults.Count != 2)
             return false;
 
@@ -1159,6 +1508,23 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var mapped = CloneAndRemap(call, kickoff, hoisted, replacements);
         if (mapped is null)
             return false;
+        if (!ownership.Claim(
+                setResult,
+                firstResultStore,
+                firstStore,
+                secondStore,
+                keepAlive)
+            || !TryClaimAwaitSource(
+                moveNext,
+                getResults[0],
+                ownership)
+            || !TryClaimAwaitSource(
+                moveNext,
+                getResults[1],
+                ownership))
+        {
+            return false;
+        }
         statements.Add(new ExpressionStatement(mapped));
         statements.Add(new Return(null));
         return true;
@@ -1186,10 +1552,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         Call setResult,
         IReadOnlyList<Call> getResults,
         out Return ret,
-        out bool hasUnconsumedStore)
+        out bool hasUnconsumedStore,
+        out RecipeOwnership ownership)
     {
         ret = null!;
         hasUnconsumedStore = false;
+        ownership = new();
         if (setResult.Arguments is not [_, LoadLocal result] || getResults.Count != 1)
             return false;
         if (HasUnexpectedExpressionStatement(moveNext) || HasHoistedUserState(moveNext))
@@ -1250,6 +1618,20 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var awaited = AwaitForGetResult(moveNext, kickoff, getResults[0]);
         if (condition is null || awaited is null)
             return false;
+        if (!ownership.Claim(
+                setResult,
+                flag,
+                awaitStore,
+                zeroStore,
+                zeroBranch,
+                finalStore)
+            || !TryClaimAwaitSource(
+                moveNext,
+                getResults[0],
+                ownership))
+        {
+            return false;
+        }
 
         ret = new Return(new Conditional(condition, awaited, new Constant(0, TypeRef.CoreLib("System", "Int32"))));
         return true;
@@ -1261,10 +1643,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         Call setResult,
         LocalBuilder locals,
         out List<IrNode> statements,
-        out bool hasUnconsumedStore)
+        out bool hasUnconsumedStore,
+        out RecipeOwnership ownership)
     {
         statements = [];
         hasUnconsumedStore = false;
+        ownership = new();
         if (setResult.Arguments is not [_, LoadLocal finalResult])
             return false;
         if (HasUnexpectedExpressionStatement(moveNext))
@@ -1364,6 +1748,25 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var collection = CloneAndRemap((IrExpression)tasksField, kickoff);
         if (collection is null)
             return false;
+        if (!ownership.Claim(
+                setResult,
+                tasksField,
+                resultStore,
+                accumulatorStore,
+                initialAccumulatorStore,
+                finalResultStore)
+            || !ownership.Claim(expectedLoopFieldStores)
+            || !TryClaimAwaitSource(
+                moveNext,
+                getResult,
+                ownership)
+            || !TryClaimAwaitedOperandSource(
+                moveNext,
+                awaitedOperand,
+                ownership))
+        {
+            return false;
+        }
 
         statements.Add(new ForeachStatement(taskIndex, taskType, collection, body));
         statements.Add(new Return(new LoadLocal(sumIndex, sumType)));
@@ -1431,10 +1834,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         Call setResult,
         IReadOnlyList<Call> getResults,
         out TryFinally tryFinally,
-        out bool hasUnconsumedStore)
+        out bool hasUnconsumedStore,
+        out RecipeOwnership ownership)
     {
         tryFinally = null!;
         hasUnconsumedStore = false;
+        ownership = new();
         if (setResult.Arguments is not [_, LoadLocal result] || getResults.Count != 1)
             return false;
 
@@ -1474,6 +1879,19 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             hasUnconsumedStore = true;
             return true;
+        }
+        if (!ownership.Claim(
+                setResult,
+                originalTryFinally,
+                resultStore,
+                finallyGuard,
+                finallyStatement)
+            || !TryClaimAwaitSource(
+                moveNext,
+                getResults[0],
+                ownership))
+        {
+            return false;
         }
 
         tryFinally = new TryFinally(
@@ -1516,16 +1934,31 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static IrExpression? AwaitedOperandForGetResult(
         IrFunction moveNext,
         Call getResult)
+        => TryGetAwaitSource(
+            moveNext,
+            getResult,
+            out _,
+            out IrExpression awaitedOperand)
+                ? awaitedOperand
+                : null;
+
+    static bool TryGetAwaitSource(
+        IrFunction moveNext,
+        Call getResult,
+        out StoreLocal awaiterStore,
+        out IrExpression awaitedOperand)
     {
+        awaiterStore = null!;
+        awaitedOperand = null!;
         if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
-            return null;
+            return false;
 
         var nodes = moveNext.Descendants.ToList();
         var getResultPosition = nodes.IndexOf(getResult);
         if (getResultPosition < 0)
-            return null;
+            return false;
 
-        StoreLocal? awaiterStore = null;
+        StoreLocal? candidateStore = null;
         for (var i = 0; i < getResultPosition; i++)
         {
             if (nodes[i] is StoreLocal { Index: var index, Value: Call { Callee.Name: "GetAwaiter" } call } store
@@ -1537,13 +1970,60 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 {
                     continue;
                 }
-                awaiterStore = store;
+                candidateStore = store;
             }
         }
 
-        if (awaiterStore?.Value is not Call { Arguments: [var awaitedOperand] })
-            return null;
-        return awaitedOperand;
+        if (candidateStore?.Value is not Call
+            {
+                Arguments: [var candidateOperand],
+            })
+        {
+            return false;
+        }
+
+        awaiterStore = candidateStore;
+        awaitedOperand = candidateOperand;
+        return true;
+    }
+
+    static bool TryClaimAwaitSource(
+        IrFunction moveNext,
+        Call getResult,
+        RecipeOwnership ownership)
+    {
+        if (!TryGetAwaitSource(
+                moveNext,
+                getResult,
+                out StoreLocal awaiterStore,
+                out IrExpression awaitedOperand)
+            || !ownership.Claim(awaiterStore))
+        {
+            return false;
+        }
+
+        return TryClaimAwaitedOperandSource(
+            moveNext,
+            awaitedOperand,
+            ownership);
+    }
+
+    static bool TryClaimAwaitedOperandSource(
+        IrFunction moveNext,
+        IrExpression awaitedOperand,
+        RecipeOwnership ownership)
+    {
+        if (awaitedOperand is not LoadStackSlot load)
+            return true;
+
+        List<StoreStackSlot> stores =
+        [
+            .. moveNext.Descendants
+                .OfType<StoreStackSlot>()
+                .Where(store => store.Slot == load.Slot),
+        ];
+        return stores.Count == 1
+            && ownership.Claim(stores[0]);
     }
 
     static bool HasUnexpectedExpressionStatement(IrFunction moveNext, params ExpressionStatement[] allowed)

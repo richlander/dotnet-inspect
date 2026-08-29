@@ -206,6 +206,19 @@ internal sealed record ClassicAsyncRegionId(
     ClassicAsyncRegionHost Host,
     string StructuralPath);
 
+internal sealed record ClassicAsyncPhysicalRegionId(
+    ClassicAsyncRegionHost Host,
+    MetadataMethodAddress Method,
+    string StructuralPath);
+
+internal sealed record ClassicAsyncPhysicalRegion(
+    ClassicAsyncPhysicalRegionId Id,
+    int EntryMultiplicity,
+    int SuccessorMultiplicity,
+    bool HasExternalEntry,
+    bool HasExternalTarget,
+    bool LeavesRegion);
+
 internal sealed record ClassicAsyncRegionSemantics(
     ClassicAsyncUserRegionKind Kind,
     string Discriminator,
@@ -213,6 +226,7 @@ internal sealed record ClassicAsyncRegionSemantics(
 
 internal sealed record ClassicAsyncUserRegion(
     ClassicAsyncRegionId Id,
+    ClassicAsyncPhysicalRegionId PhysicalRegion,
     ClassicAsyncRegionSemantics Semantics);
 
 internal sealed record ClassicAsyncOutputNode(
@@ -225,16 +239,34 @@ internal sealed record ClassicAsyncUserRegionRealization(
 internal sealed class ClassicAsyncRegionLedger
     : IEquatable<ClassicAsyncRegionLedger>
 {
+    readonly ImmutableArray<ClassicAsyncPhysicalRegion> _physicalRegions;
+    readonly ImmutableArray<ClassicAsyncPhysicalRegionId> _consumedRegions;
+    readonly ImmutableArray<ClassicAsyncPhysicalRegionId> _preservedRegions;
     readonly ImmutableArray<ClassicAsyncUserRegion> _userRegions;
     readonly ImmutableArray<ClassicAsyncUserRegionRealization> _realizations;
 
     ClassicAsyncRegionLedger(
+        ImmutableArray<ClassicAsyncPhysicalRegion> physicalRegions,
+        ImmutableArray<ClassicAsyncPhysicalRegionId> consumedRegions,
+        ImmutableArray<ClassicAsyncPhysicalRegionId> preservedRegions,
         ImmutableArray<ClassicAsyncUserRegion> userRegions,
         ImmutableArray<ClassicAsyncUserRegionRealization> realizations)
     {
+        _physicalRegions = physicalRegions;
+        _consumedRegions = consumedRegions;
+        _preservedRegions = preservedRegions;
         _userRegions = userRegions;
         _realizations = realizations;
     }
+
+    internal IReadOnlyList<ClassicAsyncPhysicalRegion> PhysicalRegions
+        => _physicalRegions;
+
+    internal IReadOnlyList<ClassicAsyncPhysicalRegionId> ConsumedRegions
+        => _consumedRegions;
+
+    internal IReadOnlyList<ClassicAsyncPhysicalRegionId> PreservedRegions
+        => _preservedRegions;
 
     internal IReadOnlyList<ClassicAsyncUserRegion> UserRegions
         => _userRegions;
@@ -243,10 +275,33 @@ internal sealed class ClassicAsyncRegionLedger
         => _realizations;
 
     internal static bool TryCreate(
+        MetadataMethodAddress kickoff,
+        MetadataMethodAddress execution,
+        IEnumerable<ClassicAsyncPhysicalRegion> physicalRegions,
+        IEnumerable<ClassicAsyncPhysicalRegionId> consumedRegions,
+        IEnumerable<ClassicAsyncPhysicalRegionId> preservedRegions,
         IEnumerable<ClassicAsyncUserRegion> userRegions,
         IEnumerable<ClassicAsyncUserRegionRealization> realizations,
         out ClassicAsyncRegionLedger ledger)
     {
+        ImmutableArray<ClassicAsyncPhysicalRegion> physical =
+        [
+            .. physicalRegions.OrderBy(
+                static region => RegionOrderKey(region.Id),
+                StringComparer.Ordinal),
+        ];
+        ImmutableArray<ClassicAsyncPhysicalRegionId> consumed =
+        [
+            .. consumedRegions.OrderBy(
+                static region => RegionOrderKey(region),
+                StringComparer.Ordinal),
+        ];
+        ImmutableArray<ClassicAsyncPhysicalRegionId> preserved =
+        [
+            .. preservedRegions.OrderBy(
+                static region => RegionOrderKey(region),
+                StringComparer.Ordinal),
+        ];
         ImmutableArray<ClassicAsyncUserRegion> regions =
         [
             .. userRegions.OrderBy(
@@ -261,10 +316,48 @@ internal sealed class ClassicAsyncRegionLedger
                 StringComparer.Ordinal),
         ];
 
-        bool valid = regions
+        HashSet<ClassicAsyncPhysicalRegionId> physicalIds =
+            physical.Select(static region => region.Id).ToHashSet();
+        HashSet<ClassicAsyncPhysicalRegionId> consumedIds =
+            consumed.ToHashSet();
+        HashSet<ClassicAsyncPhysicalRegionId> preservedIds =
+            preserved.ToHashSet();
+
+        bool valid = physical.Length > 0
+            && physical.All(region =>
+                IsCanonical(region.Id.StructuralPath)
+                && region.Id.Method == (region.Id.Host
+                    == ClassicAsyncRegionHost.Kickoff
+                        ? kickoff
+                        : execution))
+            && physicalIds.Count == physical.Length
+            && consumedIds.Count == consumed.Length
+            && preservedIds.Count == preserved.Length
+            && consumedIds.Count + preservedIds.Count == physicalIds.Count
+            && consumedIds.All(physicalIds.Contains)
+            && preservedIds.All(physicalIds.Contains)
+            && !consumedIds.Overlaps(preservedIds)
+            && physical
+                .Where(region => consumedIds.Contains(region.Id))
+                .All(static region =>
+                    region.EntryMultiplicity is > 0 and <= 2
+                    && region.SuccessorMultiplicity is >= 0 and <= 2
+                    && !region.HasExternalEntry
+                    && !region.HasExternalTarget
+                    && !region.LeavesRegion)
+            && physical
+                .Where(static region =>
+                    region.Id.Host == ClassicAsyncRegionHost.Kickoff)
+                .All(region => consumedIds.Contains(region.Id))
+            && regions
                 .Select(static region => region.Id)
                 .Distinct()
                 .Count() == regions.Length
+            && regions.All(region =>
+                IsCanonical(region.Id.StructuralPath)
+                && region.Id.Host == region.PhysicalRegion.Host
+                && physicalIds.Contains(region.PhysicalRegion)
+                && consumedIds.Contains(region.PhysicalRegion))
             && realized
                 .Select(static realization => realization.UserRegion)
                 .Distinct()
@@ -282,13 +375,51 @@ internal sealed class ClassicAsyncRegionLedger
                 region.Id == realization.UserRegion));
 
         ledger = valid
-            ? new(regions, realized)
+            ? new(
+                physical,
+                consumed,
+                preserved,
+                regions,
+                realized)
             : null!;
         return valid;
     }
 
+    static bool IsCanonical(string path)
+    {
+        if (path.Length == 0)
+            return false;
+
+        foreach (string segment in path.Split('.'))
+        {
+            if (!int.TryParse(
+                    segment,
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out int index)
+                || index < 0
+                || segment != index.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static string RegionOrderKey(ClassicAsyncPhysicalRegionId region)
+        => string.Join(
+            "|",
+            (int)region.Host,
+            region.Method.ModuleVersionId.ToString("D"),
+            region.Method.Token.ToString("X8"),
+            region.StructuralPath);
+
     public bool Equals(ClassicAsyncRegionLedger? other)
         => other is not null
+            && _physicalRegions.SequenceEqual(other._physicalRegions)
+            && _consumedRegions.SequenceEqual(other._consumedRegions)
+            && _preservedRegions.SequenceEqual(other._preservedRegions)
             && _userRegions.SequenceEqual(other._userRegions)
             && _realizations.SequenceEqual(other._realizations);
 
@@ -298,6 +429,12 @@ internal sealed class ClassicAsyncRegionLedger
     public override int GetHashCode()
     {
         var hash = new HashCode();
+        foreach (ClassicAsyncPhysicalRegion region in _physicalRegions)
+            hash.Add(region);
+        foreach (ClassicAsyncPhysicalRegionId region in _consumedRegions)
+            hash.Add(region);
+        foreach (ClassicAsyncPhysicalRegionId region in _preservedRegions)
+            hash.Add(region);
         foreach (ClassicAsyncUserRegion region in _userRegions)
             hash.Add(region);
         foreach (ClassicAsyncUserRegionRealization realization in _realizations)

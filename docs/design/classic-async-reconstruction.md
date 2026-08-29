@@ -278,6 +278,26 @@ an unmodeled external entry or use. The partition is the proof that every
 physical region represented by the reconstructed body was intentionally
 handled and that no preserved region was silently rewritten.
 
+The physical census is input-derived from the canonical planning snapshots.
+One slot is recorded for each direct statement child of every root-function
+`Block`, including blocks nested directly under structured statements rather
+than only blocks owned by a `BlockContainer`. Nested-function bodies remain
+separate scopes. Each immutable slot identity contains the owner-issued method
+address, the kickoff or execution host role, and a canonical child-index path.
+Recipe matching retains exact node references only long enough to issue
+ownership receipts; the persisted plan contains slot identities and flow facts,
+never borrowed nodes.
+
+`Cfg.Build` supplies bounded block-entry, successor, external-target, and
+region-leave evidence for container-owned blocks. Directly structured blocks
+receive the equivalent single-block census. A cross-container target is also
+recorded as an external entry on its destination. A consumed slot with an
+external entry or target, a region leave, no entry, or more than two entries or
+successors invalidates the plan; this is a conservative description of the
+currently modeled straight-line and conditional recipes, not a claim of
+general CLR control-flow soundness. The `Plan-region partition` gate enforces
+the census, receipt, and bounded-flow rules.
+
 Physical ownership and semantic realization are separate proofs. Every
 `UserRegion` in an accepted machine has exactly one
 `UserRegionRealization`. Its `PrimaryOutputNode` emits that region's semantic

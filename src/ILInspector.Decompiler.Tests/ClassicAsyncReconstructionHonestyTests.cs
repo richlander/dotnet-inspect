@@ -132,6 +132,7 @@ public class ClassicAsyncReconstructionHonestyTests
             expectedOutput,
             result.Output,
             StringComparison.Ordinal);
+        function.CheckInvariant();
     }
 
     [Fact]
@@ -150,6 +151,7 @@ public class ClassicAsyncReconstructionHonestyTests
             "checked { sum += (await task); }",
             result.Output,
             StringComparison.Ordinal);
+        function.CheckInvariant();
     }
 
     [Theory]
@@ -177,6 +179,7 @@ public class ClassicAsyncReconstructionHonestyTests
             ".Start<",
             result.Output,
             StringComparison.Ordinal);
+        function.CheckInvariant();
     }
 
     [Theory]

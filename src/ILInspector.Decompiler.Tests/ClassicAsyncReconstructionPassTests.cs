@@ -1,5 +1,8 @@
+using System.Reflection.Metadata.Ecma335;
+
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -18,6 +21,12 @@ public class ClassicAsyncReconstructionPassTests
         "Synthetic",
         "Samples",
         "BuilderLike");
+    static readonly MetadataMethodAddress KickoffAddress = new(
+        Guid.Parse("11111111-1111-1111-1111-111111111111"),
+        MetadataTokens.MethodDefinitionHandle(1));
+    static readonly MetadataMethodAddress ExecutionAddress = new(
+        Guid.Parse("11111111-1111-1111-1111-111111111111"),
+        MetadataTokens.MethodDefinitionHandle(2));
 
     [Fact]
     public void UnstampedSupportLookalike_IsNotEdited()
@@ -525,6 +534,72 @@ public class ClassicAsyncReconstructionPassTests
         Assert.Equal(
             region.Semantics,
             realization.PrimaryOutputNode.Semantics);
+        Assert.Contains(
+            region.PhysicalRegion,
+            ledger.ConsumedRegions);
+        Assert.DoesNotContain(
+            region.PhysicalRegion,
+            ledger.PreservedRegions);
+    }
+
+    [Theory]
+    [InlineData("AwaitValue")]
+    [InlineData("AwaitVoid")]
+    [InlineData("TwoSequentialAwaits")]
+    [InlineData("AwaitConditional")]
+    [InlineData("AwaitInLoop")]
+    [InlineData("AwaitInTryFinally")]
+    public void AcceptedPlanPartitionsEveryPhysicalStatementSlot(
+        string methodName)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(source, methodName);
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var reconstruct =
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(evidence));
+        ClassicAsyncPlan plan = reconstruct.Plan;
+        ClassicAsyncRegionLedger ledger = plan.RegionLedger;
+        ClassicAsyncPhysicalRegionId[] physical =
+        [
+            .. ledger.PhysicalRegions.Select(static region => region.Id),
+        ];
+
+        Assert.NotEmpty(physical);
+        Assert.Equal(
+            physical.Length,
+            ledger.ConsumedRegions.Count
+                + ledger.PreservedRegions.Count);
+        Assert.Empty(
+            ledger.ConsumedRegions.Intersect(
+                ledger.PreservedRegions));
+        Assert.All(
+            ledger.PhysicalRegions.Where(static region =>
+                region.Id.Host == ClassicAsyncRegionHost.Kickoff),
+            region => Assert.Contains(
+                region.Id,
+                ledger.ConsumedRegions));
+        Assert.Contains(
+            ledger.ConsumedRegions,
+            region =>
+                region.Host == ClassicAsyncRegionHost.Execution);
+        Assert.Contains(
+            ledger.PreservedRegions,
+            region =>
+                region.Host == ClassicAsyncRegionHost.Execution);
+        Assert.All(
+            ledger.UserRegions,
+            region => Assert.Contains(
+                region.PhysicalRegion,
+                ledger.ConsumedRegions));
+        Assert.All(
+            ledger.PhysicalRegions,
+            region => Assert.Equal(
+                region.Id.Host == ClassicAsyncRegionHost.Kickoff
+                    ? plan.Machine.Kickoff
+                    : plan.Machine.Execution,
+                region.Id.Method));
     }
 
     [Fact]
@@ -538,12 +613,18 @@ public class ClassicAsyncReconstructionPassTests
             "0.1");
         var first = new ClassicAsyncUserRegion(
             firstId,
+            PhysicalId(
+                ClassicAsyncRegionHost.Execution,
+                "0.0"),
             new(
                 ClassicAsyncUserRegionKind.Throw,
                 "throw",
                 Occurrence: 0));
         var second = new ClassicAsyncUserRegion(
             secondId,
+            PhysicalId(
+                ClassicAsyncRegionHost.Execution,
+                "0.1"),
             new(
                 ClassicAsyncUserRegionKind.Break,
                 "break",
@@ -551,11 +632,11 @@ public class ClassicAsyncReconstructionPassTests
         var throwOutput = new ClassicAsyncOutputNode(
             first.Semantics);
 
-        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+        Assert.False(TryCreateRegionLedger(
             [first, second],
             [new(firstId, throwOutput)],
             out _));
-        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+        Assert.False(TryCreateRegionLedger(
             [first],
             [
                 new(firstId, throwOutput),
@@ -568,14 +649,14 @@ public class ClassicAsyncReconstructionPassTests
                 }),
             ],
             out _));
-        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+        Assert.False(TryCreateRegionLedger(
             [first],
             [new(firstId, throwOutput with
             {
                 Semantics = second.Semantics,
             })],
             out _));
-        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+        Assert.False(TryCreateRegionLedger(
             [first, second],
             [
                 new(firstId, throwOutput),
@@ -591,6 +672,9 @@ public class ClassicAsyncReconstructionPassTests
             new(
                 ClassicAsyncRegionHost.Execution,
                 "0.0"),
+            PhysicalId(
+                ClassicAsyncRegionHost.Execution,
+                "0.0"),
             new(
                 ClassicAsyncUserRegionKind.CheckedArithmetic,
                 "Add|True|False",
@@ -599,18 +683,21 @@ public class ClassicAsyncReconstructionPassTests
             new(
                 ClassicAsyncRegionHost.Execution,
                 "0.1"),
+            PhysicalId(
+                ClassicAsyncRegionHost.Execution,
+                "0.1"),
             first.Semantics with { Occurrence = 1 });
         var firstOutput = new ClassicAsyncOutputNode(first.Semantics);
         var secondOutput = new ClassicAsyncOutputNode(second.Semantics);
 
-        Assert.True(ClassicAsyncRegionLedger.TryCreate(
+        Assert.True(TryCreateRegionLedger(
             [first, second],
             [
                 new(first.Id, firstOutput),
                 new(second.Id, secondOutput),
             ],
             out _));
-        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+        Assert.False(TryCreateRegionLedger(
             [first, second],
             [
                 new(first.Id, secondOutput),
@@ -618,6 +705,266 @@ public class ClassicAsyncReconstructionPassTests
             ],
             out _));
     }
+
+    [Fact]
+    public void RegionLedgerRequiresCompleteDisjointPhysicalPartition()
+    {
+        ClassicAsyncPhysicalRegion kickoff =
+            Physical(ClassicAsyncRegionHost.Kickoff, "0.0");
+        ClassicAsyncPhysicalRegion execution =
+            Physical(ClassicAsyncRegionHost.Execution, "0.0");
+
+        Assert.True(TryCreatePhysicalLedger(
+            [kickoff, execution],
+            [kickoff.Id],
+            [execution.Id]));
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, execution],
+            [kickoff.Id],
+            []));
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, execution],
+            [kickoff.Id, execution.Id],
+            [execution.Id]));
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, execution],
+            [kickoff.Id, kickoff.Id],
+            [execution.Id]));
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, execution],
+            [execution.Id],
+            [kickoff.Id]));
+    }
+
+    [Fact]
+    public void RegionLedgerRejectsRealizationFromPreservedMaterial()
+    {
+        ClassicAsyncPhysicalRegion kickoff =
+            Physical(ClassicAsyncRegionHost.Kickoff, "0.0");
+        ClassicAsyncPhysicalRegion execution =
+            Physical(ClassicAsyncRegionHost.Execution, "0.0");
+        var semantics = new ClassicAsyncRegionSemantics(
+            ClassicAsyncUserRegionKind.Throw,
+            "throw",
+            Occurrence: 0);
+        var userRegion = new ClassicAsyncUserRegion(
+            new(ClassicAsyncRegionHost.Execution, "0.0.0"),
+            execution.Id,
+            semantics);
+
+        Assert.False(ClassicAsyncRegionLedger.TryCreate(
+            KickoffAddress,
+            ExecutionAddress,
+            [kickoff, execution],
+            [kickoff.Id],
+            [execution.Id],
+            [userRegion],
+            [
+                new(
+                    userRegion.Id,
+                    new ClassicAsyncOutputNode(semantics)),
+            ],
+            out _));
+    }
+
+    [Fact]
+    public void RegionLedgerRejectsUnsupportedConsumedControlFlow()
+    {
+        ClassicAsyncPhysicalRegion kickoff =
+            Physical(ClassicAsyncRegionHost.Kickoff, "0.0");
+        ClassicAsyncPhysicalRegion external = Physical(
+            ClassicAsyncRegionHost.Execution,
+            "0.0",
+            hasExternalTarget: true);
+        ClassicAsyncPhysicalRegion externalEntry = Physical(
+            ClassicAsyncRegionHost.Execution,
+            "0.1",
+            hasExternalEntry: true);
+        ClassicAsyncPhysicalRegion multiSuccessor = Physical(
+            ClassicAsyncRegionHost.Execution,
+            "0.2",
+            successorMultiplicity: 3);
+
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, external],
+            [kickoff.Id, external.Id],
+            []));
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, externalEntry],
+            [kickoff.Id, externalEntry.Id],
+            []));
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, multiSuccessor],
+            [kickoff.Id, multiSuccessor.Id],
+            []));
+    }
+
+    [Fact]
+    public void PhysicalCensusRecordsExternalEntryAndSuccessorMultiplicity()
+    {
+        TypeRef boolean = TypeRef.CoreLib("System", "Boolean");
+        var entered = new Block(0x20);
+        entered.Add(new Return(null));
+        var outer = new Block(0);
+        outer.Add(new IfStatement(
+            new Constant(true, boolean),
+            entered,
+            elseArm: null));
+        outer.Add(new Branch(0x20));
+        var externalBody = new BlockContainer();
+        externalBody.Add(outer);
+        var externalFunction = new IrFunction(
+            "ExternalEntry",
+            StateMachine,
+            new MethodSignature(Void, [], true, 0),
+            [],
+            externalBody);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryCapturePhysicalRegions(
+                externalFunction,
+                ClassicAsyncRegionHost.Execution,
+                ExecutionAddress,
+                out var externalRegions));
+        Assert.Contains(
+            externalRegions,
+            static region => region.HasExternalTarget);
+        Assert.Contains(
+            externalRegions,
+            static region => region.HasExternalEntry);
+
+        var dispatch = new Block(0);
+        dispatch.Add(new SwitchBranch(
+            new Constant(0, TypeRef.CoreLib("System", "Int32")),
+            [4, 8]));
+        var fallthrough = new Block(4);
+        fallthrough.Add(new Return(null));
+        var alternate = new Block(8);
+        alternate.Add(new Return(null));
+        var switchBody = new BlockContainer();
+        switchBody.Add(dispatch);
+        switchBody.Add(fallthrough);
+        switchBody.Add(alternate);
+        var switchFunction = new IrFunction(
+            "MultiSuccessor",
+            StateMachine,
+            new MethodSignature(Void, [], true, 0),
+            [],
+            switchBody);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryCapturePhysicalRegions(
+                switchFunction,
+                ClassicAsyncRegionHost.Execution,
+                ExecutionAddress,
+                out var switchRegions));
+        Assert.Contains(
+            switchRegions,
+            static region => region.SuccessorMultiplicity == 3);
+    }
+
+    [Fact]
+    public void RegionLedgerRejectsForeignAndNonCanonicalPhysicalPaths()
+    {
+        ClassicAsyncPhysicalRegion kickoff =
+            Physical(ClassicAsyncRegionHost.Kickoff, "0.0");
+        var foreignId = new ClassicAsyncPhysicalRegionId(
+            ClassicAsyncRegionHost.Execution,
+            KickoffAddress,
+            "0.0");
+        var foreign = new ClassicAsyncPhysicalRegion(
+            foreignId,
+            EntryMultiplicity: 1,
+            SuccessorMultiplicity: 1,
+            HasExternalEntry: false,
+            HasExternalTarget: false,
+            LeavesRegion: false);
+        ClassicAsyncPhysicalRegion unstable =
+            Physical(ClassicAsyncRegionHost.Execution, "0.01");
+
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, foreign],
+            [kickoff.Id, foreign.Id],
+            []));
+        Assert.False(TryCreatePhysicalLedger(
+            [kickoff, unstable],
+            [kickoff.Id, unstable.Id],
+            []));
+    }
+
+    static bool TryCreateRegionLedger(
+        IReadOnlyList<ClassicAsyncUserRegion> userRegions,
+        IReadOnlyList<ClassicAsyncUserRegionRealization> realizations,
+        out ClassicAsyncRegionLedger ledger)
+    {
+        List<ClassicAsyncPhysicalRegion> physical =
+        [
+            Physical(ClassicAsyncRegionHost.Kickoff, "0.0"),
+            .. userRegions
+                .Select(static region => region.PhysicalRegion)
+                .Distinct()
+                .Select(static id => new ClassicAsyncPhysicalRegion(
+                    id,
+                    EntryMultiplicity: 1,
+                    SuccessorMultiplicity: 1,
+                    HasExternalEntry: false,
+                    HasExternalTarget: false,
+                    LeavesRegion: false)),
+        ];
+        ClassicAsyncPhysicalRegionId[] consumed =
+        [
+            .. physical.Select(static region => region.Id),
+        ];
+        return ClassicAsyncRegionLedger.TryCreate(
+            KickoffAddress,
+            ExecutionAddress,
+            physical,
+            consumed,
+            [],
+            userRegions,
+            realizations,
+            out ledger);
+    }
+
+    static bool TryCreatePhysicalLedger(
+        IReadOnlyList<ClassicAsyncPhysicalRegion> physical,
+        IReadOnlyList<ClassicAsyncPhysicalRegionId> consumed,
+        IReadOnlyList<ClassicAsyncPhysicalRegionId> preserved)
+        => ClassicAsyncRegionLedger.TryCreate(
+            KickoffAddress,
+            ExecutionAddress,
+            physical,
+            consumed,
+            preserved,
+            [],
+            [],
+            out _);
+
+    static ClassicAsyncPhysicalRegion Physical(
+        ClassicAsyncRegionHost host,
+        string path,
+        int entryMultiplicity = 1,
+        int successorMultiplicity = 1,
+        bool hasExternalEntry = false,
+        bool hasExternalTarget = false,
+        bool leavesRegion = false)
+        => new(
+            PhysicalId(host, path),
+            entryMultiplicity,
+            successorMultiplicity,
+            hasExternalEntry,
+            hasExternalTarget,
+            leavesRegion);
+
+    static ClassicAsyncPhysicalRegionId PhysicalId(
+        ClassicAsyncRegionHost host,
+        string path)
+        => new(
+            host,
+            host == ClassicAsyncRegionHost.Kickoff
+                ? KickoffAddress
+                : ExecutionAddress,
+            path);
 
     static MethodRef CaptureMoveNextRequest(MetadataSource source)
     {
