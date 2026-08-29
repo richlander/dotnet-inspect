@@ -8,13 +8,36 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Queries;
 
 /// <summary>
-/// Product-selected assembly assets for one exact, already-acquired package.
+/// Opaque reference identity for one exact realized package Root. Descriptive
+/// fields do not define equality; consumers correlate Roots by object identity.
 /// </summary>
-public sealed class PackageAssemblyContextSelection
+public sealed class PackageRootIdentity
+{
+    internal PackageRootIdentity(
+        string packageId,
+        string packageVersion,
+        string? requestedTargetFramework)
+    {
+        PackageId = packageId;
+        PackageVersion = packageVersion;
+        RequestedTargetFramework = requestedTargetFramework;
+    }
+
+    public string PackageId { get; }
+
+    public string PackageVersion { get; }
+
+    public string? RequestedTargetFramework { get; }
+}
+
+/// <summary>
+/// One exact, already-acquired package Root and its compile-asset selection outcome.
+/// </summary>
+public sealed class PackageRootRealization
 {
     readonly IPackageContent _content;
 
-    public PackageAssemblyContextSelection(
+    public PackageRootRealization(
         IPackageContent content,
         string packageId,
         string packageVersion,
@@ -27,6 +50,11 @@ public sealed class PackageAssemblyContextSelection
         _content = content;
         PackageId = packageId;
         PackageVersion = packageVersion;
+        RequestedTargetFramework = targetFramework;
+        Identity = new PackageRootIdentity(
+            packageId,
+            packageVersion,
+            targetFramework);
         AssetSelection = PackageCompileAssetSelector.Select(
             content,
             packageId,
@@ -37,9 +65,23 @@ public sealed class PackageAssemblyContextSelection
 
     public string PackageVersion { get; }
 
+    public PackageRootIdentity Identity { get; }
+
+    public string? RequestedTargetFramework { get; }
+
+    public string ProducerKey => _content.ProducerKey;
+
+    public bool FromCache => _content.FromCache;
+
     public PackageCompileAssetSelection AssetSelection { get; }
 
     internal IPackageContent Content => _content;
+
+    public bool ReferencesContent(IPackageContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return ReferenceEquals(_content, content);
+    }
 }
 
 /// <summary>Resource admission policy for acquired-package role realization.</summary>
@@ -81,16 +123,16 @@ public sealed record PackageAssemblyContextRealizationOptions
 public sealed class PackageAssemblyRoleParticipant
 {
     internal PackageAssemblyRoleParticipant(
-        PackageAssemblyContextSelection package,
+        PackageRootRealization package,
         PackageCompileAsset asset,
         AssemblyContextParticipant participant)
     {
-        Package = package;
+        Package = package.Identity;
         Asset = asset;
         Participant = participant;
     }
 
-    public PackageAssemblyContextSelection Package { get; }
+    public PackageRootIdentity Package { get; }
 
     public PackageCompileAsset Asset { get; }
 
@@ -103,10 +145,10 @@ public sealed class PackageAssemblyRoleParticipant
 /// </summary>
 public sealed class PackageAssemblyContextRealization : IDisposable
 {
-    readonly PackageAssemblyContextRoles _roles;
+    readonly PackageAssemblyContextRoles? _roles;
 
     internal PackageAssemblyContextRealization(
-        PackageAssemblyContextRoles roles,
+        PackageAssemblyContextRoles? roles,
         ImmutableArray<PackageAssemblyRoleParticipant> surfaceParticipants,
         ImmutableArray<PackageAssemblyRoleParticipant> implementationParticipants)
     {
@@ -115,12 +157,17 @@ public sealed class PackageAssemblyContextRealization : IDisposable
         ImplementationParticipants = implementationParticipants;
     }
 
-    public AssemblyContextGroup SurfaceGroup => _roles.SurfaceGroup;
+    public bool HasAssemblyContexts => _roles is not null;
+
+    public AssemblyContextGroup SurfaceGroup =>
+        _roles?.SurfaceGroup
+        ?? throw new InvalidOperationException(
+            "The package realization has no selected compile assemblies.");
 
     public AssemblyContextGroup? ImplementationGroup =>
-        _roles.ImplementationGroup;
+        _roles?.ImplementationGroup;
 
-    public bool SharesGroup => _roles.SharesGroup;
+    public bool SharesGroup => _roles?.SharesGroup ?? false;
 
     public ImmutableArray<PackageAssemblyRoleParticipant> SurfaceParticipants
     {
@@ -142,15 +189,15 @@ public sealed class PackageAssemblyContextRealization : IDisposable
             ?? throw new ArgumentException(
                 "The participant does not belong to the surface package role.",
                 nameof(surface));
-        AssemblyContextParticipant? implementation =
-            _roles.ImplementationParticipant(selected.Participant);
+        AssemblyContextParticipant? implementation = _roles!
+            .ImplementationParticipant(selected.Participant);
         return implementation is null
             ? null
             : ImplementationParticipants.First(candidate =>
                 ReferenceEquals(candidate.Participant, implementation));
     }
 
-    public void Dispose() => _roles.Dispose();
+    public void Dispose() => _roles?.Dispose();
 }
 
 public sealed partial class InspectionWorkspace
@@ -160,7 +207,7 @@ public sealed partial class InspectionWorkspace
     /// surface and body-bearing implementation roles.
     /// </summary>
     public PackageAssemblyContextRealization RealizePackageAssemblyContextRoles(
-        IEnumerable<PackageAssemblyContextSelection> packages,
+        IEnumerable<PackageRootRealization> packages,
         PackageAssemblyContextRealizationOptions? options = null,
         CancellationToken cancellationToken = default)
     {
@@ -169,27 +216,28 @@ public sealed partial class InspectionWorkspace
         options.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
-        ImmutableArray<PackageAssemblyContextSelection> selectedPackages =
+        ImmutableArray<PackageRootRealization> packageRoots =
             [.. packages];
-        if (selectedPackages.IsEmpty)
+        if (packageRoots.IsEmpty)
         {
             throw new InvalidOperationException(
-                "Package assembly-context realization requires at least one package.");
+                "Package realization requires at least one package.");
         }
-        if (selectedPackages.Any(static package => package is null))
+        if (packageRoots.Any(static package => package is null))
         {
             throw new ArgumentException(
-                "Package assembly-context realization cannot contain a null package.",
+                "Package realization cannot contain a null package.",
                 nameof(packages));
         }
-        foreach (PackageAssemblyContextSelection package in selectedPackages)
+        ImmutableArray<PackageRootRealization> selectedPackages =
+            [.. packageRoots.Where(package => package.AssetSelection.IsSelected)];
+
+        if (selectedPackages.IsEmpty)
         {
-            if (!package.AssetSelection.IsSelected)
-            {
-                throw new InvalidOperationException(
-                    $"{package.PackageId} {package.PackageVersion} does not have a selected "
-                    + "compile-assembly set.");
-            }
+            return new PackageAssemblyContextRealization(
+                roles: null,
+                [],
+                []);
         }
 
         ImmutableArray<RoleAsset> surfaceAssets =
@@ -528,11 +576,11 @@ public sealed partial class InspectionWorkspace
     }
 
     sealed record RoleAsset(
-        PackageAssemblyContextSelection Package,
+        PackageRootRealization Package,
         PackageCompileAsset Asset);
 
     sealed record ImplementationNameKey(
-        PackageAssemblyContextSelection Package,
+        PackageRootRealization Package,
         string AssemblyName);
 
     sealed class RoleAssetIdentityComparer : IEqualityComparer<RoleAsset>
@@ -577,7 +625,7 @@ public sealed partial class InspectionWorkspace
     }
 
     sealed record RoleAssembly(
-        PackageAssemblyContextSelection Package,
+        PackageRootRealization Package,
         PackageCompileAsset Asset,
         ResolvedAssemblyReference Assembly,
         bool IdentityDecoded);
