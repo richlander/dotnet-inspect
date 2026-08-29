@@ -45,9 +45,11 @@ public sealed class DiffQueryContext
 }
 
 public sealed record DiffSectionCatalog(
-    SectionCatalog<DiffDiscoveryModel> Sections,
-    InspectionQueryCatalog<DiffQueryContext> QueryCatalog)
+    CompiledInspectionLens<DiffQueryContext, DiffDiscoveryModel> Lens)
 {
+    public SectionCatalog<DiffDiscoveryModel> Sections => Lens.Sections;
+    public InspectionQueryCatalog<DiffQueryContext> QueryCatalog =>
+        Lens.QueryCatalog;
     public SectionPipeline<DiffDiscoveryModel> Pipeline => Sections.Pipeline;
 }
 
@@ -57,24 +59,37 @@ public static class DiffSections
     public static InspectionQueryCatalog<DiffQueryContext> QueryCatalog { get; } =
         BuildQueryCatalog();
 
+    /// <summary>The fixed Diff producer domain.</summary>
+    public static CompiledInspectionDomain<DiffQueryContext> Domain { get; } =
+        new(QueryCatalog);
+
+    /// <summary>The reusable Diff section lens over the fixed producer domain.</summary>
+    public static CompiledInspectionLens<DiffQueryContext, DiffDiscoveryModel>
+        Lens { get; } =
+        Domain.CompileLens<DiffDiscoveryModel>(ConfigurePipeline);
+
     /// <summary>The reusable fixed-domain catalog for Diff sections and query-demand plans.</summary>
     public static SectionCatalog<DiffDiscoveryModel> SectionCatalog { get; } =
-        CreatePipeline().Compile();
+        Lens.Sections;
 
     /// <summary>The complete reusable Diff section and query catalog.</summary>
     public static DiffSectionCatalog Catalog { get; } =
-        new(SectionCatalog, QueryCatalog);
+        new(Lens);
 
     public static DiffSectionCatalog CreateCatalog() => Catalog;
 
     public static SectionPipeline<DiffDiscoveryModel> CreatePipeline()
-        => CreatePipeline(QueryCatalog.CostOf);
-
-    private static SectionPipeline<DiffDiscoveryModel> CreatePipeline(
-        Func<InspectionQueryDefinition, InspectionCost> queryCost)
     {
-        return new SectionPipeline<DiffDiscoveryModel>()
-            .UseQueryCosts(queryCost)
+        var pipeline = new SectionPipeline<DiffDiscoveryModel>()
+            .UseQueryCosts(QueryCatalog.CostOf);
+        ConfigurePipeline(pipeline);
+        return pipeline;
+    }
+
+    private static void ConfigurePipeline(
+        SectionPipeline<DiffDiscoveryModel> pipeline)
+    {
+        pipeline
             .Add<Changes>(ApiComparisonQuery.Definition)
             .Add<AnalysisDiff>(BodySignalComparisonQuery.Definition)
             .Add<ImplementationDiff>(ImplementationComparisonQuery.Definition)
