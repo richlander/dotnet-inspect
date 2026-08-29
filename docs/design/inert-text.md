@@ -223,9 +223,10 @@ is therefore the external actor, the package archive or restored package cache
 is the input path, and skill inventory or document output is the affected
 presentation boundary.
 
-The project skill inventory folds a YAML description's ordinary line endings
-to the inventory's single-line shape, applies `TextPolicy.Field` to every parsed
-`name` and normalized `description`, then uses
+The project skill inventory folds only a YAML description's ordinary CR/LF
+line endings to the inventory's single-line shape, leaving every other
+separator available for concern classification. It applies `TextPolicy.Field`
+to every parsed `name` and normalized `description`, then uses
 `InertString.ReplaceIfContainmentRequired` to represent a value carrying a
 `TextConcern` as `[Text omitted: required containment]` instead of sharing the
 package-authored field through the inventory. Structurally invalid Agent Skills

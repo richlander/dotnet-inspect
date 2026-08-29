@@ -411,10 +411,16 @@ public class ProjectCommand
             file.Path,
             new FileInfo(file.FullPath).Length,
             ContainSkillMetadata(name),
-            ContainSkillMetadata((description ?? "").ReplaceLineEndings(" ")),
+            ContainSkillMetadata(FoldSkillDescriptionLineEndings(description ?? "")),
             file.FullPath);
         return ProjectSkillReadFailure.None;
     }
+
+    private static string FoldSkillDescriptionLineEndings(string value)
+        => value
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Replace('\n', ' ');
 
     private static string ContainSkillMetadata(string value)
         => new InertString(TextPolicy.Field, value)

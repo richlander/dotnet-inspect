@@ -30536,14 +30536,18 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Project_SkillsInventory_ReplacesContainedYamlFields()
+    [Theory]
+    [InlineData("\u202E")]
+    [InlineData("\f")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public async Task Project_SkillsInventory_ReplacesContainedYamlFields(string concern)
     {
-        const string bidi = "\u202E";
         var skill = $"""
             ---
             name: contained-description
-            description: Before{bidi}INJECTED
+            description: Before{concern}INJECTED
             ---
             # Package skill
             """;
@@ -30562,7 +30566,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.DoesNotContain(bidi, output, StringComparison.Ordinal);
+            Assert.DoesNotContain(concern, output, StringComparison.Ordinal);
             Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
             using var document = JsonDocument.Parse(output);
             Assert.Equal(
