@@ -12,7 +12,8 @@ static class AuthoredSourceOracleManifest
     internal sealed record Document(
         [property: JsonRequired] int Version,
         [property: JsonRequired] int PrinterComparisonVersion,
-        [property: JsonRequired] IReadOnlyList<FileEntry> Files);
+        [property: JsonRequired] IReadOnlyList<FileEntry> Files,
+        int? SyntaxInventoryVersion = null);
 
     internal sealed record FileEntry(
         [property: JsonRequired] string SourceUrl,
@@ -20,7 +21,8 @@ static class AuthoredSourceOracleManifest
         [property: JsonRequired] string Checksum,
         [property: JsonRequired] string PrinterProfile,
         [property: JsonRequired] bool RequirePrinterExact,
-        [property: JsonRequired] IReadOnlyList<MemberEntry> Members);
+        [property: JsonRequired] IReadOnlyList<MemberEntry> Members,
+        IReadOnlyList<string>? ExpectedFeatures = null);
 
     internal sealed record MemberEntry(
         [property: JsonRequired] string Assembly,
@@ -42,7 +44,16 @@ static class AuthoredSourceOracleManifest
         [property: JsonRequired] int PrinterExactRequired,
         [property: JsonRequired] int PrinterExactPassing,
         [property: JsonRequired] bool Passed,
-        [property: JsonRequired] IReadOnlyList<string> Failures);
+        [property: JsonRequired] IReadOnlyList<string> Failures,
+        int? SyntaxInventoryVersion = null,
+        int FilesInventoryTracked = 0,
+        IReadOnlyList<string>? ObservedFeatures = null,
+        IReadOnlyList<FileInventoryEntry>? FileInventory = null);
+
+    internal sealed record FileInventoryEntry(
+        [property: JsonRequired] string SourceUrl,
+        [property: JsonRequired] bool PrinterExact,
+        [property: JsonRequired] IReadOnlyList<string> Features);
 
     internal static bool TryRead(string path, out Document? document, out string? error)
     {
@@ -104,6 +115,21 @@ static class AuthoredSourceOracleManifest
                 $"printer comparison version {manifest.PrinterComparisonVersion} is unsupported; "
                 + $"expected {PrinterComparisonVersion}");
         }
+        bool inventoryRequested = manifest.SyntaxInventoryVersion is not null;
+        bool inventoryEnabled =
+            manifest.SyntaxInventoryVersion == PrinterSyntaxInventory.Version;
+        if (inventoryRequested && !inventoryEnabled)
+        {
+            failures.Add(
+                $"syntax inventory version {manifest.SyntaxInventoryVersion} is unsupported; "
+                + $"expected {PrinterSyntaxInventory.Version}");
+        }
+        if (!inventoryRequested
+            && (manifest.Files ?? []).Any(file => file?.ExpectedFeatures is not null))
+        {
+            failures.Add(
+                "expectedFeatures requires a syntaxInventoryVersion");
+        }
         if (manifest.Files is null || manifest.Files.Count == 0)
             failures.Add("manifest contains no files");
 
@@ -111,6 +137,9 @@ static class AuthoredSourceOracleManifest
         int correctFiles = 0;
         int exactRequired = 0;
         int exactPassing = 0;
+        int filesInventoryTracked = 0;
+        var observedInventory = new SortedSet<string>(StringComparer.Ordinal);
+        var fileInventory = new List<FileInventoryEntry>();
         var seenFiles = new HashSet<(string Url, string Algorithm, string Checksum)>();
 
         foreach (var file in manifest.Files ?? [])
@@ -152,6 +181,39 @@ static class AuthoredSourceOracleManifest
             {
                 failures.Add($"{fileId}: expected eligible-member set is empty");
                 fileShapeValid = false;
+            }
+            if (inventoryEnabled)
+            {
+                filesInventoryTracked++;
+                if (file.ExpectedFeatures is null || file.ExpectedFeatures.Count == 0)
+                {
+                    failures.Add($"{fileId}: expected syntax feature set is empty");
+                }
+                else
+                {
+                    if (!file.RequirePrinterExact)
+                    {
+                        failures.Add(
+                            $"{fileId}: syntax inventory requires Printer exact");
+                    }
+                    if (file.ExpectedFeatures.Any(string.IsNullOrWhiteSpace))
+                    {
+                        failures.Add(
+                            $"{fileId}: expected syntax feature is empty");
+                    }
+                    if (file.ExpectedFeatures.Distinct(StringComparer.Ordinal).Count()
+                        != file.ExpectedFeatures.Count)
+                    {
+                        failures.Add(
+                            $"{fileId}: expected syntax feature is duplicated");
+                    }
+                    if (!file.ExpectedFeatures.SequenceEqual(
+                        file.ExpectedFeatures.Order(StringComparer.Ordinal)))
+                    {
+                        failures.Add(
+                            $"{fileId}: expected syntax features are not ordinal-sorted");
+                    }
+                }
             }
 
             var expected = new HashSet<MemberKey>();
@@ -215,26 +277,82 @@ static class AuthoredSourceOracleManifest
             else if (valid)
                 failures.Add($"{fileId}: one or more expected members are not Correct");
 
-            if (!file.RequirePrinterExact)
-                continue;
-
-            exactRequired++;
-            if (actualRows.Any(row =>
-                    row.Record.PrinterBodyVersion != manifest.PrinterComparisonVersion))
+            var observedFeatures = new SortedSet<string>(StringComparer.Ordinal);
+            if (inventoryEnabled)
             {
-                failures.Add(
-                    $"{fileId}: one or more expected members lack Printer body "
-                    + $"version {manifest.PrinterComparisonVersion}");
+                foreach (var row in actualRows)
+                {
+                    if (string.IsNullOrWhiteSpace(row.Record.PrinterBody))
+                    {
+                        failures.Add(
+                            $"{fileId}: {Display(row.Record)} has no captured "
+                            + "Printer body for syntax inventory");
+                        continue;
+                    }
+                    if (!PrinterSyntaxInventory.TryCollect(
+                        row.Record.PrinterBody,
+                        out IReadOnlyList<string> features,
+                        out string? inventoryError))
+                    {
+                        failures.Add(
+                            $"{fileId}: syntax inventory could not parse "
+                            + $"{Display(row.Record)}: {inventoryError}");
+                        continue;
+                    }
+                    observedFeatures.UnionWith(features);
+                }
             }
-            bool exact = correct
-                && actualRows.All(row =>
-                    row.Record.PrinterBodyVersion == manifest.PrinterComparisonVersion)
-                && actualRows.All(row =>
-                    row.Result.PrinterExact == PrinterExactOutcome.Exact);
-            if (exact)
-                exactPassing++;
-            else if (correct)
-                failures.Add($"{fileId}: one or more expected members are not Printer exact");
+
+            bool exact = false;
+            if (file.RequirePrinterExact)
+            {
+                exactRequired++;
+                if (actualRows.Any(row =>
+                    row.Record.PrinterBodyVersion != manifest.PrinterComparisonVersion))
+                {
+                    failures.Add(
+                        $"{fileId}: one or more expected members lack Printer body "
+                        + $"version {manifest.PrinterComparisonVersion}");
+                }
+                exact = correct
+                    && actualRows.All(row =>
+                        row.Record.PrinterBodyVersion == manifest.PrinterComparisonVersion)
+                    && actualRows.All(row =>
+                        row.Result.PrinterExact == PrinterExactOutcome.Exact);
+                if (exact)
+                    exactPassing++;
+                else if (correct)
+                    failures.Add($"{fileId}: one or more expected members are not Printer exact");
+            }
+
+            if (inventoryEnabled && file.ExpectedFeatures is { } expectedFeatures)
+            {
+                foreach (string missing in expectedFeatures
+                    .Except(observedFeatures, StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal))
+                {
+                    failures.Add(
+                        $"{fileId}: expected syntax feature '{missing}' was not observed");
+                }
+                foreach (string stale in observedFeatures
+                    .Except(expectedFeatures, StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal))
+                {
+                    failures.Add(
+                        $"{fileId}: observed syntax feature '{stale}' is absent "
+                        + "from expectedFeatures");
+                }
+            }
+
+            if (inventoryEnabled)
+            {
+                if (exact)
+                    observedInventory.UnionWith(observedFeatures);
+                fileInventory.Add(new FileInventoryEntry(
+                    fileId,
+                    exact,
+                    [.. observedFeatures]));
+            }
         }
 
         int filesRegistered = manifest.Files?.Count ?? 0;
@@ -249,7 +367,11 @@ static class AuthoredSourceOracleManifest
                 && validFiles == filesRegistered
                 && correctFiles == filesRegistered
                 && exactPassing == exactRequired,
-            failures);
+            failures,
+            manifest.SyntaxInventoryVersion,
+            filesInventoryTracked,
+            [.. observedInventory],
+            fileInventory);
     }
 
     static bool SameFile(
@@ -268,6 +390,10 @@ static class AuthoredSourceOracleManifest
     static string Display(MemberEntry member)
         => $"{member.Assembly}/{member.ModuleVersionId}:0x{member.MetadataToken:X8}:"
             + $"{member.Type}::{member.Method}#{member.Overload}";
+
+    static string Display(AuthoredSourceHarvest.CorpusRecord record)
+        => $"{record.Assembly}/{record.ModuleVersionId}:0x{record.MetadataToken:X8}:"
+            + $"{record.Type}::{record.Method}#{record.Overload}";
 
     readonly record struct MemberKey(
         string Assembly,

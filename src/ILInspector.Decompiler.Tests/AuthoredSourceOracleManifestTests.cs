@@ -190,6 +190,369 @@ public sealed class AuthoredSourceOracleManifestTests
             failure.Contains("lack Printer body version", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void SyntaxInventory_CollectsConcretePrinterSurfaces()
+    {
+        const string body = """
+            int total = values.Count;
+            if (total > 0)
+            {
+                return values[0] ?? new Item(total);
+            }
+            else
+            {
+                return default;
+            }
+            """;
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            body,
+            out IReadOnlyList<string> features,
+            out string? error),
+            error);
+        Assert.Equal(
+            [
+                "clause.else",
+                "declaration.local.explicit-type",
+                "expression.coalesce",
+                "expression.default-literal",
+                "expression.element-access",
+                "expression.greater-than",
+                "expression.numeric-literal",
+                "expression.object-creation",
+                "expression.simple-member-access",
+                "statement.if",
+                "statement.local-declaration",
+                "statement.return",
+            ],
+            features);
+    }
+
+    [Fact]
+    public void Manifest_SyntaxInventoryRequiresExactObservedFeatureSet()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact,
+            printerBody: "return value + 1;");
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures =
+            [
+                "expression.add",
+                "expression.numeric-literal",
+                "statement.return",
+            ],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [row]);
+
+        Assert.True(report.Passed);
+        Assert.Equal(1, report.FilesInventoryTracked);
+        Assert.Equal(file.ExpectedFeatures, report.ObservedFeatures);
+        Assert.Equal(file.ExpectedFeatures, Assert.Single(report.FileInventory!).Features);
+    }
+
+    [Fact]
+    public void Manifest_SyntaxInventoryRejectsMissingAndInventedFeatures()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact,
+            printerBody: "return value + 1;");
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures =
+            [
+                "expression.multiply",
+                "statement.return",
+            ],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(
+                "expected syntax feature 'expression.multiply' was not observed",
+                StringComparison.Ordinal));
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(
+                "observed syntax feature 'expression.add' is absent",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Manifest_SyntaxInventoryRequiresVersion()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact);
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures = ["statement.return"],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            Manifest(file),
+            [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(
+                "expectedFeatures requires a syntaxInventoryVersion",
+                StringComparison.Ordinal));
+        Assert.Empty(report.ObservedFeatures!);
+        Assert.Empty(report.FileInventory!);
+    }
+
+    [Fact]
+    public void Manifest_SyntaxInventoryRejectsUnsupportedVersion()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact,
+            printerBody: "return (");
+        var manifest = ManifestWithInventory(
+            File(row.Record, requirePrinterExact: true) with
+            {
+                ExpectedFeatures = ["statement.return"],
+            }) with
+        {
+            SyntaxInventoryVersion = PrinterSyntaxInventory.Version + 1,
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(manifest, [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains("unsupported", StringComparison.Ordinal));
+        Assert.DoesNotContain(report.Failures, failure =>
+            failure.Contains("could not parse", StringComparison.Ordinal));
+        Assert.Empty(report.FileInventory!);
+    }
+
+    [Fact]
+    public void Manifest_SyntaxInventoryRequiresPrinterExact()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.NotRecorded);
+        var file = File(row.Record, requirePrinterExact: false) with
+        {
+            ExpectedFeatures = ["statement.return"],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(
+                "syntax inventory requires Printer exact",
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null, "expected syntax feature set is empty")]
+    [InlineData("empty", "expected syntax feature is empty")]
+    [InlineData("duplicate", "expected syntax feature is duplicated")]
+    [InlineData("unsorted", "expected syntax features are not ordinal-sorted")]
+    public void Manifest_SyntaxInventoryRejectsNonCanonicalFeatureSets(
+        string? shape,
+        string expectedFailure)
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact);
+        IReadOnlyList<string>? features = shape switch
+        {
+            null => null,
+            "empty" => [""],
+            "duplicate" => ["statement.return", "statement.return"],
+            "unsorted" => ["statement.return", "expression.identifier-name"],
+            _ => throw new InvalidOperationException(),
+        };
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures = features,
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(expectedFailure, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Manifest_SyntaxInventoryRequiresEveryCapturedPrinterBody()
+    {
+        var original = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact);
+        var row = original with
+        {
+            Record = original.Record with
+            {
+                PrinterBody = null,
+            },
+        };
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures = ["statement.return"],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(
+                "has no captured Printer body for syntax inventory",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Manifest_SyntaxInventoryRejectsUnparseablePrinterBody()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact,
+            printerBody: "return (");
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures = ["statement.return"],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(
+                "syntax inventory could not parse",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Manifest_FailedPrinterExactFileDoesNotEnterAggregateInventory()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Different);
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures = ["statement.return"],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [row]);
+
+        Assert.False(report.Passed);
+        Assert.Empty(report.ObservedFeatures!);
+        Assert.Equal(
+            ["statement.return"],
+            Assert.Single(report.FileInventory!).Features);
+    }
+
+    [Fact]
+    public void Manifest_LegacyShapeRemainsReadableButDoesNotClaimInventory()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact);
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            Manifest(File(row.Record, requirePrinterExact: true)),
+            [row]);
+
+        Assert.True(report.Passed);
+        Assert.Null(report.SyntaxInventoryVersion);
+        Assert.Equal(0, report.FilesInventoryTracked);
+        Assert.Empty(report.ObservedFeatures!);
+        Assert.Empty(report.FileInventory!);
+    }
+
+    [Fact]
+    public void Manifest_LegacyShapeDoesNotParsePrinterBodies()
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact,
+            printerBody: "return (");
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            Manifest(File(row.Record, requirePrinterExact: true)),
+            [row]);
+
+        Assert.True(report.Passed);
+        Assert.Empty(report.Failures);
+    }
+
+    [Fact]
+    public void Report_LegacyJsonDefaultsInventoryFields()
+    {
+        const string json = """
+            {
+              "filesRegistered": 1,
+              "filesValid": 1,
+              "filesCorrect": 1,
+              "printerExactRequired": 1,
+              "printerExactPassing": 1,
+              "passed": true,
+              "failures": []
+            }
+            """;
+
+        var report = JsonSerializer.Deserialize<AuthoredSourceOracleManifest.Report>(
+            json,
+            new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                UnmappedMemberHandling =
+                    System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+            });
+
+        Assert.NotNull(report);
+        Assert.Null(report.SyntaxInventoryVersion);
+        Assert.Equal(0, report.FilesInventoryTracked);
+        Assert.Null(report.ObservedFeatures);
+        Assert.Null(report.FileInventory);
+    }
+
     [Theory]
     [InlineData(false, null, false)]
     [InlineData(false, 1, true)]
@@ -257,7 +620,7 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
-    public void Benchmark_TextAndJsonAgreeOnSourceOracleFailure()
+    public void Benchmark_TextAndJsonAgreeOnSourceOracleInventoryFailure()
     {
         string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
         string corpus = AuthoredCorpusTestData.WriteCorrelatedCorpus(assembly);
@@ -269,7 +632,11 @@ public sealed class AuthoredSourceOracleManifestTests
         {
             var records = AuthoredCorpusBenchmark.ReadCorpus(corpus, out int malformed);
             Assert.Equal(0, malformed);
-            var manifest = Manifest(File(Assert.Single(records), requirePrinterExact: false));
+            var manifest = ManifestWithInventory(
+                File(Assert.Single(records), requirePrinterExact: true) with
+                {
+                    ExpectedFeatures = ["statement.return"],
+                });
             System.IO.File.WriteAllText(
                 manifestPath,
                 JsonSerializer.Serialize(
@@ -300,10 +667,17 @@ public sealed class AuthoredSourceOracleManifestTests
             Assert.Equal(1, textExit);
             Assert.Equal(textExit, jsonExit);
             Assert.Contains("Source-oracle files:", text.ToString());
+            Assert.Contains("Syntax inventory v1", text.ToString());
+            Assert.Contains("0 feature(s) across 1 file(s)", text.ToString());
             Assert.Contains("BLOCKER", text.ToString());
             Assert.NotNull(payload.SourceOracleManifest);
             Assert.Equal(1, payload.SourceOracleManifest.FilesRegistered);
             Assert.False(payload.SourceOracleManifest.Passed);
+            Assert.Equal(1, payload.SourceOracleManifest.SyntaxInventoryVersion);
+            Assert.Equal(1, payload.SourceOracleManifest.FilesInventoryTracked);
+            Assert.Empty(payload.SourceOracleManifest.ObservedFeatures!);
+            Assert.Empty(Assert.Single(
+                payload.SourceOracleManifest.FileInventory!).Features);
             Assert.Contains(
                 $": {payload.SourceOracleManifest.FilesValid} / "
                     + $"{payload.SourceOracleManifest.FilesRegistered}",
@@ -352,6 +726,14 @@ public sealed class AuthoredSourceOracleManifestTests
             AuthoredSourceOracleManifest.PrinterComparisonVersion,
             files);
 
+    static AuthoredSourceOracleManifest.Document ManifestWithInventory(
+        params AuthoredSourceOracleManifest.FileEntry[] files)
+        => new(
+            AuthoredSourceOracleManifest.Version,
+            AuthoredSourceOracleManifest.PrinterComparisonVersion,
+            files,
+            PrinterSyntaxInventory.Version);
+
     static AuthoredSourceOracleManifest.FileEntry File(
         AuthoredSourceHarvest.CorpusRecord record,
         bool requirePrinterExact)
@@ -378,7 +760,8 @@ public sealed class AuthoredSourceOracleManifestTests
         string path,
         int token,
         ReturnToSenderSourceOutcome outcome,
-        PrinterExactOutcome printerExact)
+        PrinterExactOutcome printerExact,
+        string printerBody = "return;")
     {
         var record = new AuthoredSourceHarvest.CorpusRecord(
             Assembly: "Fixture",
@@ -394,9 +777,9 @@ public sealed class AuthoredSourceOracleManifestTests
             SourceUrl: $"https://raw.githubusercontent.com/example/repo/0123456789abcdef/{path}",
             ChecksumAlgorithm: "SHA256",
             Checksum: new string('A', 64),
-            AuthoredBody: "return;",
+            AuthoredBody: printerBody,
             ModuleVersionId: new Guid("11111111-2222-3333-4444-555555555555"),
-            PrinterBody: "return;",
+            PrinterBody: printerBody,
             PrinterBodyVersion: AuthoredSourceOracleManifest.PrinterComparisonVersion);
         var result = new ReturnToSenderSourceProbeResult(
             new ReturnToSender.RequestedTarget(record.Type, record.Method, record.Overload),

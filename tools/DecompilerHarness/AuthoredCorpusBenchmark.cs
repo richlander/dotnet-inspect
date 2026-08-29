@@ -529,6 +529,33 @@ static class AuthoredCorpusBenchmark
             output.WriteLine($"    Valid                            : {oracleReport.FilesValid} / {oracleReport.FilesRegistered}");
             output.WriteLine($"    Correct                          : {oracleReport.FilesCorrect} / {oracleReport.FilesRegistered}");
             output.WriteLine($"    Printer exact                    : {oracleReport.PrinterExactPassing} / {oracleReport.PrinterExactRequired} required");
+            if (oracleReport.SyntaxInventoryVersion is null)
+            {
+                output.WriteLine("    Syntax inventory                 : NOT TRACKED (legacy manifest)");
+            }
+            else
+            {
+                IReadOnlyList<string> observedFeatures =
+                    oracleReport.ObservedFeatures ?? [];
+                output.WriteLine(
+                    $"    Syntax inventory v{oracleReport.SyntaxInventoryVersion}"
+                    + $"              : {observedFeatures.Count} feature(s) "
+                    + $"across {oracleReport.FilesInventoryTracked} file(s)");
+                foreach (var group in observedFeatures
+                    .GroupBy(
+                        feature => feature.Contains('.', StringComparison.Ordinal)
+                            ? feature[..feature.IndexOf('.')]
+                            : "syntax",
+                        StringComparer.Ordinal))
+                {
+                    output.WriteLine(
+                        $"      {group.Key,-30}: "
+                        + string.Join(", ", group.Select(feature =>
+                            feature.Contains('.', StringComparison.Ordinal)
+                                ? feature[(feature.IndexOf('.') + 1)..]
+                                : feature)));
+                }
+            }
             foreach (string failure in oracleReport.Failures)
                 output.WriteLine($"    BLOCKER                          : {failure}");
         }
