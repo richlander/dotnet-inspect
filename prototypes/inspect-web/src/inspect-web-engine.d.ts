@@ -4,6 +4,8 @@
 //   eng/generate-inspect-web-engine-dts.sh
 // CI fails if the committed file drifts from this output.
 
+export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
+
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
@@ -138,6 +140,12 @@ export interface BrowserCallGraphTarget {
   readonly selectorKey: string;
   readonly kind: string;
   readonly platformPack: string | null;
+}
+
+export interface BrowserCompileLibraryAvailability {
+  readonly status: BrowserCompileLibraryStatus;
+  readonly targetFramework: string | null;
+  readonly message: string | null;
 }
 
 export interface BrowserDependencyCoordinateCandidate {
@@ -424,11 +432,12 @@ export interface BrowserPackageDependencies {
   readonly package: string;
   readonly version: string;
   readonly activeFramework: string;
-  readonly assembly: string;
+  readonly assembly: string | null;
   readonly dependencyGroups: ReadonlyArray<BrowserPackageDependencyGroup>;
   readonly assemblyReferences: ReadonlyArray<BrowserAssemblyReference>;
   readonly dependencyGroupError: string | null;
   readonly assemblyReferenceError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackageDependency {
@@ -465,11 +474,13 @@ export interface BrowserPackageIntegrations {
   readonly totalSignals: number;
   readonly isComplete: boolean;
   readonly inspectionError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackageMetadata {
   readonly assemblies: ReadonlyArray<BrowserAssemblyMetadata>;
   readonly inspectionError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackageOpportunities {
@@ -480,6 +491,7 @@ export interface BrowserPackageOpportunities {
   readonly totalOpportunities: number;
   readonly isComplete: boolean;
   readonly inspectionError: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackagePerformance {
@@ -487,6 +499,7 @@ export interface BrowserPackagePerformance {
   readonly inspectionError: string | null;
   readonly nonPublicOpportunities: number;
   readonly totalOpportunities: number;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
 }
 
 export interface BrowserPackageSurface {
@@ -494,7 +507,8 @@ export interface BrowserPackageSurface {
   readonly version: string;
   readonly frameworks: ReadonlyArray<string>;
   readonly activeFramework: string;
-  readonly defaultAssemblyId: string;
+  readonly defaultAssemblyId: string | null;
+  readonly compileLibrary: BrowserCompileLibraryAvailability;
   readonly assemblies: ReadonlyArray<BrowserAssemblySurface>;
   readonly types: ReadonlyArray<BrowserTypeSurface>;
   readonly accessibility: ReadonlyArray<BrowserAccessibilityDescriptor>;
