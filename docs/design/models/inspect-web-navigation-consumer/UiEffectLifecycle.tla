@@ -11,7 +11,8 @@ CONSTANTS
   EnforceCurrentEffect,
   EnforceCompleteAcknowledge,
   EnforceDestroyAbandon,
-  EnforceInstallFirst
+  EnforceInstallFirst,
+  EnforcePersistentFocus
 
 ASSUME MaxIntents >= 2
 ASSUME MaxSurfaceEpoch >= 2
@@ -19,9 +20,11 @@ ASSUME EnforceCurrentEffect \in BOOLEAN
 ASSUME EnforceCompleteAcknowledge \in BOOLEAN
 ASSUME EnforceDestroyAbandon \in BOOLEAN
 ASSUME EnforceInstallFirst \in BOOLEAN
+ASSUME EnforcePersistentFocus \in BOOLEAN
 
 Tokens == 1..MaxIntents
-Statuses == {"unused", "inFlight", "returned", "acknowledged", "abandoned"}
+Statuses ==
+  {"unused", "inFlight", "returned", "acknowledged", "abandoned", "discarded"}
 Outcomes ==
   {"none",
    "applied",
@@ -29,15 +32,15 @@ Outcomes ==
    "unavailableWithoutSnapshot",
    "rejected",
    "failed",
-   "superseded"}
+   "aborted"}
 Effects == {"install", "focus", "announce"}
+FocusLocations == {"shell", "surface", "body"}
 SnapshotOutcomes == {"applied", "unavailableWithSnapshot"}
-TerminalStatuses == {"acknowledged", "abandoned"}
+AuthorityTerminalStatuses == {"acknowledged", "abandoned"}
+OperationTerminalStatuses == AuthorityTerminalStatuses \cup {"discarded"}
 
 RequiredEffects(result) ==
-  IF result = "superseded"
-  THEN {}
-  ELSE IF result \in SnapshotOutcomes
+  IF result \in SnapshotOutcomes
   THEN Effects
   ELSE {"focus", "announce"}
 
@@ -51,6 +54,8 @@ VARIABLES
   outcome,
   required,
   completed,
+  focusLocation,
+  focusSurface,
   effectWitness,
   acknowledgeWitness,
   destructionWitness,
@@ -66,6 +71,8 @@ vars ==
      outcome,
      required,
      completed,
+     focusLocation,
+     focusSurface,
      effectWitness,
      acknowledgeWitness,
      destructionWitness,
@@ -81,6 +88,8 @@ Init ==
   /\ outcome = [i \in Tokens |-> "none"]
   /\ required = [i \in Tokens |-> {}]
   /\ completed = [i \in Tokens |-> {}]
+  /\ focusLocation = "surface"
+  /\ focusSurface = 1
   /\ effectWitness = TRUE
   /\ acknowledgeWitness = TRUE
   /\ destructionWitness = TRUE
@@ -100,6 +109,10 @@ BeginIntent ==
      /\ nextIntent' = i
      /\ operationSurface' = [operationSurface EXCEPT ![i] = surfaceEpoch]
      /\ status' = [status EXCEPT ![i] = "inFlight"]
+     /\ focusLocation' =
+          IF EnforcePersistentFocus THEN "shell" ELSE focusLocation
+     /\ focusSurface' =
+          IF EnforcePersistentFocus THEN 0 ELSE focusSurface
   /\ UNCHANGED << mounted,
                   surfaceEpoch,
                   outcome,
@@ -114,7 +127,7 @@ ReturnResult(i, result) ==
   /\ i \in Tokens
   /\ result \in Outcomes \ {"none"}
   /\ status[i] = "inFlight"
-  /\ (result = "superseded" => i < currentIntent)
+  /\ i = currentIntent
   /\ status' = [status EXCEPT ![i] = "returned"]
   /\ outcome' = [outcome EXCEPT ![i] = result]
   /\ required' = [required EXCEPT ![i] = RequiredEffects(result)]
@@ -127,14 +140,38 @@ ReturnResult(i, result) ==
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
-                  orderingWitness >>
+                  orderingWitness,
+                  focusLocation,
+                  focusSurface >>
 
 ReturnAnyResult(i) ==
   \E result \in Outcomes \ {"none"} : ReturnResult(i, result)
 
-RunEffect(i, effect) ==
+DiscardSuperseded(i) ==
+  /\ i \in Tokens
+  /\ status[i] = "inFlight"
+  /\ i < currentIntent
+  /\ status' = [status EXCEPT ![i] = "discarded"]
+  /\ UNCHANGED << currentIntent,
+                  nextIntent,
+                  mounted,
+                  surfaceEpoch,
+                  operationSurface,
+                  outcome,
+                  required,
+                  completed,
+                  focusLocation,
+                  focusSurface,
+                  effectWitness,
+                  acknowledgeWitness,
+                  destructionWitness,
+                  orderingWitness >>
+
+RunEffect(i, effect, replaceSurface) ==
   /\ i \in Tokens
   /\ effect \in required[i] \ completed[i]
+  /\ replaceSurface \in BOOLEAN
+  /\ (replaceSurface => effect = "install" /\ surfaceEpoch < MaxSurfaceEpoch)
   /\ IF EnforceCurrentEffect THEN CurrentAuthority(i) ELSE TRUE
   /\ IF EnforceInstallFirst
      THEN
@@ -143,6 +180,24 @@ RunEffect(i, effect) ==
        \/ "install" \in completed[i]
      ELSE TRUE
   /\ completed' = [completed EXCEPT ![i] = @ \cup {effect}]
+  /\ surfaceEpoch' =
+       IF replaceSurface THEN surfaceEpoch + 1 ELSE surfaceEpoch
+  /\ operationSurface' =
+       IF replaceSurface
+       THEN [operationSurface EXCEPT ![i] = surfaceEpoch + 1]
+       ELSE operationSurface
+  /\ focusLocation' =
+       CASE effect = "install" ->
+              IF EnforcePersistentFocus THEN "surface" ELSE "body"
+         [] effect = "focus" -> "surface"
+         [] OTHER -> focusLocation
+  /\ focusSurface' =
+       CASE effect = "install" ->
+              IF EnforcePersistentFocus
+              THEN IF replaceSurface THEN surfaceEpoch + 1 ELSE surfaceEpoch
+              ELSE 0
+         [] effect = "focus" -> surfaceEpoch
+         [] OTHER -> focusSurface
   /\ effectWitness' =
        (effectWitness
         /\ CurrentAuthority(i)
@@ -156,8 +211,6 @@ RunEffect(i, effect) ==
   /\ UNCHANGED << currentIntent,
                   nextIntent,
                   mounted,
-                  surfaceEpoch,
-                  operationSurface,
                   status,
                   outcome,
                   required,
@@ -182,6 +235,8 @@ Acknowledge(i) ==
                   outcome,
                   required,
                   completed,
+                  focusLocation,
+                  focusSurface,
                   effectWitness,
                   destructionWitness,
                   orderingWitness >>
@@ -199,6 +254,8 @@ AbandonStale(i) ==
                   outcome,
                   required,
                   completed,
+                  focusLocation,
+                  focusSurface,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -216,6 +273,12 @@ DestroySurface ==
   /\ destructionWitness' =
        (destructionWitness
         /\ \A i \in Tokens : status'[i] # "returned")
+  /\ focusLocation' =
+       IF focusLocation = "surface"
+       THEN IF EnforcePersistentFocus THEN "shell" ELSE "body"
+       ELSE focusLocation
+  /\ focusSurface' =
+       IF focusLocation = "surface" THEN 0 ELSE focusSurface
   /\ UNCHANGED << currentIntent,
                   nextIntent,
                   surfaceEpoch,
@@ -239,6 +302,8 @@ MountSurface ==
                   outcome,
                   required,
                   completed,
+                  focusLocation,
+                  focusSurface,
                   effectWitness,
                   acknowledgeWitness,
                   destructionWitness,
@@ -247,7 +312,9 @@ MountSurface ==
 Next ==
   \/ BeginIntent
   \/ \E i \in Tokens : ReturnAnyResult(i)
-  \/ \E i \in Tokens, effect \in Effects : RunEffect(i, effect)
+  \/ \E i \in Tokens : DiscardSuperseded(i)
+  \/ \E i \in Tokens, effect \in Effects, replace \in BOOLEAN :
+       RunEffect(i, effect, replace)
   \/ \E i \in Tokens : Acknowledge(i)
   \/ \E i \in Tokens : AbandonStale(i)
   \/ DestroySurface
@@ -264,6 +331,8 @@ TypeOK ==
   /\ outcome \in [Tokens -> Outcomes]
   /\ required \in [Tokens -> SUBSET Effects]
   /\ completed \in [Tokens -> SUBSET Effects]
+  /\ focusLocation \in FocusLocations
+  /\ focusSurface \in 0..MaxSurfaceEpoch
   /\ effectWitness \in BOOLEAN
   /\ acknowledgeWitness \in BOOLEAN
   /\ destructionWitness \in BOOLEAN
@@ -273,7 +342,11 @@ ReturnedShape ==
   \A i \in Tokens :
     /\ (status[i] = "unused" => outcome[i] = "none")
     /\ (status[i] = "inFlight" => outcome[i] = "none")
-    /\ (status[i] \in {"returned"} \cup TerminalStatuses =>
+    /\ (status[i] = "discarded" =>
+          /\ outcome[i] = "none"
+          /\ required[i] = {}
+          /\ completed[i] = {})
+    /\ (status[i] \in {"returned"} \cup AuthorityTerminalStatuses =>
           /\ outcome[i] # "none"
           /\ required[i] = RequiredEffects(outcome[i])
           /\ completed[i] \subseteq required[i])
@@ -286,17 +359,24 @@ DestroyAbandonsReturnedAuthority == destructionWitness
 
 SnapshotInstallsBeforeDependentEffects == orderingWitness
 
+FocusRemainsOnMountedElement ==
+  /\ focusLocation # "body"
+  /\ (focusLocation = "shell"
+      \/ (mounted /\ focusLocation = "surface" /\ focusSurface = surfaceEpoch))
+
 EveryReturnedAuthoritySettles ==
   \A i \in Tokens :
-    status[i] = "returned" ~> status[i] \in TerminalStatuses
+    status[i] = "returned" ~> status[i] \in AuthorityTerminalStatuses
 
 EverySubmittedIntentSettles ==
   \A i \in Tokens :
-    status[i] = "inFlight" ~> status[i] \in TerminalStatuses
+    status[i] = "inFlight" ~> status[i] \in OperationTerminalStatuses
 
 Fairness ==
   /\ \A i \in Tokens : WF_vars(ReturnAnyResult(i))
-  /\ \A i \in Tokens, effect \in Effects : WF_vars(RunEffect(i, effect))
+  /\ \A i \in Tokens : WF_vars(DiscardSuperseded(i))
+  /\ \A i \in Tokens, effect \in Effects, replace \in BOOLEAN :
+       WF_vars(RunEffect(i, effect, replace))
   /\ \A i \in Tokens : WF_vars(Acknowledge(i))
   /\ \A i \in Tokens : WF_vars(AbandonStale(i))
 

@@ -17,26 +17,31 @@ the consumer sequence:
 3. run deferred focus and status-announcement effects;
 4. revalidate authority before every visible effect;
 5. acknowledge authority after all required effects complete; or
-6. abandon returned authority when it becomes stale, is superseded, returns
-   after destruction, or belongs to a destroyed surface lifetime.
+6. abandon returned authority when it becomes stale, returns after
+   destruction, or belongs to a destroyed surface lifetime.
 
 `UiEffectLifecycle.tla` models two explicit intents and two mounted-surface
 lifetimes. Applied outcomes and unavailable outcomes carrying a changed
 snapshot require installation, focus, and announcement. Unavailable outcomes
-without a replacement snapshot, rejected outcomes, and failed outcomes require
-only focus and announcement. Every effect is a separate transition, so a newer
-intent or surface destruction may intervene between installation and a later
-callback. Superseded outcomes have no required effects and settle only through
-abandonment. The model consumes Inspection Subject Navigation's guarantee that
-a superseded result belongs to an older intent than the session's current
-intent; superseded authority is therefore stale by construction and uses the
-ordinary stale-abandonment path.
+without a replacement snapshot, rejected outcomes, failed outcomes, and typed
+prerequisite aborts require only focus and announcement. Every effect is a
+separate transition, so a newer intent or surface destruction may intervene
+between installation and a later callback.
+
+Inspection Subject Navigation discards superseded work without publishing a
+consumer result or effect authority. The model represents that terminal path as
+`DiscardSuperseded`, separately from returned authority. It also allows
+installation to replace the destination renderer while transferring later
+callbacks to the new surface lifetime.
 
 The model collapses the UI into one logical navigation-authority holder and one
 current destination-surface lifetime. Actual modals and routed components may
 coexist, but they do not independently consume the same returned navigation
-authority. The session-scoped consumer applies the modeled rule to the
-destination lifetime associated with each result.
+authority. A persistent shell focus anchor remains mounted outside those
+lifetimes. The session-scoped consumer applies the modeled rule to the
+destination lifetime associated with each result. The bounded model
+conservatively parks that anchor when an intent begins; the UI prose requires
+parking only when the focused element may be removed.
 
 ## Checked properties
 
@@ -46,12 +51,13 @@ The model states these required properties:
 - focus and announcement never precede a required snapshot installation;
 - acknowledgement occurs only after all required effects complete;
 - surface destruction abandons every returned authority held by that surface;
+- focus remains on the persistent shell anchor or the current mounted surface;
 - every returned authority is eventually acknowledged or abandoned; and
-- every submitted intent eventually returns and reaches a terminal consumer
-  state.
+- every submitted intent eventually returns and settles or is discarded by
+  product supersession.
 
 The primary configuration exhaustively checks state shape and the two
-settlement properties while the required guards are enabled. The four mutation
+settlement properties while the required guards are enabled. The five mutation
 configurations disable one safety guard at a time and retain an independent
 witness invariant, demonstrating that each safety rule is non-vacuous. These
 are model claims, not implementation-conformance claims. Required
@@ -74,19 +80,20 @@ Run the primary model from this directory:
   -config UiEffectLifecycle.cfg UiEffectLifecycle.tla
 ```
 
-The complete breadth-first check generated 16,661 states, found 9,859 distinct
+The complete breadth-first check generated 19,361 states, found 12,336 distinct
 states, reached depth 16, and reported no errors. Action coverage was nonzero
 for every modeled transition:
 
 | Action | Distinct | Invocations |
 | ------ | -------: | ----------: |
-| `BeginIntent` | 81 | 103 |
-| `ReturnResult` | 1,870 | 3,837 |
-| `RunEffect` | 1,598 | 3,710 |
-| `Acknowledge` | 470 | 705 |
-| `AbandonStale` | 1,316 | 4,815 |
-| `DestroySurface` | 3,334 | 5,597 |
-| `MountSurface` | 1,189 | 1,507 |
+| `BeginIntent` | 107 | 121 |
+| `ReturnResult` | 1,476 | 2,658 |
+| `DiscardSuperseded` | 21 | 339 |
+| `RunEffect` | 2,152 | 5,632 |
+| `Acknowledge` | 648 | 1,012 |
+| `AbandonStale` | 1,976 | 4,374 |
+| `DestroySurface` | 4,589 | 7,662 |
+| `MountSurface` | 1,366 | 1,570 |
 
 The coverage figures use one worker so action counters are deterministic:
 
@@ -99,7 +106,7 @@ The coverage figures use one worker so action counters are deterministic:
 
 ## Mutation probes
 
-Four configurations disable one required guard while retaining an independent
+Five configurations disable one required guard while retaining an independent
 witness invariant:
 
 | Configuration | Disabled rule | Detected by |
@@ -108,6 +115,7 @@ witness invariant:
 | `EarlyAcknowledgeMutation.cfg` | completion before acknowledgement | `AcknowledgeOnlyAfterEffects` |
 | `DestroyWithoutAbandonMutation.cfg` | abandonment during destruction | `DestroyAbandonsReturnedAuthority` |
 | `FocusBeforeInstallMutation.cfg` | installation before dependent effects | `SnapshotInstallsBeforeDependentEffects` |
+| `DetachedFocusMutation.cfg` | persistent focus handoff during intent, installation, and destruction | `FocusRemainsOnMountedElement` |
 
 TLC finds a counterexample for every mutation. Exact partial-state counts are
 not recorded because parallel workers may discover the first counterexample in

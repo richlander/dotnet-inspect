@@ -720,15 +720,18 @@ The product outcome is atomic at the UI boundary:
 | Unavailable | Install a returned replacement snapshot when present and show the exact unavailable result without fallback |
 | Rejected | Retain the current snapshot and show the rejection |
 | Failed | Retain the current snapshot and show the diagnostic |
-| Superseded | Treat its product-guaranteed stale authority as abandoned and produce no visible effect |
+| Aborted | Retain the current snapshot and URL, show the typed prerequisite failure, and consume its current effect authority |
+| Superseded | Receive no consumer result or authority and produce no visible effect |
 
 Outcome names do not authorize the UI to infer whether state changed. The UI
 installs only the snapshot actually returned by the navigation session and
 never updates local subject or lens state ahead of that result. Installation is
 one atomic consumer effect: it commits the returned snapshot, its rendered
 content, and the UI-owned canonical URL and push-or-replace history
-classification. Rejected, failed, and superseded results do not mutate the URL
-or history.
+classification. Rejected and failed results do not mutate the URL or history,
+and superseded work never reaches the consumer. An aborted effect likewise
+retains the current snapshot, URL, and history because navigation never
+received the prerequisite input needed to produce a replacement.
 
 An applied result uses the initiating UI action's push-or-replace
 classification. An unavailable result that carries a changed snapshot replaces
@@ -754,31 +757,37 @@ focus, visible status, nor the active panel.
 Each navigation destination surface owns one persistent polite live region
 with `role="status"`, `aria-live="polite"`, and `aria-atomic="true"`. An applied
 result announces the returned active subject and effective lens. An
-unavailable, rejected, or failed result announces the same visible reason or
-diagnostic shown by the surface. Superseded results announce nothing. A
-no-effective-lens region remains visible content; the live region announces
-its exact heading and evidence rather than a different hidden explanation.
+unavailable, rejected, failed, or aborted result announces the same visible
+reason or diagnostic shown by the surface. Superseded work reaches no consumer
+and announces nothing. A no-effective-lens region remains visible content; the
+live region announces its exact heading and evidence rather than a different
+hidden explanation.
 
 After all required installation, focus, and announcement effects complete, the
-UI acknowledges the authority. If the authority becomes stale before
-completion, the UI abandons it. A session-scoped UI navigation consumer is the
-sole holder of returned navigation authority and outlives individual routed
-and inspection surfaces. When a navigation destination surface's renderer is
-replaced or unmounted, the consumer abandons every returned authority associated
-with that lifetime before discarding its callbacks. It also abandons a result
-that returns after its destination was destroyed or remounted. A remounted
-surface has a new lifetime and cannot consume callbacks from the destroyed one.
+UI acknowledges the authority, including current aborted authority after its
+failure presentation, focus, and announcement complete. If authority becomes
+stale before completion, the UI abandons it. A session-scoped UI navigation
+consumer is the sole holder of returned navigation authority and outlives
+individual routed and inspection surfaces. When a navigation destination
+surface's renderer is replaced or unmounted, the consumer abandons every
+returned authority associated with that lifetime before discarding its
+callbacks. It also abandons a result that returns after its destination was
+destroyed or remounted. A remounted surface has a new lifetime and cannot
+consume callbacks from the destroyed one. Superseded work requires neither
+acknowledgement nor abandonment because the product session discards it without
+publishing effect authority.
 
 These stateful obligations are modeled by
 [`UiEffectLifecycle.tla`](models/inspect-web-navigation-consumer/UiEffectLifecycle.tla).
 The model assumes that the product session supplies opaque authority and a
 complete typed outcome, then explores two explicit intents across two mounted
-surface lifetimes so supersession or destruction can intervene between every
-deferred effect. TLC exhaustively checked the model's state shape and eventual
-settlement at depth 16. Separate mutation configurations produced a
-counterexample when current-authority validation, install-before-focus
-ordering, complete-effect acknowledgement, or destruction abandonment was
-removed. The
+surface lifetimes so supersession, renderer replacement, or destruction can
+intervene between every deferred effect. It includes prerequisite abort and
+product-side discard of superseded work. TLC exhaustively checked the model's
+state shape and eventual settlement at depth 16. Separate mutation
+configurations produced a counterexample when current-authority validation,
+install-before-focus ordering, complete-effect acknowledgement, destruction
+abandonment, or persistent focus safety was removed. The
 [model README](models/inspect-web-navigation-consumer/README.md) records the
 tool versions, bounds, action coverage, and mutation results. This proves the
 finite design model; the implementation gates below establish conformance in
@@ -797,23 +806,27 @@ preserves the new focus destination instead.
 Activating an available item for a non-modal transition closes the menu. A
 successful inspection transition focuses the returned active-subject
 level-one heading; a successful routed transition focuses that surface's
-level-one heading. An unavailable, rejected, or failed result renders its
-product-returned current surface, returns focus to the stable menu-button
+level-one heading. An unavailable, rejected, failed, or aborted result renders
+its product-returned current surface, returns focus to the stable menu-button
 invoker, and makes the outcome visible. Installation, focus, and announcement
 occur only while their returned effect authority remains current.
 
 Before an asynchronous transition or snapshot installation removes the focused
-element, the UI synchronously parks focus on a stable element in the retained
-surface: the invoker when it remains rendered, otherwise the retained surface's
-level-one heading. This applies to closing a focused menu, dialog, or drawer,
-replacing a native Library `select` with the custom listbox, and omitting a
-focused lens tablist after a no-effective-lens result. This parking step
-reflects local surface cleanup, not a product result. Current effect authority
-is still required to move focus from that stable location to a result-derived
-destination. A replacement listbox receives focus only when the exact
+element, the UI synchronously parks focus on the persistent `dotnet-inspect`
+shell control outside replaceable destination renderers. This applies to
+closing a focused menu, dialog, or drawer, replacing a native Library `select`
+with the custom listbox, and omitting a focused lens tablist after a
+no-effective-lens result. This parking step reflects local surface cleanup, not
+a product result.
+
+Current effect authority is still required to move focus from that persistent
+anchor to a result-derived destination. Installation that replaces a renderer
+associates later callbacks with the newly mounted destination lifetime, never
+the outgoing one. A replacement listbox receives focus only when the exact
 previously focused Library identity survives; an omitted tablist moves focus to
-the no-effective-lens heading. If the result is superseded or its destination
-is destroyed, focus remains parked rather than falling to the document body.
+the no-effective-lens heading. If work is superseded or its destination is
+destroyed, focus remains on the mounted shell control rather than falling to
+the document body.
 
 When a menu item opens a modal, the menu closes without returning focus to its
 invoker and the modal applies its initial-focus rule. The stable menu-button
@@ -1138,9 +1151,10 @@ these named Inspect Web tests:
 - `navigation-consumer.test.ts`:
   `typed outcomes commit only returned state and release authority` covers
   applied, unavailable with and without a replacement snapshot, rejected,
-  failed, and superseded results. It proves exact snapshot, canonical URL, and
-  history handling, including replacement for reconciliation-driven
-  unavailable snapshots, plus acknowledgement or abandonment.
+  failed, and aborted results plus product-side discard of superseded work. It
+  proves exact snapshot, canonical URL, and history handling, including
+  replacement for reconciliation-driven unavailable snapshots, plus
+  acknowledgement or abandonment.
 - `navigation-consumer.test.ts`:
   `maintenance snapshots replace history without stealing focus` covers
   authority validation, canonical URL replacement, selective announcement,
@@ -1239,17 +1253,20 @@ outcomes:
 6. Confirm that focus was parked before its invoking control disappeared, that
    neither stale callback changes focus, status, active panel, URL, or history,
    and that the stale authority is abandoned.
-7. Return a superseded result and confirm that its product-issued authority is
-   stale, it performs no visible effect, it announces nothing, and the consumer
-   abandons it.
-8. Return another result and confirm that acknowledgement occurs only after its
+7. Fail a prerequisite before navigation can run and confirm that the aborted
+   effect retains snapshot, URL, and history, presents and announces its typed
+   failure, then acknowledges its current authority.
+8. Complete older work after a newer intent owns the session and confirm that
+   the product discards it without publishing a consumer result, authority,
+   announcement, URL change, or history change.
+9. Return another result and confirm that acknowledgement occurs only after its
    required installation, focus, and announcement effects complete.
-9. Install a maintenance snapshot and confirm that it replaces URL history,
+10. Install a maintenance snapshot and confirm that it replaces URL history,
    does not move surviving focus, announces only a visible change, and
    acknowledges its authority.
-10. Destroy a surface while it holds unconsumed authority, then remount the
+11. Destroy a surface while it holds unconsumed authority, then remount the
     same surface kind and return another result for the destroyed lifetime.
-11. Confirm that destruction and the late return both abandon authority and
+12. Confirm that destruction and the late return both abandon authority and
     that callbacks from the prior lifetime cannot affect the remounted surface.
 
 ### Workspace composition
