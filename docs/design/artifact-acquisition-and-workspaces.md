@@ -483,13 +483,15 @@ stale/narrowed plan, or direct request cannot reserve budget, call an adapter,
 or mint a role.
 
 Before reservation, the workspace frames one syntactic context-generation key
-from every request field and the policy generation, including the path
+from every request field, the policy generation, all admission-affecting
+limits, and the selected adapter capability identities, including the path
 spellings exactly as supplied. Length framing prevents coordinate-boundary
-ambiguity without interpreting a path. Identical framed demands are
-single-flight under the existing admission lifecycle. Different spellings are
-different generations even when #5096 later gives them the same canonical
-local-coordinate identity; cross-spelling single-flight convergence is not a
-claim of this context.
+ambiguity without interpreting a path. Only demands with equal complete keys
+are compatible and single-flight under the existing admission lifecycle.
+Different limits wait for the active generation to terminate and then replan;
+they cannot join it. Different spellings are different generations even when
+issue #5096 later gives them the same canonical local-coordinate identity;
+cross-spelling single-flight convergence is not a claim of this context.
 
 The installed platform adapter registration must declare finite maximum member
 and byte bounds within the authorized demand. Raw local-coordinate cardinality
@@ -532,11 +534,17 @@ and mediates their query operations. The caller never mints or supplies a raw
 view acquisition.
 
 Every participant projected from an artifact preserves the artifact's
-`ArtifactAcquisitionRegistration`; a query-authorized
-`ArtifactContentReference` remains the retained-image handoff. The lease-bound
-context view delegates to a workspace-owned operation that accepts one of its
-participants and returns that participant's `ArtifactContentReference`; a
-foreign participant is rejected.
+`ArtifactAcquisitionRegistration`. A query-authorized
+`ArtifactContentReference` is the internal handoff from the artifact owner to
+Metadata projection and group-owned image acquisition; neither `Realized` nor
+its context view returns that reference, a `ResolvedAssemblyReference`, a
+readable path, or a `Stream`.
+
+The lease-bound context view instead mediates bounded image operations for its
+participant identities. The group opens retained content under the view's
+query lease, validates and snapshots the image, closes the internal stream, and
+only then invokes the consumer with its existing callback-scoped
+`AssemblyImageView`. A foreign participant is rejected before content access.
 
 The workspace remains the sole owner of the group and artifact session.
 Disposing a context view revokes that query access but does not release the
@@ -548,13 +556,13 @@ contract in the
 [generation-access interaction model](models/artifact-generation-access/README.md).
 Both adapters must honor owner cancellation during acquisition and
 materialization and provide bounded snapshot openers that cannot wait on their
-original source. A consumer must dispose a returned stream; workspace disposal
-may remain pending rather than invalidate that stream.
+original source. This focused view creates no consumer-owned stream, so it does
+not adopt or resolve the general artifact API's abandoned-stream termination
+policy.
 
-The outcome does not expose an unguarded content opener. Downstream consumers
-receive participant identity and correspondence under their current query
-lease, then use the group's bounded immutable-image access. They do not reopen
-the local source or installed platform path.
+Downstream consumers receive participant identity and correspondence under
+their current query lease, then use the group's bounded immutable-image
+callback. They do not reopen the local source or installed platform path.
 
 #### Admission and roles
 
@@ -604,16 +612,18 @@ to the current provenance-based binding policy is unverified.
 The installed-platform coordinate selects one exact coherent closure through
 the installed-platform adapter. For this context it contains one owner-issued
 installed-hive identity, one platform family, one exact version, and the
-implementation-layout kind. The adapter reads the implementation-capable
-shared-framework/runtime closure from that selected hive and records its
-validated source identity. It does not search multiple hives by path order or
-substitute a reference pack, trusted-platform-assembly list, NuGet
-implementation pack, remote pack, or loose directory.
+implementation-layout kind. The adapter returns the immutable
+`InstalledPlatformRealization` owned by
+[platform composition and overlays](platform-composition-and-overlays.md) and
+tracked by #5139.
 
-Absence of that family/version or implementation layout in the selected hive is
-a typed unavailable result; it does not roll forward or fall back to another
-source. Which assembly set constitutes the family closure remains owned by
-[platform composition and overlays](platform-composition-and-overlays.md).
+This realizer validates that proof against the authorized demand, selected
+hive, family, version, layout kind, member registrations, and current
+generation. It does not construct or reinterpret closure membership. Missing
+or mismatched proof, an unavailable requested closure, or a realization that
+violates the owner-issued uniqueness contract fails visibly without
+publication. Exact closure membership and fallback exclusions remain
+unverified until #5139 lands.
 
 #### Duplicate and collision policy
 
@@ -635,9 +645,10 @@ Duplicates and cross-role collisions then have these outcomes:
   keeps its own artifact and assembly registration, provenance, and role.
   Shared retained storage may deduplicate equal immutable bytes, but it must
   not merge those identities or grants;
-- a platform realization that repeats one normalized platform asset
-  coordinate or reuses a registration is rejected as a typed realization
-  conflict. An admission plan that attaches a local-only role to a platform
+- a platform realization that repeats one platform asset coordinate, reuses a
+  registration, or projects two distinct members with one canonical assembly
+  identity is rejected as a typed incoherent-realization conflict under
+  #5139. An admission plan that attaches a local-only role to a platform
   realization is rejected as a typed role conflict;
 - different files that decode to the same assembly identity remain distinct
   participants. The binding-policy owner, not path normalization, decides
@@ -731,6 +742,9 @@ These properties remain unverified until the named Release gates land:
   identical framed requests join one admission while different path spellings
   remain different generations even when #5096 later assigns equal canonical
   local-coordinate identity within each realization;
+- `ExplicitAssemblyContext_GenerationCompatibilityIncludesEveryLimit` proves
+  concurrent demands with different limits or adapter capability identities
+  cannot join and replan after the active generation terminates;
 - `ExplicitAssemblyContext_RoleProjectionPreservesEveryGrant` proves the
   context generation preserves each participant registration and exact
   workspace-role set without provenance translation;
@@ -738,10 +752,10 @@ These properties remain unverified until the named Release gates land:
   only matching current-generation platform realization evidence can mint
   `PlatformAuthorized`; foreign, stale, ended, mismatched, or replayed evidence
   fails without publication;
-- `ExplicitAssemblyContext_InstalledPlatformSelectsExactHiveClosure` proves
-  one selected installed hive and implementation layout supply the closure
-  without reference-pack, TPA, NuGet, remote, loose-directory, roll-forward, or
-  second-hive fallback;
+- `ExplicitAssemblyContext_RequiresOwnerIssuedPlatformClosure` proves only the
+  exact current #5139 realization for the requested hive, family, version, and
+  implementation layout can contribute members; mismatched or absent proof
+  fails without publication;
 - `ExplicitAssemblyContext_UsesAdmittedLocalCoordinateIdentity` proves
   #5096-issued canonical identities drive duplicate handling without a second
   path classifier on Windows, Linux, and macOS;
@@ -754,16 +768,21 @@ These properties remain unverified until the named Release gates land:
 - `ExplicitAssemblyContext_EqualIdentityDesignationsRemainDistinct` proves two
   distinct designated coordinates with equal assembly identity retain separate
   registrations and ambiguity evidence;
-- `ExplicitAssemblyContext_DuplicatePlatformRegistrationDoesNotPublish` covers
-  a repeated platform coordinate and a reused registration through a
-  controlled platform-adapter seam;
+- `ExplicitAssemblyContext_IncoherentPlatformRealizationDoesNotPublish` covers
+  a repeated platform coordinate, reused registration, and two distinct
+  platform members with one canonical assembly identity through a controlled
+  platform-adapter seam;
 - `ExplicitAssemblyContext_NonExactInputsCannotAcquireDesignation` covers
   directories, siblings, packages, projects, and dependency manifests;
 - `ExplicitAssemblyContext_SelectedImageUsesRetainedArtifactBytes` mutates the
   source after realization and proves selected image access uses the admitted
   immutable bytes;
+- `ExplicitAssemblyContext_ViewExposesOnlyBoundedImageAccess` proves the public
+  context surface returns no `ArtifactContentReference`,
+  `ResolvedAssemblyReference`, readable path, or `Stream`, and closes its
+  internal stream before invoking the image callback;
 - `ExplicitAssemblyContext_RetainedHandoffRejectsForeignAuthority` proves the
-  participant-to-artifact handoff rejects a foreign participant, query lease,
+  participant-to-image operation rejects a foreign participant, query lease,
   or ended generation;
 - `ExplicitAssemblyContext_WorkspaceOwnsContextLifetime` proves disposing a
   context view or dropping the opaque handle does not release its group,
@@ -1353,8 +1372,9 @@ Several current types are migration inputs, not target precedent:
   core query project.
 - No current realizer owns the explicit local/designated/installed-platform
   request above. `ArtifactWorkspaceRole` exposes `CallerDesignated` but not
-  `PlatformAuthorized`, and no package-free installed-platform adapter
-  contributes a validated closure to an `ArtifactSetSession`.
+  `PlatformAuthorized`; no package-free installed-platform adapter contributes
+  a validated closure to an `ArtifactSetSession`; and #5139 has not yet defined
+  the exact implementation-closure membership proof.
 - `AssemblyContextSourceQueryContext` exposes package-owned `IPdbStore`,
   `IPackageSourceAuthorization`, and `NuGetSourceOptions` even for
   assembly-authored-source queries.
