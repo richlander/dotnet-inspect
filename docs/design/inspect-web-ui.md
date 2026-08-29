@@ -17,6 +17,7 @@ The Inspect Web UI owner defines:
 - the interaction grammar for recurring website controls; and
 - the composition rules that make equivalent controls look and behave alike;
 - the shell hierarchy and responsive presentation of product-issued subjects;
+- focus movement and consumer-side effect-authority handling for navigation;
 - browser-history, canonical-state, and restoration expectations at the UI
   boundary; and
 - the placement of Settings, Diagnostics, source provenance, and product
@@ -45,6 +46,8 @@ This document does not own:
 - vocabulary identities, labels, ordering, or defaults;
 - artifact validation, grouping, provenance, or acquisition failure semantics;
 - package-source resolution, authorization, credentials, or cache authority;
+- subject or lens recommendation, reconciliation, or fallback;
+- navigation snapshot revisions, intent ordering, or effect-authority validity;
 - canonical packet encoding or decoding;
 - CLI and library output formatting; or
 - the internal implementation boundaries among inspect-web modules.
@@ -53,10 +56,12 @@ This document does not own:
 
 This document composes four adjacent owner contracts without defining them:
 
-- [#4794](https://github.com/richlander/dotnet-inspect/issues/4794) owns
+- [Inspection Subject Navigation](inspection-subject-navigation.md) owns
   inspection-subject descriptors, availability, initial recommendation, and
-  reconciliation. The Type-first default and tools-v2 root fallback belong to
-  that focused effort.
+  reconciliation, plus retained-session intent and effect authority.
+  [#5013](https://github.com/richlander/dotnet-inspect/issues/5013) strengthens
+  that same owner's lens recommendation with non-vacuous role-first selection,
+  a direct-Member rule, deterministic fallback, and all-non-success precedence.
 - [View Facet Registry](view-facet-registry.md) owns stable facet IDs,
   descriptors, structural applicability, order, and facet-availability
   outcomes.
@@ -234,12 +239,17 @@ repeat that identity merely to create a local hero heading.
 
 ### API and Source lenses
 
-The API and Source lenses begin with their primary content. Their accessible
-heading relationship includes both the product-owned active-subject label from
-the inspection command and the active lens label. While an inspection surface
-is active, the active-subject token is the visible level-one heading for a root,
-Library, Type, or Member subject. The lens panel's `aria-labelledby` references
-that label and the active lens tab.
+The API and Source lenses begin with their primary content. When the snapshot
+has an effective lens, their accessible heading relationship includes both the
+product-owned active-subject label from the inspection command and the active
+lens label. While an inspection surface is active, the active-subject token is
+the visible level-one heading for a root, Library, Type, or Member subject. The
+lens panel's `aria-labelledby` references that label and the active lens tab.
+
+When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
+region references the active-subject label and its visible `Lens unavailable`
+or `Lens failed` heading. It explains the returned outcome without fabricating
+an active tab, panel, or fallback lens.
 
 Home, Workspace, and Diagnostics replace the coordinate, subject, and
 `Copy target` portion of the inspection-command region with their own visible
@@ -377,8 +387,8 @@ than click behavior attached to inert text:
   controls for applicable version, TFM, or acquisition detail;
 - activating the always-present current subject opens a hierarchy menu
   containing every ordered applicable root, Library, Type, and Member
-  descriptor supplied by #4794, including unavailable descendants with their
-  reasons; and
+  descriptor supplied by Inspection Subject Navigation, including unavailable
+  and failed descendants with their evidence; and
 - `Copy target` copies the product-issued canonical current target.
 
 The coordinate and subject menus are not primary-view tablists. Their items use
@@ -423,64 +433,107 @@ from display labels.
 
 ### Lens navigation semantics
 
-Each subject's lens strip remains a tablist. Every lens or member section is a
-tab with `role="tab"` and `aria-selected`, including identically labelled tabs
-owned by different subjects. The active lens must therefore be available
-programmatically rather than conveyed by color alone.
+The lens strip is derived only from the current navigation snapshot's
+owner-ordered lens descriptors. When that collection is non-empty, every lens
+or member section is a tab with `role="tab"` and `aria-selected`, including
+identically labelled tabs owned by different subjects. An effective lens is
+selected programmatically rather than conveyed by color alone. When no
+effective lens exists, every tab has `aria-selected="false"`. An empty
+descriptor collection omits the tablist and leaves the no-effective-lens status
+region as the content following the inspection command.
 
-Each tablist has the accessible name `<Subject> lenses`. A tab references its
-panel with `aria-controls`; the panel uses `role="tabpanel"` and
-`aria-labelledby`.
+Each tablist has the accessible name `<Subject> lenses`. The effective tab
+references its panel with `aria-controls`; the panel uses `role="tabpanel"` and
+`aria-labelledby`. Without an effective lens, tabs do not reference a
+nonexistent panel.
 
 Lens tablists use one tab stop and manual activation:
 
-- `Tab` enters on the tab with `tabindex="0"`, initially the active tab, and
-  leaves the tablist from the focused tab.
+- `Tab` enters on the tab with `tabindex="0"`, initially the effective tab or,
+  when none exists, the first owner-ordered descriptor, and leaves the tablist
+  from the focused tab.
 - Left and Right Arrow move focus through the horizontal tabs.
 - Home and End move focus to the first and last tab.
-- Arrow navigation includes `aria-disabled` lens tabs so unavailable lenses
-  remain discoverable.
-- Enter or Space activates a focused available tab.
+- Arrow navigation includes `aria-disabled` lens tabs so unavailable and
+  failed lenses remain discoverable.
+- Enter or Space activates a focused available tab by submitting its opaque
+  subject-scoped lens identity through Inspection Subject Navigation.
 - Activating an `aria-disabled` tab has no effect.
 
 Roving `tabindex` keeps only the focused tab at `tabindex="0"`. Moving focus
 does not change `aria-selected` or start lens work until activation.
+When no effective lens exists, the first owner-ordered tab may itself be
+disabled; the UI does not skip it to infer a preferred available neighbor.
 
-An unavailable lens remains in its owning strip with
-`aria-disabled="true"` and an accessible description of the owner-issued
-reason. It does not retain stale panel content.
+An unavailable lens remains in its owner-issued position with
+`aria-disabled="true"` and an accessible description of its reason. A failed
+lens is also disabled, but exposes its owner-issued diagnostic distinctly from
+valid unavailability. Neither status retains stale panel content.
+
+When descriptors in one tablist have the same Title, each tab references
+its owner-issued Summary as an accessible description and exposes that same
+sentence as non-live help on keyboard focus or pointer hover. If both Title and
+Summary collide, that help appends the exact owner-issued ID as the final
+disambiguator. The UI does not parse the ID or invent distinguishing copy.
+
+With no effective lens, the status region renders `Lens unavailable` for a
+validly unavailable outcome and `Lens failed` for a failed outcome. If an
+effective lens exists beside unavailable or failed peers, its tab and panel
+remain active while the disabled peers and their evidence remain discoverable.
+The UI never uses descriptor order or a familiar local lens name to choose a
+replacement.
 
 ### Subject availability and reconciliation
 
-The UI consumes the subject-navigation result owned by #4794. That result
-supplies the active subject, ordered applicable subject descriptors,
-availability, reasons, and the outcome of a requested transition.
+The UI consumes the complete Inspection Subject Navigation snapshot. That
+snapshot supplies the active subject, generation, ordered applicable subject
+descriptors, activation actions, availability evidence, and lens outcome.
 
-The hierarchy menu exposes every applicable subject level. An unavailable
-Library, Type, or Member item remains discoverable with `aria-disabled="true"`
-and an owner-issued reason. Activating an available item submits its opaque
-identity; the UI renders the returned active subject or typed failure without
-choosing a replacement.
+The hierarchy menu exposes every returned applicable subject level. An
+unavailable or failed Library, Type, or Member item remains discoverable with
+`aria-disabled="true"` and its owner-issued reason or diagnostic. A current
+item carries `aria-current="page"` and no activation action. Menu focus remains
+separate: arrow navigation does not move `aria-current`, and returning focus to
+the current item does not submit it. Activating a non-current available item
+submits its opaque action ID with the issuing generation; the UI renders the
+returned snapshot or typed outcome without deriving a target from row identity
+or display text.
+
+A `Selection required` Member state remains distinct from unavailable or
+failed. Its hierarchy item is enabled, labelled `Choose a member`, carries no
+product action ID, and uses `aria-controls` to identify the Member choices
+surface. It is neither `aria-current` nor `aria-disabled`; at a narrow viewport
+it also uses `aria-haspopup="dialog"` for the shared modal navigation drawer.
+Activation is a local presentation action: it closes the hierarchy menu and
+moves focus to the first owner-ordered visible Member row in the navigation
+pane. If host filters hide every row, focus moves to the Member text filter
+instead. At a narrow viewport the UI opens the Member drawer before applying
+the same row-or-filter focus rule, so focus remains contained in the modal.
+Each row's product-issued activation state governs any later commit. Opening
+the choices changes no snapshot, URL, or history and does not invent a default
+Member.
 
 The inspection command, Workspace, lens strip, and content region all render
 the same returned active-subject identity. The UI does not infer initial,
 fallback, or reconciliation policy from descriptor order, assembly order,
 current filters, package kind, or display text.
 
-### Lens ownership
+### Lens descriptor ownership
 
 The [View Facet Registry](view-facet-registry.md) owns lens membership,
 identity, labels, summaries, structural subject kind, and order. The UI renders
-the descriptors returned for the active subject in owner-issued order and
-submits their opaque IDs. It does not retain a subject-to-lens table, add a
-locally known lens, or omit an owner-issued descriptor because its current
-renderer lacks support.
+every descriptor returned for the active subject in owner-issued order,
+preserving its exact ID and available, unavailable, or failed status. It
+submits only the opaque ID of an available descriptor. It does not retain a
+subject-to-lens table, add a locally known lens, or omit an owner-issued
+descriptor because its current renderer lacks support.
 
 A lens appears only in the subject-scoped descriptor set returned by Inspection
 Subject Navigation. The UI does not retain one mixed lens strip under Package
 or repeat a facet under another subject. Distinct registry IDs may share a
 display label; the UI neither deduplicates them nor derives identity from that
-label.
+label. A missing renderer for an owner-issued available descriptor is an
+implementation defect, not authority to hide it, downgrade it, or fall back.
 
 ### Library selection
 
@@ -488,19 +541,26 @@ The Library view lists every library admitted from the active coordinate and an
 `All libraries` subject when the product admits aggregate
 inspection for that coordinate.
 
-The control consumes #4794's ordered Library subject descriptors and active
-identity. It renders and submits those opaque identities without inferring a
-selection from package kind, endpoint shape, assembly count, or lens
-capability.
+The control consumes the snapshot's ordered Library subject descriptors and
+active identity. It submits a selected non-current available descriptor's
+opaque action ID with the issuing generation without inferring a selection
+from package kind, endpoint shape, assembly count, or lens capability.
 
 The Library subject control is single-select. A compact population may use a
-native `select`; a visible library list uses `role="listbox"` with
-`role="option"` and `aria-selected`. It is not a selector-pill group with
-`aria-pressed` and is not a lens tablist.
+native `select` only when every returned option is available. A population
+containing unavailable or failed options uses a visible library list with
+`role="listbox"`, `role="option"`, and `aria-selected` so its evidence remains
+discoverable. It is not a selector-pill group with `aria-pressed` and is not a
+lens tablist.
 
 The custom listbox has the accessible name `Libraries` and one tab stop. Focus
 remains on the listbox while `aria-activedescendant` identifies the active
 option; `aria-selected` identifies the committed Library subject.
+
+Unavailable and failed options remain in owner-issued order with
+`aria-disabled="true"`. An unavailable option exposes its reason; a failed
+option exposes its diagnostic distinctly. The custom listbox allows either to
+receive active focus for discoverability but never commits it.
 
 The active option has a visible focus indicator in addition to its rest or
 committed-selection styling. The indicator is not conveyed by color alone,
@@ -513,32 +573,36 @@ Library selection uses manual commit:
 - Home and End move the active option to the first and last option.
 - Printable input, including Space, moves the active option through prefix
   typeahead and never commits the Library subject.
-- Enter commits the active option as the Library subject and starts the
-  selected lens work.
+- Enter commits only a non-current available option carrying an activation
+  action and starts the returned lens work. A current, unavailable, or failed
+  option is a no-op.
 - Escape or focus leaving the listbox without a commit restores the active
   option to the committed selection.
 
 Native `select` uses the platform's equivalent selection and commit behavior.
+It is replaced by the custom listbox if a later snapshot introduces an
+unavailable or failed option.
 
 The selected subject controls every Library lens:
 
 - `All libraries` requests a coordinate-wide result over the complete library
   set.
 - An individual library requests the same lens for only that assembly.
-- The selected subject persists when switching among every owner-issued
-  Library lens.
-- Changing package version or TFM submits the prior Library identity with the
-  coordinate transition and renders the owner-issued result.
+- The selected subject persists when switching among returned Library lenses.
+- Changing package version or TFM submits the realized coordinate result to
+  Inspection Subject Navigation, which reconciles from its installed snapshot.
 
 The active library subject remains visible while the library list is filtered
 or collapsed. A lens heading distinguishes aggregate results from a
 single-library result.
 
-Package and Type navigation render the owner-issued Type and Member descriptors
-returned for the active Library subject. The type-navigation heading shows
-`All libraries` or the selected library as context and links back to the
-Library subject for changes. It is not a second library selector, and the UI
-does not recalculate eligibility or retention from assembly membership.
+Package and Type navigation render producer-owned Type and Member inventory
+rows with the activation descriptors returned in the snapshot. They submit the
+supplied action ID and generation; they do not derive actions from row identity
+or text. The type-navigation heading shows the product-issued Type-inventory
+Library context and links back to the Library subject for changes. It is not a
+second library selector, and the UI does not recalculate context, eligibility,
+or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
@@ -624,17 +688,59 @@ inspects compact fields.
 
 Browser history uses the same classification:
 
-- push a history entry for Home, Workspace, or Diagnostics routing; opening,
-  closing, or activating a coordinate; changing package version or TFM;
-  changing the Package, Library, Type, or Member subject; and changing the
-  active lens or Member section;
+- push a history entry for an applied explicit action that performs Home,
+  Workspace, or Diagnostics routing; opens, closes, or activates a coordinate;
+  changes package version or TFM; changes the Package, Library, Type, or Member
+  subject; or changes the active lens or Member section;
 - replace the current entry for committed filter changes and portable overload,
-  body, or source-target refinements; and
+  body, or source-target refinements, plus maintenance, dedicated
+  synchronization, or non-applied outcomes whose `Synchronization required`
+  disposition installs refreshed or reconciled state; and
+- adopt the browser-selected entry without calling `pushState` or
+  `replaceState` when initial shared-link activation, refresh, Back, or Forward
+  restores the exact requested state. If that restoration instead installs a
+  changed unavailable, synchronized, or reconciled snapshot, replace the
+  selected entry with the returned canonical state. If Back or Forward returns
+  a `Current` unavailable-without-replacement, rejected, failed, or aborted
+  result, replace the browser-selected entry with the installed snapshot's
+  canonical location, surface and announce the exact outcome, and focus the
+  retained destination heading or persistent shell fallback. If the same
+  semantic outcome is `Synchronization required`, install its complete
+  snapshot and replace the selected entry with that snapshot's canonical
+  location before presenting the outcome. Neither case writes a new entry, and
+  both let a later traversal continue past the failed location; and
 - do not mutate history for hover, focus, uncommitted listbox movement,
   disclosure animation, or incidental scroll position.
 
+The session-scoped location adapter tracks whether the browser-selected entry
+is aligned with the installed snapshot. A Back or Forward event records one
+UI-local unresolved traversal serial and the installed snapshot's retained
+canonical location before submitting product restoration. This serial is
+presentation bookkeeping, not product intent or effect authority.
+
+A newer Back or Forward event replaces the unresolved traversal with its own
+serial because it now owns the browser-selected entry. Before the UI submits
+any non-browser intent or dedicated synchronization request while an unresolved
+traversal remains, it synchronously replaces the selected entry with the
+retained canonical location and marks it aligned. The later intent then uses
+its ordinary push, replace, or no-write classification. A synchronization
+request is not a product navigation intent, but it uses this same pre-request
+alignment rule because its response carries no traversal serial. Exact
+restoration adoption, changed-snapshot installation, or current-authority
+location realignment also marks the matching traversal aligned. Product-side
+discard or stale-authority abandonment performs no history write; its successor
+has already replaced the traversal obligation, realigned the selected entry
+before submission, or preserved the session-scoped obligation for remount.
+
+Destination destruction does not clear an unresolved traversal. Before a
+replacement destination renders after remount, the location adapter
+synchronously replaces the still-selected entry with the retained canonical
+location and marks that traversal aligned. This repair is independent of
+snapshot-synchronization debt: a `Current` non-installing restoration can
+require it even though the product acknowledgement receipt is already current.
+
 A future packet projection does not decide its own history granularity. It
-inherits this UI-owned push or replace classification.
+inherits this UI-owned push, replace, or adopt classification.
 
 On browser refresh or shared-link activation, the UI submits the opaque packet
 to the product codec and renders its atomic success or typed failure. It does
@@ -650,20 +756,257 @@ Home   Search   Open   Settings
 
 An optional decorative glyph does not replace any visible label.
 
+### Product transition lifecycle
+
+Subject, lens, coordinate, version, TFM, and canonical-restoration actions use
+one retained Inspection Subject Navigation session. The UI treats snapshot
+generations, action IDs, intent tokens, and effect authority as opaque. It does
+not mint, order, compare, or reconstruct them.
+
+A navigation destination surface is any inspection surface or routed Home,
+Workspace, or Diagnostics surface that consumes a navigation result. Its
+lifetime begins when its renderer is mounted for a returned destination and
+ends when that renderer is replaced or unmounted. Modal and transient controls
+may invoke navigation, but they do not independently consume the returned
+navigation authority.
+
+Each current product result has two orthogonal classifications. Its semantic
+outcome decides what the UI presents:
+
+| Outcome | UI presentation |
+| ------- | --------------- |
+| Applied | Present the requested transition from the returned snapshot |
+| Unavailable | Show the exact unavailable result without fallback |
+| Rejected | Show the rejection |
+| Failed | Show the diagnostic |
+| Aborted | Show the typed prerequisite failure |
+| Superseded | Receive no consumer result or authority and produce no visible effect |
+
+Its synchronization disposition decides whether the complete returned snapshot
+must be installed:
+
+| Disposition | UI obligation |
+| ----------- | ------------- |
+| Current | Use the already installed snapshot and perform only the semantic outcome's remaining effects |
+| Synchronization required | Install and render the complete returned snapshot under the current effect authority before presenting the semantic outcome or acknowledging |
+
+Outcome names do not authorize the UI to infer whether product and consumer
+state agree. In particular, unavailable-without-semantic-replacement, rejected,
+failed, and aborted results may still require installation because an earlier
+result advanced the retained product session before the consumer acknowledged
+it. The UI neither compares snapshot revisions nor reconstructs the missing
+state. It consumes the typed disposition and installs only the complete
+snapshot carried by that result.
+
+Installation is one atomic consumer effect: it commits the returned snapshot,
+its rendered content, and the UI-owned canonical URL and history-commit
+classification. The semantic outcome remains visible after installation; a
+failed synchronization does not become an applied navigation result merely
+because it carried newer state. A `Current` unavailable-without-replacement,
+rejected, failed, or aborted result retains the installed snapshot, URL, and
+ordinary history classification. Superseded work never reaches the consumer.
+
+The non-installing rules above describe `Current` results whose initiating UI
+action has not already changed the browser entry. After Back or Forward selects
+an entry, such a result instead replaces that selected entry with the installed
+snapshot's canonical location as defined by the browser-history classification.
+This is location realignment, not a snapshot installation or successful
+restoration. A `Synchronization required` result instead installs its complete
+snapshot and aligns the selected entry with that installed state.
+
+Location realignment is a required consumer effect. Immediately before the
+history write, the consumer validates both the returned authority and the
+matching unresolved traversal serial. If either is stale or foreign, it changes
+neither canonical URL nor history and abandons the authority; the current
+successor owns the still-current alignment obligation. Realignment completes
+before acknowledgement. If an implementation defers the write, its callback
+repeats both checks at execution time.
+
+An applied result uses the initiating explicit action's push-or-replace
+classification or a browser restoration's adopt classification. An unavailable
+result whose disposition requires a changed reconciled snapshot replaces the
+current history entry because refreshed evidence, not the requested unavailable
+target, produced that state. A rejected, failed, aborted, or
+unchanged-unavailable result with `Synchronization required` also replaces the
+current entry: the write records product state committed before this semantic
+outcome, not a successful activation of the rejected or failed request. These
+replacement rules supersede an initiating adopt classification and never push
+an entry for a subject or lens the user did not activate.
+
+A dedicated synchronization result has no semantic navigation change. When no
+new browser traversal has selected an entry since its request, it installs the
+complete current snapshot under fresh authority and replaces the current entry
+with that snapshot's canonical location. The request carries no traversal
+serial. If Back or Forward selects an entry after the request and before the
+result is consumed, the result is foreign to that newer selection: the consumer
+abandons its authority without installation or history mutation, preserves
+synchronization debt, and lets the traversal's current result or a later fresh
+request discharge it. A consumed synchronization result preserves surviving
+focus and announces only a visible change; after remount, detached-focus
+recovery uses the new destination heading or persistent shell fallback.
+
+Product-initiated maintenance results use the same disposition-driven,
+authority-validated installation and acknowledgement lifecycle. A
+`Synchronization required` maintenance result replaces the current history
+entry and updates the canonical URL from the returned projectable state; a
+`Current` result performs no snapshot or history write. Maintenance does not
+move focus merely because evidence refreshed. If installation removes the
+focused element, the focus-preservation rule below applies. The live region
+announces a maintenance result only when it changes visible status, the active
+subject, or the effective lens.
+
+Before installation or location realignment, the UI asks the session whether
+the returned effect authority is current. Rendering may schedule later focus
+and status-announcement callbacks; each callback repeats the authority check at
+execution time. Validation performed for installation or realignment is not
+continuing authority for a later effect. A callback that finds stale or foreign
+authority changes neither focus, visible status, active panel, canonical URL,
+nor history.
+
+The persistent `dotnet-inspect` shell owns one polite live region outside
+replaceable destination renderers, with `role="status"`, `aria-live="polite"`,
+and `aria-atomic="true"`. It is mounted empty before a destination renderer and
+survives renderer replacement; a current-authority announcement callback
+changes its text only after any required installation. An applied result
+announces the returned active subject and effective lens. An unavailable,
+rejected, failed, or aborted result announces the same visible reason or
+diagnostic shown by the surface. Superseded work reaches no consumer and
+announces nothing. A no-effective-lens region remains visible content; the
+shell live region announces its exact heading and evidence rather than a
+different hidden explanation.
+
+Receiving a `Synchronization required` result sets the session-scoped
+synchronization-debt marker. After all required location-realignment,
+installation, focus, and announcement effects complete, the UI acknowledges
+the authority. A `Synchronization required` result cannot be acknowledged
+merely because its snapshot equals locally rendered state: installation must
+have completed under that result's exact current effect authority. Successful
+acknowledgement is the only consumer action that clears the marker.
+
+If authority becomes stale before completion, the UI abandons it. Abandoning a
+`Synchronization required` result preserves the marker whether abandonment
+occurred before installation or after installation but before acknowledgement.
+A later current result may discharge the debt through its own disposition and
+authority. Otherwise, once no current result can complete it, the
+session-scoped consumer requests dedicated synchronization from Inspection
+Subject Navigation. It tracks only the outstanding obligation, never the
+product revision.
+
+The consumer keeps at most one dedicated synchronization request outstanding,
+retaining its opaque request identity and originating destination lifetime
+until the product settles it. Renderer replacement or destruction retires that
+lifetime as a possible consumer but does not pretend that the product request
+was cancelled. A response for a retired lifetime is recognized by its retained
+request context and its authority is abandoned. Only after that request settles
+may an outstanding marker issue a fresh request for the current lifetime. A
+returned current semantic or maintenance authority must likewise settle before
+another request is issued because acknowledgement of that result may discharge
+the pending synchronization request. These consumer-side request rules do not
+impose a product retry limit.
+
+A session-scoped UI navigation consumer is the sole holder of returned
+navigation authority and outlives individual routed and inspection surfaces.
+When a navigation destination surface's renderer is replaced or unmounted, the
+consumer abandons every returned authority associated with that lifetime before
+discarding its callbacks. It also abandons a result that returns after its
+destination was destroyed or remounted. A remounted surface has a new lifetime,
+cannot consume callbacks from the destroyed one, and schedules a fresh
+synchronization request when the marker remains set and no earlier request is
+awaiting product settlement. Mounting and request creation are separate
+consumer actions; the outstanding marker preserves the obligation between
+them. Every admitted request retains its exact identity until product
+settlement. Another abandonment preserves the marker and permits a later
+request after the prior one settles; the UI imposes no retry ceiling.
+Superseded work requires neither acknowledgement nor abandonment because the
+product session discards it without publishing effect authority.
+
+When current-authority installation replaces a destination renderer, the
+consumer atomically abandons every other returned authority associated with the
+outgoing lifetime before transferring the installing operation and its later
+callbacks to the new lifetime. Replacement does not merely make old callbacks
+eventually stale; it settles their authority before the old renderer is
+discarded.
+
+The common installation, focus, announcement, acknowledgement, abandonment,
+and destination-lifetime obligations are modeled by
+[`UiEffectLifecycle.tla`](models/inspect-web-navigation-consumer/UiEffectLifecycle.tla).
+The model assumes that the product session supplies opaque authority, a
+complete typed outcome, and the product-owned synchronization disposition,
+then explores two bounded consumer operations across three mounted-surface
+lifetimes so supersession, renderer replacement, destruction, remount, or a
+dedicated synchronization response can intervene between every deferred
+effect. It includes prerequisite abort, product-side discard of superseded
+work, synchronization debt, bounded request identity, old-lifetime response
+abandonment, and fresh remount requests without modeling product revisions. TLC
+exhaustively checked 166,998 generated states and 117,928 distinct states at
+depth 20. Separate mutation configurations produced a counterexample when
+current-authority validation, disposition-driven installation,
+install-before-focus ordering, deferred-focus separation, complete-effect
+acknowledgement, acknowledgement debt clearing, destruction abandonment,
+abandonment debt preservation, remount synchronization, request/lifetime
+correlation, bounded request admission, persistent focus safety, or replacement
+abandonment was removed. The model also requires every exact admitted
+synchronization request to reach settlement. The dedicated recovery
+configuration reached the complete trace in which an old-lifetime response is
+abandoned before a fresh current-lifetime response is consumed. The
+[model README](models/inspect-web-navigation-consumer/README.md) records the
+tool versions, bounds, action coverage, mutation results, and deliberate
+abstraction of exact browser-history classification and browser-trigger-specific
+entry realignment. The named restoration and synchronization gates carry those
+additional conformance claims. This proves the finite design model; the
+implementation gates below establish conformance in Inspect Web.
+
 ### Shared transient-surface semantics
 
 Coordinate and subject menus use menu-button semantics. Their invoking control
 exposes `aria-expanded` and `aria-controls`; opening moves focus to the current
-item or first item. Arrow navigation includes `aria-disabled` items so their
-reasons remain discoverable; Enter activates only an available item. Escape
-closes the menu and returns focus to the invoker. Outside pointer dismissal or
-tabbing away preserves the new focus destination instead.
+item or first item. Arrow navigation includes unavailable and failed
+`aria-disabled` items so their reasons and diagnostics remain discoverable;
+Enter activates a non-current available item through its product action or
+opens the Member choices for a `Selection required` item through the local
+presentation action above. Escape closes the menu and returns focus to the
+invoker. Outside pointer dismissal or tabbing away preserves the new focus
+destination instead.
 
 Activating an available item for a non-modal transition closes the menu. A
 successful inspection transition focuses the returned active-subject
 level-one heading; a successful routed transition focuses that surface's
-level-one heading. A typed failure preserves the current surface, returns focus
-to the stable menu-button invoker, and makes the failure visible.
+level-one heading. An unavailable, rejected, failed, or aborted result that
+retains the renderer returns focus to the stable menu-button invoker and makes
+the outcome visible. When an unavailable result or another non-applied result
+with `Synchronization required` installs a replacement renderer, its focus
+effect resolves the corresponding coordinate or subject menu button in the new
+lifetime when that target still represents the initiating action. Otherwise,
+or when that control is not mounted, it focuses the new destination's level-one
+heading, then the persistent `dotnet-inspect` shell control when no destination
+heading is mounted. It never focuses the invoker node from the outgoing
+renderer. Installation, focus, and announcement occur only while their
+returned effect authority remains current.
+
+Before an asynchronous transition or snapshot installation removes the focused
+element, the UI synchronously parks focus on the persistent `dotnet-inspect`
+shell control outside replaceable destination renderers. This applies to
+closing a focused menu, dialog, or drawer, replacing a native Library `select`
+with the custom listbox, and omitting a focused lens tablist after a
+no-effective-lens result. This parking step reflects local surface cleanup, not
+a product result.
+
+Current effect authority is still required to move focus from that persistent
+anchor to a result-derived destination. Installation that replaces a renderer
+associates later callbacks with the newly mounted destination lifetime, never
+the outgoing one. A replacement listbox receives focus only when the exact
+previously focused Library identity survives; an omitted tablist moves focus to
+the no-effective-lens heading. If work is superseded or its destination is
+destroyed, focus remains on the mounted shell control rather than falling to
+the document body.
+
+Renderer replacement does not dismiss a surviving modal or move its contained
+focus merely because its stored ordinary-dismissal target belonged to the
+outgoing renderer. Before discarding that renderer, the UI atomically replaces
+such a target with the newly mounted destination's level-one heading. If no
+destination heading is mounted, it uses the persistent `dotnet-inspect` shell
+control. A modal dismissal target never retains an element from a destroyed
+renderer lifetime.
 
 When a menu item opens a modal, the menu closes without returning focus to its
 invoker and the modal applies its initial-focus rule. The stable menu-button
@@ -689,9 +1032,10 @@ the first without returning focus, then applies the second modal's
 initial-focus rule. Dismissing the second modal returns to the originating
 non-modal inspection or routed surface and does not reopen the first modal.
 
-Opening or closing a modal does not create a browser-history entry. When a modal
-action commits navigation, the modal closes without returning focus to its
-invoker. An inspection destination focuses its active-subject level-one heading;
+Opening or closing a modal does not create a browser-history entry. When a
+modal action commits navigation, the modal closes without applying its
+ordinary-dismissal return rule and synchronously parks focus as defined above.
+An inspection destination then focuses its active-subject level-one heading;
 Home, Workspace, or Diagnostics focuses the routed surface's level-one heading.
 If the transition returns a typed failure, the prior surface and history remain
 active, the failure is visible, and focus moves to the modal's stable invoking
@@ -965,6 +1309,153 @@ Package, Library, Type, and Member ownership and their local lenses remain the
 dotnet-inspect model. Npmx influences interaction quality without redefining
 the product domain.
 
+## Implementation gates
+
+Before implementation claims this interaction contract, it must add and pass
+these named Inspect Web tests:
+
+- `navigation-consumer.test.ts`:
+  `owner descriptors retain exact identity order and status` uses an
+  owner-ordered descriptor absent from every legacy Package, Library, Type, and
+  Member lens array, plus available, unavailable, and failed peers and a
+  three-descriptor Title collision in which two Summaries also collide. The
+  rendered strip must preserve every exact ID, position, and status without host
+  additions, omissions, deduplication, or fallback. The gate activates the
+  legacy-absent descriptor and all three duplicate-title descriptors and proves
+  that each exact subject-scoped registry ID, rather than a label, ordinal, or
+  legacy token, is submitted. It also proves that duplicate titles expose each
+  owner-issued Summary on focus and through an accessible description, using
+  the exact ID only when Title and Summary both collide. This is the
+  non-vacuity gate for registry consumption.
+- `navigation-consumer.test.ts`:
+  `no effective lens renders status without a selected tab or panel` covers
+  non-empty and empty descriptor collections for unavailable and failed
+  outcomes.
+- `navigation-consumer.test.ts`:
+  `unavailable and failed navigation options preserve distinct evidence`
+  covers lens tabs, hierarchy-menu items, and Library-listbox options.
+- `navigation-consumer.test.ts`:
+  `subject activation submits only action identity and issuing generation`
+  rejects commands reconstructed from row identity or display text.
+- `navigation-consumer.test.ts`:
+  `hierarchy menu keeps current subject distinct from focus` moves focus through
+  available and disabled items while the committed item alone retains
+  `aria-current="page"`.
+- `navigation-consumer.test.ts`:
+  `typed outcomes commit only returned state and release authority` covers
+  applied, unavailable with and without a replacement snapshot, rejected,
+  failed, and aborted results under both synchronization dispositions, plus
+  product-side discard of superseded work. It proves that semantic outcome
+  never substitutes for the disposition: every `Synchronization required`
+  result installs its complete returned snapshot, while every `Current`
+  non-applied result retains the installed snapshot. It proves exact canonical
+  URL and history handling, including replacement for catch-up and
+  reconciliation-driven installations. It also proves that such replacement
+  resolves menu-result focus in the new renderer, with destination-heading and
+  persistent-shell fallbacks, and announces through the pre-existing shell
+  live region before acknowledgement or abandonment.
+- `navigation-consumer.test.ts`:
+  `synchronization catch-up replaces history without inventing navigation`
+  covers rejected, failed, aborted, and unchanged-unavailable results carrying
+  `Synchronization required`, plus a dedicated synchronization result. It
+  proves that each installs the complete product snapshot and replaces rather
+  than pushes or adopts history. The non-applied cases retain their exact
+  semantic evidence; the dedicated result introduces no semantic navigation
+  outcome.
+- `navigation-consumer.test.ts`:
+  `abandoned synchronization debt requests fresh authority after remount`
+  abandons synchronization-required authority before installation and after
+  installation but before acknowledgement. It proves that neither path clears
+  the session-scoped marker, that remount requests dedicated synchronization,
+  and that only one product request remains pending across renderer replacement
+  or destruction. A late response retains its exact request identity and old
+  lifetime, is abandoned rather than consumed by the remounted destination, and
+  must settle before the current lifetime issues another request. Repeated
+  abandonment permits later requests without a UI retry ceiling. It also proves
+  that remount and request creation are separate actions, the outstanding
+  marker survives between them, and every exact issued request reaches
+  settlement. A newer current semantic result may instead discharge the same
+  obligation through its returned disposition. A Back or Forward traversal
+  started after a request makes the request's result foreign to the selected
+  entry, so it is abandoned without a history write.
+- `navigation-consumer.test.ts`:
+  `maintenance results honor synchronization disposition without stealing
+  focus` covers authority validation, no snapshot or history write for
+  `Current`, canonical URL replacement for `Synchronization required`,
+  selective announcement, focused-element removal, surviving-modal
+  dismissal-target replacement, and acknowledgement. The modal retains
+  contained focus during renderer replacement, then ordinary dismissal reaches
+  the new destination heading rather than an outgoing-renderer element.
+- `navigation-consumer.test.ts`:
+  `deferred effects revalidate authority when each callback executes`
+  supersedes a result after installation and proves that its queued focus and
+  announcement callbacks have no visible effect or history mutation.
+- `navigation-consumer.test.ts`:
+  `stale explicit authority cannot install returned state` returns an applied
+  explicit result, begins a newer intent before installation, and proves that
+  the stale result changes no rendered snapshot, canonical URL, history entry,
+  focus, or shell announcement before its authority is abandoned.
+- `navigation-consumer.test.ts`:
+  `non-installing browser restoration realigns the selected entry` exercises
+  Back and Forward with `Current` unavailable-without-replacement, rejected,
+  failed, and aborted outcomes. Each case retains the snapshot, replaces the
+  browser-selected entry with its canonical location, surfaces and announces
+  the outcome, focuses the retained destination heading or shell fallback, and
+  pushes no entry. Companion `Synchronization required` cases instead install
+  the complete returned snapshot and replace the selected entry with its
+  canonical location before presenting the same semantic evidence. The gate
+  also supersedes each returned authority before realignment or installation
+  and proves that stale work changes neither canonical URL nor history,
+  produces no later focus or announcement, and is abandoned before it can be
+  acknowledged.
+- `navigation-consumer.test.ts`:
+  `superseded restoration cannot strand the browser-selected entry` covers a
+  restoration superseded before product result publication, after authority
+  return but before realignment, and by a newer browser traversal. A
+  non-browser successor first repairs the unresolved selected entry before
+  submission; a browser successor replaces the traversal serial. In every case
+  a non-installing current result leaves the address bar and selected entry
+  aligned with the installed snapshot while superseded work writes nothing.
+- `navigation-consumer.test.ts`:
+  `acknowledgement follows every required visible effect` proves that
+  location realignment, installation, focus, and announcement complete before
+  acknowledgement whenever each effect is required. For `Synchronization
+  required`, it additionally proves that equal local snapshot contents do not
+  permit acknowledgement until the complete result has been installed under
+  that exact current authority.
+- `navigation-consumer.test.ts`:
+  `surface destruction abandons authority and suppresses stale callbacks`
+  destroys and remounts a surface before its callbacks execute, then returns a
+  late result for the destroyed lifetime. A companion `Current` non-installing
+  Back/Forward case destroys the destination before location realignment and
+  proves that remount repairs the preserved traversal obligation before
+  rendering, independently of synchronization debt.
+- `navigation-consumer.test.ts`:
+  `renderer replacement abandons outgoing authority before transfer` holds old
+  returned authority while a current installation replaces the renderer and
+  proves that no outgoing-lifetime authority survives replacement.
+- `navigation-consumer.test.ts`:
+  `selection required renders guidance without committing a Member` proves
+  that `Choose a member` is an enabled local presentation action with no
+  product action ID. It verifies `aria-controls`, narrow-layout dialog
+  disclosure, focus on the first owner-ordered visible Member row, fallback to
+  the Member text filter when filters hide every row, modal containment, no
+  snapshot or history mutation, and no locally selected default.
+- `navigation-focus.test.ts`:
+  `lens tabs and Library options separate focus from committed selection`
+  covers roving tabs, disabled-option discoverability, manual listbox commit,
+  cancellation, synchronous focus parking, native-select replacement, tablist
+  omission, result-authorized focus, and rejection of an outgoing-renderer menu
+  invoker as a post-replacement focus target.
+
+The implementation fixture supplies typed product results through the normal
+navigation-consumer boundary. It does not construct a parallel host catalog or
+bypass effect-authority validation merely to observe the renderer.
+
+These gates are not implemented by this documentation-only design. Until they
+exist and pass, the prose and TLA+ model define the target contract but do not
+claim Inspect Web implementation conformance.
+
 ## Acceptance scenarios
 
 An implementation claiming this redesign is complete must satisfy these
@@ -973,20 +1464,129 @@ outcomes:
 ### Subject composition
 
 1. Supply an owner result whose active subject is a Type and whose hierarchy
-   contains available and unavailable descriptors above and below that Type.
+   contains available, unavailable, and failed descriptors above and below
+   that Type.
 2. Confirm that the inspection command uses the active Type as its level-one
-   heading and the subject menu renders every descriptor and unavailable reason.
-3. Activate an available descriptor and confirm that the UI submits only its
-   opaque identity, renders the returned outcome, and focuses its active-subject
-   heading.
+   heading and the subject menu renders every descriptor with its distinct
+   unavailable reason or failure diagnostic.
+3. Activate a non-current available descriptor and confirm that the UI submits
+   only its opaque action ID with the issuing generation, renders the returned
+   outcome, and focuses its active-subject heading.
 4. Supply a root-only result and confirm that the always-present subject control
    uses the owner-issued root label and the hierarchy menu still exposes every
    unavailable lower-level descriptor and reason.
-5. Supply a typed transition failure and confirm that it is visible without the
+5. Reopen the hierarchy menu, move focus away from the current item, and
+   confirm that only the committed subject retains `aria-current="page"`.
+6. Supply `Selection required` Member context and confirm that the UI shows
+   enabled `Choose a member` guidance without an action ID. Activate it in wide
+   and narrow layouts and confirm that it focuses or opens the product-issued
+   Member choices without selecting one or changing snapshot, URL, or history.
+   Apply filters that hide every Member row and confirm that the same action
+   focuses the Member text filter, remaining inside the narrow modal drawer.
+7. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject and that focus returns to the subject
    menu-button invoker.
-6. Confirm that the trailing `Copy target` button remains visible and copies
+8. Confirm that the trailing `Copy target` button remains visible and copies
    the product-issued canonical target rather than display text.
+
+### Lens inventory and outcomes
+
+1. Supply owner-ordered available, unavailable, and failed descriptors,
+   including one absent from every legacy browser lens array and three with the
+   same display label, two of which also share a Summary.
+2. Confirm that every descriptor appears once in exact owner order with its
+   exact identity, label, status, reason, and diagnostic. Focus the
+   duplicate-title tabs and confirm that each owner-issued Summary is visible
+   and programmatically descriptive; when both summaries collide, confirm that
+   the exact ID distinguishes them without replacing their labels.
+3. Focus every disabled tab and confirm that unavailable and failed evidence is
+   discoverable while activation remains a no-op.
+4. Activate the legacy-absent descriptor and all duplicate-label descriptors.
+   Confirm that moving focus did not select them, each activation submits its
+   exact opaque subject-scoped identity, and the returned effective lens becomes
+   the one selected tab and panel.
+5. Supply a non-empty descriptor collection with no effective lens and an
+   unavailable outcome. Confirm that no tab is selected, no panel exists, and
+   the `Lens unavailable` status is labelled by the active subject.
+6. Repeat with a failed outcome and confirm `Lens failed` preserves the
+   diagnostic rather than presenting valid unavailability.
+7. Supply an empty descriptor collection and confirm that the tablist is
+   omitted without introducing a locally familiar fallback lens.
+
+### Transition effects and surface lifetime
+
+1. Return an applied outcome carrying a replacement snapshot and confirm that
+   installation atomically updates rendered state, canonical URL, and the
+   initiating action's push-or-replace history classification.
+2. Hold stale returned authority from an older intent while the current applied
+   installation replaces the destination renderer. Confirm that replacement
+   abandons the outgoing authority before transferring the current operation
+   and its callbacks to the new lifetime.
+3. Return an unavailable outcome whose refreshed or reconciled snapshot changes
+   the active subject. Confirm that it installs the exact returned snapshot but
+   replaces history rather than pushing the unrequested subject change. Confirm
+   that focus reaches the corresponding menu button in the new renderer, or its
+   destination-heading or persistent-shell fallback, and never the outgoing
+   invoker node. Confirm that its deferred announcement changes the pre-existing
+   shell live region after installation rather than inserting an already-filled
+   destination-owned region.
+4. Return `Current` unavailable-without-replacement, rejected, and failed
+   outcomes. Confirm that each retains the prior snapshot, URL, and history
+   while presenting its exact evidence.
+5. Confirm that authority is validated before installation and independently
+   inside each deferred focus and polite-live-region callback.
+6. Supersede an applied result after installation but before its callbacks
+   execute.
+7. Confirm that focus was parked before its invoking control disappeared, that
+   neither stale callback changes focus, status, active panel, URL, or history,
+   and that the stale authority is abandoned.
+8. Fail a prerequisite before navigation can run and return a `Current` aborted
+   effect. Confirm that it retains snapshot, URL, and history, presents and
+   announces its typed failure, then acknowledges its current authority.
+9. Complete older work after a newer intent owns the session and confirm that
+   the product discards it without publishing a consumer result, authority,
+   announcement, URL change, or history change.
+10. Keep a modal open while maintenance replaces the destination renderer.
+   Confirm that focus remains contained in the modal, its outgoing-renderer
+   dismissal target is replaced with the new destination heading, and ordinary
+   dismissal never focuses a detached element.
+11. Return another result and confirm that acknowledgement occurs only after its
+   required installation, focus, and announcement effects complete.
+12. Install a maintenance snapshot and confirm that it replaces URL history,
+   does not move surviving focus, announces only a visible change, and
+   acknowledges its authority.
+13. Destroy a surface while it holds unconsumed authority, then remount the
+    same surface kind and return another result for the destroyed lifetime.
+14. Confirm that destruction and the late return both abandon authority and
+    that callbacks from the prior lifetime cannot affect the remounted surface.
+    Repeat after a `Current` non-installing Back or Forward result returns but
+    before its location realignment. Confirm that remount preserves and repairs
+    the unresolved traversal before rendering even though no synchronization
+    debt exists.
+15. Return an applied explicit result, begin a newer intent before installation,
+    and confirm that the stale result changes no rendered snapshot, canonical
+    URL, history entry, focus, or shell announcement before abandonment.
+16. Leave the consumer behind the retained product session, then return
+    rejected, failed, aborted, and unchanged-unavailable results with
+    `Synchronization required`. Confirm that each installs the complete returned
+    snapshot, replaces history without recording the unsuccessful request,
+    presents its exact semantic evidence after installation, and acknowledges
+    only after every required effect.
+17. Install a synchronization-required result and abandon it before
+    acknowledgement. Remount the destination and confirm that the
+    session-scoped consumer retains any already-pending request's identity and
+    old lifetime rather than issuing a second request. Return that old response
+    and confirm that it is abandoned and settled before the current lifetime
+    separately issues fresh synchronization, installs the complete current
+    snapshot under fresh authority, replaces history, and acknowledges. Confirm
+    that every exact issued request reaches settlement. Repeat abandonment and
+    confirm that another request remains possible. Start Back or Forward after
+    a request but before its result and confirm that the foreign result is
+    abandoned without changing the newly selected entry.
+18. While synchronization remains outstanding, return a newer current
+    maintenance or explicit result. Confirm that its disposition controls
+    installation and that acknowledgement of that current authority discharges
+    the same obligation without waiting for the dedicated response.
 
 ### Workspace composition
 
@@ -1006,7 +1606,7 @@ outcomes:
 
 1. Supply a projectable outcome containing an opaque packet and package courtesy
    identity and confirm that the UI composes both query fields with the
-   transition's push or replace history classification.
+   transition's push, replace, or adopt history classification.
 2. Supply a projectable non-package outcome and confirm that the UI composes
    only `w` without placing a local coordinate in readable URL state.
 3. Starting from a projectable location, supply a non-projectable outcome and
@@ -1022,9 +1622,31 @@ outcomes:
 1. Activate a coordinate, navigate to a Type, and select Source.
 2. Change several result filters.
 3. Use Browser Back and confirm that it returns to the prior pushed subject or
-   lens state rather than stepping through each filter change.
+   lens state rather than stepping through each filter change. Confirm that the
+   restored snapshot adopts the browser-selected entry without a history write.
 4. Use Browser Forward and confirm that it restores the Source state with its
-   latest replaced refinements.
+   latest replaced refinements without adding or replacing an entry.
+5. Refresh that location and open it as a shared link. Confirm that exact
+   restoration adopts the current entry, while a changed unavailable or
+   reconciled restoration replaces that entry with its returned canonical
+   state.
+6. Use Back and Forward with `Current` unavailable-without-replacement,
+   rejected, failed, and aborted restoration outcomes. Confirm that each retains
+   the rendered snapshot, replaces the browser-selected entry with the retained
+   canonical location, surfaces and announces the outcome, focuses the retained
+   destination heading or shell fallback, and lets a later traversal continue
+   past the failed location without a pushed entry. Repeat with
+   `Synchronization required` and confirm that the complete returned snapshot
+   is installed and its canonical location replaces the selected entry before
+   the same semantic evidence is presented.
+7. Supersede a Back restoration before product result publication, then repeat
+   after authority returns but before realignment. Follow each with a
+   non-browser action whose current result does not install. Confirm that the
+   selected entry was repaired before successor submission, the retained
+   snapshot and address remain aligned, and superseded work writes nothing.
+8. Supersede a Back restoration with Forward, then return a non-installing
+   outcome for the current Forward restoration. Confirm that only the newest
+   traversal serial may realign the selected entry.
 
 ### Package-source composition
 
@@ -1110,15 +1732,18 @@ outcomes:
 5. Return typed failures from Search, Open, and the narrow drawer and confirm
    that the prior surface and history remain active, the failure is visible,
    and focus moves to the surviving modal invoker or retained surface heading.
-6. Open and close the full-bleed Annotated Source viewer and confirm the shared
+6. Keep a modal open across product-maintenance renderer replacement and confirm
+   that focus remains inside it until dismissal, then moves to the replacement
+   destination heading rather than the removed invoking control.
+7. Open and close the full-bleed Annotated Source viewer and confirm the shared
    modal focus, Escape, containment, and history behavior.
-7. From that viewer, open Decompiler style Settings and confirm that the viewer
+8. From that viewer, open Decompiler style Settings and confirm that the viewer
    closes, Settings receives focus, and closing Settings returns to inline
    Annotated Source without reopening the viewer.
-8. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
+9. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
    routed surface with one visible level-one heading, no coordinate/subject
    command, and a persistent `dotnet-inspect` control that opens Workspace.
-9. Use Browser Back and Forward while a modal is open and confirm that the
+10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.
 
