@@ -30,6 +30,12 @@ namespace ILInspector.Metadata.Tests;
 /// offered; <c>Absent</c> is the ordinary shape for a reference assembly whose
 /// kickoff was stripped, or for a non-Roslyn compiler such as F#, which uses
 /// resumable code and emits no state-machine attribute.
+///
+/// That reading of <c>Rejected</c> holds per type, not per assembly. If the
+/// index fails to build at all, every structural TypeDef comes back
+/// <c>Rejected</c> whether or not it ever carried a claim, so a whole-assembly
+/// rejection says the index failed rather than that this many claims were
+/// refused. The sweep's report separates the two.
 /// </summary>
 public sealed class StateMachineCompletenessTests
 {
@@ -574,10 +580,14 @@ public sealed class StateMachineCompletenessTests
     /// reader against corruption no corpus of build output or shared framework
     /// will contain. This drives the real entry point instead.
     ///
-    /// Both specimens keep their PE headers intact, so each still claims to be
-    /// managed. Which problem category the sweep files them under is
-    /// deliberately not asserted: that is a branch detail, and pinning it is how
-    /// the previous apparatus grew. The property is that the sweep does not come
+    /// The two truncation specimens differ in how much header they keep.
+    /// <c>Truncated</c> retains the PE headers, so it still claims to be
+    /// managed and fails later, at the metadata it points at. One byte of
+    /// <c>HeaderTruncated</c> cannot answer the question either way, so it is
+    /// undecidable rather than a claim. Which problem category the sweep files
+    /// each under is deliberately not asserted: that is a branch detail, and
+    /// pinning it is how the previous apparatus grew. The property is that the
+    /// sweep does not come
     /// back clean and names the file.
     ///
     /// An undamaged assembly sits alongside the damaged one on purpose. Without
@@ -696,11 +706,17 @@ public sealed class StateMachineCompletenessTests
     /// one that had grown back in the neighbour gate; round 13 found that
     /// nothing stopped a third from appearing, because every synthetic specimen
     /// was called <c>.dll</c>. Restricting enumeration to <c>.exe</c> left the
-    /// whole suite green. Managed code ships as <c>.exe</c>, and as files with
-    /// no extension at all.
+    /// whole suite green. Round 14 found the first fix half-done: a specimen
+    /// named <c>broken.bin</c> gates a filter on the extension's spelling but
+    /// not one on its presence, and <c>!Path.HasExtension(entry)</c> still swept
+    /// green. Managed code ships as <c>.exe</c>, as <c>.bin</c> inside packed
+    /// layouts, and on Linux as a file with no extension at all, so both names
+    /// are specimens here.
     /// </summary>
-    [Fact]
-    public void Sweep_DamagedAssembly_IsFoundWhateverItIsNamed()
+    [Theory]
+    [InlineData("broken.bin")]
+    [InlineData("broken")]
+    public void Sweep_DamagedAssembly_IsFoundWhateverItIsNamed(string name)
     {
         string corpus = NewCorpusDirectory();
         try
@@ -708,16 +724,16 @@ public sealed class StateMachineCompletenessTests
             string specimen = typeof(Fixtures).Assembly.Location;
             File.Copy(specimen, Path.Combine(corpus, "good.dll"));
             File.WriteAllBytes(
-                Path.Combine(corpus, "broken.bin"),
+                Path.Combine(corpus, name),
                 Damage(File.ReadAllBytes(specimen), DamageKind.Truncated));
 
             string? problems = SweepProblems(corpus, out string surveyed);
 
             Assert.False(
                 problems is null,
-                "A damaged assembly named .bin was never enumerated, so the "
+                $"A damaged assembly named {name} was never enumerated, so the "
                     + $"sweep reported the corpus clean. {surveyed}");
-            Assert.Contains("broken.bin", problems);
+            Assert.Contains(name, problems);
         }
         finally
         {
@@ -1249,6 +1265,13 @@ public sealed class StateMachineCompletenessTests
     /// while the other was never exercised. Assign the site inside each branch,
     /// after the answer is decided, so that "reached" and "answered this way"
     /// cannot come apart.
+    ///
+    /// That is a construction rule for whoever edits this method, not a checked
+    /// property. Round 13 removed the coverage test that enumerated the sites,
+    /// and no test asserts on the message they appear in, so a member that
+    /// stopped corresponding to an outcome would not fail anything. The member
+    /// notes below likewise record why each site exists and what an earlier
+    /// round found; read them as history, not as claims something enforces.
     /// </summary>
     enum ClaimExitSite
     {
@@ -1463,6 +1486,12 @@ public sealed class StateMachineCompletenessTests
             // direction. A file that is genuinely not managed has both fields
             // zero, so requiring both before skipping is the direction that
             // cannot hide damage.
+            //
+            // Nothing gates that either. Rounds 13 and 14 both reproduced
+            // `||` -> `&&` surviving the suite, and both agreed the gate would
+            // be disproportionate: reaching the difference needs a PE with a
+            // zeroed RVA and a surviving non-zero Size, which no compiler,
+            // linker, or trimmer emits. Recorded, not enforced.
             ReadOnlySpan<byte> entry = optional.AsSpan(cli, 8);
             if (BinaryPrimitives.ReadUInt32LittleEndian(entry) != 0
                 || BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]) != 0)
