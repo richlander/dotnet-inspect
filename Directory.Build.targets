@@ -56,10 +56,10 @@
        nearest Directory.Build.props. eng/ does so directory-wide; standalone
        tools may make the same declaration at their own boundary.
 
-       The rule is repository-wide, not solution-wide. Six projects are outside
-       dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests, four
-       metadata fixtures, and .review-fixtures/FixtureLib — so a solution build
-       is not evidence that this rule holds. Build them too, or let CI find it. -->
+       The rule is repository-wide, not solution-wide. Five projects are outside
+       dotnet-inspect.slnx — tests/DotnetInspector.ILRoundtrip.Tests and four
+       metadata fixtures — so a solution build is not evidence that this rule
+       holds. Build them too, or let CI find it. -->
   <ItemGroup Condition="'$(OwnsItsOwnStderr)' != 'true' and '$(MSBuildProjectExtension)' == '.csproj'">
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers">
       <PrivateAssets>all</PrivateAssets>
