@@ -102,13 +102,26 @@ interface OperationHandle<TValue, TError> {
   readonly quiesced: Promise<void>;
   cancel(reason?: OperationCancelReason): void;
 }
+
+type OperationStartResult<TValue, TError, TBindError> =
+  | {
+      readonly kind: "started";
+      readonly handle: OperationHandle<TValue, TError>;
+    }
+  | {
+      readonly kind: "rejected";
+      readonly error: TBindError;
+    };
 ```
 
 `OperationId` is opaque. Feature code cannot construct one from a request,
 package identity, display string, or local counter. The page owner atomically
 allocates it with a monotonically increasing safe-integer `sequence`.
-Allocation never resets or wraps during the page lifetime. Exhausting the
-safe-integer range fails visibly before another operation starts.
+Every allocated ID is different from every ID previously allocated by that page
+owner, including identities whose producer preparation is rejected. Neither ID
+nor sequence allocation resets or wraps during the page lifetime. Exhausting
+the safe-integer range rejects the start before producer preparation and leaves
+every existing session and cancellation count unchanged.
 
 The sequence is allocation evidence for producer adapters that need bounded
 ordering or replay checks. It is not encoded into, parsed from, or compared
@@ -124,18 +137,36 @@ meaning.
 
 ### Start
 
-Starting an operation is one synchronous authority transaction:
+Producer binding uses a two-phase handoff. `prepare(identity, input, sink)`
+returns either:
+
+- a typed rejection after releasing any temporary resources, without retaining
+  or invoking the sink; or
+- a prepared binding with an already-usable cancellation endpoint and an
+  `activate()` operation.
+
+Preparation cannot report producer events. `activate()` does not throw; an
+activation failure is reported through the installed sink as producer failure
+followed by quiescence. These are immediate typed boundary obligations on an
+adapter, not definitions of its transport or physical implementation.
+
+Starting an operation follows one owner-controlled synchronous sequence:
 
 1. reject the start if the feature session is disposed;
-2. allocate the next page-wide identity;
-3. cancel the session's pending current operation as `superseded`;
-4. install the new operation record as current;
-5. create its outcome and quiescence promises; and
-6. bind the producer adapter to the identity and event sink.
+2. allocate the next page-wide identity and unpublished candidate record;
+3. ask the adapter to prepare against that identity and candidate sink;
+4. on rejection, return `OperationStartResult.rejected`, leave the prior
+   current operation unchanged, and discard the candidate;
+5. on preparation, install the candidate record and its promises as current
+   while superseding the prior pending operation;
+6. expose `OperationStartResult.started` with the new handle; and
+7. activate the prepared binding.
 
-The new record is visible to producer callbacks before the adapter can report
-an immediate result. A producer that completes synchronously therefore follows
-the same authority checks as a deferred producer.
+The candidate is current before activation, and the cancellation endpoint
+exists before callbacks can reenter. A synchronous activation callback
+therefore observes the same installed record and authority checks as a deferred
+callback. Reentrant cancellation, disposal, or replacement during activation
+can forward through the prepared cancellation endpoint.
 
 Each operation is bound to one producer adapter. Retrying creates a new
 operation identity; neither the feature nor the adapter redispatches an old
@@ -286,15 +317,18 @@ The model checks:
 - old release preserving the newer visible owner;
 - release only after producer settlement;
 - no callback delivery after release;
-- observed pre-start cancellation preventing producer execution;
 - disposal preventing another start; and
 - eventual logical completion, physical settlement, and release under stated
   fairness assumptions.
 
 Mutation configurations establish counterexamples for stale progress, late
 success, late failure, duplicate logical completion, cleanup mutating the
-newer view, callback delivery after release, start after disposal, and producer
-execution after observed pre-start cancellation.
+newer view, callback delivery after release, and start after disposal.
+
+The model permits a producer whose work was queued at logical cancellation
+either to settle canceled without running or to begin physical work. Both paths
+must preserve the canceled logical outcome, suppressed publication, and
+eventual producer quiescence. Choosing between them is producer policy.
 
 The model deliberately abstracts page-wide allocation, multiple sessions,
 TypeScript implementation, browser queues, producer internals, worker
@@ -306,9 +340,16 @@ covered by focused implementation gates or adjacent owners.
 `inspect-web-operation-authority` is a Release TypeScript gate. It does not yet
 exist and must include:
 
-- concurrent sessions receiving distinct opaque IDs and strictly increasing
-  safe-integer sequences from one page owner;
-- visible allocation exhaustion without an adapter bind;
+- concurrent and sequential sessions receiving opaque IDs never previously
+  allocated by the page owner, plus strictly increasing safe-integer sequences;
+- injected ID-reuse collisions after completion, quiescence, disposal, and
+  session recreation;
+- visible allocation exhaustion without adapter preparation and without
+  changing any existing current operation or cancellation count;
+- typed resource-free preparation rejection that leaves the prior current
+  operation unchanged and produces no handle;
+- prepared cancellation availability before activation, immediate callback
+  reentrancy, and activation failure through terminal plus quiescence events;
 - synchronous and deferred producer completion;
 - one logical outcome and one quiescence resolution;
 - omitted cancellation normalization, reason immutability, and exactly one

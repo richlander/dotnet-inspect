@@ -38,7 +38,6 @@ DuplicateTerminal == "DuplicateTerminal"
 CleanupMutatesNewer == "CleanupMutatesNewer"
 CallbackAfterRelease == "CallbackAfterRelease"
 StartAfterDispose == "StartAfterDispose"
-RunCanceledBeforeStart == "RunCanceledBeforeStart"
 Mutations ==
     {NoMutation,
      StaleProgress,
@@ -47,8 +46,7 @@ Mutations ==
      DuplicateTerminal,
      CleanupMutatesNewer,
      CallbackAfterRelease,
-     StartAfterDispose,
-     RunCanceledBeforeStart}
+     StartAfterDispose}
 
 ASSUME
     /\ Cardinality(Operations) = 2
@@ -73,7 +71,6 @@ VARIABLES
     postReleaseReportAttempted,
     publicationWasAuthorized,
     callbackObservedAfterRelease,
-    producerStartedAfterPreCancel,
     operationStartedAfterDispose
 
 vars ==
@@ -91,7 +88,6 @@ vars ==
       postReleaseReportAttempted,
       publicationWasAuthorized,
       callbackObservedAfterRelease,
-      producerStartedAfterPreCancel,
       operationStartedAfterDispose>>
 
 Init ==
@@ -109,7 +105,6 @@ Init ==
     /\ postReleaseReportAttempted = [op \in Operations |-> FALSE]
     /\ publicationWasAuthorized = TRUE
     /\ callbackObservedAfterRelease = FALSE
-    /\ producerStartedAfterPreCancel = FALSE
     /\ operationStartedAfterDispose = FALSE
 
 HasPublicationAuthority(op) ==
@@ -136,7 +131,6 @@ StartFirst ==
           postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 StartSecond ==
@@ -170,7 +164,6 @@ StartSecond ==
           postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 RequestCancel(op) ==
@@ -191,21 +184,31 @@ RequestCancel(op) ==
           postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 BeginProducer(op) ==
     /\ producerPhase[op] = Queued
-    /\ producerPhase' =
-        IF Mutation = RunCanceledBeforeStart /\ cancelRequested[op]
-        THEN [producerPhase EXCEPT ![op] = Running]
-        ELSE IF cancelRequested[op]
-             THEN [producerPhase EXCEPT ![op] = Canceled]
-             ELSE [producerPhase EXCEPT ![op] = Running]
-    /\ producerStartedAfterPreCancel' =
-        IF cancelRequested[op] /\ producerPhase'[op] = Running
-        THEN TRUE
-        ELSE producerStartedAfterPreCancel
+    /\ producerPhase' = [producerPhase EXCEPT ![op] = Running]
+    /\ UNCHANGED
+        <<ownerPhase,
+          current,
+          visibleOperation,
+          logicalOutcome,
+          completionCount,
+          cancelRequested,
+          cancelForwardCount,
+          progressAttempts,
+          progressDeliveries,
+          released,
+          postReleaseReportAttempted,
+          publicationWasAuthorized,
+          callbackObservedAfterRelease,
+          operationStartedAfterDispose>>
+
+CancelQueuedProducer(op) ==
+    /\ producerPhase[op] = Queued
+    /\ cancelRequested[op]
+    /\ producerPhase' = [producerPhase EXCEPT ![op] = Canceled]
     /\ UNCHANGED
         <<ownerPhase,
           current,
@@ -251,7 +254,6 @@ ReportProgress(op) ==
           released,
           postReleaseReportAttempted,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 CompleteSuccess(op) ==
@@ -288,7 +290,6 @@ CompleteSuccess(op) ==
           released,
           postReleaseReportAttempted,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 CompleteFailure(op) ==
@@ -320,7 +321,6 @@ CompleteFailure(op) ==
           released,
           postReleaseReportAttempted,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 CompleteCanceled(op) ==
@@ -341,7 +341,6 @@ CompleteCanceled(op) ==
           postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 SettleProducer(op) ==
@@ -370,7 +369,6 @@ Release(op) ==
           postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 ReportAfterRelease(op) ==
@@ -398,7 +396,6 @@ ReportAfterRelease(op) ==
           progressAttempts,
           released,
           publicationWasAuthorized,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 DisposeOwner ==
@@ -431,7 +428,6 @@ DisposeOwner ==
           postReleaseReportAttempted,
           publicationWasAuthorized,
           callbackObservedAfterRelease,
-          producerStartedAfterPreCancel,
           operationStartedAfterDispose>>
 
 StartSecondAfterDispose ==
@@ -453,14 +449,14 @@ StartSecondAfterDispose ==
           released,
           postReleaseReportAttempted,
           publicationWasAuthorized,
-          callbackObservedAfterRelease,
-          producerStartedAfterPreCancel>>
+          callbackObservedAfterRelease>>
 
 Next ==
     \/ StartFirst
     \/ StartSecond
     \/ \E op \in Operations : RequestCancel(op)
     \/ \E op \in Operations : BeginProducer(op)
+    \/ \E op \in Operations : CancelQueuedProducer(op)
     \/ \E op \in Operations : ReportProgress(op)
     \/ \E op \in Operations : SettleProducer(op)
     \/ \E op \in Operations : Release(op)
@@ -483,7 +479,6 @@ TypeOK ==
     /\ postReleaseReportAttempted \in [Operations -> BOOLEAN]
     /\ publicationWasAuthorized \in BOOLEAN
     /\ callbackObservedAfterRelease \in BOOLEAN
-    /\ producerStartedAfterPreCancel \in BOOLEAN
     /\ operationStartedAfterDispose \in BOOLEAN
 
 OneLogicalCompletion ==
@@ -511,9 +506,6 @@ ReleasedProducerIsTerminal ==
 NoCallbackAfterRelease ==
     ~callbackObservedAfterRelease
 
-CanceledBeforeStartDoesNotRun ==
-    ~producerStartedAfterPreCancel
-
 DisposedOwnerStartsNothing ==
     ~operationStartedAfterDispose
 
@@ -538,6 +530,7 @@ Spec ==
     /\ WF_vars(StartFirst)
     /\ WF_vars(StartSecond)
     /\ \A op \in Operations : WF_vars(BeginProducer(op))
+    /\ \A op \in Operations : WF_vars(CancelQueuedProducer(op))
     /\ \A op \in Operations : WF_vars(SettleProducer(op))
     /\ \A op \in Operations : WF_vars(Release(op))
 

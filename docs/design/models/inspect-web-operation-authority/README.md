@@ -37,7 +37,7 @@ of the owning design's `inspect-web-operation-authority` implementation gate.
 
 - `OperationA` starts before `OperationB`.
 - Starting `OperationB` supersedes an active `OperationA`.
-- Each queued producer is eventually admitted or observes cancellation.
+- Each queued producer eventually begins physical work or settles canceled.
 - Each running producer eventually succeeds, fails, or observes cancellation.
 - Each settled producer eventually releases its operation-scoped resources.
 - Progress is bounded to one attempt per operation in the checked
@@ -59,7 +59,6 @@ also starts each operation when doing so remains continuously enabled.
 | Visible state remains owned by the current operation | `VisibleStateOwnedByCurrent` |
 | Release follows physical settlement | `ReleasedProducerIsTerminal` |
 | No callback is observed after release | `NoCallbackAfterRelease` |
-| Observed pre-start cancellation prevents producer execution | `CanceledBeforeStartDoesNotRun` |
 | Disposal prevents new operations | `DisposedOwnerStartsNothing` |
 | Started producers eventually settle | `StartedEventuallySettles` |
 | Started operations eventually receive a logical outcome | `StartedEventuallyCompletesLogically` |
@@ -84,17 +83,16 @@ The recorded run used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 `tla2tools.jar` has SHA-256
 `eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
 With two operations and one progress attempt per operation, TLC generated
-9,017 states, found 3,917 distinct states, reached depth 14, and reported no
+9,194 states, found 3,917 distinct states, reached depth 14, and reported no
 error.
 
 The positive model explicitly explores a suppressed callback attempt after
-release. Three scratch guard-removal probes make stale progress delivery,
-producer execution after observed pre-start cancellation, and post-release
-callback delivery unconditional under the positive configuration. They
-respectively violate `PublicationRequiresAuthority`,
-`CanceledBeforeStartDoesNotRun`, and `NoCallbackAfterRelease`. These probes
-establish non-vacuity of the modeled witnesses but are not additional product
-behaviors or checked-in configurations.
+release. Two scratch guard-removal probes make stale progress delivery and
+post-release callback delivery unconditional under the positive configuration.
+They respectively violate `PublicationRequiresAuthority` and
+`NoCallbackAfterRelease`. These probes establish non-vacuity of the modeled
+witnesses but are not additional product behaviors or checked-in
+configurations.
 
 ## Counterexample mutations
 
@@ -109,10 +107,9 @@ Each mutation configuration fails with its named invariant:
 | `CleanupMutatesNewer` | Old release changes the newer visible owner | `VisibleStateOwnedByCurrent` |
 | `CallbackAfterRelease` | Delivers progress after callback release | `NoCallbackAfterRelease` |
 | `StartAfterDispose` | Starts the second operation after owner disposal | `DisposedOwnerStartsNothing` |
-| `RunCanceledBeforeStart` | Runs a queued producer after cancellation was observed | `CanceledBeforeStartDoesNotRun` |
 
 Run a mutation by substituting its complete configuration filename in the TLC
 command. A successful mutation check is a concrete invariant violation; a
-clean exit means the mutation gate is vacuous or broken. All eight mutations
+clean exit means the mutation gate is vacuous or broken. All seven mutations
 were run with OpenJDK 21.0.12, TLA+ tools 1.8.0, and one TLC worker; each
 produced its named violation.
