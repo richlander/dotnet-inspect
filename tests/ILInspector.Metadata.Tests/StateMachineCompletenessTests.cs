@@ -752,7 +752,8 @@ public sealed class StateMachineCompletenessTests
 
     /// <summary>
     /// Enumeration terminates on a directory that contains itself, and still
-    /// reaches files nested beneath the corpus root.
+    /// reaches files nested beneath the corpus root — including files reachable
+    /// only through a directory link.
     ///
     /// The termination half keeps its place while the rest of the enumeration
     /// tests go, because a hang is the failure mode this harness has actually
@@ -765,28 +766,43 @@ public sealed class StateMachineCompletenessTests
     /// file is flat, so deleting the directory push from
     /// <see cref="EnumerateCandidates"/> outright — the sweep then measuring
     /// only the root, which is most of what it is for — left the whole suite
-    /// green. The damaged specimen sits one directory down, so a sweep that
-    /// stops at the root reports clean and fails here.
+    /// green. Round 16 found that fix half-done in turn: the specimen sat in an
+    /// ordinary subdirectory, so skipping every directory carrying
+    /// <see cref="FileAttributes.ReparsePoint"/> still swept green, and an
+    /// assembly reachable only through a link could vanish under an accounting
+    /// claim that says every assembly beneath the root is measured.
+    ///
+    /// So there are two specimens and two links. <c>nested/</c> is an ordinary
+    /// directory and gates plain recursion. <c>linked/</c> points at a directory
+    /// outside the corpus, which is the only route to the specimen inside it.
+    /// <c>loop/</c> points back at the root and gates nothing but termination —
+    /// the walk admits a directory by identity, so the loop is recognised as the
+    /// root already visited while <c>linked/</c> is a genuinely new directory
+    /// and is walked.
     /// </summary>
     [Fact]
     public void Sweep_DirectoryCycle_TerminatesAndReachesNestedFiles()
     {
         string corpus = NewCorpusDirectory();
+        string offRoot = NewCorpusDirectory();
         try
         {
             string specimen = typeof(Fixtures).Assembly.Location;
+            byte[] damaged = Damage(File.ReadAllBytes(specimen), DamageKind.Truncated);
             File.Copy(specimen, Path.Combine(corpus, "good.dll"));
 
             string nested = Path.Combine(corpus, "nested");
             Directory.CreateDirectory(nested);
-            File.WriteAllBytes(
-                Path.Combine(nested, "buried.dll"),
-                Damage(File.ReadAllBytes(specimen), DamageKind.Truncated));
+            File.WriteAllBytes(Path.Combine(nested, "buried.dll"), damaged);
+
+            File.WriteAllBytes(Path.Combine(offRoot, "behindlink.dll"), damaged);
 
             try
             {
                 Directory.CreateSymbolicLink(
                     Path.Combine(corpus, "loop"), corpus);
+                Directory.CreateSymbolicLink(
+                    Path.Combine(corpus, "linked"), offRoot);
             }
             catch (Exception ex)
                 when (ex is IOException or UnauthorizedAccessException)
@@ -798,13 +814,31 @@ public sealed class StateMachineCompletenessTests
 
             Assert.False(
                 problems is null,
-                "A damaged assembly one directory down was never enumerated, so "
-                    + $"the sweep reported the corpus clean. {surveyed}");
+                "Two damaged assemblies below the corpus root were never "
+                    + $"enumerated, so the sweep reported it clean. {surveyed}");
             Assert.Contains("buried.dll", problems);
+            Assert.Contains("behindlink.dll", problems);
+
+            // The cycle has to be recognised, not merely survived. Round 16
+            // showed that deleting the identity check altogether still passed
+            // both assertions above: the walk descends the loop until the
+            // operating system refuses at its symlink depth limit,
+            // GetFileSystemEntries throws, and the directory is recorded as
+            // unreadable -- which lands in `problems` and satisfies a test
+            // asking only that `problems` is non-null. Forty-one nested copies
+            // of the specimen kept the name assertions true as well.
+            //
+            // Both halves of that are now assertions. A corpus whose only
+            // peculiarity is a link back to its own root has nothing unreadable
+            // in it, and it holds exactly one undamaged assembly however many
+            // times the walk passes the root.
+            Assert.Contains("0 unreadable", surveyed);
+            Assert.Contains("1 managed assemblies measured", surveyed);
         }
         finally
         {
             Directory.Delete(corpus, recursive: true);
+            Directory.Delete(offRoot, recursive: true);
         }
     }
 
