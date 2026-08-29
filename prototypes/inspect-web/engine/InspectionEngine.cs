@@ -106,7 +106,9 @@ public static partial class InspectionEngine
         BrowserWorkspaceParticipant[] requested =
         [
             .. scope.SurfaceParticipants.Where(candidate =>
-                candidate.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal)),
+                ReferenceEquals(
+                    candidate.Coordinate.Root.Identity,
+                    coordinate.Root.Identity)),
         ];
 
         // The site's default path shows public types by default and reaches non-public ones

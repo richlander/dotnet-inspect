@@ -448,9 +448,9 @@ public static partial class InspectionEngine
     [
         .. scope.ImplementationParticipants
             .Concat(scope.ReferenceOnlySurfaceParticipants)
-            .Where(participant => participant.Coordinate.Key.Equals(
-                coordinate.Key,
-                StringComparison.Ordinal)),
+            .Where(participant => ReferenceEquals(
+                participant.Coordinate.Root.Identity,
+                coordinate.Root.Identity)),
     ];
 
     static BrowserWorkspaceParticipant MetadataParticipant(

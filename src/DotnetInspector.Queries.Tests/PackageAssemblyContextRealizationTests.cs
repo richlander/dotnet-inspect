@@ -468,6 +468,40 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity()
+    {
+        PackageRootRealization first = Selection(
+            "Same.Package",
+            ("lib/net11.0/Same.dll", IntegrationAssembly(
+                "First.Same",
+                "Microsoft.Extensions.Logging.First")));
+        PackageRootRealization second = Selection(
+            "Same.Package",
+            ("lib/net11.0/Same.dll", IntegrationAssembly(
+                "Second.Same",
+                "OpenTelemetry.Second")));
+        using var workspace = new InspectionWorkspace();
+        using PackageAssemblyContextRealization realization =
+            workspace.RealizePackageAssemblyContextRoles(
+                [first, second],
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        PackageWorkspaceIntegrationsResult result =
+            PackageWorkspaceIntegrationsQuery.Execute(realization);
+
+        Assert.Equal(2, result.Libraries.Length);
+        Assert.Contains(
+            result.Libraries,
+            entry => ReferenceEquals(entry.Subject.Package, first.Identity));
+        Assert.Contains(
+            result.Libraries,
+            entry => ReferenceEquals(entry.Subject.Package, second.Identity));
+        Assert.NotEqual(
+            result.Libraries[0].Subject,
+            result.Libraries[1].Subject);
+    }
+
+    [Fact]
     public void ReferenceCorrespondence_UsesPackageIdentityAndCaseInsensitiveName()
     {
         byte[] firstImage =

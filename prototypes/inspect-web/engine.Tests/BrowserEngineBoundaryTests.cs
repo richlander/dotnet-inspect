@@ -1480,6 +1480,69 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageScope_DoesNotCollapseDifferentContentAtSameCoordinate()
+    {
+        string packageId = $"Exact.Scope.{Guid.NewGuid():N}";
+        byte[] firstImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] secondImage =
+            File.ReadAllBytes(typeof(PackageAssemblyContextRealization).Assembly.Location);
+        var firstPackage = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            Package(firstImage, $"lib/net11.0/{packageId}.dll"),
+            fromCache: false);
+        var secondPackage = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            Package(secondImage, $"lib/net11.0/{packageId}.dll"),
+            fromCache: false);
+        var firstCoordinate = new BrowserPackageCoordinate(
+            firstPackage,
+            new PackageRootRealization(
+                firstPackage.Content,
+                packageId,
+                "1.0.0",
+                "net11.0"));
+        var secondCoordinate = new BrowserPackageCoordinate(
+            secondPackage,
+            new PackageRootRealization(
+                secondPackage.Content,
+                packageId,
+                "1.0.0",
+                "net11.0"));
+
+        Assert.Throws<ArgumentException>(
+            () => new BrowserInspectionScope(
+                [firstCoordinate, secondCoordinate]));
+        using var directScope =
+            new BrowserInspectionScope([firstCoordinate]);
+        Assert.False(
+            directScope.ContainsExactCoordinates([secondCoordinate]));
+        Assert.Throws<InvalidOperationException>(
+            () => directScope.Coordinate(secondCoordinate));
+
+        BrowserPackageWorkspace.RegisterAcquiredPackage(firstPackage);
+        BrowserInspectionScope retained =
+            BrowserPackageWorkspace.OpenScope([firstCoordinate]);
+        try
+        {
+            BrowserPackageWorkspace.RegisterAcquiredPackage(secondPackage);
+            InvalidOperationException cacheFailure =
+                Assert.Throws<InvalidOperationException>(
+                    () => BrowserPackageWorkspace.OpenScope(
+                        [secondCoordinate]));
+            Assert.Contains(
+                "exact requested package content",
+                cacheFailure.Message);
+        }
+        finally
+        {
+            BrowserPackageWorkspace.RemoveScope(retained);
+        }
+    }
+
+    [Fact]
     public void MixedPackageScope_RealizesOnlySelectedCoordinates()
     {
         byte[] image =

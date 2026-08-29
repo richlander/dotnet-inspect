@@ -307,6 +307,12 @@ internal static class BrowserPackageWorkspace
                 throw new InvalidOperationException(
                     "The browser scope registry key names a different scope kind.");
             }
+            if (!retained.ContainsExactCoordinates(coordinates))
+            {
+                throw new InvalidOperationException(
+                    "The retained browser workspace does not match the exact requested "
+                    + "package content.");
+            }
             Scopes[key] = entry with { LastAccess = ++_clock };
             TouchPackages(entry.PackageKeys);
             return retained;
@@ -1499,6 +1505,16 @@ internal sealed class BrowserPackageCoordinate
     /// </summary>
     public string Key =>
         $"{PackageId.ToLowerInvariant()}@{Version.ToLowerInvariant()}/{Framework.ToLowerInvariant()}";
+
+    public bool HasExactContentAs(BrowserPackageCoordinate other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return Key.Equals(other.Key, StringComparison.Ordinal)
+            && ReferenceEquals(Package.RetainedBytes, other.Package.RetainedBytes)
+            && Root.ProducerKey.Equals(
+                other.Root.ProducerKey,
+                StringComparison.Ordinal);
+    }
 
     public PackageCompileAsset? DefaultAsset => Selection.DefaultAsset;
 

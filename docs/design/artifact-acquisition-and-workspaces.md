@@ -962,7 +962,9 @@ The target is complete only when tests equivalent to these exist:
 - `MixedPackages_CreateRolesOnlyForSelectedCompileAssets`
 - `PackageRootIdentity_DistinguishesRequestedFrameworksByReference`
 - `PackageWorkspaceIntegrationsQuery_RejectsRootOnlyRealization`
+- `PackageWorkspaceIntegrationsQuery_PreservesExactRootIdentity`
 - `PackageCoordinate_RejectsDifferentContentWithSameIdentity`
+- `PackageScope_DoesNotCollapseDifferentContentAtSameCoordinate`
 - `MixedPackageScope_RealizesOnlySelectedCoordinates`
 - `PackageFrameworkUnavailability_DoesNotEmitArtifactFramework`
 - `QueryPackage_ToolsPointerRetainsRootAndManifestDependencies`

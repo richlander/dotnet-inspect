@@ -66,6 +66,15 @@ internal sealed class BrowserInspectionScope : IDisposable
     public BrowserInspectionScope(IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {
         ArgumentNullException.ThrowIfNull(coordinates);
+        if (coordinates
+            .GroupBy(coordinate => coordinate.Key, StringComparer.Ordinal)
+            .Any(group => group.Skip(1).Any()))
+        {
+            throw new ArgumentException(
+                "A browser workspace cannot contain the same package coordinate twice.",
+                nameof(coordinates));
+        }
+
         Coordinates = [.. coordinates];
 
         PackageAssemblyContextRealization? realization = null;
@@ -194,9 +203,20 @@ internal sealed class BrowserInspectionScope : IDisposable
     {
         ArgumentNullException.ThrowIfNull(requested);
         return Coordinates.FirstOrDefault(
-                candidate => candidate.Key.Equals(requested.Key, StringComparison.Ordinal))
+                candidate => candidate.HasExactContentAs(requested))
             ?? throw new InvalidOperationException(
-                $"{requested.PackageId} {requested.Version} is not part of this workspace.");
+                $"{requested.PackageId} {requested.Version} with its exact package content "
+                + "is not part of this workspace.");
+    }
+
+    public bool ContainsExactCoordinates(
+        IReadOnlyList<BrowserPackageCoordinate> requested)
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+        return requested.Count == Coordinates.Length
+            && requested.All(candidate =>
+                Coordinates.Any(retained =>
+                    retained.HasExactContentAs(candidate)));
     }
 
     /// <summary>The participant for one coordinate's assembly, or a visible failure.</summary>
@@ -244,9 +264,9 @@ internal sealed class BrowserInspectionScope : IDisposable
         }
 
         return SurfaceParticipants.SingleOrDefault(surface =>
-            surface.Coordinate.Key.Equals(
-                implementationParticipant.Coordinate.Key,
-                StringComparison.Ordinal)
+            ReferenceEquals(
+                surface.Coordinate.Root.Identity,
+                implementationParticipant.Coordinate.Root.Identity)
             && surface.Coordinate.Selection
                 .FindImplementationAsset(surface.Asset)
                 ?.Path.Equals(
@@ -371,7 +391,9 @@ internal sealed class BrowserWorkspaceRole
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(asset);
         return Participants.FirstOrDefault(candidate =>
-                candidate.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal)
+                ReferenceEquals(
+                    candidate.Coordinate.Root.Identity,
+                    coordinate.Root.Identity)
                 && candidate.Asset.Path.Equals(asset.Path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"The requested participant is not part of the {coordinate.PackageId} "
