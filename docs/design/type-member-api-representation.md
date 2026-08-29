@@ -260,9 +260,12 @@ identity; `RecursiveSameNameDefinitions_AreNotSelectedRootCorrespondence` and
 `MalformedArrayBounds_AreUnavailable` gate exact and malformed array shapes.
 `DerivedValueTypeKind_RejectsExplicitClassEncoding` and
 `UnknownDefinitionKind_DiscardsUnverifiedSignatureKind` gate effective
-class/value-type projection. `PlanCacheIdentityPreservesArrayBoundsAndRawTypeKind`
-gates the graph plan-cache input so distinct exact shapes cannot reuse one
-correspondence plan.
+class/value-type projection, while
+`EqualUnknownKindProjection_DoesNotOverrideContradictoryPlannedRawKinds`
+ensures pairwise MethodDef correspondence still rejects two known contradictory
+signature bytes when an unauthenticated catalog kind normalizes their projected
+keys. `PlanCacheIdentityPreservesArrayBoundsAndRawTypeKind` gates the graph
+plan-cache input so distinct exact shapes cannot reuse one correspondence plan.
 `DuplicateExactTargetCandidates_ReportAmbiguous`,
 `TargetGenerationMismatch_IsUnavailable`,
 `SnapshotFromAnotherRegistration_IsUnavailable`,

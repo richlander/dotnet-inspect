@@ -798,8 +798,6 @@ public sealed class CatalogMemberCorrespondencePlan
 
         CatalogMemberJoinKey key = projection.Key;
         CatalogMemberJoinKey otherKey = otherProjection.Key;
-        if (key.Equals(otherKey))
-            return true;
         if (key.Catalog != otherKey.Catalog
             || !ReferenceEquals(key.Generation, otherKey.Generation)
             || !string.Equals(key.Name, otherKey.Name, StringComparison.Ordinal)
@@ -866,8 +864,6 @@ public sealed class CatalogMemberCorrespondencePlan
         bool establishedCorrespondenceRequiresDegradedShape,
         ref bool usedNonKeyCorrespondence)
     {
-        if (shape.Equals(otherShape))
-            return true;
         if (planned.Kind != otherPlanned.Kind)
             return false;
 

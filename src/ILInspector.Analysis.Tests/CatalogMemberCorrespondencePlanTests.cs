@@ -627,6 +627,73 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void EqualUnknownKindProjection_DoesNotOverrideContradictoryPlannedRawKinds()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        TypeRef classType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x12);
+        TypeRef valueType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x11);
+        CatalogMemberCorrespondencePlan first =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [classType], owner));
+        CatalogMemberCorrespondencePlan second =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [valueType], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            first.Requests.Concat(second.Requests));
+        var issued = Assert.IsType<CatalogMemberJoinProjection.Issued>(
+            first.Project(context));
+
+        DefinitionJoinToken definition =
+            issued.Key.ParameterTypes[0].Definition
+            ?? throw new InvalidOperationException(
+                "Expected a resolved parameter definition.");
+        CatalogTypeShape unknownKind = CatalogTypeShape.Resolved(
+            definition,
+            CatalogMemberJoinProjector.EffectiveRawTypeKind(
+                rawTypeKind: 0x12,
+                MetadataTypeDefinitionKind.Unknown));
+        var unknownKindKey = new CatalogMemberJoinKey(
+            issued.Key.Catalog,
+            issued.Key.Generation,
+            issued.Key.Kind,
+            issued.Key.DeclaringType,
+            issued.Key.Name,
+            issued.Key.MemberKind,
+            issued.Key.GenericArity,
+            issued.Key.HasThis,
+            issued.Key.SignatureHeader,
+            issued.Key.RequiredParameterCount,
+            [unknownKind],
+            issued.Key.ReturnType);
+        var unknownKindProjection = new CatalogMemberJoinProjection.Issued(
+            unknownKindKey,
+            []);
+        Assert.False(
+            first.CorrespondsToEstablished(
+                second,
+                unknownKindProjection,
+                unknownKindProjection,
+                static (_, _) => false));
+    }
+
+    [Fact]
     public void EstablishedTypeRequestPairDoesNotVouchForAnotherType()
     {
         byte[] targetImage = BuildAssembly("Target", ["Api"]);
