@@ -233,13 +233,13 @@ internal sealed class PluginConnection : IAsyncDisposable
         CancellationToken cancellationToken)
         where TResponse : class
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         string requestId = Guid.NewGuid().ToString();
         var pending = new PendingRequest(_requestTimeout);
 
         try
         {
-            _testHooks?.RequestAdmissionAttempted?.Invoke();
-
             lock (_pendingGate)
             {
                 if (!_acceptingRequests)
@@ -247,6 +247,7 @@ internal sealed class PluginConnection : IAsyncDisposable
                     throw new IOException("Credential plugin closed the connection.");
                 }
 
+                _testHooks?.RequestAdmissionAccepted?.Invoke();
                 _pending[requestId] = pending;
                 _testHooks?.RequestRegistered?.Invoke();
             }
@@ -342,6 +343,8 @@ internal sealed class PluginConnection : IAsyncDisposable
     {
         PendingRequest[] pending;
 
+        _testHooks?.TerminalSettlementAttempted?.Invoke();
+
         lock (_pendingGate)
         {
             _acceptingRequests = false;
@@ -361,9 +364,11 @@ internal sealed class PluginConnection : IAsyncDisposable
 
     internal sealed class PluginConnectionTestHooks
     {
-        public Action? RequestAdmissionAttempted { get; init; }
+        public Action? RequestAdmissionAccepted { get; init; }
 
         public Action? RequestRegistered { get; init; }
+
+        public Action? TerminalSettlementAttempted { get; init; }
 
         public Action? PendingSnapshotCaptured { get; init; }
     }

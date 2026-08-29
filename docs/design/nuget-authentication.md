@@ -192,7 +192,9 @@ start plus five round trips. A plugin that fails to start, or that does not clai
 A plugin process or pipe that dies during a request is likewise treated as no credential from
 that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
 state are contained at the request boundary so another provider can answer or the feed's 401 can
-surface normally. Caller cancellation is not a plugin fault and continues to propagate.
+surface normally. Caller cancellation is not a plugin fault and continues to propagate, enforced
+before and after receiver loss by `PluginProtocolTests.CallerCancellationContinuesToPropagate` and
+`PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`.
 
 ### Unattended by default
 
