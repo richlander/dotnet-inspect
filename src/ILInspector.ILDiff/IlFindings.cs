@@ -43,7 +43,9 @@ public static class IlFindings
         ArgumentNullException.ThrowIfNull(subject);
 
         if (body is null)
-            return new FindingInspection<CanonicalIlOperation>.Absent("Method has no IL body.");
+            return new FindingInspection<CanonicalIlOperation>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                "Method has no IL body.");
         if (body.IsComplete && body.Instructions.Length > MaxCanonicalOperations)
         {
             return new FindingInspection<CanonicalIlOperation>.Failed(
