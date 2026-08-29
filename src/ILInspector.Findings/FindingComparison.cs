@@ -3,6 +3,63 @@ using System.Runtime.CompilerServices;
 
 namespace ILInspector.Findings;
 
+/// <summary>The non-failed state of one finding inspection endpoint.</summary>
+public enum FindingInspectionState
+{
+    Complete,
+    SubjectAbsent,
+    NoApplicableInput,
+}
+
+/// <summary>
+/// The typed endpoint topology retained by a completed finding comparison.
+/// </summary>
+public sealed record FindingInspectionTransition
+{
+    internal FindingInspectionTransition(
+        FindingInspectionState oldState,
+        FindingInspectionState newState)
+    {
+        Old = Validate(oldState, nameof(oldState));
+        New = Validate(newState, nameof(newState));
+    }
+
+    public FindingInspectionState Old { get; }
+    public FindingInspectionState New { get; }
+    public bool IsSameTopology => Old == New;
+
+    internal static FindingInspectionTransition Create<T>(
+        FindingInspection<T> oldInspection,
+        FindingInspection<T> newInspection)
+        where T : notnull
+        => new(State(oldInspection), State(newInspection));
+
+    static FindingInspectionState State<T>(FindingInspection<T> inspection)
+        where T : notnull
+        => inspection switch
+        {
+            FindingInspection<T>.Complete => FindingInspectionState.Complete,
+            FindingInspection<T>.Absent => ((FindingInspection<T>.Absent)inspection.Value!).Kind switch
+            {
+                FindingInspectionAbsenceKind.SubjectAbsent => FindingInspectionState.SubjectAbsent,
+                FindingInspectionAbsenceKind.NoApplicableInput => FindingInspectionState.NoApplicableInput,
+                _ => throw new InvalidOperationException("The inspection has an unknown absence kind."),
+            },
+            FindingInspection<T>.Failed => throw new ArgumentException(
+                "A failed inspection has no completed inspection state.",
+                nameof(inspection)),
+        };
+
+    static FindingInspectionState Validate(FindingInspectionState state, string parameterName)
+        => state switch
+        {
+            FindingInspectionState.Complete => state,
+            FindingInspectionState.SubjectAbsent => state,
+            FindingInspectionState.NoApplicableInput => state,
+            _ => throw new ArgumentOutOfRangeException(parameterName),
+        };
+}
+
 /// <summary>
 /// The outcome of comparing two finding inspections. A completed comparison carries the alignment;
 /// a failed comparison carries only the inspections that prevented matching from running.
@@ -99,12 +156,14 @@ public sealed record FindingComparison<T> where T : notnull
             Match = match;
             OldInspection = oldInspection;
             NewInspection = newInspection;
+            Transition = FindingInspectionTransition.Create(oldInspection, newInspection);
         }
 
         public ImmutableArray<PairFinding<T>> Pairs { get; }
         public FindingMatch Match { get; }
         public FindingInspection<T> OldInspection { get; }
         public FindingInspection<T> NewInspection { get; }
+        public FindingInspectionTransition Transition { get; }
         public ImmutableArray<Finding<T>> OldAtoms => FindingComparison.InspectionAtoms(OldInspection);
         public ImmutableArray<Finding<T>> NewAtoms => FindingComparison.InspectionAtoms(NewInspection);
 
@@ -123,7 +182,7 @@ public sealed record FindingComparison<T> where T : notnull
                 NewInspection);
 
         public bool IsExact =>
-            SameInspectionState(OldInspection, NewInspection)
+            Transition.IsSameTopology
             && FindingEquivalence.Exact.IsEquivalent(Pairs);
     }
 
@@ -164,16 +223,6 @@ public sealed record FindingComparison<T> where T : notnull
             }
         }
     }
-
-    static bool SameInspectionState(
-        FindingInspection<T> oldInspection,
-        FindingInspection<T> newInspection)
-        => (oldInspection, newInspection) switch
-        {
-            (FindingInspection<T>.Complete, FindingInspection<T>.Complete) => true,
-            (FindingInspection<T>.Absent, FindingInspection<T>.Absent) => true,
-            _ => false,
-        };
 
     static void ValidateTransformation(
         ImmutableArray<PairFinding<T>> original,

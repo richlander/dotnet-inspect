@@ -146,6 +146,14 @@ public static class SourceLinkDocumentsQuery
                 sourceOptions: context.SourceOptions,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
+            if (context.Source.Context.NeedsPdb
+                && !context.Source.Context.WindowsPdbDetected)
+            {
+                return FailedDocuments(
+                    context.Subject,
+                    "A matching portable PDB remains unresolved after acquisition.");
+            }
+
             if (!context.Source.HasPdb)
             {
                 string detail = context.Source.Context.WindowsPdbDetected
@@ -153,7 +161,9 @@ public static class SourceLinkDocumentsQuery
                     : "A matching portable PDB is unavailable.";
                 return new SourceLinkDocumentsResult(
                     new FindingInspection<SourceDocumentObservation>(
-                        new FindingInspection<SourceDocumentObservation>.Absent(detail)));
+                        new FindingInspection<SourceDocumentObservation>.Absent(
+                            FindingInspectionAbsenceKind.NoApplicableInput,
+                            detail)));
             }
 
             if (!context.Source.HasSourceLink)
@@ -161,6 +171,7 @@ public static class SourceLinkDocumentsQuery
                 return new SourceLinkDocumentsResult(
                     new FindingInspection<SourceDocumentObservation>(
                         new FindingInspection<SourceDocumentObservation>.Absent(
+                            FindingInspectionAbsenceKind.NoApplicableInput,
                             "The portable PDB carries no SourceLink map.")));
             }
 
