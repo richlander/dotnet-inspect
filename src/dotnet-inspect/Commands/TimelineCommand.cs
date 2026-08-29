@@ -506,17 +506,40 @@ public static class TimelineCommand
         FindingSubject subject,
         Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
         where T : notnull
-        => InspectAnalysisAssemblies(
-            [
-                .. assemblyPaths.Select(path => (
-                    Path: path,
-                    Surface: AssemblyReader.ExtractApiSurface(path, includeAll))),
-            ],
+    {
+        List<(string Path, ApiSurface? Surface)> assemblies = [];
+        foreach (string path in assemblyPaths)
+        {
+            try
+            {
+                assemblies.Add(
+                    (
+                        path,
+                        AssemblyReader.ExtractApiSurface(
+                            path,
+                            includeAll)));
+            }
+            catch (Exception ex) when (
+                ex is UnsupportedMetadataFormatException
+                    or MalformedMetadataRootException)
+            {
+                return new FindingInspection<T>.Failed(
+                    new InspectionError(
+                        subject,
+                        descriptor,
+                        $"The API surface in '{path}' could not be inspected: "
+                            + $"{ex.GetType().Name}: {ex.Message}"));
+            }
+        }
+
+        return InspectAnalysisAssemblies(
+            assemblies,
             typeFullName,
             memberName,
             descriptor,
             subject,
             inspect);
+    }
 
     internal static FindingInspection<T> InspectAnalysisAssemblies<T>(
         IReadOnlyList<(string Path, ApiSurface? Surface)> assemblies,

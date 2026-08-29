@@ -446,6 +446,14 @@ public sealed class TimelineCommandTests
                 inspection.Value);
             Assert.Contains(path, failed.Error.Reason);
             Assert.Contains("could not be inspected", failed.Error.Reason);
+            Assert.Contains(
+                nameof(MalformedMetadataRootException),
+                failed.Error.Reason);
+            Assert.Contains(
+                nameof(
+                    MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory),
+                failed.Error.Reason);
         }
         finally
         {
