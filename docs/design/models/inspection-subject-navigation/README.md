@@ -31,8 +31,11 @@ read that way:
   and lenses appear only as opaque values.
 - **Availability classification.** Descriptor classification and the
   reconciliation tables are not modelled. `NavigationSession.tla` does model
-  the narrower rule that an `Unavailable` result advances revision exactly
-  when its complete returned snapshot changed.
+  the narrower rule that a completed `Unavailable` or `Failed` result advances
+  revision exactly when its complete returned snapshot changed. The model
+  distinguishes Navigation preparation failure, which has no installable
+  replacement snapshot, from a failed Registry or policy evaluation. It does
+  not distinguish Registry failure from policy failure.
 - **UI accessibility.** Focus, roving `tabindex`, menu and tablist semantics,
   history, and rendering belong to [Inspect Web UI](../../inspect-web-ui.md)
   and appear here only as an abstract "consumer holds authority and executes a
@@ -80,7 +83,9 @@ Modelled behaviour includes: a newer explicit intent superseding older explicit
 and maintenance work; a superseded operation returning late; an external
 prerequisite abort that ends an intent without a navigation result; standalone
 maintenance queued in request order while its facts complete in any order; and
-a consumer holding authority that has since stopped being current.
+a consumer holding authority that has since stopped being current. Completed
+`Unavailable` and Registry or policy `Failed` results carry complete returned
+snapshots; Navigation preparation failure is a distinct retaining action.
 
 | Invariant | Claim |
 | --- | --- |
@@ -91,7 +96,8 @@ a consumer holding authority that has since stopped being current.
 | `MaintenanceRequestOrder` | Maintenance was admitted in owner-issued request order, never fact-completion order, and the queue stays ordered and outstanding |
 | `NoStaleVisibleEffect` | Every consumer-visible effect executed under exactly the session's current unconsumed authority |
 | `MaintenanceRegatherDiscipline` | A stale request cannot become ready or admit until rebuilding requires and gathering completes a re-gather |
-| `UnavailableRevisionMatchesSnapshotChange` | An unavailable result advances revision exactly when the complete returned snapshot changed |
+| `NonSuccessRevisionMatchesSnapshotChange` | A completed unavailable or failed result advances revision exactly when the complete returned snapshot changed |
+| `PreparationFailureRetainsSnapshotAndRevision` | Navigation preparation failure retains the complete installed snapshot and revision under retained effect authority |
 
 Progress is stated per request and per intent token rather than only for the
 session as a whole. Each property below names a specific blocker or a specific
@@ -281,7 +287,7 @@ The results below came from:
 - TLC `TLC2 Version 2026.08.21.155922 (rev: 9787e65)`, from the official
   `v1.8.0` `tla2tools.jar` asset downloaded on 2026-08-27.
 - OpenJDK `21.0.12+8-1-24.04`, Ubuntu Linux `amd64`.
-- Run on 2026-08-27.
+- Run on 2026-08-29.
 
 ## Evidence
 
@@ -299,15 +305,15 @@ report `Model checking completed. No error has been found.`
 
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
-| `NavigationSession.tla` | 31,586 | 5,114 | 15 |
+| `NavigationSession.tla` | 47,369 | 6,761 | 15 |
 | `AtomicRestoration.tla` | 8,081 | 2,333 | 9 |
 | `SnapshotAuthority.tla` | 36,755 | 13,790 | 9 |
 
-The additional state records semantic unavailable outcomes independently from
-their apply/retain execution class, retains canonical request payloads
-independently from prepared results, and retains each operation's requested
-lens independently from its result. Stale maintenance also records whether the
-same request still owes a re-gather before admission.
+The additional state records semantic unavailable and failed outcomes
+independently from their apply/retain execution class, retains canonical
+request payloads independently from prepared results, and retains each
+operation's requested lens independently from its result. Stale maintenance
+also records whether the same request still owes a re-gather before admission.
 
 Deadlock checking is disabled in all three configs. A behaviour that has issued
 every intent, drained its queue, and consumed its last effect has nothing left
@@ -349,11 +355,14 @@ records how to reproduce them.
 | NS11 | Stop releasing the effect on acknowledgement | `EffectEventuallyConsumed` | violated |
 | NS12 | Stop releasing the effect on acknowledgement | `MaintenanceEventuallyDrains` | violated |
 | NS13 | Let a superseded operation stay outstanding forever | `EveryExplicitIntentSettles` | violated |
-| NS14 | Keep the revision unchanged for a changed-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
-| NS15 | Advance the revision for an unchanged-snapshot unavailable result | `UnavailableRevisionMatchesSnapshotChange` | violated |
-| NS16 | Install an unavailable result at a revision different from its recorded result revision | `UnavailableRevisionMatchesSnapshotChange` | violated |
+| NS14 | Keep the revision unchanged for a changed-snapshot unavailable result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS15 | Advance the revision for an unchanged-snapshot unavailable result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS16 | Install an unavailable result at a revision different from its recorded result revision | `NonSuccessRevisionMatchesSnapshotChange` | violated |
 | NS17 | Mark a stale request ready and clear its re-gather debt during rebuild | `MaintenanceRegatherDiscipline` | violated |
 | NS18 | Drop an earlier queued request while allowing a later request to be admitted | `EveryQueuedRequestIsAdmitted` | violated |
+| NS19 | Keep the revision unchanged for a changed-snapshot failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS20 | Advance the revision for an unchanged-snapshot Registry or policy failed result | `NonSuccessRevisionMatchesSnapshotChange` | violated |
+| NS21 | Advance the installed revision during Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -380,7 +389,7 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Forty-three probes, forty-two expected violations and one expected pass. `SA6`
+Forty-six probes, forty-five expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why

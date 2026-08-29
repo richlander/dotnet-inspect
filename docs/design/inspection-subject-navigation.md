@@ -383,12 +383,17 @@ after an available registry result remains distinguishable from a
 Registry-owned failed result. Neither failure is rewritten as unavailable.
 A valid exact request that completes as Registry `Unavailable` or `Failed`
 installs its exact-request basis and evidence whenever that replacement differs
-from the prior snapshot. It does not retain an earlier recommendation basis.
+from the prior snapshot and its bound subject remains active. It does not
+retain an earlier recommendation basis.
 
 An unavailable request never silently activates a sibling, ancestor, or
 recommended Type. If the already committed subject became invalid
 independently, automatic reconciliation may change it before the unavailable
-outcome is returned.
+outcome is returned. When that reconciliation changes the exact subject, its
+structural consistency takes precedence: the replacement snapshot installs a
+recommendation basis for the replacement subject, while the operation result
+still returns the original exact request's non-success outcome and evidence.
+It never installs an exact-request basis bound to the inactive subject.
 
 Outcome labels do not determine revision behavior. Every semantically changed
 snapshot advances the state revision, including an unavailable result with
@@ -542,7 +547,7 @@ retaining a navigation session.
 
 | Model | Checked design properties |
 | --- | --- |
-| `NavigationSession.tla` | Latest explicit intent wins; unavailable revision behavior follows complete-snapshot change; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect |
+| `NavigationSession.tla` | Latest explicit intent wins; completed unavailable and failed revision behavior follows complete-snapshot change; Navigation preparation failure retains snapshot and revision; maintenance is request ordered; abort and acknowledgement preserve liveness; stale authority has no effect |
 | `AtomicRestoration.tla` | One exact requested subject+lens pair is prepared atomically; failed or superseded preparation is not published |
 | `SnapshotAuthority.tla` | Retained state comes only from the installed snapshot; applied lens results equal the independently retained request; stale or foreign authority is rejected |
 
@@ -578,14 +583,19 @@ The eventual subject-navigation implementation must include named gates for:
 - `ExplicitLensResolution_RetainsExactRegistryEvidence`
 - `ExactNonSuccess_InstallsExactRequestBasis`
 - `NavigationPreparationFailure_RemainsDistinctFromRegistryFailure`
+- `NavigationPreparationFailure_RetainsSnapshotAndRevision`
 - `RecommendationBasis_RefreshRerunsRecommendation`
 - `ExactNonSuccessLens_RefreshReresolvesExactIdentityWithoutFallback`
+- `ExactNonSuccessDuringSubjectReconciliation_InstallsReplacementSubjectRecommendationBasis`
 - `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ExplicitUnavailableTransition_DoesNotApplyFallback`
 - `UnavailableReplacement_AdvancesStateRevision`
 - `UnavailableUnchangedSnapshot_RetainsStateRevision`
 - `UnavailableResult_InstalledRevisionMatchesRecordedResultRevision`
+- `FailedReplacement_AdvancesStateRevision`
+- `FailedUnchangedSnapshot_RetainsStateRevision`
+- `FailedResult_InstalledRevisionMatchesRecordedResultRevision`
 - `SameCoordinateReconciliation_FollowsSubjectTable`
 - `CoordinateVariation_UsesTypedCorrespondence`
 - `LensReconciliation_PreservesExactSubjectScopedIdentity`
@@ -622,7 +632,15 @@ the correlated pair to abort before a throwing Registry-resolution sentinel.
 The exact-non-success gate begins with a recommendation basis, submits an exact
 request returning `Unavailable` and `Failed` in separate cases, and requires
 the installed replacement basis and evidence to equal the independent request
-and Registry result before the refresh gate re-resolves that identity.
+and Registry result before the refresh gate re-resolves that identity. The
+subject-reconciliation gate invalidates the bound subject during those same
+non-success cases and instead requires the installed snapshot to carry the
+replacement subject's independently computed recommendation basis while the
+operation result retains the original exact-request evidence.
+The preparation-failure retention gate starts with an installed snapshot,
+forces Navigation preparation to fail after Registry availability, and
+requires the complete snapshot and revision to remain unchanged while the
+result identifies Navigation as the failure source.
 
 ## Acceptance cases
 
@@ -640,6 +658,8 @@ and Registry result before the refresh gate re-resolves that identity.
 | Failed recommendation becomes available on refresh | Recommendation reruns and installs the newly effective exact lens |
 | Recommended fallback then preferred role becomes available | Recommendation replaces the fallback with the preferred exact lens |
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
+| Exact non-success while its subject disappears | Result retains the exact request evidence; installed snapshot uses the replacement subject's recommendation basis |
+| Navigation preparation fails after Registry availability | Failed result identifies Navigation; snapshot and revision remain unchanged |
 | Multi-library package | Aggregate then primary then declaration-order Library descriptors |
 | Libraries with no Types | Library with References; Type is validly unavailable |
 | Tools-v2 pointer package | Root with Package Overview; lower subjects unavailable |
