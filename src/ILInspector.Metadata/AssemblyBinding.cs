@@ -181,12 +181,25 @@ public abstract class AssemblyBindingSelection
     {
     }
 
-    /// <summary>Returns one selected acquisition descriptor.</summary>
+    /// <summary>
+    /// Returns one selected acquisition descriptor and optional descriptors
+    /// retained as inactive shadow evidence.
+    /// </summary>
     public static AssemblyBindingSelection Found(
-        ResolvedAssemblyReference assembly)
+        ResolvedAssemblyReference assembly,
+        ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies = default)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        return new Selected(assembly);
+        if (shadowedAssemblies.IsDefault)
+            shadowedAssemblies = [];
+        if (shadowedAssemblies.Any(static shadow => shadow is null))
+        {
+            throw new ArgumentException(
+                "Shadow evidence cannot contain null descriptors.",
+                nameof(shadowedAssemblies));
+        }
+
+        return new Selected(assembly, shadowedAssemblies);
     }
 
     /// <summary>Reports that policy found no candidate.</summary>
@@ -228,13 +241,25 @@ public abstract class AssemblyBindingSelection
         return new Rejected(failure);
     }
 
-    /// <summary>A policy selection containing one descriptor.</summary>
+    /// <summary>
+    /// A policy selection containing one descriptor and inactive shadow
+    /// evidence.
+    /// </summary>
     public sealed class Selected : AssemblyBindingSelection
     {
-        internal Selected(ResolvedAssemblyReference assembly) =>
+        internal Selected(
+            ResolvedAssemblyReference assembly,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
+        {
             Assembly = assembly;
+            ShadowedAssemblies = shadowedAssemblies;
+        }
 
         public ResolvedAssemblyReference Assembly { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     /// <summary>A policy selection with no matching descriptor.</summary>
@@ -298,6 +323,8 @@ public interface IAssemblyBindingPolicy
 public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
 {
     readonly IAssemblyReferenceResolver _resolver;
+    readonly IAssemblyBindingPolicy? _bindingPolicy;
+    readonly AssemblyBindingPolicyVersion _version = new();
     readonly ConcurrentDictionary<
         SelectionKey,
         Lazy<AssemblyBindingSelection>> _selections = new();
@@ -306,14 +333,16 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
     {
         ArgumentNullException.ThrowIfNull(resolver);
         _resolver = resolver;
+        _bindingPolicy = resolver as IAssemblyBindingPolicy;
     }
 
-    public AssemblyBindingPolicyVersion Version { get; } = new();
+    public AssemblyBindingPolicyVersion Version =>
+        _bindingPolicy?.Version ?? _version;
 
     public AssemblyBindingSelection Select(AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var key = SelectionKey.From(request);
+        var key = SelectionKey.From(request, Version);
         return _selections.GetOrAdd(
             key,
             _ => new Lazy<AssemblyBindingSelection>(
@@ -328,7 +357,8 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
             return request.Target switch
             {
                 AssemblyBindingTarget.AssemblyReference reference =>
-                    SelectReference(reference.Identity, request.Scope),
+                    _bindingPolicy?.Select(request)
+                    ?? SelectReference(reference.Identity, request.Scope),
                 AssemblyBindingTarget.IntrinsicCoreLibrary =>
                     AssemblyBindingSelection.CannotSelect(
                         new AssemblyBindingFailure(
@@ -363,20 +393,28 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
         AssemblyBindingTarget Target,
         AssemblyAcquisitionRegistration? Origin,
         bool GlobalOrigin,
-        AssemblyResolutionScope Scope)
+        AssemblyResolutionScope Scope,
+        AssemblyBindingPolicyVersion PolicyVersion)
     {
         internal static SelectionKey From(
-            AssemblyBindingRequest request) =>
+            AssemblyBindingRequest request,
+            AssemblyBindingPolicyVersion policyVersion) =>
             request.Origin switch
             {
                 AssemblyBindingOrigin.GlobalOrigin =>
-                    new(request.Target, null, true, request.Scope),
+                    new(
+                        request.Target,
+                        null,
+                        true,
+                        request.Scope,
+                        policyVersion),
                 AssemblyBindingOrigin.RequestingAssembly requesting =>
                     new(
                         request.Target,
                         requesting.Registration,
                         false,
-                        request.Scope),
+                        request.Scope,
+                        policyVersion),
                 _ => throw new InvalidOperationException(
                     "Unknown assembly-binding origin."),
             };
@@ -387,7 +425,9 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
 /// Catalog-interned binding result stored in a frozen
 /// <see cref="TypeResolutionContext"/>. Unlike
 /// <see cref="AssemblyBindingSelection"/>, successful and ambiguous arms carry
-/// catalog candidates. Policies cannot construct these outcomes.
+/// catalog candidates. A resolved outcome retains descriptor-level shadow
+/// evidence without interning it as active candidates. Policies cannot
+/// construct these outcomes.
 /// </summary>
 public abstract class AssemblyBindingOutcome
 {
@@ -395,13 +435,25 @@ public abstract class AssemblyBindingOutcome
     {
     }
 
-    /// <summary>One descriptor was interned as a catalog candidate.</summary>
+    /// <summary>
+    /// One descriptor was interned as a catalog candidate; any shadow
+    /// descriptors remain inactive evidence.
+    /// </summary>
     public sealed class Resolved : AssemblyBindingOutcome
     {
-        internal Resolved(ResolvedAssemblyCandidate candidate) =>
+        internal Resolved(
+            ResolvedAssemblyCandidate candidate,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
+        {
             Candidate = candidate;
+            ShadowedAssemblies = shadowedAssemblies;
+        }
 
         public ResolvedAssemblyCandidate Candidate { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     /// <summary>The policy found no candidate.</summary>
@@ -417,10 +469,22 @@ public abstract class AssemblyBindingOutcome
     /// </summary>
     public sealed class Unavailable : AssemblyBindingOutcome
     {
-        internal Unavailable(AssemblyBindingFailure failure) =>
+        internal Unavailable(
+            AssemblyBindingFailure failure,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies =
+                default)
+        {
             Failure = failure;
+            ShadowedAssemblies = shadowedAssemblies.IsDefault
+                ? []
+                : shadowedAssemblies;
+        }
 
         public AssemblyBindingFailure Failure { get; }
+        public ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies
+        {
+            get;
+        }
     }
 
     /// <summary>Several catalog candidates remain plausible.</summary>

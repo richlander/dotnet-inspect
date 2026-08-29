@@ -2863,7 +2863,9 @@ public sealed class TypeResolutionContext : IDisposable
             CachedBindingEvaluation evaluation = selection switch
             {
                 AssemblyBindingSelection.Selected selected =>
-                    SelectOne(selected.Assembly),
+                    SelectOne(
+                        selected.Assembly,
+                        selected.ShadowedAssemblies),
                 AssemblyBindingSelection.Missing =>
                     new(new AssemblyBindingOutcome.Missing()),
                 AssemblyBindingSelection.Unavailable unavailable =>
@@ -2889,7 +2891,9 @@ public sealed class TypeResolutionContext : IDisposable
             return evaluation;
         }
 
-        CachedBindingEvaluation SelectOne(ResolvedAssemblyReference assembly)
+        CachedBindingEvaluation SelectOne(
+            ResolvedAssemblyReference assembly,
+            ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
         {
             Register(assembly);
             if (_strictRegistrationFailures.TryGetValue(
@@ -2899,7 +2903,8 @@ public sealed class TypeResolutionContext : IDisposable
                 return new(
                     new AssemblyBindingOutcome.Unavailable(
                         new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.CandidateUnavailable)),
+                            AssemblyBindingFailureKind.CandidateUnavailable),
+                        shadowedAssemblies),
                     assembly,
                     strictFailure,
                     [assembly]);
@@ -2909,7 +2914,9 @@ public sealed class TypeResolutionContext : IDisposable
                     out ResolvedAssemblyCandidate? candidate))
             {
                 return new(
-                    new AssemblyBindingOutcome.Resolved(candidate),
+                    new AssemblyBindingOutcome.Resolved(
+                        candidate,
+                        shadowedAssemblies),
                     Registrations: [assembly]);
             }
 
@@ -2918,7 +2925,8 @@ public sealed class TypeResolutionContext : IDisposable
             return new(
                 new AssemblyBindingOutcome.Unavailable(
                     new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable)),
+                        AssemblyBindingFailureKind.CandidateUnavailable),
+                    shadowedAssemblies),
                 assembly,
                 failure,
                 [assembly]);
@@ -2978,7 +2986,8 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 AssemblyBindingOutcome.Resolved resolved =>
                     SelectOne(
-                        resolved.Candidate.Assembly),
+                        resolved.Candidate.Assembly,
+                        resolved.ShadowedAssemblies),
                 AssemblyBindingOutcome.Ambiguous =>
                     SelectMany(evaluation.Registrations),
                 _ => evaluation,

@@ -8,6 +8,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using Markout;
 
 using ILInspector.CSharp;
@@ -409,11 +410,22 @@ public class ProjectCommand
             file.Version,
             file.Path,
             new FileInfo(file.FullPath).Length,
-            name,
-            description ?? "",
+            ContainSkillMetadata(name),
+            ContainSkillMetadata(FoldSkillDescriptionLineEndings(description ?? "")),
             file.FullPath);
         return ProjectSkillReadFailure.None;
     }
+
+    private static string FoldSkillDescriptionLineEndings(string value)
+        => value
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Replace('\n', ' ');
+
+    private static string ContainSkillMetadata(string value)
+        => new InertString(TextPolicy.Field, value)
+            .ReplaceIfContainmentRequired(InertString.ContainmentRequiredPlaceholder)
+            .ToString();
 
     private static bool TryGetSkillName(
         string packagePath,
@@ -603,15 +615,19 @@ public class ProjectCommand
         if (row.FullPath == null || !File.Exists(row.FullPath))
             return null;
 
-        var content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
-            MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope));
+        var selected = AgentSkillDocument.PrepareForOutput(
+            MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope),
+            normalizeGithubLinksToRaw: true);
         return new PrintableDocument(
             rowNumber,
             ProjectSkillsSection,
             $"{row.Package} {row.Path}",
             row.Path,
             null,
-            content);
+            selected.ToString())
+        {
+            SelectedContent = selected
+        };
     }
 
     private static bool ValidateProjectProjectionOptions()
