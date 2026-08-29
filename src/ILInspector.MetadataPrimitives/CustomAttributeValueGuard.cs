@@ -64,6 +64,46 @@ public static class CustomAttributeValueGuard
         CustomAttribute attribute,
         Action<int>? beforeMaterialize = null,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType = null)
+        => IsSafeToDecode(
+            reader,
+            attribute,
+            out _,
+            beforeMaterialize,
+            enumUnderlyingType);
+
+    /// <summary>
+    /// Where the guard's value-blob walk stopped, for the differential oracle.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// I1 — the guard skips exactly the bytes SRM consumes — cannot be
+    /// established from SRM-side observables alone. Provider calls, decoded
+    /// values, and appended sentinels are all observations of <em>SRM</em>,
+    /// whose behavior does not depend on where the guard landed. A guard that
+    /// over-consumes runs out of bytes, returns <c>Truncated</c>, and is mapped
+    /// to <see langword="true"/> — producing exactly the observations the
+    /// aligned case produces. An oracle cannot report where its counterpart
+    /// stopped reading, so the counterpart must report it itself.
+    /// </para>
+    /// <para>
+    /// <see cref="Known"/> is <see langword="false"/> when no value walk ran or
+    /// it ended by exception. Those outcomes have no boundary to compare, and
+    /// the oracle must not read <see cref="ValueOffset"/> as though they do.
+    /// </para>
+    /// </remarks>
+    internal readonly record struct Boundary(bool Known, int ValueOffset, int ValueLength);
+
+    /// <summary>
+    /// <see cref="IsSafeToDecode(MetadataReader, CustomAttribute, Action{int}?, Func{string, PrimitiveTypeCode}?)"/>,
+    /// additionally reporting where the value walk stopped. Test-only seam; see
+    /// <see cref="Boundary"/> for why the guard must report this itself.
+    /// </summary>
+    internal static bool IsSafeToDecode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        out Boundary boundary,
+        Action<int>? beforeMaterialize = null,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType = null)
     {
         try
         {
@@ -79,19 +119,23 @@ public static class CustomAttributeValueGuard
                     reader,
                     attribute,
                     beforeMaterialize,
-                    enumUnderlyingType)
+                    enumUnderlyingType,
+                    out boundary)
                 != Result.Unsafe;
         }
         catch (AttributeDecoder.TypeDefinitionIndexException)
         {
+            boundary = default;
             return false;
         }
         catch (BadImageFormatException)
         {
+            boundary = default;
             return true;
         }
         catch (ArgumentOutOfRangeException)
         {
+            boundary = default;
             return true;
         }
     }
@@ -100,8 +144,10 @@ public static class CustomAttributeValueGuard
         MetadataReader reader,
         CustomAttribute attribute,
         Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
+        out Boundary boundary)
     {
+        boundary = default;
         if (!TryGetConstructorSignature(reader, attribute.Constructor, out var signatureHandle))
             return Result.Safe;
         if (!SignatureBlobGuard.IsSafeToDecode(
@@ -139,7 +185,9 @@ public static class CustomAttributeValueGuard
         walk.Push(WorkItem.NamedHeader());
         if (parameterCount > 0)
             walk.Push(WorkItem.FixedArgs(parameterCount, depth: 1));
-        return walk.Run();
+        Result result = walk.Run();
+        boundary = new Boundary(Known: true, walk.ValueOffset, value.Length);
+        return result;
     }
 
     /// <summary>
@@ -289,6 +337,9 @@ public static class CustomAttributeValueGuard
 
             return isSystemType;
         }
+
+        /// <summary>Bytes consumed from the value blob when the walk stopped.</summary>
+        public int ValueOffset => _value.Offset;
 
         public Result Run()
         {

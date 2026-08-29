@@ -296,6 +296,13 @@ and I3 separately, across both the metadata axes and the observer axis. A gate
 that asserts only offset agreement passes both the unbounded and the expensive
 attack; a gate defined only over generated metadata cannot see gap 4 at all.
 
+`tests/ILInspector.Metadata.Tests/CustomAttributeDifferentialOracle.cs` is the
+first slice of that gate. It generates over the legal fixed-argument grammar —
+primitives, strings, `SZARRAY` of scalars, boxed values, and both enum
+spellings — and asserts I1 in both directions. It does **not** yet cover I2,
+I3, the observer axis, named arguments, generic substitution, custom modifiers,
+or the hostile shapes that live past the bounds; issue #5065 tracks the rest.
+
 **This specification is itself partial.** Six of the seven known gaps were
 found by reading rather than by any gate, and five of them were found after
 this document's first draft — including two found by reviewing this very
@@ -369,10 +376,17 @@ is structural: SRM is the oracle, and an oracle cannot report where its
 
 **The gate therefore requires the guard's own final offset to be observable to
 the test.** That is a testability requirement on this component, not a property
-of the generated input — an internal or test-visible boundary trace that the
-oracle compares against SRM's reconstructed consumption. Without it, I1 can be
-established in one direction only, and the direction it misses is the one where
-the guard has already said `true`.
+of the generated input. Without it, I1 can be established in one direction
+only, and the direction it misses is the one where the guard has already said
+`true`.
+
+That seam now exists: `CustomAttributeValueGuard.Boundary` reports where the
+value walk stopped, and reports it as *unknown* when no walk ran or the walk
+ended by exception. A mutation confirms the asymmetry this section describes.
+Narrowing a single primitive skip from four bytes to three fails the boundary
+assertions immediately, and leaves
+`GeneratedBlobs_SrmDecodesEveryBlobTheGuardApproves` **passing** — a misaligned
+guard is invisible to the SRM-side check, exactly as argued above.
 
 I2 is checked separately and does not depend on these, but it needs **two**
 assertions, because I2 covers both what SRM allocates and what it spends:
@@ -845,7 +859,7 @@ malformed blob.
 | --- | --- |
 | #4992 | Whether the width-alignment collapse fixed on the handle path remains reachable on the blob-authored name path. Open and unproven. |
 | #5047 | Per-element element-type replay; resolve once and loop, as SRM does. Gap 3. |
-| #5065 | The differential oracle named above as this design's enforcement gate. |
+| #5065 | The differential oracle named above as this design's enforcement gate. I1 is now gated over the generated legal grammar; I2 and I3 are not, and the I2 policy oracle is still unspecified. |
 | #5085 | An observer exception can be caught as malformed metadata and turned into an approval. Gap 4. Found while reviewing this document. |
 | #5091 | Quadratic guard work across declared parameter count and type-definition count. Gap 2. Found while reviewing this document. |
 | #5098 | Blobs that cost SRM quadratic work across parameter count and generic arity, which the guard's memoization hides. Gap 1. Found while reviewing this document. |
