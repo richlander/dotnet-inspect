@@ -681,8 +681,9 @@ gates a relative Browser path, and
 `LocalDirectoryPlatformPolicy_UnknownHostReturnsUnsupported` pins the complete
 supported-host allow list and its unknown-host result.
 `LocalDirectoryAcquisition_TrailingSeparatorRootLinkIsRejected` supplies a
-stable Unix directory symlink with a trailing separator and gates normalized
-root probing.
+stable Unix directory symlink with at least three trailing separators and
+asserts that every non-root trailing separator is removed before the root-kind
+probe.
 `LocalDirectoryAcquisition_StableNonRegularEntryRejectsBeforeOpen` gates this
 with a stable Unix FIFO under an outer process deadline and asserts typed
 rejection with no registered contribution.
