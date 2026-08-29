@@ -2814,6 +2814,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /announcement: takePackageQueryAnnouncement\(\)/);
   assert.match(
     appSource,
+    /workspaceHref: state\.package \? buildStateUrl\(\)\.toString\(\) : "\/"/);
+  assert.match(
+    appSource,
     /url => workspaceLocation\.replace\(url, history\.state\)/);
 });
 

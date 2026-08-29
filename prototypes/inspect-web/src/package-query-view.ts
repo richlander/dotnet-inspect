@@ -19,7 +19,7 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
-  | { kind: "home" }
+  | { kind: "workspace" }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
@@ -71,7 +71,7 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
-  if (active.id === "package-query-home") return { kind: "home" };
+  if (active.id === "package-query-workspace") return { kind: "workspace" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.dataset.queryFacet) {
@@ -103,8 +103,8 @@ export function restorePackageQueryFocus(
     case "prefix":
       target = root.querySelector("#package-query-prefix");
       break;
-    case "home":
-      target = root.querySelector("#package-query-home");
+    case "workspace":
+      target = root.querySelector("#package-query-workspace");
       break;
     case "back":
       target = root.querySelector("#package-query-back");
@@ -319,6 +319,7 @@ export interface RenderPackageQueryOptions {
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
   announcement?: string;
+  workspaceHref?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -331,6 +332,7 @@ export function renderPackageQueryView(
     availableFacets,
     navigationError = "",
     announcement = "",
+    workspaceHref = "/",
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -358,7 +360,7 @@ export function renderPackageQueryView(
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        <a id="package-query-home" class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        <a id="package-query-workspace" class="brand" href="${escapeHtml(workspaceHref)}" aria-label="dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
         <button id="package-query-back" type="button">Back</button>
       </header>
       <main class="query-main">

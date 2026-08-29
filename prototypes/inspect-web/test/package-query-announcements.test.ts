@@ -10,6 +10,7 @@ test("persistent query failures are announced only when introduced", () => {
     catalogError: "Catalog failed.",
     navigationError: "",
     failures: ["Feed A failed."],
+    terminalFailure: "",
   };
 
   assert.equal(
@@ -31,6 +32,7 @@ test("cleared and reset query failures can be announced again", () => {
     catalogError: "",
     navigationError: "",
     failures: ["Feed failed."],
+    terminalFailure: "",
   };
 
   assert.equal(tracker.take(failed), "Feed failed.");
@@ -38,4 +40,21 @@ test("cleared and reset query failures can be announced again", () => {
   assert.equal(tracker.take(failed), "Feed failed.");
   tracker.reset();
   assert.equal(tracker.take(failed), "Feed failed.");
+});
+
+test("a whole-query failure is announced once", () => {
+  const tracker = createPackageQueryAnnouncementTracker();
+  const failed = {
+    catalogError: "",
+    navigationError: "",
+    failures: [],
+    terminalFailure: "The query timed out.",
+  };
+
+  assert.equal(tracker.take(failed), "The query timed out.");
+  assert.equal(tracker.take(failed), "");
+  assert.equal(
+    tracker.take({ ...failed, terminalFailure: "" }),
+    "");
+  assert.equal(tracker.take(failed), "The query timed out.");
 });

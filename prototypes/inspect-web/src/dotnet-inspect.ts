@@ -7032,6 +7032,10 @@ function takePackageQueryAnnouncement(): string {
     catalogError: state.packageQueryCatalogError,
     navigationError: state.packageQueryNavigationError,
     failures: state.packageQueryState.outcome.failures,
+    terminalFailure:
+      state.packageQueryState.outcome.completion.kind === "failed"
+        ? state.packageQueryState.outcome.completion.reason
+        : "",
   });
 }
 
@@ -7225,6 +7229,7 @@ function renderPackageQueryPage() {
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
     announcement: takePackageQueryAnnouncement(),
+    workspaceHref: state.package ? buildStateUrl().toString() : "/",
     escapeHtml,
   });
   bindPackageQueryView(document, packageQueryActions);

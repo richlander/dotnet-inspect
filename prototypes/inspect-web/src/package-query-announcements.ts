@@ -2,6 +2,7 @@ type PackageQueryAnnouncementInput = {
   catalogError: string;
   navigationError: string;
   failures: readonly string[];
+  terminalFailure: string;
 };
 
 export type PackageQueryAnnouncementTracker = {
@@ -14,6 +15,7 @@ export function createPackageQueryAnnouncementTracker():
   let catalogError = "";
   let navigationError = "";
   let failureCount = 0;
+  let terminalFailure = "";
 
   return {
     take(input) {
@@ -32,12 +34,19 @@ export function createPackageQueryAnnouncementTracker():
       if (input.failures.length < failureCount) failureCount = 0;
       announcement.push(...input.failures.slice(failureCount));
       failureCount = input.failures.length;
+
+      if (input.terminalFailure
+        && input.terminalFailure !== terminalFailure) {
+        announcement.push(input.terminalFailure);
+      }
+      terminalFailure = input.terminalFailure;
       return announcement.join(" ");
     },
     reset() {
       catalogError = "";
       navigationError = "";
       failureCount = 0;
+      terminalFailure = "";
     },
   };
 }

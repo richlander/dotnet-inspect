@@ -1556,6 +1556,13 @@ test("static hosting serves credits links through the application entry point", 
         "Cache-Control": "no-cache, no-store, must-revalidate",
       },
     },
+    {
+      route: "/credits/",
+      rewrite: "/index.html",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+      },
+    },
   ]);
   assert.equal(staticWebAppConfig.navigationFallback.rewrite, "/index.html");
   assert.deepEqual(

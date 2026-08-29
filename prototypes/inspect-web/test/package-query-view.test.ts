@@ -54,6 +54,19 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Query nuget\.org/);
 });
 
+test("the persistent brand opens the resident workspace", () => {
+  const html = renderPackageQueryView({
+    state: initialQueryState(),
+    availableFacets: FACETS,
+    workspaceHref: "/?package=Example&version=1.0.0",
+    escapeHtml,
+  });
+
+  assert.match(
+    html,
+    /id="package-query-workspace" class="brand" href="\/\?package=Example&amp;version=1\.0\.0" aria-label="dotnet inspect workspace"/);
+});
+
 test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
   const maliciousRow: QueryResultRow = {
     ...row('Microsoft.Bcl.AsyncInterfaces" onmouseover="alert(1)'),
@@ -395,9 +408,9 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
-      active: new FakeElement({}, "package-query-home"),
-      selector: "#package-query-home",
-      replacement: new FakeElement({}, "package-query-home"),
+      active: new FakeElement({}, "package-query-workspace"),
+      selector: "#package-query-workspace",
+      replacement: new FakeElement({}, "package-query-workspace"),
     },
     {
       active: new FakeElement({}, "package-query-back"),
