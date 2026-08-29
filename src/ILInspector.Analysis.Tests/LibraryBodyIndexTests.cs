@@ -1670,6 +1670,15 @@ public class LibraryBodyIndexTests
                     .CustomBuilderSecondarySource),
             nameof(
                 ClassicAsyncSiblingFixture
+                    .ExternalAddressSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .MismatchedBuilderSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ReenteringCleanupSource),
+            nameof(
+                ClassicAsyncSiblingFixture
                     .StoresAfterDifferentSuspension),
         ];
 
@@ -1876,6 +1885,157 @@ public class LibraryBodyIndexTests
         Assert.Null(
             customSecondarySink.StateMachineFieldSource);
 
+        MethodIdentity externalAddress = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ExternalAddressSource));
+        MethodResultSink externalAddressSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == externalAddress
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                    FieldIdentity: not null,
+                });
+        Assert.Contains(
+            index.FieldLoads,
+            load => load.EvidenceMethod.Name == "Corrupt"
+                && load.IsAddress
+                && externalAddressSink.ResolvedValue!.Single!
+                    .FieldIdentity!.Equals(load.Identity));
+
+        MethodIdentity mismatchedBuilder = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .MismatchedBuilderSource));
+        DirectCall mismatchedCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == mismatchedBuilder
+                && call.Callee.Name == "SetResult");
+        Assert.True(
+            FrameworkIdentity.IsCoreLibraryType(
+                mismatchedBuilder.ReturnType,
+                "System.Threading.Tasks",
+                "Task`1"));
+        Assert.True(
+            FrameworkIdentity.IsCoreLibraryType(
+                mismatchedCompletion.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncValueTaskMethodBuilder`1"));
+
+        MethodIdentity reenteringCleanup = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReenteringCleanupSource));
+        DirectCall reenteringCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == reenteringCleanup
+                && call.Callee.Name == "SetResult");
+        MethodResultSink reenteringSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.EvidenceMethod
+                    == reenteringCompletion.EvidenceMethod
+                && sink.ILOffset == reenteringCompletion.ILOffset);
+        FieldIdentity reenteringField = Assert.IsType<FieldIdentity>(
+            reenteringSink.ResolvedValue?.Single?.FieldIdentity);
+        Assert.True(reenteringCompletion.InLoop);
+        Assert.Contains(
+            index.FieldStores,
+            store => store.EvidenceMethod
+                    == reenteringSink.EvidenceMethod
+                && store.ILOffset
+                    > reenteringSink.ResolvedValue!.Single!.ILOffset
+                && reenteringField.Equals(store.Identity)
+                && store.Value.Single?.Kind
+                    == ResolvedValueSourceKind.NullReference);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_SuppressStateMachineFieldSourceForScopedCensus()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            full.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink fullSink = Assert.Single(
+            full.ResultSinks,
+            sink => sink.Caller == source
+                && sink.StateMachineFieldSource is not null);
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow,
+            bodyScope:
+                new HashSet<int>
+                {
+                    fullSink.EvidenceMethod.MetadataToken,
+                });
+
+        Assert.DoesNotContain(
+            scoped.ResultSinks,
+            sink => sink.StateMachineFieldSource is not null);
+        Assert.Contains(
+            scoped.ResultSinks,
+            sink => sink.Caller == source
+                && sink.EvidenceMethod.MetadataToken
+                    == fullSink.EvidenceMethod.MetadataToken);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_WithStateMachineFieldSourceRemainEqualityStable()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.JsonWireContractFlow;
+        LibraryBodyIndex left = LibraryBodyIndex.Open(
+            path,
+            features);
+        LibraryBodyIndex right = LibraryBodyIndex.Open(
+            path,
+            features);
+
+        static MethodResultSink Select(
+            LibraryBodyIndex index) =>
+            Assert.Single(
+                index.ResultSinks,
+                sink => sink.Caller.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .ReturnsCallStoredBeforeAwait)
+                    && sink.StateMachineFieldSource is not null);
+
+        MethodResultSink leftSink = Select(left);
+        MethodResultSink rightSink = Select(right);
+
+        Assert.Equal(leftSink, rightSink);
+        Assert.Equal(
+            leftSink.GetHashCode(),
+            rightSink.GetHashCode());
+        Assert.Single(
+            new[] { leftSink, rightSink }.Distinct());
     }
 
     [Fact]

@@ -693,7 +693,9 @@ public sealed record MethodResultSink(
     /// store that dominates the initial suspension and the corresponding load
     /// after every suspension in the physical body, with no field-address
     /// escape or exact store outside that body, into the same exact trusted
-    /// framework async-builder field used by every suspension.
+    /// framework async-builder field used by every suspension. The source task
+    /// and builder families and result types must match. Scoped body indexes
+    /// withhold this whole-assembly absence proof.
     /// </summary>
     /// <remarks>
     /// This augments rather than reinterprets

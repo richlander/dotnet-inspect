@@ -377,15 +377,20 @@ resolved-value, field-access, and suspension facts into
 `AsyncStateMachineFieldResultSource`. This preserves direct-call provenance
 across one exact compiler state-machine field without relying on generated
 field names. The source store must dominate the initial suspension, the result
-field must neither escape by address nor have an exact store outside the
+field must have neither an exact store nor an exact address escape outside the
 physical state-machine body, and every suspension and completion must use the
-same exact local framework builder field. The kickoff source must return
-framework `Task<T>` or `ValueTask<T>`; custom builders and every ambiguous
-identity, store, or reachability case remain unresolved.
+same exact local trusted framework builder field. Its task/value-task family and
+result type must match the kickoff source. Address escapes inside the body,
+custom or spoofed builders, re-entering null cleanup, and every ambiguous
+identity, store, or reachability case remain unresolved. Scoped body indexes
+withhold this whole-assembly absence proof.
 `ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField` and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
 `ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
-`ResultSinks_AuthenticateStateMachineCompletionBuilderField` gate that
+`ResultSinks_AuthenticateStateMachineCompletionBuilderField`,
+`ResultSinks_SuppressStateMachineFieldSourceForScopedCensus`,
+`ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
+`AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate that
 composition.
 `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
 `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,

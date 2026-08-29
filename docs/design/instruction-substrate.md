@@ -129,19 +129,25 @@ only direct call results from one store that dominates the initial suspension
 to the post-suspension framework builder completion. Later continuation
 dispatches may bypass the original store physically; the field persists its
 value across those transitions. Suspension and completion must use the same
-exact local builder field, and the authenticated kickoff source must return
-framework `Task<T>` or `ValueTask<T>`. The fact retains the result field identity
-and physical store, load, and source-call offsets; null cleanup stores emitted
-after the load are allowed. Unknown reachability, an unresolved or foreign
-field, another non-null write, an exact store outside the physical state-machine
-body, a field-address escape, a looped or initially non-dominating source store,
-another builder field, or a custom async builder remains unresolved.
+exact local builder field. Its trusted framework family and result type must
+match the authenticated kickoff source's `Task<T>` or `ValueTask<T>`. The fact
+retains the result field identity and physical store, load, and source-call
+offsets; null cleanup stores emitted after the load are allowed only when they
+cannot flow back to that load. Unknown reachability, an unresolved or foreign
+field, another non-null write, an exact store or address escape outside the
+physical state-machine body, an address escape inside it, a looped or initially
+non-dominating source store, another builder field, or a custom async builder
+remains unresolved. A scoped body census withholds the fact because it cannot
+establish whole-assembly absence of external writes and address escapes.
 `LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
 and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
 `ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
-`ResultSinks_AuthenticateStateMachineCompletionBuilderField` gate the positive
-and fail-closed boundaries.
+`ResultSinks_AuthenticateStateMachineCompletionBuilderField`,
+`ResultSinks_SuppressStateMachineFieldSourceForScopedCensus`,
+`ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
+`AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate the positive,
+fail-closed, scope-completeness, and equality boundaries.
 
 The same opt-in call-value flow separately projects an instance call's receiver
 sources. A receiver is complete only when every path comes from directly proven

@@ -57,6 +57,90 @@ public sealed class MethodCallResolvedValueTests
     }
 
     [Fact]
+    public void
+        AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity()
+    {
+        TypeRef task = TypeRef.GenericInstance(
+            TypeRef.CoreLib(
+                "System.Threading.Tasks",
+                "Task`1"),
+            [s_int32]);
+        TypeRef valueTask = TypeRef.GenericInstance(
+            TypeRef.CoreLib(
+                "System.Threading.Tasks",
+                "ValueTask`1"),
+            [s_int32]);
+        TypeRef unsignedTask = TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "System.Runtime",
+                "System.Threading.Tasks",
+                "Task`1",
+                trustedFrameworkAssembly: false),
+            [s_int32]);
+        TypeRef customTask = TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "Fixture",
+                "Fixtures",
+                "Task`1"),
+            [s_int32]);
+        TypeRef taskBuilder = TypeRef.GenericInstance(
+            TypeRef.CoreLib(
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder`1"),
+            [s_int32]);
+        TypeRef wrongFamilyBuilder = TypeRef.GenericInstance(
+            TypeRef.CoreLib(
+                "System.Runtime.CompilerServices",
+                "AsyncValueTaskMethodBuilder`1"),
+            [s_int32]);
+        TypeRef wrongResultBuilder = TypeRef.GenericInstance(
+            TypeRef.CoreLib(
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder`1"),
+            [s_object]);
+        TypeRef unsignedBuilder = TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "System.Runtime",
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder`1",
+                trustedFrameworkAssembly: false),
+            [s_int32]);
+
+        Assert.True(
+            MethodCallAnalysis
+                .IsSupportedFrameworkAsyncResult(task));
+        Assert.True(
+            MethodCallAnalysis
+                .IsSupportedFrameworkAsyncResult(valueTask));
+        Assert.False(
+            MethodCallAnalysis
+                .IsSupportedFrameworkAsyncResult(unsignedTask));
+        Assert.False(
+            MethodCallAnalysis
+                .IsSupportedFrameworkAsyncResult(customTask));
+        Assert.True(
+            MethodCallAnalysis
+                .IsCompatibleFrameworkAsyncBuilder(
+                    task,
+                    taskBuilder));
+        Assert.False(
+            MethodCallAnalysis
+                .IsCompatibleFrameworkAsyncBuilder(
+                    task,
+                    wrongFamilyBuilder));
+        Assert.False(
+            MethodCallAnalysis
+                .IsCompatibleFrameworkAsyncBuilder(
+                    task,
+                    wrongResultBuilder));
+        Assert.False(
+            MethodCallAnalysis
+                .IsCompatibleFrameworkAsyncBuilder(
+                    task,
+                    unsignedBuilder));
+    }
+
+    [Fact]
     public void ResolvesArgumentValueSourceKinds()
     {
         byte[] il =

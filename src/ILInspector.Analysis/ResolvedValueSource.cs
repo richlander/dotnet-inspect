@@ -210,9 +210,11 @@ public sealed class ResolvedValueSet : IEquatable<ResolvedValueSet>
 /// post-suspension load with no address escape or exact store outside the
 /// physical state-machine body, and a trusted framework async-builder
 /// completion using the same exact builder field as every suspension. The
-/// authenticated kickoff source must return framework <c>Task&lt;T&gt;</c> or
-/// <c>ValueTask&lt;T&gt;</c>. It does not infer provenance from generated
-/// field names. Custom async builders remain unresolved.
+/// authenticated kickoff source's framework <c>Task&lt;T&gt;</c> or
+/// <c>ValueTask&lt;T&gt;</c> family and result type must match that builder.
+/// Later null cleanup must not flow back to the selected load, and the fact is
+/// withheld from a scoped body census. It does not infer provenance from
+/// generated field names. Custom async builders remain unresolved.
 /// <c>LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField</c>
 /// and
 /// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>
@@ -220,9 +222,16 @@ public sealed class ResolvedValueSet : IEquatable<ResolvedValueSet>
 /// <c>LibraryBodyIndexTests.ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias</c>
 /// and
 /// <c>LibraryBodyIndexTests.ResultSinks_AuthenticateStateMachineCompletionBuilderField</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_SuppressStateMachineFieldSourceForScopedCensus</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_WithStateMachineFieldSourceRemainEqualityStable</c>
+/// and
+/// <c>MethodCallResolvedValueTests.AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity</c>
 /// gate the positive and fail-closed boundaries.
 /// </remarks>
-public sealed class AsyncStateMachineFieldResultSource
+public sealed class AsyncStateMachineFieldResultSource :
+    IEquatable<AsyncStateMachineFieldResultSource>
 {
     internal AsyncStateMachineFieldResultSource(
         FieldIdentity field,
@@ -268,6 +277,31 @@ public sealed class AsyncStateMachineFieldResultSource
     public int StoreOffset { get; }
     public int LoadOffset { get; }
     public ImmutableArray<int> SourceCallOffsets { get; }
+
+    public bool Equals(AsyncStateMachineFieldResultSource? other)
+        => other is not null
+            && Field.Equals(other.Field)
+            && StoreOffset == other.StoreOffset
+            && LoadOffset == other.LoadOffset
+            && ImmutableArrayValueEquality.SequenceEqual(
+                SourceCallOffsets,
+                other.SourceCallOffsets);
+
+    public override bool Equals(object? obj)
+        => obj is AsyncStateMachineFieldResultSource other
+            && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Field);
+        hash.Add(StoreOffset);
+        hash.Add(LoadOffset);
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            SourceCallOffsets);
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>

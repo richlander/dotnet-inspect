@@ -42,7 +42,9 @@ public enum LibraryBodyAnalysisFeatures
     AsyncSiblingOpportunities = 1 << 5,
     /// <summary>
     /// Produce call argument provenance and return-sink value flow required to
-    /// authenticate source-generated System.Text.Json wire contracts.
+    /// authenticate source-generated System.Text.Json wire contracts. A scoped
+    /// body census withholds async state-machine field provenance whose
+    /// validity depends on the absence of writes in other bodies.
     /// </summary>
     JsonWireContractFlow = 1 << 6,
     /// <summary>The body-analysis features used by the general index.</summary>

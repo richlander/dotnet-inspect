@@ -178,10 +178,12 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<FieldLoadFact>.Builder fieldLoads,
         ImmutableArray<MethodResultSink>.Builder resultSinks)
     {
+        TypeRef asyncResultType =
+            asyncBody.SourceMethod.ReturnType;
         if (asyncBody.Lowering != AsyncLoweringKind.StateMachine
             || asyncBody.SourceMethod == context.Method
             || !IsSupportedFrameworkAsyncResult(
-                asyncBody.SourceMethod.ReturnType))
+                asyncResultType))
         {
             return;
         }
@@ -192,7 +194,9 @@ internal static partial class MethodCallAnalysis
                 .Where(call =>
                     call.Caller == context.Method
                     && call.IsReachable == true
-                    && IsAsyncBuilderSuspension(call.Callee))
+                    && IsAsyncBuilderSuspension(
+                        call.Callee,
+                        asyncResultType))
                 .OrderBy(call => call.ILOffset),
         ];
         if (suspensions.Length == 0
@@ -228,7 +232,9 @@ internal static partial class MethodCallAnalysis
                 || sink.Kind
                     != MethodResultSinkKind.SingleArgumentCall
                 || sinkCall is null
-                || !IsAsyncBuilderResult(sinkCall.Callee)
+                || !IsAsyncBuilderResult(
+                    sinkCall.Callee,
+                    asyncResultType)
                 || !TryGetBuilderField(
                     context.Method,
                     sinkCall,
@@ -276,6 +282,11 @@ internal static partial class MethodCallAnalysis
                     loadSource.ILOffset,
                     fieldStores,
                     out FieldStoreFact? sourceStore)
+                || HasUnsafeNullCleanup(
+                    context,
+                    field,
+                    loadSource.ILOffset,
+                    fieldStores)
                 || context.IsInLoopRegion(sourceStore.ILOffset)
                 || sourceStore.ILOffset >= suspensionOffsets[0]
                 || !DominatesOffset(
@@ -345,15 +356,123 @@ internal static partial class MethodCallAnalysis
                 targetBlock);
     }
 
-    static bool IsSupportedFrameworkAsyncResult(TypeRef returnType)
-        => returnType.Kind == TypeRefKind.GenericInstance
-            && returnType.ElementType is
+    static bool HasUnsafeNullCleanup(
+        MethodBodyAnalysisContext context,
+        FieldIdentity field,
+        int loadOffset,
+        IEnumerable<FieldStoreFact> fieldStores)
+        => fieldStores.Any(store =>
+            store.Caller == context.Method
+            && store.EvidenceMethod == context.Method
+            && store.ILOffset >= loadOffset
+            && store.IsReachable == true
+            && field.Equals(store.Identity)
+            && IsNullReference(store.Value)
+            && CanReachOffset(
+                context,
+                store.ILOffset,
+                loadOffset));
+
+    static bool CanReachOffset(
+        MethodBodyAnalysisContext context,
+        int sourceOffset,
+        int targetOffset)
+    {
+        if (!context.Blocks.IsComplete)
+            return true;
+
+        int sourceBlock =
+            context.Blocks.BlockIndexAt(sourceOffset);
+        int targetBlock =
+            context.Blocks.BlockIndexAt(targetOffset);
+        if (sourceBlock < 0 || targetBlock < 0)
+            return true;
+
+        var visited = new bool[context.Blocks.Blocks.Length];
+        var pending = new Queue<int>();
+        visited[sourceBlock] = true;
+        foreach (int successor in
+            context.Blocks.Blocks[sourceBlock].Edges.Successors)
+        {
+            pending.Enqueue(successor);
+        }
+
+        while (pending.Count != 0)
+        {
+            int block = pending.Dequeue();
+            if (block == targetBlock)
+                return true;
+            if ((uint)block >= (uint)visited.Length
+                || visited[block])
             {
-                Kind: TypeRefKind.Definition,
-                Assembly: TypeRef.CoreLibrary,
-                Namespace: "System.Threading.Tasks",
-                Name: "Task`1" or "ValueTask`1",
-            };
+                continue;
+            }
+
+            visited[block] = true;
+            foreach (int successor in
+                context.Blocks.Blocks[block].Edges.Successors)
+            {
+                pending.Enqueue(successor);
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool IsSupportedFrameworkAsyncResult(
+        TypeRef returnType)
+        => TryGetFrameworkAsyncResult(
+            returnType,
+            out _,
+            out _);
+
+    internal static bool IsCompatibleFrameworkAsyncBuilder(
+        TypeRef returnType,
+        TypeRef builderType)
+        => TryGetFrameworkAsyncResult(
+                returnType,
+                out string? builderName,
+                out TypeRef? resultType)
+            && IsMatchingAsyncMethodBuilder(
+                builderType,
+                builderName,
+                resultType);
+
+    static bool TryGetFrameworkAsyncResult(
+        TypeRef returnType,
+        [NotNullWhen(true)] out string? builderName,
+        [NotNullWhen(true)] out TypeRef? resultType)
+    {
+        builderName = null;
+        resultType = null;
+        if (returnType.Kind != TypeRefKind.GenericInstance
+            || returnType.TypeArguments is not [var candidate])
+        {
+            return false;
+        }
+
+        if (FrameworkIdentity.IsCoreLibraryType(
+                returnType,
+                "System.Threading.Tasks",
+                "Task`1"))
+        {
+            builderName = "AsyncTaskMethodBuilder`1";
+        }
+        else if (FrameworkIdentity.IsCoreLibraryType(
+            returnType,
+            "System.Threading.Tasks",
+            "ValueTask`1"))
+        {
+            builderName = "AsyncValueTaskMethodBuilder`1";
+        }
+        else
+        {
+            return false;
+        }
+
+        resultType = candidate;
+        return true;
+    }
 
     internal static bool TryFindAsyncStateMachineFieldSourceStore(
         MethodIdentity method,
@@ -436,7 +555,9 @@ internal static partial class MethodCallAnalysis
             Kind: ResolvedValueSourceKind.NullReference,
         };
 
-    static bool IsAsyncBuilderSuspension(MemberRef callee)
+    static bool IsAsyncBuilderSuspension(
+        MemberRef callee,
+        TypeRef asyncResultType)
     {
         if (callee.Name is not ("AwaitOnCompleted"
                 or "AwaitUnsafeOnCompleted")
@@ -448,43 +569,36 @@ internal static partial class MethodCallAnalysis
             return false;
         }
 
-        return IsSystemAsyncMethodBuilder(
-            callee.DeclaringType,
-            allowNonGeneric: true);
+        return IsCompatibleFrameworkAsyncBuilder(
+            asyncResultType,
+            callee.DeclaringType);
     }
 
-    static bool IsAsyncBuilderResult(MemberRef callee)
+    static bool IsAsyncBuilderResult(
+        MemberRef callee,
+        TypeRef asyncResultType)
         => callee.Name == "SetResult"
             && callee.HasThis
-            && callee.ParameterTypes.Length == 1
+            && callee.ParameterTypes is [var parameter]
+            && asyncResultType.TypeArguments is [var resultType]
+            && parameter.Equals(resultType)
             && callee.ReturnType.Equals(
                 TypeRef.CoreLib("System", "Void"))
-            && IsSystemAsyncMethodBuilder(
-                callee.DeclaringType,
-                allowNonGeneric: false);
+            && IsCompatibleFrameworkAsyncBuilder(
+                asyncResultType,
+                callee.DeclaringType);
 
-    static bool IsSystemAsyncMethodBuilder(
+    static bool IsMatchingAsyncMethodBuilder(
         TypeRef declaringType,
-        bool allowNonGeneric)
-    {
-        TypeRef identity =
-            declaringType.Kind
-                == TypeRefKind.GenericInstance
-                && declaringType.ElementType is { } definition
-                ? definition
-                : declaringType;
-        return identity.Kind == TypeRefKind.Definition
-            && identity.Assembly == TypeRef.CoreLibrary
-            && identity.Namespace
-                == "System.Runtime.CompilerServices"
-            && (identity.Name is "AsyncTaskMethodBuilder`1"
-                    or "AsyncValueTaskMethodBuilder`1"
-                || allowNonGeneric
-                    && identity.Name is (
-                        "AsyncTaskMethodBuilder"
-                        or "AsyncValueTaskMethodBuilder"
-                        or "AsyncVoidMethodBuilder"));
-    }
+        string builderName,
+        TypeRef resultType)
+        => declaringType.Kind == TypeRefKind.GenericInstance
+            && declaringType.TypeArguments is [var builderResult]
+            && builderResult.Equals(resultType)
+            && FrameworkIdentity.IsCoreLibraryType(
+                declaringType,
+                "System.Runtime.CompilerServices",
+                builderName);
 
     /// <summary>
     /// Fills the resolved-value union, the receiver value, and any recognized

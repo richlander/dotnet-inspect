@@ -203,7 +203,7 @@ the unpatched control still publishes.
 | `FieldStoreFact`, `FieldLoadFact` | One direct field store, load, or address instruction | Which field the instruction touches, whether its receiver is an argument, whether an access takes its address, whether the block is reachable, and (for stores) the resolved stored value | Whether an escaped address is later written; consumers requiring stable value provenance must reject the escape |
 | `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef` whatever its parent encoding; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
 | `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
-| `AsyncStateMachineFieldResultSource` | One authenticated compiler async `MethodResultSink` | Which exact local state-machine field carried direct call results from one store dominating the initial suspension to the corresponding load after every suspension, with one exact framework builder field across suspension and completion | Custom async builders, ambiguous or non-call stores, stores outside the physical body, loops, initially non-dominating paths, address escapes, wrong builder fields, foreign or unresolved fields, and unknown reachability |
+| `AsyncStateMachineFieldResultSource` | One authenticated compiler async `MethodResultSink` in an unscoped body census | Which exact local state-machine field carried direct call results from one store dominating the initial suspension to the corresponding load after every suspension, with one exact matching framework builder field across suspension and completion | Scoped censuses, custom or spoofed async builders, mismatched task/builder families or result types, ambiguous or non-call stores, stores or address escapes outside the physical body, loops, initially non-dominating paths, cleanup that can re-enter the load, foreign or unresolved fields, and unknown reachability |
 | `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
 
 `ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
@@ -223,15 +223,18 @@ physical field, store, load, and direct-call coordinates. Analysis issues it
 only after `AsyncBodyAttribution` authenticates a distinct state-machine body
 and kickoff source, and only for trusted framework `Task`/`ValueTask` builder
 completion whose receiver is the same exact local builder field used by every
-suspension, and the kickoff source must return framework `Task<T>` or
-`ValueTask<T>`. The call-valued store must dominate the initial suspension;
-later continuation dispatch may physically bypass the store while retaining
-its field value. An exact same-field store outside the physical state-machine
-body rejects kickoff-initialized parameters whose raw path bypasses both the
-store and suspension. Taking the result field's address also rejects the proof
-because an indirect write cannot be inventoried. Compiler-emitted null cleanup
-after the load does not erase the already-proven transfer; every other possible
-same-field write fails closed.
+suspension. The trusted framework builder family and result type must exactly
+match the kickoff source's `Task<T>` or `ValueTask<T>`. The call-valued store
+must dominate the initial suspension; later continuation dispatch may physically
+bypass the store while retaining its field value. An exact same-field store or
+address escape outside the physical state-machine body rejects the proof,
+including kickoff-initialized parameters whose raw path bypasses both the store
+and suspension. Taking the result field's address inside the body also rejects
+the proof because an indirect write cannot be inventoried. Compiler-emitted
+null cleanup after the load does not erase the already-proven transfer when it
+cannot flow back to that load; every other possible same-field write fails
+closed. A scoped body index withholds this fact because it cannot establish
+whole-assembly absence.
 `LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
 and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and

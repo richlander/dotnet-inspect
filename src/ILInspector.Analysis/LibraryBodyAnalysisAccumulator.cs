@@ -14,6 +14,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
     readonly bool _includeLeakTriage;
+    readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
     internal LibraryBodyAnalysisAccumulator(
@@ -27,6 +28,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             LibraryBodyAnalysisFeatures.MethodEvidence);
         _includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
+        _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -208,7 +210,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var directCalls = calls.ToImmutable();
         RemoveExternallyStoredAsyncFieldSources(
             resultSinks,
-            fieldStores);
+            fieldStores,
+            fieldLoads,
+            _isScoped);
         var nonHeapNewObjOperandTokens = _includeMethodEvidence
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
@@ -260,16 +264,28 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
     static void RemoveExternallyStoredAsyncFieldSources(
         ImmutableArray<MethodResultSink>.Builder resultSinks,
-        ImmutableArray<FieldStoreFact>.Builder fieldStores)
+        ImmutableArray<FieldStoreFact>.Builder fieldStores,
+        ImmutableArray<FieldLoadFact>.Builder fieldLoads,
+        bool isScoped)
     {
         for (int index = 0; index < resultSinks.Count; index++)
         {
             MethodResultSink sink = resultSinks[index];
-            if (sink.StateMachineFieldSource is not { } source
-                || !fieldStores.Any(store =>
-                    store.EvidenceMethod != sink.EvidenceMethod
-                    && store.IsReachable != false
-                    && source.Field.Equals(store.Identity)))
+            if (sink.StateMachineFieldSource is not { } source)
+                continue;
+
+            bool hasExternalStore = fieldStores.Any(store =>
+                store.EvidenceMethod != sink.EvidenceMethod
+                && store.IsReachable != false
+                && source.Field.Equals(store.Identity));
+            bool hasExternalAddressEscape = fieldLoads.Any(load =>
+                load.EvidenceMethod != sink.EvidenceMethod
+                && load.IsAddress
+                && load.IsReachable != false
+                && source.Field.Equals(load.Identity));
+            if (!isScoped
+                && !hasExternalStore
+                && !hasExternalAddressEscape)
             {
                 continue;
             }
