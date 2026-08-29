@@ -114,6 +114,7 @@ Dispositions == {"current", "synchronizationRequired"}
 NoResult ==
   [ outcome         |-> "none",
     source          |-> "none",
+    preparationFailureOccurred |-> FALSE,
     disposition     |-> "none",
     receiptSnapshot |-> InitialSnapshot,
     receiptRev      |-> 0,
@@ -128,10 +129,12 @@ ConsumerDisposition(resultSnapshot, resultRev) ==
     THEN "current"
     ELSE "synchronizationRequired"
 
-Result(outcome, source, disposition, receiptSnapshot, receiptRev,
+Result(outcome, source, preparationFailureOccurred,
+       disposition, receiptSnapshot, receiptRev,
        priorSnapshot, resultSnapshot, priorRev, resultRev) ==
   [ outcome         |-> outcome,
     source          |-> source,
+    preparationFailureOccurred |-> preparationFailureOccurred,
     disposition     |-> disposition,
     receiptSnapshot |-> receiptSnapshot,
     receiptRev      |-> receiptRev,
@@ -205,6 +208,7 @@ TypeOK ==
   /\ admittedRequests \subseteq 1 .. MaxMaintenance
   /\ lastResult.outcome \in SemanticOutcomes \cup {"none"}
   /\ lastResult.source \in ResultSources
+  /\ lastResult.preparationFailureOccurred \in BOOLEAN
   /\ lastResult.disposition \in Dispositions \cup {"none"}
   /\ lastResult.receiptSnapshot \in SnapshotValues
   /\ lastResult.receiptRev \in Nat
@@ -313,7 +317,7 @@ ExplicitResultInstalls(returnedSnapshot) ==
   /\ effect' = Authority("applied", installedRev + 1, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("applied", "none",
+       Result("applied", "none", FALSE,
               ConsumerDisposition(returnedSnapshot, installedRev + 1),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, returnedSnapshot,
@@ -351,6 +355,7 @@ ExplicitNonSuccess(outcome, returnedSnapshot) ==
        /\ lastResult' =
             Result(outcome,
                    IF outcome = "failed" THEN "evaluation" ELSE "none",
+                   FALSE,
                    ConsumerDisposition(returnedSnapshot, installedRev'),
                    acknowledgedSnapshot, acknowledgedRev,
                    installedSnapshot, returnedSnapshot,
@@ -389,7 +394,7 @@ NavigationPreparationFailure ==
        Authority("retained", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("failed", "navigationPreparation",
+       Result("failed", "navigationPreparation", TRUE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -431,7 +436,7 @@ ExplicitRejected ==
        Authority("retained", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("rejected", "none",
+       Result("rejected", "none", FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -464,7 +469,7 @@ ExternalPrerequisiteAbort ==
   /\ effect' = Authority("aborted", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("aborted", "none",
+       Result("aborted", "none", FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -607,7 +612,7 @@ AdmitMaintenance ==
      IN
        /\ installedSnapshot' = replacement
        /\ lastResult' =
-            Result("maintenance", "none",
+            Result("maintenance", "none", FALSE,
                    ConsumerDisposition(replacement, installedRev + 1),
                    acknowledgedSnapshot, acknowledgedRev,
                    installedSnapshot, replacement,
@@ -682,7 +687,7 @@ SynchronizeConsumer ==
        Authority("synchronize", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("synchronize", "none",
+       Result("synchronize", "none", FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -941,11 +946,14 @@ NonSuccessRevisionMatchesSnapshotChange ==
 \* Navigation preparation failure has no complete replacement snapshot to
 \* install.  Its distinguishable result therefore records identical
 \* before/after state, and the live result authority names that retained
-\* revision.  The pre-state witness also independently latches the source and
-\* full returned authority.
+\* revision.  A model-only occurrence field identifies the action independently
+\* from its result source, while the pre-state witness independently latches
+\* the source and full returned authority.
 PreparationFailureRetainsSnapshotAndRevision ==
   /\ revisionWitness
-  /\ (lastResult.source = "navigationPreparation" =>
+  /\ lastResult.preparationFailureOccurred =
+       (lastResult.source = "navigationPreparation")
+  /\ (lastResult.preparationFailureOccurred =>
         /\ ~lastResult.snapshotChanged
         /\ lastResult.resultSnapshot = lastResult.priorSnapshot
         /\ lastResult.resultRev = lastResult.priorRev

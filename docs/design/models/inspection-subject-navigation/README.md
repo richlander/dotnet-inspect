@@ -238,7 +238,9 @@ remaining differences are deliberate abstractions rather than disagreements:
   Navigation preparation `Failed` results always retain revision; superseded
   work returns no visible effect. The model-only `synchronize` class changes no
   semantic navigation state and carries the complete installed snapshot under
-  fresh authority.
+  fresh authority. A model-only occurrence field identifies a result produced
+  by the Navigation preparation-failure action independently from its reported
+  source.
 - **Consumer receipt.** The model records the complete snapshot and revision
   last acknowledged by one retained consumer separately from the consumer's
   installed snapshot, revision, and effect epoch. It abstracts host rendering
@@ -263,8 +265,8 @@ remaining differences are deliberate abstractions rather than disagreements:
 - **Unmodelled currencies.** Action IDs, generations, descriptor states,
   diagnostics, and correspondence are not modelled. Subjects, lenses, and
   snapshots are opaque values. Operation IDs, synchronization request numbers,
-  and retained request maps are model correlation currencies, not proposed
-  product fields.
+  retained request maps, and the preparation-failure occurrence field are model
+  correlation currencies, not proposed product fields.
 
 ## Guard witnesses
 
@@ -288,7 +290,11 @@ model bookkeeping, not product state.
 their pre-state installation. For Navigation preparation failure it also
 latches the exact failure source and fresh retained product and host authority,
 so removing authority or coherently rewriting result and authority to another
-post-state is still caught.
+post-state is still caught. The result's model-only
+`preparationFailureOccurred` field records that the preparation-failure action
+ran without deriving that fact from the reported source. The dedicated
+invariant correlates the independently recorded occurrence with the exact
+source.
 
 `snapshotStabilityWitness` compares the whole installed snapshot record rather
 than its revision, so a step that rewrote the snapshot's lens or provenance
@@ -340,15 +346,21 @@ rule.
 
 ### Exhaustive model checking
 
-Each run is an exhaustive breadth-first exploration of the shipped `.cfg`, so
-the counts are stable across repeated runs on the same tools version. All three
-report `Model checking completed. No error has been found.`
+Each run is an exhaustive breadth-first exploration of the shipped `.cfg`.
+Generated and distinct state counts are stable across repeated runs on the same
+tools version. All three report
+`Model checking completed. No error has been found.`
 
 | Model | States generated | Distinct states | Search depth |
 | --- | --- | --- | --- |
 | `NavigationSession.tla` | 668,938 | 116,745 | 23 |
 | `AtomicRestoration.tla` | 8,081 | 2,333 | 9 |
 | `SnapshotAuthority.tla` | 36,755 | 13,790 | 9 |
+
+The recorded `NavigationSession.tla` depth is from the single-worker action
+coverage run. Automatic-worker runs produced the same generated and distinct
+state counts with reported depths 23 and 24, so parallel traversal depth is not
+treated as stable evidence.
 
 The additional state records semantic unavailable and failed outcomes
 independently from their source and apply/retain execution class, retains
@@ -426,6 +438,7 @@ records how to reproduce them.
 | NS34 | Rewrite the Navigation preparation-failure source as evaluation | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | NS35 | Omit product and host authority from Navigation preparation failure | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | NS36 | Rewrite both Navigation preparation failure and its witness to use applied authority | `PreparationFailureRetainsSnapshotAndRevision` | violated |
+| NS37 | Rewrite both Navigation preparation failure and its source witness as evaluation | `PreparationFailureRetainsSnapshotAndRevision` | violated |
 | AR1 | Drop the current-intent requirement from preparation publication | `PreparationRequiresReadyPairAndCurrentIntent` | violated |
 | AR2 | Publish a different subject than the independently retained request | `PreparedPairEqualsRequestedPayload` | violated |
 | AR3 | Allow a superseded preparation to publish | `NoSupersededPreparationResult` | violated |
@@ -452,13 +465,13 @@ records how to reproduce them.
 | SA17 | Return a result that does not record its operation ID | `OperationAndResultAreCorrelated` | violated |
 | SA18 | Install and return another admissible session lens instead of the exact requested lens | `AppliedResultEqualsExactRequest` | violated |
 
-Sixty-one probes, sixty expected violations and one expected pass. `SA6`
+Sixty-two probes, sixty-one expected violations and one expected pass. `SA6`
 is the one probe expected not to fire: it applies the same mutation as `SA5`
 and checks the revision-arithmetic invariant instead, which does not notice a
 snapshot rewritten in place. That pair is why
 `NonApplyStepsPreserveInstalledSnapshot` compares the record.
 
-Twenty-three probes exist specifically because a claim used to be satisfiable
+Twenty-four probes exist specifically because a claim used to be satisfiable
 by the wrong thing. `NS16` separates installed revision from a self-consistent
 result,
 `NS17` admits stale work without re-gathering, `NS18` lets a later admission
@@ -478,11 +491,14 @@ explicit work and queued maintenance. `NS33` rewrites preparation-failure
 authority and result to the wrong post-state, `NS34` erases its distinct
 source, `NS35` erases its returned authority, and `NS36` changes both the
 action and shared witness so only the dedicated preparation-failure invariant
-rejects the wrong authority class. `AR2` publishes a payload that differs from
-the retained request, `SA14` applies a later supplied-prior operation after an
-earlier one was rejected, `SA15` adopts only the stale same-session supplied
-snapshot whose origin and lens resemble session data, and `SA18` returns
-another admissible session lens under the correct operation ID.
+rejects the wrong authority class. `NS37` changes both the action and source
+witness while the independent occurrence field still identifies preparation
+failure, proving the dedicated invariant rejects the source rewrite. `AR2`
+publishes a payload that differs from the retained request, `SA14` applies a
+later supplied-prior operation after an earlier one was rejected, `SA15` adopts
+only the stale same-session supplied snapshot whose origin and lens resemble
+session data, and `SA18` returns another admissible session lens under the
+correct operation ID.
 
 ## Changing a model
 
