@@ -65,13 +65,39 @@ that is not a CLI-valid enum -- unsealed, not directly derived from
 `value__`, or
 carrying a non-literal static field -- supplies no width.
 
-A type name's lookup depends on where the name came from. A handle-derived
+An argument whose signature names a type by handle is resolved from the
+definition that handle denotes, on both sides, never from its rendered name. A
+definition handle denotes itself; a reference is matched structurally, by name
+and resolution scope. Distinct definitions can render to one string: a nested
+type joins its declaring type with `.`, exactly as a namespace joins a type
+name, so a nested `Kind` declared in `Samples.E` and a top-level `Kind` in
+namespace `Samples.E` both render `Samples.E.Kind`. A reference additionally
+carries a resolution scope that its flattened spelling discards. Any name-keyed
+index must therefore drop one colliding definition, and routing either side
+through a name would let the guard and the decode select different definitions
+and skip different widths. Both sides ask
+`EnumUnderlyingPrimitive.TryResolveDefinition` about the same handle and take
+the width from the definition it returns;
+`NestedTypeNameCollision_GuardSkipMatchesDecodeWidth` gates both handle forms
+and `CollidingTypeDefNames_EachResolveTheirOwnWidth` gates the premise. A
+supplied name resolver never overrides a definition the signature already
+named, on either side. Structural matching walks a reference's nested scope
+chain but does not consult its terminal assembly or module scope, so a
+reference whose chain matches a definition in this reader resolves to that
+definition even when it nominally denotes another assembly. That is
+long-standing behavior, gated by
+`TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`, and it is what keeps
+this side aligned with a decode that would otherwise reach the same local
+definition through its rendered name. A reference whose chain matches no
+definition here resolves by name as before.
+
+A name that has no pending handle -- a reference to a type this reader does not define, or a name the blob
+authored -- is looked up by spelling, and that lookup depends on where the name
+came from. A handle-derived
 name is an exact metadata spelling that reaches the provider verbatim, and
 metadata names may contain characters a reflection type name treats as escapes,
-so it is matched by its exact spelling before its reflection-normalized one;
-normalizing first would miss a local TypeDef that the guard resolves straight
-from its handle, leaving the guard skipping one width while the decode consumed
-another. A blob-authored name is reflection syntax whose escapes are meaningful
+so it is matched by its exact spelling before its reflection-normalized one.
+A blob-authored name is reflection syntax whose escapes are meaningful
 -- `E\+Kind` names the metadata type `E+Kind`, not one spelled with a backslash
 -- so it is normalized first and never matched verbatim. Both sides of the
 guard/decode pair classify a name the same way, so the two remain aligned
