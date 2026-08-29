@@ -66,10 +66,10 @@ presentation context. Every format must receive the same selected logical
 edges. Isolated explicit packages remain node/group context in graph and JSON
 views, but never become empty data rows in the default Markdown edge table.
 `OutputModes_UseTheSameWindowedLogicalEdges` gates current Markdown, table,
-JSON, and count parity over the same `--rows`-selected edges and verifies that
-JSONL emits one windowed row with the current machine field shape. JSONL
-selected-edge identity is unverified. The pending L2 integration design must
-name the gate for its future common handoff.
+JSON, and count row-count parity, table/JSON selected-edge identity, and JSONL's
+one-row machine field shape. Markdown and JSONL selected-edge identity are
+unverified. The pending L2 integration design must name the gate for its future
+common handoff.
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus

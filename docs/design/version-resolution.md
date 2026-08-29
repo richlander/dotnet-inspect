@@ -398,7 +398,7 @@ eligible sources.
 | --- | --- | --- |
 | `--latest-version` | Highest semantic version carried by any eligible source. | No |
 | `--versions` | Union across all sources, deduplicated. | No |
-| `--versions-with-feed` | Union across all sources, one row per (version, feed). | No |
+| `--versions-with-feed` | Union across all sources, one row per (version, feed). | Membership: no. Equal-version row presentation: yes, configured source order. |
 
 An added private or nightly feed can therefore raise the latest-version answer
 even when NuGet.org also carries the package. Source declaration order cannot

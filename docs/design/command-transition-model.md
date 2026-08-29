@@ -256,9 +256,9 @@ is applied to an already assembled Timeline table before `--count` reduces it.
 `TimelineCommandTests.Count_AppliesRowsAndValidatesProjectedColumns` gates that
 rows-before-count behavior. Whether `--count` causes no additional address
 selection or cell evaluation is unverified. The pending L2 and L3 designs own
-how future typed `Window` stages compose with count. `--print` can print only
-payloads already carried or explicitly referenced by evaluated rows; it cannot
-turn unevaluated rows into implicit acquisition.
+how future typed `Window` stages compose with count. Timeline has no current
+`--print` projection; the pending payload design owns any future print
+acquisition and its enforcing gate.
 
 The current package `--versions` path is implemented as a specialized early-exit
 list writer, so some shared reducers and projectors are not yet honored

@@ -46,9 +46,11 @@ The components compose in this direction:
 ```text
 CLI tokens
 -> L3 validates and lowers complete item-selection gestures
--> L2 resolves section schema, predicates, and ranking metadata
--> normalized RowSelection plan
--> source owner may optimize acquisition without changing plan semantics
+-> L2 resolves section schema, predicates, and effective ordering metadata
+-> typed selection request:
+   row-set identity + resolved predicate/order identity + RowSelection plan
+-> source owner may optimize acquisition against that typed request
+-> L2 applies residual predicates and establishes effective baseline order
 -> shared RowSelection component executes the plan
 -> L2 binds the selected sequences back to their declared row sets
 -> payload or field projection
@@ -56,19 +58,23 @@ CLI tokens
 ```
 
 This is also the string-to-structure boundary. Raw CLI spellings exist only
-before L3/L2 lowering. The semantic executor receives the typed plan, row-set
-keys, and resolved ordering identity; it does not recover meaning from option
+before L3/L2 lowering. The source optimizer receives the typed row-set,
+predicate, effective-order, and selection identities needed to prove an
+equivalent acquisition. The semantic executor receives complete keyed
+sequences after residual predicates and effective baseline order, plus the
+typed plan and resolved ordering identity. Neither recovers meaning from option
 strings, field names, or rendered text.
 
 Every format receives the same selected typed rows. A renderer may add headings,
 table headers, graph context, framing, or other non-row presentation, but it
 does not choose which logical rows survive.
 
-Source-side pagination is an optimization of the semantic plan, not an
+Source-side pagination is an optimization of the typed request, not an
 alternative meaning for it. When a source cannot prove an equivalent result,
-the source owner must acquire a broader extent and let the semantic owner finish
-selection. The focused source design will define that proof and the associated
-completion states.
+the source owner must acquire a broader extent and let L2 finish residual
+predicate/order work before the semantic owner runs the selection plan. The
+focused source design will define that proof and the associated completion
+states.
 
 The pending payload design owns the last step's exact branches. Ordinary report
 windowing consumes formatter-produced report text. Per-payload line selection
