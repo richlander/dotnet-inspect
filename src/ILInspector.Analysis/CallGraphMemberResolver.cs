@@ -20,6 +20,8 @@ namespace ILInspector.Analysis;
 /// gates <c>init</c> setter <c>modreq(IsExternalInit)</c> identity from extract through MemberRef.
 /// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledExplicitInterfaceAccessorAcrossProducers</c>
 /// gates explicit-interface accessor MethodDef names (<c>I.get_P</c>, not <c>get_I.P</c>).
+/// <c>CallGraphMemberResolverTests.Resolve_MatchesMetadataDeclarationQueryExplicitInterfaceAccessorAcrossProducers</c>
+/// gates the same identity through the targeted metadata-query producer.
 /// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledNestedGenericAndByRefAcrossProducers</c>
 /// gates leftover extract display of nested generic arguments and byref <c>@</c> placement.
 /// <c>CallGraphMemberResolverTests.Selector_DistinguishesNestedGenericInsideAnotherGenericArgument</c>
