@@ -132,6 +132,7 @@ public class CSharpBodyDiffRelationshipFailureTests
                 CSharpFindings.MissingInspection(
                     index,
                     stableAssemblyKey,
+                    "Other",
                     new FindingSubject("added", "Added"),
                     "old");
 
@@ -146,6 +147,48 @@ public class CSharpBodyDiffRelationshipFailureTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void MissingInspection_KnownOwnerDoesNotPoisonUnrelatedType()
+    {
+        var failure = new CSharpIdentityResolutionFailure(
+            "old",
+            "old.dll",
+            0x06000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The method declaration could not be indexed.",
+            "assembly");
+        var index = new CSharpBodyDiff.CSharpMethodIndex(
+            new Dictionary<string, CSharpBodyDiff.CSharpMethodEntry>(
+                StringComparer.Ordinal),
+            [failure],
+            [new(failure, "Sample.Broken")]);
+
+        FindingInspection<CSharpCanonicalLine> unrelated =
+            CSharpFindings.MissingInspection(
+                index,
+                "assembly",
+                "Sample.Other",
+                new FindingSubject("other", "Sample.Other.Added"),
+                "old");
+        FindingInspection<CSharpCanonicalLine> affected =
+            CSharpFindings.MissingInspection(
+                index,
+                "assembly",
+                "Sample.Broken",
+                new FindingSubject("broken", "Sample.Broken.Added"),
+                "old");
+
+        var absent = Assert.IsType<
+            FindingInspection<CSharpCanonicalLine>.Absent>(
+                unrelated.Value);
+        Assert.Equal(
+            FindingInspectionAbsenceKind.SubjectAbsent,
+            absent.Kind);
+        Assert.IsType<FindingInspection<CSharpCanonicalLine>.Failed>(
+            affected.Value);
     }
 
     [Fact]

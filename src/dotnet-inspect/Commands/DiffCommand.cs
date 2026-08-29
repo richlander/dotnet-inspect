@@ -2178,12 +2178,31 @@ public class DiffCommand
         foreach (var rawTarget in memberTargets)
         {
             var parsed = ParseDiffMemberTarget(rawTarget, fromSurface, toSurface, typeFilters);
+            foreach (string typeName in ResolveFindingTypeNames(
+                fromSurface,
+                toSurface,
+                [parsed.TypeName]))
+            {
+                typeNames.Add(typeName);
+            }
+
             var found = false;
             var bodyFound = false;
             MemberTargetDiagnostic? diagnostic = null;
             MemberTargetDiagnostic? nonFatalDiagnostic = null;
-            var oldType = FindExactType(fromSurface, parsed.TypeName);
-            var newType = FindExactType(toSurface, parsed.TypeName);
+            ApiType? oldType = FindSelectedType(
+                fromSurface,
+                parsed.TypeName,
+                out string? oldTypeError);
+            ApiType? newType = FindSelectedType(
+                toSurface,
+                parsed.TypeName,
+                out string? newTypeError);
+            if (oldTypeError is not null || newTypeError is not null)
+            {
+                throw new InvalidOperationException(
+                    oldTypeError ?? newTypeError);
+            }
 
             if (oldType is not null)
             {
@@ -2337,28 +2356,22 @@ public class DiffCommand
 
     static bool TryFindSingleType(ApiSurface fromSurface, ApiSurface toSurface, string query, out string typeName, out string? error)
     {
-        error = null;
-        var matches = FindTypes(fromSurface, query)
-            .Concat(FindTypes(toSurface, query))
-            .Select(type => type.FullName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.Ordinal)
-            .ToList();
-
-        if (matches.Count == 0)
+        ApiType? oldType = FindSelectedType(
+            fromSurface,
+            query,
+            out string? oldError);
+        ApiType? newType = FindSelectedType(
+            toSurface,
+            query,
+            out string? newError);
+        error = oldError ?? newError;
+        if (error is not null || oldType is null && newType is null)
         {
             typeName = "";
             return false;
         }
 
-        if (matches.Count > 1)
-        {
-            typeName = "";
-            error = $"Type target '{query}' is ambiguous. Use one of: {string.Join(", ", matches)}.";
-            return false;
-        }
-
-        typeName = matches[0];
+        typeName = query;
         return true;
     }
 
@@ -2375,10 +2388,8 @@ public class DiffCommand
         IReadOnlyCollection<string> typeFilters)
     {
         var names = typeFilters
-            .SelectMany(filter => FindingTypeNames.EnumerateResolvable(fromSurface)
-                .Concat(FindingTypeNames.EnumerateResolvable(toSurface))
-                .Where(typeName =>
-                    TypeMatcher.MatchesTypeFilter(typeName, filter))
+            .SelectMany(filter => ResolveFindingTypeNames(fromSurface, filter)
+                .Concat(ResolveFindingTypeNames(toSurface, filter))
                 .DefaultIfEmpty(filter))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
@@ -2386,8 +2397,48 @@ public class DiffCommand
         return names;
     }
 
-    static ApiType? FindExactType(ApiSurface surface, string fullName)
-        => surface.Types.FirstOrDefault(type => type.FullName.Equals(fullName, StringComparison.OrdinalIgnoreCase));
+    static IEnumerable<string> ResolveFindingTypeNames(
+        ApiSurface surface,
+        string filter)
+    {
+        string[] matches = FindingTypeNames.EnumerateResolvable(surface)
+            .Where(typeName =>
+                TypeMatcher.MatchesTypeFilter(typeName, filter))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string? exact = matches.FirstOrDefault(typeName =>
+            typeName.Equals(filter, StringComparison.Ordinal));
+        return exact is null ? matches : [exact];
+    }
+
+    static ApiType? FindSelectedType(
+        ApiSurface surface,
+        string query,
+        out string? error)
+    {
+        ApiType[] matches = FindTypes(surface, query)
+            .DistinctBy(type => type.FullName, StringComparer.Ordinal)
+            .OrderBy(type => type.FullName, StringComparer.Ordinal)
+            .ToArray();
+        ApiType? exact = matches.FirstOrDefault(type =>
+            type.FullName.Equals(query, StringComparison.Ordinal));
+        if (exact is not null)
+        {
+            error = null;
+            return exact;
+        }
+
+        if (matches.Length > 1)
+        {
+            error = $"Type target '{query}' is ambiguous. Use one of: "
+                + $"{string.Join(", ", matches.Select(type => type.FullName))}.";
+            return null;
+        }
+
+        error = null;
+        return matches.SingleOrDefault();
+    }
 
     static bool IsMemberChange(ChangeKind kind)
         => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged

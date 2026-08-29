@@ -1051,6 +1051,7 @@ public static class ResearchDiff
                     var oldInspection = oldMethod is null
                         ? MissingIlInspection(
                             pair.Old,
+                            subject,
                             findingSubject,
                             "old")
                         : IlFindings.Inspect(
@@ -1061,6 +1062,7 @@ public static class ResearchDiff
                     var newInspection = newMethod is null
                         ? MissingIlInspection(
                             pair.New,
+                            subject,
                             findingSubject,
                             "new")
                         : IlFindings.Inspect(
@@ -1097,6 +1099,7 @@ public static class ResearchDiff
 
     static FindingInspection<CanonicalIlOperation> MissingIlInspection(
         BodyIndexEntry? entry,
+        ResearchSubjectKey researchSubject,
         FindingSubject subject,
         string side)
     {
@@ -1111,8 +1114,14 @@ public static class ResearchDiff
             .Select(static method => method.MetadataToken)
             .ToHashSet();
         var failures = entry.Index.Diagnostics
-            .Where(diagnostic => !declaredTokens.Contains(
-                diagnostic.MethodToken))
+            .Where(diagnostic =>
+                !declaredTokens.Contains(diagnostic.MethodToken)
+                && (diagnostic.DeclaringType is null
+                    || string.Equals(
+                        diagnostic.DeclaringType
+                            .ToQualifiedDisplayString(),
+                        researchSubject.TypeName,
+                        StringComparison.Ordinal)))
             .ToArray();
         if (failures.Length == 0)
         {

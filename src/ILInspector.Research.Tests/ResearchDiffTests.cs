@@ -1568,6 +1568,79 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_IlBody_KnownOwnerFailureDoesNotPoisonOtherType()
+    {
+        string path = typeof(ResearchDiff).Module.FullyQualifiedName;
+        LibraryBodyIndex actual = LibraryBodyIndex.Open(
+            path,
+            includeAllocations: false,
+            includeOpportunities: false);
+        MethodIdentity target = Assert.Single(
+            actual.DeclaredMethods,
+            method => method.Name == nameof(ResearchDiff.ToChangeIdPart));
+        MethodIdentity unrelated = actual.DeclaredMethods.First(method =>
+            method.DeclaringType != target.DeclaringType);
+        LibraryBodyIndex partial = LibraryBodyIndex.FromEvidence(
+            [
+                .. actual.DeclaredMethods.Where(method =>
+                    method.MetadataToken != target.MetadataToken
+                    && method.MetadataToken != unrelated.MetadataToken),
+            ],
+            [],
+            diagnostics:
+            [
+                new AnalysisDiagnostic(
+                    unrelated.MetadataToken,
+                    unrelated.Name,
+                    "Unrelated method identity could not be decoded.",
+                    DeclaringType: unrelated.DeclaringType),
+            ]);
+        using var oldSource = DecompilerMetadataSource.Open(path);
+        using var newSource = DecompilerMetadataSource.Open(path);
+        var oldInput = new ResearchDiffInput([])
+        {
+            AssemblyContents =
+            [
+                new ResearchAssemblyContent(oldSource, partial),
+            ],
+        };
+        var newInput = new ResearchDiffInput([])
+        {
+            AssemblyContents =
+            [
+                new ResearchAssemblyContent(newSource, actual),
+            ],
+        };
+
+        ResearchComparison diff = ResearchDiff.Compare(
+            oldInput,
+            newInput,
+            new ResearchDiffOptions(ResearchChangeMechanism.IlBody)
+            {
+                RetainedComparisonDescriptorIds =
+                    ImmutableHashSet.Create(
+                        StringComparer.Ordinal,
+                        IlFindings.OperationDescriptor.Id),
+            });
+
+        var retained = Assert.Single(
+            diff.RetainedComparisons
+                .Get<CanonicalIlOperation>(
+                    IlFindings.OperationDescriptor),
+            item => item.Subject.MemberName
+                == nameof(ResearchDiff.ToChangeIdPart));
+        var complete =
+            Assert.IsType<FindingComparison<CanonicalIlOperation>.Complete>(
+                retained.Comparison.Value);
+        Assert.True(
+            complete.OldInspection
+                is FindingInspection<CanonicalIlOperation>.Absent);
+        Assert.All(
+            complete.Pairs,
+            pair => Assert.Equal(PairKind.Added, pair.Kind));
+    }
+
+    [Fact]
     public void CompareAssemblies_IlBody_PreservesAbsentBodyAgainstPresentBody()
     {
         var diff = ResearchDiff.CompareAssemblies(

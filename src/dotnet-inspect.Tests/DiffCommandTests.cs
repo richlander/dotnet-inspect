@@ -718,6 +718,71 @@ public class DiffCommandTests
             row => Assert.Equal("PairFinding.Added", row.Transition));
     }
 
+    [Fact]
+    public void BuildFindingTransitions_MemberFilterPreservesFailureOwnedType()
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var partialSurface = new ApiSurface();
+        partialSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+
+        var rows = DiffCommand.BuildFindingTransitions(
+            partialSurface,
+            DiffSurface(DiffType(
+                "Sample",
+                "widget",
+                DiffMember("Run"))),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = MetadataFindings.MemberDescriptor.Id,
+                TypeFilter = ["Sample.Widget"],
+                MemberFilter = ["Run"],
+            });
+
+        Assert.Collection(
+            rows.OrderBy(row => row.Target, StringComparer.Ordinal),
+            row =>
+            {
+                Assert.Equal("Sample.Widget", row.Target);
+                Assert.Equal("FindingComparison.Failed", row.Transition);
+            },
+            row => Assert.Equal("PairFinding.Added", row.Transition));
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberFilterPrefersExactCase()
+    {
+        var surface = DiffSurface(
+            DiffType("Sample", "widget", DiffMember("Run")),
+            DiffType("Sample", "Widget"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildFindingTransitions(
+                surface,
+                surface,
+                "1.0.0",
+                "2.0.0",
+                new DiffOptions
+                {
+                    Finding = MetadataFindings.MemberDescriptor.Id,
+                    TypeFilter = ["Sample.Widget"],
+                    MemberFilter = ["Run"],
+                }));
+
+        Assert.Contains("No members matched selector 'Run'.", error.Message);
+    }
+
     [Theory]
     [InlineData("Widget")]
     [InlineData("sample.widget")]

@@ -165,6 +165,7 @@ public static class CSharpFindings
                 ? MissingInspection(
                     oldIndex,
                     representative.StableAssemblyKey,
+                    representative.TypeFullName,
                     subject,
                     "old")
                 : Inspect(sources.Open(oldMethod), oldMethod.MethodHandle, subject);
@@ -172,6 +173,7 @@ public static class CSharpFindings
                 ? MissingInspection(
                     newIndex,
                     representative.StableAssemblyKey,
+                    representative.TypeFullName,
                     subject,
                     "new")
                 : Inspect(sources.Open(newMethod), newMethod.MethodHandle, subject);
@@ -192,14 +194,21 @@ public static class CSharpFindings
     internal static FindingInspection<CSharpCanonicalLine> MissingInspection(
         CSharpBodyDiff.CSharpMethodIndex index,
         string stableAssemblyKey,
+        string typeFullName,
         FindingSubject subject,
         string side)
     {
         var failures = index.DeclarationOmissionFailures
-            .Where(failure => string.Equals(
-                failure.StableAssemblyKey,
-                stableAssemblyKey,
-                StringComparison.Ordinal))
+            .Where(omission =>
+                string.Equals(
+                    omission.Failure.StableAssemblyKey,
+                    stableAssemblyKey,
+                    StringComparison.Ordinal)
+                && (omission.OwningTypeFullName is null
+                    || string.Equals(
+                        omission.OwningTypeFullName,
+                        typeFullName,
+                        StringComparison.Ordinal)))
             .ToArray();
         if (failures.Length == 0)
         {
@@ -215,8 +224,9 @@ public static class CSharpFindings
                 $"C# member indexing failed for the {side} endpoint: "
                 + string.Join(
                     "; ",
-                    failures.Select(static failure =>
-                        $"{failure.Kind}: {failure.Detail}"))));
+                    failures.Select(static omission =>
+                        $"{omission.Failure.Kind}: "
+                        + omission.Failure.Detail))));
     }
 
     internal static FindingComparison<CSharpCanonicalLine> CompareCanonicalized(
