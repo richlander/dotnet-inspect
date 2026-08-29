@@ -8,9 +8,10 @@ rules.
 
 ## Status
 
-This is the target architecture for issue #4794. Product implementation remains
-unverified until the implementation gates in
-[Verification](#verification) land.
+This is the target architecture for issue #4794. Issue #5013 completes its
+focused lens-recommendation semantics. Product implementation remains
+unverified until the implementation gates in [Verification](#verification)
+land.
 
 The concurrency claims are specified separately as executable TLA+ models under
 [`models/inspection-subject-navigation/`](models/inspection-subject-navigation/).
@@ -46,7 +47,7 @@ Inspection Subject Navigation owns:
 
 - structural subject identity and hierarchy composition;
 - subject applicability, availability, and failure classification;
-- initial subject and lens recommendation;
+- initial subject recommendation and subject-scoped lens recommendation;
 - hierarchy, Library, Type, Member, and lens navigation descriptors;
 - exact subject and lens activation outcomes;
 - same-coordinate and coordinate-variation reconciliation;
@@ -163,10 +164,21 @@ The conceptual subject identity family is:
 Identity equality never uses display text, filename, list position, metadata
 token alone, or backend arrival order.
 
-A navigation lens identity combines a structural subject kind with one
-view-facet registry identity. The registry owns the stable facet identity;
-Inspection Subject Navigation owns the subject binding. Library Metadata and
-Type Metadata can therefore share a label without sharing identity.
+A navigation lens identity combines one exact structural subject identity with
+one view-facet registry identity:
+
+```text
+NavigationLensIdentity
+  Subject  StructuralSubjectIdentity
+  Facet    ViewFacetId
+```
+
+The registry owns the stable facet identity; Inspection Subject Navigation
+owns the exact subject binding. `type.api` on two exact Types therefore names
+two navigation lenses, while Library Metadata and Type Metadata can share a
+label without sharing either facet or navigation identity. Consumers treat the
+combined identity as opaque and never reconstruct it from kind, display text,
+or active UI state.
 
 ### Snapshot
 
@@ -262,20 +274,48 @@ coordinates, including the tools-v2 pointer-package case tracked by #4829.
 
 ### Lens recommendation
 
-The initial semantic recommendations are:
+Lens recommendation is a pure policy over one exact structural subject and the
+target-aware options returned for that subject by one View Facet Registry
+snapshot. It runs when an initial snapshot needs a lens and when activation or
+reconciliation changes the exact subject without an explicit lens request.
+Reactivating the unchanged current subject does not reset an effective lens. A
+directly activated Member therefore receives the same owner-issued
+recommendation as an initially recommended subject.
+
+The preferred semantic roles are:
 
 | Subject | Preferred lens role |
 | --- | --- |
-| Type | API |
-| Library | References |
-| Package Root | Package Overview |
-| Other Root | Root owner's recommendation |
+| Type | Type API |
+| Member | Member overview |
+| Library | Library references |
+| Package-capable Root | Package overview |
+| Other Root | Root overview |
 
-The exact identities and membership come from the View Facet Registry. If the
-preferred descriptor is unavailable or failed, navigation selects the first
-available descriptor in registry order and retains the non-success evidence.
-When none is available, the subject remains active and the lens outcome is
-unavailable or failed according to the underlying results.
+Recommendation applies these rules in order:
+
+1. Find the one applicable option carrying the subject's preferred role.
+   Missing preferred-role or empty option input is a typed Navigation policy
+   failure; it does not silently turn registry order into policy.
+2. If the preferred option is available, select its exact subject-bound
+   navigation lens even when another available option appears first.
+3. If the preferred option is unavailable or failed, select the first
+   available option in registry order. Preserve the preferred option's
+   non-success evidence and every returned descriptor.
+4. If no option is available and any option is failed, return a failed lens
+   outcome with every failed and unavailable result retained.
+5. Otherwise return an unavailable lens outcome with every unavailable result
+   retained.
+
+Navigation consumes Registry order as returned and never re-sorts by role,
+title, ID, or local host preference. Registry `Retired` is one unavailable
+reason and follows the same fallback rule. Failure dominates unavailability
+when no available fallback exists because Navigation cannot claim that no lens
+is available while an applicable option could not be evaluated.
+
+Recommendation never changes the active subject. An unavailable or failed
+recommendation leaves that exact subject active and installs the corresponding
+lens outcome with no effective lens.
 
 ### Type-inventory Library context
 
@@ -304,6 +344,21 @@ Subject and lens activation return one of these semantic outcomes:
 | Failed | Retains state because navigation evaluation failed |
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
 
+Exact lens activation maps the View Facet Registry result without fallback:
+
+| Registry result | Navigation outcome |
+| --- | --- |
+| Available | `Applied` with the exact requested subject-bound lens, unless later Navigation preparation fails or the operation is superseded |
+| Unavailable | `Unavailable` with the exact registry reason |
+| Failed | `Failed` with the registry diagnostic identified as the source |
+| Inapplicable | `Rejected` as structurally invalid for the exact subject |
+| Unknown | `Rejected` as an unknown facet ID |
+
+Every outcome retains the exact registry result and request identity, including
+the absent descriptor in `Unknown`. A Navigation-owned preparation failure
+after an available registry result remains distinguishable from a
+Registry-owned failed result. Neither failure is rewritten as unavailable.
+
 An unavailable request never silently activates a sibling, ancestor, or
 recommended Type. If the already committed subject became invalid
 independently, automatic reconciliation may change it before the unavailable
@@ -318,6 +373,10 @@ unchanged.
 Selecting a Library does not also select a Type. Selecting a Type or Member
 directly returns its complete ancestor context.
 
+Activating a different exact subject without an explicit lens runs lens
+recommendation for that subject. A prior lens is never carried to a different
+subject merely because its registry facet ID or structural kind matches.
+
 ### Same-coordinate reconciliation
 
 | Current subject | Reconciled subject |
@@ -330,6 +389,14 @@ directly returns its complete ancestor context.
 
 No arbitrary Member replaces a missing Member. Inventory refresh never promotes
 an explicitly selected Root or Library to Type.
+
+Lens reconciliation evaluates the exact subject-bound lens identity. When the
+active subject is unchanged, an available exact lens is retained; an
+unavailable or failed exact result preserves that outcome and evidence without
+recommendation fallback. When subject reconciliation changes the exact
+subject, the prior lens identity no longer matches and Navigation runs
+recommendation for the replacement subject unless the operation supplied an
+explicit lens request.
 
 ### Coordinate variation
 
@@ -444,6 +511,11 @@ retaining a navigation session.
 The model README records the TLC commands and scope. Model checking validates
 these finite specifications, not the implementation.
 
+Lens ranking and Registry-result classification are intentionally absent from
+the models: lenses remain opaque values there. The pure recommendation and
+mapping rules above are enforced by the implementation gates below rather than
+claimed as model-checked behavior.
+
 ### Required implementation gates
 
 The eventual subject-navigation implementation must include named gates for:
@@ -451,6 +523,18 @@ The eventual subject-navigation implementation must include named gates for:
 - `InitialRecommendation_PrefersTypeThenLibraryThenRoot`
 - `TypeRecommendation_UsesPrimaryLibraryAccessibilityAndProducerOrder`
 - `InitialRecommendation_NeverChoosesMember`
+- `LensIdentity_BindsExactStructuralSubjectAndFacet`
+- `LensRecommendation_UsesPreferredRoleBeforeRegistryOrder`
+- `LensRecommendation_FallsBackToFirstAvailableInRegistryOrder`
+- `LensRecommendation_ConsumesRegistryOrderWithoutResorting`
+- `LensRecommendation_MissingPreferredRoleFails`
+- `LensRecommendation_EmptyOptionsFails`
+- `LensRecommendation_FailedDominatesUnavailableWhenNoOptionIsAvailable`
+- `LensRecommendation_AllUnavailableReturnsUnavailable`
+- `MemberRecommendation_UsesMemberOverviewRole`
+- `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`
+- `ExplicitLensResolution_RetainsExactRegistryEvidence`
+- `NavigationPreparationFailure_RemainsDistinctFromRegistryFailure`
 - `EveryBoundedInventoryRow_PreservesProducerOrderAndIdentity`
 - `UnavailableDescriptor_HasNoTargetOrActionId`
 - `ExplicitUnavailableTransition_DoesNotApplyFallback`
@@ -474,11 +558,25 @@ The eventual subject-navigation implementation must include named gates for:
 - `CanonicalRestoration_PreparedPairEqualsExactRequest`
 - `CanonicalRestoration_FailedPreparationSettlesAsAbort`
 
+`LensRecommendation_UsesPreferredRoleBeforeRegistryOrder` is the role-policy
+non-vacuity gate: its preferred available descriptor is deliberately not first
+in Registry order, and replacing role selection with first-available selection
+must fail it. The mapping gate covers all five exact Registry results, and the
+evidence gate compares each returned result with independently retained input
+evidence rather than reconstructing expected evidence from Navigation output.
+
 ## Acceptance cases
 
 | Case | Expected result |
 | --- | --- |
 | Ordinary package | Highest-ranked trustworthy Type with API lens |
+| Preferred role is not first | Preferred available role, not the earlier available descriptor |
+| Preferred lens unavailable | First available registry-ordered fallback with preferred evidence retained |
+| No lens available and one evaluation failed | Failed lens outcome with all non-success evidence retained |
+| Preferred role missing or options empty | Typed Navigation policy failure, never implicit first-option selection |
+| Direct Member activation without a lens | Exact Member with Member Overview recommendation |
+| Same facet on two exact Types | Two distinct subject-bound navigation lens identities |
+| Explicit inapplicable or unknown lens | Rejected with exact Registry evidence and no fallback |
 | Multi-library package | Aggregate then primary then declaration-order Library descriptors |
 | Libraries with no Types | Library with References; Type is validly unavailable |
 | Tools-v2 pointer package | Root with Package Overview; lower subjects unavailable |
