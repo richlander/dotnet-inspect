@@ -284,12 +284,7 @@ document proposes:
   work than anything in this document, and it should not be reimplemented as
   a flat facet-match row.
 
-## Historical completion and bound proposal
-
-> [!NOTE]
-> This section records source and ordering reasoning from the superseded
-> umbrella design. The focused source-pushdown and L3 designs may adopt,
-> revise, or reject it; no implementation may treat it as authority.
+## Completion and bound behavior
 
 `find --package-prefix` (#4551, merged) already reports truncation
 ("Package discovery reached the requested package limit" /
@@ -300,6 +295,13 @@ and visible per-source failures. That is the same completion vocabulary
 alongside already-streamed rows) after fifteen rounds of adversarial review —
 the CLI should not reinvent that wording, and the browser experience should
 not need to translate a differently-shaped CLI completion signal.
+
+### Historical ordering proposal
+
+> [!NOTE]
+> This subsection records ordering reasoning from the superseded umbrella
+> design. The focused source-pushdown and L3 designs may adopt, revise, or
+> reject it; no implementation may treat it as authority.
 
 One ordering question is new once `--where` and `--deepen` exist: does the
 corpus bound apply before or after a nuspec-tier predicate runs? The superseded
@@ -322,6 +324,8 @@ The proposal required nuspec predicates to run before its semantic result
 limit, while `--deepen` bounded candidates before promoted IL evaluation. Any
 focused successor that adopts those orderings must name its enforcing gate and
 must define the associated help and completion contract.
+
+### Landed PackageQuery bounds
 
 `PackageQuery.ExecuteAsync` now implements the nuspec half with separate
 `MaximumCandidates` and `MaximumMatches` bounds.
@@ -389,7 +393,7 @@ the CLI's named facets as canonical for the browser's facet rail.
 4. **Settle the pending L3 replacement spelling and retire `-t` without
    compatibility, then wire the product-owned nuspec facets into the CLI**,
    preserving the filter-before-bound ordering from
-   [Historical completion and bound proposal](#historical-completion-and-bound-proposal).
+   [Landed PackageQuery bounds](#landed-packagequery-bounds).
    The CLI slice consumes product-owned bindings that lower the settled
    spelling to opaque facet IDs without duplicating predicates. It must not
    independently choose the replacement spelling. Neither the L3 grammar nor

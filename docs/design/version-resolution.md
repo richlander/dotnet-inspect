@@ -424,10 +424,13 @@ gates that cutoff. The pending L3 and source-pushdown designs own how future
 semantic selection composes with the rendered rows; this document chooses no
 replacement count syntax or cutoff rule. The released view orders versions
 newest-first and preserves configured source order among feeds carrying the
-same version;
+same version.
 `SourcePrecedenceTests.GetVersionListingsWithSource_EmitsOneRowPerFeedCarryingAVersion`
-gates that order. The pending designs also own range-coordinate behavior and
-any future canonical producer tie-break.
+gates newest-first ordering and emission of every carrying feed. Its fixture's
+configured source order matches lexical feed-label order, so enforcement of the
+configured-source tie-break among equal-version rows is unverified. The pending
+designs also own range-coordinate behavior and any future canonical producer
+tie-break.
 
 ### Listing status across sources
 
