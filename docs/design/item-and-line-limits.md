@@ -30,7 +30,7 @@ This table identifies authority; it does not define a participant's behavior.
 | Declared row units and the Document-to-Scalar shape ladder | L2 `DotnetInspector.Sections` | [Output shapes](output-shapes.md#the-shape-ladder) |
 | Declared-row-set binding, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | Pending focused design |
 | CLI aliases, argv lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | Pending focused design |
-| Source execution, exact upstream optimization, merge, deduplication, and completion evidence | L1 query or source-owning component | Pending focused design |
+| Source execution, exact upstream optimization, post-selection payload acquisition, merge, deduplication, and completion evidence | L1 query or source-owning component | Pending focused design |
 | Payload projection, printing, export, and rendered-line selection | L3 `dotnet-inspect` | Pending focused design |
 | Rendering already-selected rows and values | Markout | Existing presentation contracts |
 
@@ -51,7 +51,9 @@ CLI tokens
 -> L2 completes its owner-defined residual operations and result binding,
    invoking shared RowSelection for residual semantic stages where required
 -> typed L2 result
--> L3 payload projection
+-> optional L3 payload projection
+   -> typed post-selection acquisition request to source owner when required
+   -> typed payload result returns to L3
 -> presentation and optional rendered-line selection
 ```
 
@@ -64,6 +66,12 @@ meaning. A source may satisfy part or all of a typed request only when its
 focused design can prove an exact equivalent result and report honest
 completion. Otherwise it returns sufficient rows for the owning L2 and
 semantic components to finish the residual request.
+
+The later source handoff is distinct from row execution. When projection needs
+content for already-selected payload identities, L3 sends a typed
+post-selection acquisition request and consumes the source owner's typed
+payload result. The focused source and payload designs own capabilities,
+fan-out bounds, budgets, and failure behavior.
 
 `--count` is one example of that separation. The focused L2 design will define
 which logical row set and stage a count observes. A source such as package
@@ -85,7 +93,8 @@ does not choose which logical rows or values survive.
 4. Define L1/source execution and exact upstream optimization against that L2
    contract.
 5. Define L3 CLI grammar and lowering against the locked typed contracts.
-6. Define payload projection, export, and rendered-line behavior.
+6. Define payload projection, post-selection acquisition, export, and
+   rendered-line behavior.
 7. Apply the locked design one subsystem at a time, with each owner changing
    its own design, implementation, and gates.
 8. Update shipped skills, help, examples, and completion only after the
@@ -101,7 +110,8 @@ This document does not define:
 - CLI spellings, aliases, compatibility, or diagnostics;
 - row predicates, ordering, field/column projection mechanics, count semantics,
   or result-binding mechanics;
-- source capabilities, stopping rules, pagination, or proof receipts;
+- source capabilities, stopping rules, pagination, proof receipts, or
+  post-selection acquisition mechanics;
 - payload cardinality, framing, export, or line-selection behavior;
 - Markout APIs or semantic row-selection behavior; or
 - current command-specific behavior or migration evidence.

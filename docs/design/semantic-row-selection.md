@@ -438,20 +438,12 @@ Finding identities, source provenance, or any stable row address carried as
 typed data. Selection position is never inferred from rendered text and is
 never promoted into identity.
 
-## Filters, baseline order, and ranking
+## Caller-supplied order and ranking
 
-Section selection, producer execution, command-owned filters, row predicates,
-and effective baseline order establish each input sequence before this plan
-runs:
-
-```text
-declared typed rows
--> predicates and command-owned filters
--> effective baseline order
--> ordered semantic selection stages
--> projection
--> presentation
-```
+The executor receives each complete input sequence in the caller-selected
+baseline order. This component does not decide how predicates, filters,
+reductions, field or payload projection, acquisition, or presentation compose
+around that invocation.
 
 A `Top` stage is the one selection stage that changes order itself. It ranks
 only its current input, then applies its lenient head count. A later stage sees
@@ -482,10 +474,10 @@ cannot satisfy any `Window` stage:
   required position, and available current-row count;
 - no selected sequence collection is returned.
 
-The L2 integration owner must complete this pure preflight before projection,
-rendering, per-row payload acquisition, or destination mutation. This avoids a
-presentation-dependent partial success in which one table honors a window while
-another silently clamps or disappears.
+The executor must complete this pure preflight before returning any selected
+sequence collection. The caller receives either all selected sequences or the
+structured failure; surrounding projection, acquisition, presentation, and
+destination effects remain outside this component.
 
 ## Failure model
 

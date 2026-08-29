@@ -137,10 +137,7 @@ When commands or flags are deprecated:
 3. After two minor versions, deprecated items may be removed
 
 This is the default compatibility policy, not a requirement that every syntax
-change enter deprecation. The explicitly approved
-[#4677 result-limit migration](https://github.com/richlander/dotnet-inspect/issues/4677)
-is an exception: its low compatibility bar permits atomic removal of the named
-aliases and count grammars without a warning period.
+change enter deprecation.
 
 Current deprecations:
 
