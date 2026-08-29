@@ -42,7 +42,7 @@ public sealed record VersionedFindingInspection<T>(
 /// A caller-assembled sparse correlation of whole censuses. Unlike
 /// <see cref="FindingCorrelation{T}"/>, this outcome does not select one exact finding identity:
 /// it preserves each evaluated <see cref="FindingInspection{T}"/> so successful empty censuses,
-/// subject absence, and failure remain distinguishable.
+/// subject absence, inapplicable input, and failure remain distinguishable.
 /// </summary>
 public sealed class FindingCensusCorrelation<T>
     where T : notnull
@@ -189,7 +189,7 @@ public sealed record CorrelatedFinding<T>
 
 /// <summary>
 /// The presence of one correlated identity at an evaluated address. Missing means a successful
-/// census did not contain the identity; subject absence and inspection failure remain distinct.
+/// census did not contain the identity; both absence kinds and inspection failure remain distinct.
 /// </summary>
 [Union]
 public sealed record FindingCorrelationPoint<T>
@@ -198,6 +198,7 @@ public sealed record FindingCorrelationPoint<T>
     public FindingCorrelationPoint(Present value) => Value = Guard(value);
     public FindingCorrelationPoint(Missing value) => Value = Guard(value);
     public FindingCorrelationPoint(SubjectAbsent value) => Value = Guard(value);
+    public FindingCorrelationPoint(NoApplicableInput value) => Value = Guard(value);
     public FindingCorrelationPoint(Failed value) => Value = Guard(value);
 
     static object Guard(object value)
@@ -231,6 +232,18 @@ public sealed record FindingCorrelationPoint<T>
     public sealed record SubjectAbsent
     {
         public SubjectAbsent(FindingVersion version, string? detail)
+        {
+            Version = version ?? throw new ArgumentNullException(nameof(version));
+            Detail = detail;
+        }
+
+        public FindingVersion Version { get; }
+        public string? Detail { get; }
+    }
+
+    public sealed record NoApplicableInput
+    {
+        public NoApplicableInput(FindingVersion version, string? detail)
         {
             Version = version ?? throw new ArgumentNullException(nameof(version));
             Detail = detail;
@@ -316,7 +329,14 @@ public sealed class FindingCorrelation<T>
 
                 case FindingInspection<T>.Absent:
                     var absent = (FindingInspection<T>.Absent)item.Inspection.Value!;
-                    timeline.Add(new FindingCorrelationPoint<T>.SubjectAbsent(item.Version, absent.Detail));
+                    timeline.Add(absent.Kind switch
+                    {
+                        FindingInspectionAbsenceKind.SubjectAbsent
+                            => new FindingCorrelationPoint<T>.SubjectAbsent(item.Version, absent.Detail),
+                        FindingInspectionAbsenceKind.NoApplicableInput
+                            => new FindingCorrelationPoint<T>.NoApplicableInput(item.Version, absent.Detail),
+                        _ => throw new InvalidOperationException("The inspection has an unknown absence kind."),
+                    });
                     break;
 
                 case FindingInspection<T>.Failed:

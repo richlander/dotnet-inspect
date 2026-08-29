@@ -3,9 +3,9 @@
 This TLA+ model is the executable interaction companion to
 [Platform composition and overlays](../../platform-composition-and-overlays.md).
 It explores how one already-collected candidate set is resolved when designated
-and platform assemblies can both satisfy a reference, and how a known
-overlay/platform coherence mismatch is reported when traversal crosses the
-pair.
+and platform assemblies can both satisfy a reference, and how version-skew
+evidence affects traversal when the loaded platform can or cannot satisfy a
+requested member.
 
 The model exists to answer interaction questions that are difficult to settle
 from prose:
@@ -16,13 +16,17 @@ from prose:
 - Does an unruled tie become a visible ambiguity rather than a silent pick?
 - Is every entitled candidate passed over by a successful selection recorded
   as shadowed evidence?
-- Can a known newer-overlay/older-platform mismatch become a success-shaped
-  missing result at traversal?
+- Can known newer-overlay/older-platform skew reject a member that the platform
+  actually contains?
+- Does an unavailable member under known skew become an attributed
+  compatibility failure rather than an unexplained missing result?
+- Does an unavailable member without known skew retain ordinary missing
+  semantics?
 - Does every closed candidate set reach a selected result or typed failure?
 
 ## Relationship to the product
 
-The model is owned by the precedence and coherence rules in
+The model is owned by the precedence and compatibility rules in
 `platform-composition-and-overlays.md`. It abstracts the candidate enumeration
 and first-match behavior currently found in
 `AssemblyDependencyResolver.ResolveCore`, the provenance mapping that
@@ -43,9 +47,11 @@ The policy selection deliberately ignores that equality; the version mutation
 does not.
 
 The skewed reference represents an overlay known to target a newer closure than
-the available platform. Loading records a warning without rejecting the
-workspace. Traversal then reports `CoherenceFailure` when it requires that
-platform closure. The silent mutation returns `Missing` instead.
+the available platform. Two abstract member requests cross each reference: one
+the platform can satisfy and one it cannot. Loading records a warning without
+rejecting the workspace. An available member still produces `Found`; an
+unavailable member under known skew produces `CompatibilityFailure`. Without
+known skew, the unavailable member produces `Missing`.
 
 ## Assumptions and non-claims
 
@@ -53,30 +59,33 @@ The checked model assumes:
 
 - candidate acquisition has completed before resolution;
 - adjacent owners have already supplied immutable candidate identity,
-  provenance, entitlement, and pair-coherence facts;
+  provenance, entitlement, version-skew, and member-availability facts;
 - every modeled candidate has the requested simple name and is bindable under
   the adjacent identity policy;
 - `DesignatedAsset` and `PlatformAsset` are the only entitled provenance kinds;
-- one traversal requires a member from the platform closure; and
-- a newer-overlay/older-platform relationship is the modeled incoherence case.
+- traversal requests one member that is available in the platform and one that
+  is unavailable; and
+- newer-overlay/older-platform skew is evidence used to attribute an
+  unavailable request, not proof that every request fails.
 
 Artifact acquisition, filesystem discovery, PE and metadata decoding, identity
 matching, framework parsing, warning presentation, type lookup, and every
-compatibility dimension other than the abstract skew relation are outside the
-model. The model does not change or validate the entitlement rule. TLC results
-establish properties of this state machine under the stated assumptions and
-bounds, not properties of the shipped implementation. Formal
-model-to-implementation correspondence is unverified.
+compatibility dimension other than the abstract skew and availability
+relations are outside the model. The model does not change or validate the
+entitlement rule. TLC results establish properties of this state machine under
+the stated assumptions and bounds, not properties of the shipped
+implementation. Formal model-to-implementation correspondence is unverified.
 
 ## Checked configurations
 
 | Configuration | Purpose |
 | --- | --- |
-| `PlatformOverlayResolutionSafety.cfg` | Explores every candidate subset and registration order. Checks type safety, entitlement, selection/failure consistency, designated precedence, visible ambiguity, shadow evidence, order independence, version independence, load warning, coherence attribution, and coherent traversal. |
+| `PlatformOverlayResolutionSafety.cfg` | Explores every candidate subset and registration order. Checks type safety, entitlement, selection/failure consistency, designated precedence, visible ambiguity, shadow evidence, order independence, version independence, load warning, successful available traversal, attributed unavailable traversal under skew, and ordinary missing traversal without skew. |
 | `PlatformOverlayResolutionLiveness.cfg` | Checks that every candidate-registration prefix eventually closes, resolves, and traverses under weak fairness. |
 | `PlatformOverlayResolutionBrokenOrder.cfg` | Replaces policy selection with first-registered selection. It must violate `SelectionIsOrderIndependent`. |
 | `PlatformOverlayResolutionBrokenVersion.cfg` | Lets a version-equal platform candidate outrank a designated candidate. It must violate `ReferenceVersionDoesNotChangeWinner`. |
-| `PlatformOverlayResolutionBrokenSilent.cfg` | Converts an attributed coherence failure into `Missing`. It must violate `IncoherenceIsAttributed`. |
+| `PlatformOverlayResolutionBrokenSkewRejection.cfg` | Rejects an available member solely because skew is known. It must violate `AvailableTraversalSucceeds`. |
+| `PlatformOverlayResolutionBrokenSilent.cfg` | Converts an attributed compatibility failure into `Missing`. It must violate `UnavailableSkewIsAttributed`. |
 
 All configurations disable TLC's deadlock check because `Traversed` is an
 intentional terminal phase. The temporal specification permits stuttering in
@@ -119,6 +128,11 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
 
 java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 1 -cleanup -noGenerateSpecTE \
+  -config PlatformOverlayResolutionBrokenSkewRejection.cfg \
+  PlatformOverlayResolution.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
   -config PlatformOverlayResolutionBrokenSilent.cfg \
   PlatformOverlayResolution.tla
 ```
@@ -129,14 +143,15 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 260 | 260 | 8 | All 11 invariants passed. |
+| Safety | 260 | 260 | 8 | All 12 invariants passed. |
 | Liveness | 260 | 260 | 8 | `ResolutionConverges` passed. |
 
 The state graph contains all 65 registration prefixes in each of the
 `Registering`, `Loaded`, `Resolved`, and `Traversed` phases. Safety-run action
 coverage was 64 `Register` transitions and 65 transitions each for
-`FinishLoad`, `Resolve`, and `Traverse`. In particular, warning and traversal
-expressions for the modeled incoherent pair had nonzero coverage.
+`FinishLoad`, `Resolve`, and `Traverse`. In particular, warning, available
+traversal, unavailable attributed failure, and ordinary missing expressions
+had nonzero coverage.
 
 Each mutation exited with TLC status 12 on its intended invariant:
 
@@ -144,7 +159,8 @@ Each mutation exited with TLC status 12 on its intended invariant:
 | --- | ---: | ---: | --- |
 | Broken order | 69 / 69 | 5 | Registration `<<DesignatedOne, DesignatedTwo>>` silently selected `DesignatedOne`, violating `SelectionIsOrderIndependent` instead of reporting the unruled tie. |
 | Broken version | 74 / 74 | 5 | With `DesignatedOne` and `Platform`, the exact reference selected `Platform` while the skewed reference selected `DesignatedOne`, violating `ReferenceVersionDoesNotChangeWinner`. |
-| Broken silent failure | 138 / 138 | 6 | With `DesignatedOne` and `Platform`, skewed traversal returned `Missing` with no resolution failure, violating `IncoherenceIsAttributed`. |
+| Broken skew rejection | 138 / 138 | 6 | With `DesignatedOne` and `Platform`, skew caused an available member to return `CompatibilityFailure`, violating `AvailableTraversalSucceeds`. |
+| Broken silent failure | 138 / 138 | 6 | With `DesignatedOne` and `Platform`, an unavailable member under skew returned `Missing`, violating `UnavailableSkewIsAttributed`. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
 `2026.08.21.155922` revision `9787e65`. The checked

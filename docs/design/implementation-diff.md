@@ -524,9 +524,9 @@ the transition as a Research-owned body verdict.
 `CounterpartUnavailable` and `DomainUnavailable` never manufacture a completed
 producer endpoint set. The later session keeps the Research unavailability
 visible and does not turn it into absence, inapplicability, or producer failure.
-The shared Finding topology and the adjacent producer obligations remain
-unimplemented and unverified as stated in their owning documents; each native
-producer migration supplies its own gates.
+The shared Finding topology is implemented and verified by its owning
+document. The adjacent producer obligations remain unimplemented and
+unverified; each native producer migration supplies its own gates.
 
 ### Resolution result and failure boundary
 
