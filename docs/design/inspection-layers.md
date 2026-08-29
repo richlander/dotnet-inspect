@@ -986,12 +986,14 @@ set plus its options (budget and per-role limits) in one call, not one
 coordinate. This admission layer models the per-coordinate primitive;
 decomposing a multi-package request into independent per-coordinate admissions
 and composing partial cache hits with fresh admissions remains future work for
-the adopting adapter or migration slice. `PackageAssemblyContextSelection`
-does not carry a realized coordinate today: it has no runtime identifier and
-its id, version, and framework are not yet canonicalized. Deriving the cache
-key therefore still depends on `PackageCoordinateResolver`, the same
-normalizer `RealizedMemberCoordinate.Package` already defers to. This design
-consumes that resolved coordinate; it does not construct or normalize one.
+the adopting adapter or migration slice. `PackageRootRealization` exposes the
+requested framework and content producer key, but it does not carry a
+`RealizedMemberCoordinate.Package`: it has no runtime identifier, and its id,
+version, and framework are not yet canonicalized as one realized coordinate.
+Deriving the cache key therefore still depends on `PackageCoordinateResolver`,
+the same normalizer `RealizedMemberCoordinate.Package` already defers to. This
+design consumes that resolved coordinate; it does not construct or normalize
+one.
 
 ### Shared-realization lifetime
 
