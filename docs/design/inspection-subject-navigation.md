@@ -73,7 +73,8 @@ The owner consumes:
 - bounded Type and Member inventories in producer-issued navigation order;
 - product accessibility descriptors;
 - exact type-definition identities and member anchors;
-- product view-facet registry descriptors and availability facts;
+- product View Facet Registry target-aware options and exact-resolution
+  results;
 - typed identity-resolution and correspondence outcomes; and
 - either a retained-session operation or an explicit stateless evaluation.
 
@@ -107,9 +108,10 @@ compile Library is tracked by
 the Type and Member identity currencies used here.
 
 [Workspace definitions](workspace-definitions.md) owns portable view-facet
-registry binding. The focused View Facet Registry work tracked by
-[#4880](https://github.com/richlander/dotnet-inspect/issues/4880) owns runtime
-lens membership, labels, and order.
+registry binding. The [View Facet Registry](view-facet-registry.md), established
+by [#4880](https://github.com/richlander/dotnet-inspect/issues/4880), owns
+runtime lens membership, labels, order, structural applicability, and
+facet-availability outcomes.
 
 [Inspect Web UI](inspect-web-ui.md) owns rendering, accessibility, focus, and
 interaction. Issue #4787 owns portable projection and complete restoration
