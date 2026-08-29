@@ -5,10 +5,8 @@ description: Use before adding, growing, or restructuring content in AGENTS.md â
 
 # Updating AGENTS.md
 
-AGENTS.md has been rewritten many times, and the same direction keeps getting
-lost: it creeps back up in size and re-accumulates content that belongs
-elsewhere. This skill is the standing charter that prevents that drift. Read
-it before any edit to AGENTS.md, not just during a cleanup pass.
+Goal: keep AGENTS.md small, skimmable, and limited to binding cross-cutting
+rules. Read this before any edit to AGENTS.md, not just during a cleanup pass.
 
 ## Hard constraints
 
