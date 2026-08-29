@@ -93,18 +93,28 @@ differently, but the difference is enforced for only one of them:
   `Path.Combine(..., AppName)` on each branch); `Initialize` only rejects a
   null or all-whitespace value. The current production caller passes one
   fixed literal at process startup. `appName` also, independently of any
-  `basePath` override, controls a *second* root `IsPathInCacheContext`
-  anchors to: on non-Windows platforms `GetLegacyBasePath` builds
-  `{LocalApplicationData}/{AppName}` and `IsPathInCacheContext` accepts a
-  descendant of that legacy root unconditionally — even when an explicit
-  `basePath` override is active — so `appName` is not merely a default-path
-  input; it is a live containment anchor of its own.
+  `basePath` override, controls a *second* root `IsPathInCacheContext` can
+  anchor to: on non-Windows platforms `GetLegacyBasePath` builds
+  `{LocalApplicationData}/{AppName}` and — when that path is non-null —
+  `IsPathInCacheContext` accepts a descendant of it, even when an explicit
+  `basePath` override is active. `GetLegacyBasePath` returns `null`, though,
+  whenever the legacy path string equals the *current* `GetDefaultBasePath()`
+  result — not whichever root `basePath` overrides to. On Linux, for
+  example, if `XDG_CACHE_HOME` happens to equal `LocalApplicationData`, the
+  legacy and default paths coincide and the legacy check is suppressed
+  entirely, even while a separate explicit `basePath` override is active and
+  makes that coincidence irrelevant to the active root. So `appName` is not
+  merely a default-path input; it is a live containment anchor of its own,
+  but only when `GetLegacyBasePath` returns non-null — a condition that
+  depends on the current default path, not on whether an override is
+  active.
 - **`basePath`** (`Initialize`'s second, optional parameter) is returned
   verbatim by `GetBasePath()` with no validation at all — not even the
   null/whitespace check `appName` gets — and becomes the *active-root* anchor
-  `IsPathInCacheContext` checks a candidate path against; it is not the sole
-  anchor, though — the legacy root derived from `appName` above is checked
-  too, unconditionally. Unlike
+  `IsPathInCacheContext` checks a candidate path against; it is not
+  necessarily the sole anchor, though — the legacy root derived from
+  `appName` above is also checked whenever `GetLegacyBasePath` returns
+  non-null (see the caveat above). Unlike
   `category`/`extension`/`appName`, this is **not** a fixed-literal value in
   production today: `dotnet-inspect`'s CLI entry point
   (`src/dotnet-inspect/Program.cs`) resolves it with explicit precedence —
@@ -195,7 +205,12 @@ a descendant of the active base path (`GetBasePath()`) or the legacy
 pre-XDG path (`GetLegacyBasePath()`). `IsPathInCacheContext` fails closed —
 any exception while resolving the full path (malformed path, denied access)
 returns `false`, never `true`. `Clear` calls it internally before deleting;
-other owners call it directly, but not exclusively before deletion —
+other owners call it directly, but not exclusively before deletion. The
+following description of `NuGetCache`'s and `PlatformPackService`'s call
+sites is cited only as evidence for a `CoreCache`-owned claim — that this
+guard's coverage of a reused local variable is point-in-time, not
+re-verified at each use — not as a specification of those callers' own
+publish/cleanup sequencing, which they own:
 `NuGetCache` and `PlatformPackService` each guard both their commit
 `targetPath` and their staging `stagingPath` once, before a *publish/write*
 operation begins (`Directory.CreateDirectory`, copying staged contents in);
@@ -314,8 +329,15 @@ from a different, newer one.
 ## Initialization lifecycle
 
 `Initialize(appName, basePath)` is not an idempotent no-op past the first
-call: it cancels and best-effort drains any in-flight versioned-category
-maintenance, replaces the maintenance generation, and re-schedules cleanup
+call: it cancels any in-flight versioned-category maintenance and then
+synchronously waits, *without a timeout*, for every task in the old
+generation to complete, cancel, or fault (`WaitForMaintenanceTasksBestEffort`'s
+unbounded `Task.WaitAll` — "best-effort" describes that a task failure is
+swallowed once the wait itself returns, not that the wait is bounded; a
+maintenance task that never observes its cancellation token and never
+returns can block `Initialize` indefinitely). Only after that drain
+completes does `Initialize` replace the maintenance generation, and
+re-schedule cleanup
 for every category registered so far — against the *new* base path if one was
 given. Reclaimed-byte/directory counters carry forward only when the new base
 path resolves to the same location as the old one (`IsSamePath` — subject to
@@ -349,16 +371,30 @@ ends in the old `appName`, the other in the new one — so this specific
 carry-forward-despite-environment-change case requires an unchanged
 `appName`, not merely an unchanged `basePath` override.)
 
-**Gap:** re-initialization is not exception-safe against a malformed new
-root, and the failure is destructive to more than scheduling. `Initialize`
+**Gap:** re-initialization is not exception-safe against a malformed root
+on *either side* of the comparison, and the failure is destructive to more
+than scheduling. `Initialize`
 mutates `_appName`, `_basePathOverride`, the maintenance cancellation
 source, the progress object, and the task dictionary to their new values —
 and, before that, takes a destructive snapshot of the *old* generation's
 reclaimed-byte/directory counters via `TakeSnapshot()` (which zeros them) —
 all *before* calling `IsSamePath` to decide whether to carry that snapshot
 forward into the new progress object. `IsSamePath` calls `Path.GetFullPath`
-on both sides, which throws for a sufficiently malformed path (invalid
-characters, exceeding platform path-length limits). Because `basePath`
+on *both* the old root and the new root, and it throws for a sufficiently
+malformed path on either one (invalid characters, exceeding platform
+path-length limits) — the failure is not limited to a malformed *new*
+`basePath`. The old root can be malformed too: a first `Initialize` call
+skips the `IsSamePath` comparison entirely (`previousRoot` is `null` when
+`_appName` was previously unset), so a `basePath` that would make
+`Path.GetFullPath` throw can be accepted, uncomplained-about, by that first
+call and persist as `_basePathOverride` until a later, otherwise-unrelated
+`Initialize` call finally exercises `IsSamePath` against it. And neither
+side is limited to an explicit `basePath` override: `appName` receives only
+a null/whitespace check, and `GetDefaultBasePath` concatenates it verbatim
+into every platform's default path with `Path.Combine`, which does not
+reject invalid path characters — so a default root derived from a
+sufficiently unusual `appName` has the identical exposure, on either the
+old or the new side of the comparison. Because `basePath`
 receives no validation (see the trust-boundary section above), a
 caller-supplied `basePath` that `Path.GetFullPath` rejects makes `Initialize`
 throw *after* the new fields are already committed, *after* the old
@@ -377,6 +413,25 @@ identical destructive-then-possibly-thrown pattern applies to
 performing the measurement/deletion — if either of those later steps
 throws, the already-consumed counters are lost with no return value to
 carry them.
+
+**Gap:** a maintenance generation does not necessarily describe one cache
+root's history, even though the counter-carry-forward rule above is framed
+that way. `ScheduleVersionedCategoryCleanup` — called both from
+`Initialize`'s `foreach` loop and from `RegisterVersionedCategory`/
+`RequestVersionedCategoryCleanupAsync` outside of any `Initialize` call —
+independently reads `GetBasePath()` as `root` on every invocation and keys
+its per-category task by `(root, prefix, currentVersion)`, but every task
+in the current generation, regardless of which root it was scheduled
+against, records into the *same* shared `s_maintenanceProgress` object. On
+Linux, an `XDG_CACHE_HOME` change between two calls that trigger scheduling
+— with no intervening `Initialize` call at all — can leave one generation
+containing cleanup tasks scheduled against two different roots, both
+contributing to one aggregate byte/directory count. `Clear` later derives
+its own deletion target by independently re-calling `GetBasePath()`/
+`GetCategoryPath()` at the time it runs, which may be neither of the roots
+that contributed to the aggregate it consumes — so `Clear`'s reported
+maintenance-byte count is not guaranteed to describe the root it actually
+deletes.
 
 `RegisterVersionedCategory` may be called before or after `Initialize`, and
 repeated registration of the same prefix is idempotent when `current`
@@ -560,20 +615,36 @@ does not return early with partial progress the way a finite-timeout
 `CancelAndWaitForMaintenance` call can.
 
 **Gap:** `CancelAndWaitForMaintenance`'s `timeout` parameter is not
-validated, and an out-of-range value silently skips both the cancellation
+validated, and a value `Task.Wait(TimeSpan)` rejects silently skips both the
+cancellation
 and the 25ms secondary wait rather than producing a documented error or the
-documented cancel-and-wait behavior. `task.Wait(TimeSpan)` throws
-`ArgumentOutOfRangeException` for a negative `TimeSpan` other than
-`Timeout.InfiniteTimeSpan` (`-1` ms) or one exceeding `int.MaxValue`
-milliseconds (about 24.8 days) — a plausible caller mistake, not only an
-adversarial input. `WaitForMaintenance` wraps `task.Wait(timeout)` and the
+documented cancel-and-wait behavior. The rejected range is narrower than "any
+negative `TimeSpan` other than exactly `-1`ms": `Task.Wait(TimeSpan)`
+truncates the `TimeSpan` to whole milliseconds via `(long)timeout.TotalMilliseconds`
+*before* range-checking, and only throws `ArgumentOutOfRangeException` when
+that truncated value is `< -1` or `> int.MaxValue`. Truncation is toward
+zero, not toward negative infinity, so a `TimeSpan` between `-1ms` and `0ms`
+exclusive (for example `-0.5ms`) truncates to `0` and is accepted as a
+zero-length wait, while one between `-2ms` and `-1ms` exclusive (for
+example `-1.5ms`) truncates to `-1` — the sentinel for
+`Timeout.InfiniteTimeSpan` — and is accepted as an *infinite* wait, not
+rejected. Only a truncated value at or below `-2`, or one whose
+`TotalMilliseconds` exceeds `int.MaxValue` (about 24.8 days, and note a
+fractionally-over value can itself truncate down to exactly `int.MaxValue`
+and be accepted), actually throws. `WaitForMaintenance` wraps `task.Wait(timeout)` and the
 subsequent cancel/25ms-wait in one blanket `try`/`catch`, so that exception
 is caught by the *same* handler that also swallows a legitimate
 cancellation-related exception; the method falls straight through to
 returning whatever progress is currently recorded, having neither canceled
-the task nor waited the documented 25ms. A caller who passes an
-out-of-range timeout observes an immediate, non-canceling progress read
-that looks identical to any other best-effort outcome, not a timeout error.
+the task nor waited the documented 25ms — but only after
+`RequestVersionedCategoryCleanupAsync` (called before the `try`, to obtain
+the task being waited on) has already returned, which can itself block
+indefinitely on the unbounded generation-restart drain described above; an
+invalid timeout does not bound or bypass that pending drain, only the
+subsequent cancel/wait step. A caller who passes a rejected timeout observes
+a non-canceling progress read — once any pending generation-restart drain
+has finished — that looks identical to any other best-effort outcome, not a
+timeout error.
 
 **Every** `Clear` call — not only `Clear(category:
 null)` — unconditionally waits (`Timeout.InfiniteTimeSpan`) for the current
@@ -593,18 +664,28 @@ directory absent.
 `s_maintenanceLock`, drains maintenance, validates the target path is in
 cache context, measures the tree, and deletes it, catching only
 `DirectoryNotFoundException` for the specific case where another process
-already completed the same deletion. Any other failure — an authorization
-error, an `IOException` from a file another process still has open, or a
-directory-enumeration error while measuring size — propagates to `Clear`'s
-caller rather than being swallowed, *once `Clear` has begun measuring or
-deleting*. Before that point, `Clear` calls `Directory.Exists(targetPath)`
-and returns early (reporting only the maintenance byte counter, no tree
-size) when it reports `false` — and `Directory.Exists` is documented to
+already completed the same deletion. Any other failure thrown by the
+directory-enumeration itself, or by `Directory.Delete`, propagates to
+`Clear`'s caller rather than being swallowed — but the measurement step's
+own existence check is a second, earlier place a filesystem error can be
+absorbed as a false negative, not just the initial probe below: `GetDirectorySize`
+(the measurement helper) calls its own `Directory.Exists(path)` and returns
+`0` when that reports `false`, and `Directory.Exists` is documented to
 return `false` both when the directory genuinely does not exist and when an
-error occurs while determining whether it exists. An authorization or other
-filesystem error at that existence check is therefore indistinguishable from
-"nothing to clear" and returns successfully with an undercounted result,
-rather than propagating like the failures above. `Clear`'s `long` return
+error occurs determining whether it exists. So an authorization or other
+filesystem error surfacing between `Clear`'s initial existence check and the
+measurement step can still be silently absorbed as "0 bytes" rather than
+propagating, even though `Clear` had already begun measuring. Before that point, `Clear` calls `Directory.Exists(targetPath)`
+and returns early (reporting only the maintenance byte counter, no tree
+size) when it reports `false` — the same ambiguous-`false` caveat applies
+here too, and also to the `DirectoryNotFoundException when
+!Directory.Exists(targetPath)` filter around the delete call: that filter's
+own `Directory.Exists` re-check cannot definitively prove another process
+completed the deletion, only that the directory is not currently observable,
+for whatever reason. An authorization or other
+filesystem error at any of these existence checks is therefore indistinguishable from
+"nothing to clear" (or "already deleted") and returns successfully with an undercounted result,
+rather than propagating like an enumeration or delete failure does. `Clear`'s `long` return
 value is not a confirmed bytes-freed count: it is the tree size *measured
 before deletion*, plus (for `Clear(null)` only) the consumed maintenance byte
 counter. That
@@ -649,6 +730,17 @@ cross-process) must either serialize its own writes around a `Clear` or
 accept both the silent-loss and the `Clear`-throws possibilities.
 
 ## Telemetry is fire-and-forget but not exception-isolated
+
+This section describes `CacheTelemetry`'s and `InfoTracker`'s *current*
+implementation only as evidence for a claim this document does own — what
+happens to a `CoreCache` read/write operation when telemetry recording
+fails. `CacheTelemetry`'s subscriber-dispatch mechanics (ordering,
+delivery guarantees, `ActivityEvent` behavior) and `InfoTracker`'s counter
+implementation are those types' own contracts, specified by their owning
+code, not normatively defined here; if either changes internally without
+changing where its call sites sit relative to `CoreCache`'s own
+`try`/`catch` blocks, this document's claims about `CoreCache`'s resulting
+return/throw/counter behavior are unaffected.
 
 `InfoTracker.RecordCacheHit`/`RecordCacheMiss` and `CacheTelemetry.Record` are
 recorded on cache outcomes, but recording itself does nothing to protect a
