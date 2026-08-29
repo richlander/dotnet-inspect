@@ -179,7 +179,9 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<MethodResultSink>.Builder resultSinks)
     {
         if (asyncBody.Lowering != AsyncLoweringKind.StateMachine
-            || asyncBody.SourceMethod == context.Method)
+            || asyncBody.SourceMethod == context.Method
+            || !IsSupportedFrameworkAsyncResult(
+                asyncBody.SourceMethod.ReturnType))
         {
             return;
         }
@@ -276,11 +278,11 @@ internal static partial class MethodCallAnalysis
                     out FieldStoreFact? sourceStore)
                 || context.IsInLoopRegion(sourceStore.ILOffset)
                 || sourceStore.ILOffset >= suspensionOffsets[0]
-                || !DominatesEveryOffset(
+                || !DominatesOffset(
                     context,
                     dominators,
                     sourceStore.ILOffset,
-                    suspensionOffsets)
+                    suspensionOffsets[0])
                 || loadSource.ILOffset
                     <= suspensionOffsets[^1]
                 || !TryCallResultOffsets(
@@ -326,25 +328,32 @@ internal static partial class MethodCallAnalysis
         return false;
     }
 
-    static bool DominatesEveryOffset(
+    static bool DominatesOffset(
         MethodBodyAnalysisContext context,
         Dominators dominators,
         int sourceOffset,
-        IEnumerable<int> targetOffsets)
+        int targetOffset)
     {
         int sourceBlock =
             context.Blocks.BlockIndexAt(sourceOffset);
+        int targetBlock =
+            context.Blocks.BlockIndexAt(targetOffset);
         return sourceBlock >= 0
-            && targetOffsets.All(targetOffset =>
-            {
-                int targetBlock =
-                    context.Blocks.BlockIndexAt(targetOffset);
-                return targetBlock >= 0
-                    && dominators.Dominates(
-                        sourceBlock,
-                        targetBlock);
-            });
+            && targetBlock >= 0
+            && dominators.Dominates(
+                sourceBlock,
+                targetBlock);
     }
+
+    static bool IsSupportedFrameworkAsyncResult(TypeRef returnType)
+        => returnType.Kind == TypeRefKind.GenericInstance
+            && returnType.ElementType is
+            {
+                Kind: TypeRefKind.Definition,
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System.Threading.Tasks",
+                Name: "Task`1" or "ValueTask`1",
+            };
 
     internal static bool TryFindAsyncStateMachineFieldSourceStore(
         MethodIdentity method,

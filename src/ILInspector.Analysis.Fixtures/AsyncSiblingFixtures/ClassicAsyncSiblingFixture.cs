@@ -47,6 +47,15 @@ public static class ClassicAsyncSiblingFixture
     }
 
     public static async Task<string>
+        ReturnsCallStoredBeforeMultipleAwaits()
+    {
+        string payload = ProducePayload();
+        await Task.Yield();
+        await Task.Yield();
+        return payload;
+    }
+
+    public static async Task<string>
         DoesNotBorrowUnrelatedFieldStore(string payload)
     {
         string unrelated = ProducePayload();
@@ -77,6 +86,32 @@ public static class ClassicAsyncSiblingFixture
     }
 
     public static async Task<string>
+        ConditionallySuspendsAfterParameterOverwrite(
+            string payload,
+            bool serialize)
+    {
+        if (serialize)
+        {
+            payload = ProducePayload();
+            await Task.Yield();
+        }
+        return payload;
+    }
+
+    public static async Task<string?>
+        ConditionallyInitializesLocalBeforeSuspension(
+            bool serialize)
+    {
+        string? payload = null;
+        if (serialize)
+        {
+            payload = ProducePayload();
+            await Task.Yield();
+        }
+        return payload;
+    }
+
+    public static async Task<string>
         MutatesFieldByReferenceAfterAwait()
     {
         string payload = ProducePayload();
@@ -97,23 +132,65 @@ public static class ClassicAsyncSiblingFixture
     }
 
     public static async Task<string>
+        StoresInLoopBeforeAwait(int count)
+    {
+        string payload;
+        do
+        {
+            payload = ProducePayload();
+            count--;
+        }
+        while (count > 0);
+        await Task.Yield();
+        return payload;
+    }
+
+    public static async AnalysisCustomTask<string>
+        UsesCustomAsyncBuilder()
+    {
+        string payload = ProducePayload();
+        await Task.Yield();
+        return payload;
+    }
+
+    [AsyncStateMachine(
+        typeof(CustomBuilderSecondaryStateMachine))]
+    public static AnalysisCustomTask<string>
+        CustomBuilderSecondarySource() =>
+        default;
+
+    [CompilerGenerated]
+    public struct CustomBuilderSecondaryStateMachine :
+        IAsyncStateMachine
+    {
+        public AsyncTaskMethodBuilder<string> SecondaryBuilder;
+        public string Payload;
+        public YieldAwaitable.YieldAwaiter Awaiter;
+
+        public void MoveNext()
+        {
+            Payload = ProducePayload();
+            YieldAwaitable.YieldAwaiter awaiter =
+                Task.Yield().GetAwaiter();
+            Awaiter = awaiter;
+            SecondaryBuilder.AwaitUnsafeOnCompleted(
+                ref awaiter,
+                ref this);
+            SecondaryBuilder.SetResult(Payload);
+        }
+
+        public void SetStateMachine(
+            IAsyncStateMachine stateMachine) =>
+            SecondaryBuilder.SetStateMachine(stateMachine);
+    }
+
+    public static async Task<string>
         StoresAfterDifferentSuspension()
     {
         await Task.Yield();
         string payload = ProducePayload();
         await Task.Yield();
         return payload;
-    }
-
-    public sealed class AuthoredFieldLookalike
-    {
-        string _payload = "";
-
-        public string ReturnCallThroughField()
-        {
-            _payload = ProducePayload();
-            return _payload;
-        }
     }
 
     static string ProducePayload() => "payload";
@@ -510,6 +587,64 @@ public static class ClassicAsyncSiblingFixture
         int value = 0;
         ReadCompatibleByRef(ref value);
     }
+}
+
+[AsyncMethodBuilder(typeof(AnalysisCustomTaskMethodBuilder<>))]
+public readonly struct AnalysisCustomTask<T>
+{
+    readonly Task<T> _task;
+
+    internal AnalysisCustomTask(Task<T> task) =>
+        _task = task;
+
+    public TaskAwaiter<T> GetAwaiter() =>
+        _task.GetAwaiter();
+}
+
+public struct AnalysisCustomTaskMethodBuilder<T>
+{
+    AsyncTaskMethodBuilder<T> _builder;
+
+    public static AnalysisCustomTaskMethodBuilder<T> Create() =>
+        new()
+        {
+            _builder = AsyncTaskMethodBuilder<T>.Create(),
+        };
+
+    public AnalysisCustomTask<T> Task =>
+        new(_builder.Task);
+
+    public void SetResult(T result) =>
+        _builder.SetResult(result);
+
+    public void SetException(Exception exception) =>
+        _builder.SetException(exception);
+
+    public void SetStateMachine(IAsyncStateMachine stateMachine) =>
+        _builder.SetStateMachine(stateMachine);
+
+    public void Start<TStateMachine>(
+        ref TStateMachine stateMachine)
+        where TStateMachine : IAsyncStateMachine =>
+        _builder.Start(ref stateMachine);
+
+    public void AwaitOnCompleted<TAwaiter, TStateMachine>(
+        ref TAwaiter awaiter,
+        ref TStateMachine stateMachine)
+        where TAwaiter : INotifyCompletion
+        where TStateMachine : IAsyncStateMachine =>
+        _builder.AwaitOnCompleted(
+            ref awaiter,
+            ref stateMachine);
+
+    public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(
+        ref TAwaiter awaiter,
+        ref TStateMachine stateMachine)
+        where TAwaiter : ICriticalNotifyCompletion
+        where TStateMachine : IAsyncStateMachine =>
+        _builder.AwaitUnsafeOnCompleted(
+            ref awaiter,
+            ref stateMachine);
 }
 
 public sealed class ClassicGenericSelfSiblingFixture<T>

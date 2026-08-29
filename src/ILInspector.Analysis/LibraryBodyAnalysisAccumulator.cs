@@ -206,6 +206,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
         var methodArray = methods.ToImmutable();
         var directCalls = calls.ToImmutable();
+        RemoveExternallyStoredAsyncFieldSources(
+            resultSinks,
+            fieldStores);
         var nonHeapNewObjOperandTokens = _includeMethodEvidence
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
@@ -253,6 +256,29 @@ internal sealed class LibraryBodyAnalysisAccumulator
             OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
+    }
+
+    static void RemoveExternallyStoredAsyncFieldSources(
+        ImmutableArray<MethodResultSink>.Builder resultSinks,
+        ImmutableArray<FieldStoreFact>.Builder fieldStores)
+    {
+        for (int index = 0; index < resultSinks.Count; index++)
+        {
+            MethodResultSink sink = resultSinks[index];
+            if (sink.StateMachineFieldSource is not { } source
+                || !fieldStores.Any(store =>
+                    store.EvidenceMethod != sink.EvidenceMethod
+                    && store.IsReachable != false
+                    && source.Field.Equals(store.Identity)))
+            {
+                continue;
+            }
+
+            resultSinks[index] = sink with
+            {
+                StateMachineFieldSource = null,
+            };
+        }
     }
 
     static MethodIdentity ResolveDeclaredMethod(

@@ -42,6 +42,7 @@ public static partial class FixtureExports
             new WidgetDto(name, 0, [], null),
             FixtureJsonContext.Default.WidgetDto);
         await Task.Yield();
+        await Task.Yield();
         return payload;
     }
 
@@ -54,8 +55,8 @@ public static partial class FixtureExports
             name = JsonSerializer.Serialize(
                 new WidgetDto(name, 0, [], null),
                 FixtureJsonContext.Default.WidgetDto);
+            await Task.Yield();
         }
-        await Task.Yield();
         return name;
     }
 

@@ -206,11 +206,13 @@ public sealed class ResolvedValueSet : IEquatable<ResolvedValueSet>
 /// containing <see cref="MethodResultSink.EvidenceMethod"/>. This fact is
 /// issued only for a sink with authenticated
 /// <see cref="AsyncLoweringKind.StateMachine"/> attribution, one unambiguous
-/// pre-suspension store that dominates every suspension, one exact
-/// post-suspension load with no address escape, and a trusted framework
-/// async-builder completion using the same exact builder field as every
-/// suspension. It does not infer provenance from generated field names.
-/// Custom async builders remain unresolved.
+/// pre-suspension store that dominates the initial suspension, one exact
+/// post-suspension load with no address escape or exact store outside the
+/// physical state-machine body, and a trusted framework async-builder
+/// completion using the same exact builder field as every suspension. The
+/// authenticated kickoff source must return framework <c>Task&lt;T&gt;</c> or
+/// <c>ValueTask&lt;T&gt;</c>. It does not infer provenance from generated
+/// field names. Custom async builders remain unresolved.
 /// <c>LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField</c>
 /// and
 /// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>

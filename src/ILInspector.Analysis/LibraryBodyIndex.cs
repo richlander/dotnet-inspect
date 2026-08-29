@@ -160,11 +160,13 @@ public sealed class LibraryBodyIndex
     public ImmutableArray<FieldStoreFact> FieldStores { get; }
 
     /// <summary>
-    /// Every physical <c>ldsfld</c>/<c>ldfld</c> site, with the receiver
-    /// argument Analysis proved for an instance load, when
+    /// Every physical <c>ldsfld</c>/<c>ldfld</c>/<c>ldsflda</c>/<c>ldflda</c>
+    /// site, with the receiver argument Analysis proved for an instance access
+    /// and whether the field address escapes, when
     /// <see cref="LibraryBodyAnalysisFeatures.JsonWireContractFlow"/> is
-    /// requested. The load counterpart of <see cref="FieldStores"/>, needed
-    /// where a cached read never reaches a resolvable stack slot.
+    /// requested. The read/address counterpart of <see cref="FieldStores"/>,
+    /// needed where a cached read never reaches a resolvable stack slot or an
+    /// indirect write must invalidate stable provenance.
     /// </summary>
     public ImmutableArray<FieldLoadFact> FieldLoads { get; }
 

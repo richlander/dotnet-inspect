@@ -376,9 +376,11 @@ After that authentication, Analysis may compose the existing result-sink,
 resolved-value, field-access, and suspension facts into
 `AsyncStateMachineFieldResultSource`. This preserves direct-call provenance
 across one exact compiler state-machine field without relying on generated
-field names. The source store must dominate every suspension, the result field
-must not escape by address, and every suspension and completion must use the
-same exact local framework builder field. Custom builders and every ambiguous
+field names. The source store must dominate the initial suspension, the result
+field must neither escape by address nor have an exact store outside the
+physical state-machine body, and every suspension and completion must use the
+same exact local framework builder field. The kickoff source must return
+framework `Task<T>` or `ValueTask<T>`; custom builders and every ambiguous
 identity, store, or reachability case remain unresolved.
 `ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField` and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and

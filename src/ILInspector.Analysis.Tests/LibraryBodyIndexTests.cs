@@ -1600,6 +1600,35 @@ public class LibraryBodyIndexTests
                 && fieldSource.SourceCallOffsets.Contains(
                     call.ILOffset));
         Assert.Equal("ProducePayload", producer.Callee.Name);
+
+        MethodIdentity multipleAwaits = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeMultipleAwaits));
+        MethodResultSink multipleAwaitSink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == multipleAwaits
+                && candidate.StateMachineFieldSource is not null);
+        Assert.Equal(
+            2,
+            index.DirectCalls.Count(call =>
+                call.Caller == multipleAwaits
+                && call.Callee.Name
+                    is "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"));
+        Assert.Equal(
+            "ProducePayload",
+            Assert.Single(
+                index.DirectCalls,
+                call => call.EvidenceMethod
+                        == multipleAwaitSink.EvidenceMethod
+                    && multipleAwaitSink.StateMachineFieldSource!
+                        .SourceCallOffsets.Contains(
+                            call.ILOffset))
+                .Callee.Name);
     }
 
     [Fact]
@@ -1623,7 +1652,22 @@ public class LibraryBodyIndexTests
                     .ConditionallyOverwritesParameterBeforeAwait),
             nameof(
                 ClassicAsyncSiblingFixture
+                    .ConditionallySuspendsAfterParameterOverwrite),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ConditionallyInitializesLocalBeforeSuspension),
+            nameof(
+                ClassicAsyncSiblingFixture
                     .MutatesFieldByReferenceAfterAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .StoresInLoopBeforeAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .UsesCustomAsyncBuilder),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .CustomBuilderSecondarySource),
             nameof(
                 ClassicAsyncSiblingFixture
                     .StoresAfterDifferentSuspension),
@@ -1698,16 +1742,140 @@ public class LibraryBodyIndexTests
                 && load.IsAddress
                 && byReferenceField.Equals(load.Identity));
 
-        MethodIdentity lookalike = Assert.Single(
+        MethodIdentity conditionalSuspension = Assert.Single(
             index.DeclaredMethods,
-            method => method.Name == nameof(
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
                     ClassicAsyncSiblingFixture
-                        .AuthoredFieldLookalike
-                        .ReturnCallThroughField));
-        Assert.DoesNotContain(
+                        .ConditionallySuspendsAfterParameterOverwrite));
+        FieldIdentity conditionalField = Assert.IsType<FieldIdentity>(
+            Assert.Single(
+                index.ResultSinks,
+                sink => sink.Caller == conditionalSuspension
+                    && sink.ResolvedValue?.Single is
+                    {
+                        Kind:
+                            ResolvedValueSourceKind.InstanceFieldLoad,
+                    })
+                .ResolvedValue!.Single!.FieldIdentity);
+        Assert.Contains(
+            index.FieldStores,
+            store => store.EvidenceMethod
+                    == conditionalSuspension
+                && conditionalField.Equals(store.Identity));
+        Assert.Contains(
+            index.FieldStores,
+            store => store.Caller == conditionalSuspension
+                && store.EvidenceMethod
+                    != conditionalSuspension
+                && conditionalField.Equals(store.Identity));
+
+        MethodIdentity conditionalLocal = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ConditionallyInitializesLocalBeforeSuspension));
+        FieldIdentity conditionalLocalField =
+            Assert.IsType<FieldIdentity>(
+                Assert.Single(
+                    index.ResultSinks,
+                    sink => sink.Caller == conditionalLocal
+                        && sink.ResolvedValue?.Single is
+                        {
+                            Kind:
+                                ResolvedValueSourceKind.InstanceFieldLoad,
+                        })
+                    .ResolvedValue!.Single!.FieldIdentity);
+        FieldStoreFact[] conditionalLocalStores =
+        [
+            .. index.FieldStores.Where(store =>
+                store.EvidenceMethod.DeclaringType.Equals(
+                    conditionalLocalField.DeclaringType)
+                && conditionalLocalField.Equals(
+                    store.Identity)),
+        ];
+        Assert.Contains(
+            conditionalLocalStores,
+            store => store.Value.Single?.Kind
+                == ResolvedValueSourceKind.CallResult);
+        Assert.Contains(
+            conditionalLocalStores,
+            store => store.Value.Single?.Kind
+                == ResolvedValueSourceKind.NullReference);
+
+        MethodIdentity looped = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .StoresInLoopBeforeAwait));
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.Caller == looped
+                && call.Callee.Name == "ProducePayload"
+                && call.InLoop);
+
+        MethodIdentity customBuilder = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .UsesCustomAsyncBuilder));
+        DirectCall customCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == customBuilder
+                && call.Callee.Name == "SetResult");
+        MethodResultSink customSink = Assert.Single(
             index.ResultSinks,
-            sink => sink.Caller == lookalike
-                && sink.StateMachineFieldSource is not null);
+            sink =>
+                sink.EvidenceMethod
+                    == customCompletion.EvidenceMethod
+                && sink.ILOffset == customCompletion.ILOffset);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            customSink.AsyncBody?.Lowering);
+        Assert.Equal(
+            TypeRefKind.GenericInstance,
+            customCompletion.Callee.DeclaringType.Kind);
+        Assert.Equal(
+            typeof(AnalysisCustomTaskMethodBuilder<>).Name,
+            customCompletion.Callee.DeclaringType
+                .ElementType?.Name);
+        Assert.Null(customSink.StateMachineFieldSource);
+
+        MethodIdentity customSecondary = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .CustomBuilderSecondarySource));
+        DirectCall customSecondaryCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == customSecondary
+                && call.Callee.Name == "SetResult");
+        MethodResultSink customSecondarySink = Assert.Single(
+            index.ResultSinks,
+            sink =>
+                sink.EvidenceMethod
+                    == customSecondaryCompletion.EvidenceMethod
+                && sink.ILOffset
+                    == customSecondaryCompletion.ILOffset);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            customSecondarySink.AsyncBody?.Lowering);
+        Assert.Equal(
+            TypeRef.CoreLibrary,
+            customSecondaryCompletion.Callee
+                .DeclaringType.ElementType?.Assembly);
+        Assert.Null(
+            customSecondarySink.StateMachineFieldSource);
+
     }
 
     [Fact]
@@ -1814,6 +1982,14 @@ public class LibraryBodyIndexTests
                     fieldSource.Field,
                     fieldSource.LoadOffset,
                     [physicalStore with { Identity = possibleAlias }],
+                    out _));
+        Assert.False(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore with { IsReachable = null }],
                     out _));
     }
 

@@ -690,10 +690,10 @@ public sealed record MethodResultSink(
     /// <summary>
     /// Exact direct-call sources recovered through one authenticated compiler
     /// async state-machine field. Null unless Analysis proves one unambiguous
-    /// store that dominates every suspension and the corresponding load after
-    /// every suspension in the physical body, with no field-address escape,
-    /// into the same exact trusted framework async-builder field used by every
-    /// suspension.
+    /// store that dominates the initial suspension and the corresponding load
+    /// after every suspension in the physical body, with no field-address
+    /// escape or exact store outside that body, into the same exact trusted
+    /// framework async-builder field used by every suspension.
     /// </summary>
     /// <remarks>
     /// This augments rather than reinterprets
