@@ -769,6 +769,13 @@ snapshot's canonical location as defined by the browser-history classification.
 This is location realignment, not a snapshot installation or successful
 restoration.
 
+Location realignment is a required consumer effect. Immediately before the
+history write, the consumer validates the returned authority; if the authority
+is stale or foreign, it changes neither canonical URL nor history and abandons
+the authority. Realignment completes before result-derived focus,
+announcement, and acknowledgement. If an implementation defers the write, its
+callback repeats the authority check at execution time.
+
 An applied result uses the initiating explicit action's push-or-replace
 classification or a browser restoration's adopt classification. An unavailable
 result that carries a changed snapshot replaces the current history entry
@@ -785,12 +792,13 @@ focused element, the focus-preservation rule below applies. The live region
 announces a maintenance result only when it changes visible status, the active
 subject, or the effective lens.
 
-Before installation, the UI asks the session whether the returned effect
-authority is current. Rendering may schedule later focus and status-announcement
-callbacks; each callback repeats the authority check at execution time.
-Validation performed for installation is not continuing authority for a later
-effect. A callback that finds stale or foreign authority changes neither
-focus, visible status, nor the active panel.
+Before installation or location realignment, the UI asks the session whether
+the returned effect authority is current. Rendering may schedule later focus
+and status-announcement callbacks; each callback repeats the authority check at
+execution time. Validation performed for installation or realignment is not
+continuing authority for a later effect. A callback that finds stale or foreign
+authority changes neither focus, visible status, active panel, canonical URL,
+nor history.
 
 The persistent `dotnet-inspect` shell owns one polite live region outside
 replaceable destination renderers, with `role="status"`, `aria-live="polite"`,
@@ -804,14 +812,14 @@ announces nothing. A no-effective-lens region remains visible content; the
 shell live region announces its exact heading and evidence rather than a
 different hidden explanation.
 
-After all required installation, focus, and announcement effects complete, the
-UI acknowledges the authority, including current aborted authority after its
-failure presentation, focus, and announcement complete. If authority becomes
-stale before completion, the UI abandons it. A session-scoped UI navigation
-consumer is the sole holder of returned navigation authority and outlives
-individual routed and inspection surfaces. When a navigation destination
-surface's renderer is replaced or unmounted, the consumer abandons every
-returned authority associated with that lifetime before discarding its
+After all required location-realignment, installation, focus, and announcement
+effects complete, the UI acknowledges the authority, including current aborted
+authority after its failure presentation, focus, and announcement complete. If
+authority becomes stale before completion, the UI abandons it. A session-scoped
+UI navigation consumer is the sole holder of returned navigation authority and
+outlives individual routed and inspection surfaces. When a navigation
+destination surface's renderer is replaced or unmounted, the consumer abandons
+every returned authority associated with that lifetime before discarding its
 callbacks. It also abandons a result that returns after its destination was
 destroyed or remounted. A remounted surface has a new lifetime and cannot
 consume callbacks from the destroyed one. Superseded work requires neither
@@ -825,7 +833,8 @@ callbacks to the new lifetime. Replacement does not merely make old callbacks
 eventually stale; it settles their authority before the old renderer is
 discarded.
 
-These stateful obligations are modeled by
+The common installation, focus, announcement, acknowledgement, abandonment,
+and destination-lifetime obligations are modeled by
 [`UiEffectLifecycle.tla`](models/inspect-web-navigation-consumer/UiEffectLifecycle.tla).
 The model assumes that the product session supplies opaque authority and a
 complete typed outcome, then explores two explicit intents across two mounted
@@ -838,7 +847,9 @@ install-before-focus ordering, deferred-focus separation, complete-effect
 acknowledgement, destruction abandonment, persistent focus safety, or
 replacement abandonment was removed. The
 [model README](models/inspect-web-navigation-consumer/README.md) records the
-tool versions, bounds, action coverage, and mutation results. This proves the
+tool versions, bounds, action coverage, mutation results, and deliberate
+abstraction of browser-trigger-specific entry realignment. The named
+restoration gate carries that additional conformance claim. This proves the
 finite design model; the implementation gates below establish conformance in
 Inspect Web.
 
@@ -1253,7 +1264,10 @@ these named Inspect Web tests:
   aborted outcomes. Each case retains the snapshot, replaces the
   browser-selected entry with its canonical location, surfaces and announces
   the outcome, focuses the retained destination heading or shell fallback, and
-  pushes no entry.
+  pushes no entry. The gate also supersedes each returned authority before
+  realignment and proves that stale work changes neither canonical URL nor
+  history, produces no later focus or announcement, and is abandoned before
+  it can be acknowledged.
 - `navigation-consumer.test.ts`:
   `acknowledgement follows every required visible effect` proves that
   installation, focus, and announcement complete before acknowledgement.

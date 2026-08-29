@@ -46,6 +46,12 @@ result. The bounded model conservatively parks that anchor when an intent
 begins; the UI prose requires parking only when the focused element may be
 removed.
 
+Because every modeled intent begins with focus parked on the shell, no reachable
+model behavior starts a renderer-replacing installation with focus inside the
+outgoing destination. Replacement-specific menu, modal, and control focus
+handoffs are therefore carried by the named implementation gates, not by the
+detached-focus mutation.
+
 ## Checked properties
 
 The model states these required properties:
@@ -122,7 +128,7 @@ witness invariant:
 | `DestroyWithoutAbandonMutation.cfg` | abandonment during destruction | `DestroyAbandonsReturnedAuthority` |
 | `FocusBeforeInstallMutation.cfg` | installation before dependent effects | `SnapshotInstallsBeforeDependentEffects` |
 | `InstallMovesFocusMutation.cfg` | installation preserving the separately deferred focus effect | `DeferredFocusRunsOnlyInFocusEffect` |
-| `DetachedFocusMutation.cfg` | persistent focus handoff during intent, replacement, and destruction | `FocusRemainsOnMountedElement` |
+| `DetachedFocusMutation.cfg` | persistent focus handoff during intent begin and destruction | `FocusRemainsOnMountedElement` |
 | `ReplaceWithoutAbandonMutation.cfg` | outgoing-lifetime abandonment during renderer replacement | `ReplacementAbandonsOutgoingAuthority` |
 
 TLC finds a counterexample for every mutation. Exact partial-state counts are
@@ -137,6 +143,7 @@ The model does not encode:
 - registry descriptor membership, order, labels, or statuses;
 - canonical packet decoding or restoration composition;
 - exact ARIA roles, keyboard keys, or focus-target identities;
+- Back/Forward initiation and non-installing history-entry realignment;
 - modal layout and responsive rendering; or
 - product work, maintenance ordering, or snapshot retention.
 
