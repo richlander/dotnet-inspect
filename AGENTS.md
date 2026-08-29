@@ -73,135 +73,51 @@ Before continuing:
 
 ## Making your work findable
 
-Each window must identify its PR, current state, and any decision it needs.
+This section is tmux-specific and applies only inside a tmux pane — check
+`[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
+attach state to, so skip it entirely. Each window must identify its PR,
+current state, and any decision it needs. Full tmux mechanics and rationale
+live in [Agent session state](docs/agent-session-state.md); this section
+states the binding rules.
 
-### Name the window for identity
-
-```sh
-tmux rename-window -t "${TMUX_PANE:?}" pr<number>
-```
-
-Always target `"${TMUX_PANE:?}"`; a bare command renames another window, and an
-empty variable silently targets the current one. Rename
-the window, never the shared session. Use `pr<number>`, or `i<number>` before a
-PR exists. Keep the name stable except for these temporary suffixes:
-
-| Suffix | Meaning |
-| --- | --- |
-| `-blocked` | waiting on a human decision |
-| `-conflict` | in conflict recovery |
-
-### Announce PR identity in your output
-
-At the start of work, after every resume, and at every round start, include the
-literal token `PR #<number>` or `PR <number>`, plus the branch or expected head
-when relevant. Round completions must use the report in
-[`docs/round-orchestration.md`](docs/round-orchestration.md#the-round-report).
-
-### Separate status from approval prompts
-
-When a decision needs supporting status or analysis, emit that material first
-as normal visible assistant output. Only after it appears in the session log
-may you open the interactive approval prompt.
-
-The prompt contains only the concise decision question and short answer labels.
-Do not repeat or move the round report, architectural checkpoint, carry-forward
-analysis, evidence, or recommendation into the prompt. The prompt is a control,
-not the record.
+- **Rename the window** to `pr<number>` (or `i<number>` before a PR exists),
+  always targeting `"${TMUX_PANE:?}"`, and keep it stable except for a
+  `-blocked` or `-conflict` suffix.
+- **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
+  plus branch or expected head — at the start of work, after every resume, and
+  at every round start. Round completions use the
+  [round report](docs/round-orchestration.md#the-round-report).
+- **Separate status from approval prompts.** Emit supporting status or analysis
+  as normal visible output first; only after it appears in the session log may
+  you open an approval prompt containing just the concise decision question and
+  answer labels — never the report, checkpoint, or evidence itself.
+- **Publish `@agent` and `@agent_state`** after every state change, each as its
+  own single command (never inside `if`/`&&`/a loop). `@agent_state` carries
+  `head` and `pr`/`issue`, plus `round`, `reviews`, `blocked`, `waiting`, and
+  `rec` (`continue`, `wait`, `merge`, `split`, `approve`, `stop`); clear both
+  when the window no longer owns the work. `blocked` names an issue/PR a
+  person can act on; `waiting` names tool-evaluable predicates (`check:<name>`,
+  `checks`, `merge`, `review`).
+- **Signal `HELP`** with a persistent state plus one best-effort
+  `tmux display-message` nudge when blocked on a human decision; clear it once
+  the decision arrives.
 
 ### Keep the review-clean label current
 
-`review-clean` is live state, not a historical milestone, and it is advisory,
-not authoritative — it records that reviews are clean as of a head SHA, not
-that the PR is mergeable right now. Reconcile it after every resume and
-whenever the head or review result changes. Never infer merge readiness from
-its presence: before every merge attempt, re-check current-head CI and
-GitHub's live mergeability regardless of the label (see
-[Forming a candidate](#forming-a-candidate)).
+`review-clean` is live, advisory state — it records that reviews are clean as
+of a head SHA, not that the PR is mergeable right now. Reconcile it after every
+resume and whenever the head or review result changes; never infer merge
+readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 
-- **Add it** when every required review at the current head is review-clean.
-  Record the reviewed head SHA in the same comment or update that adds the
-  label.
-- **Base movement on its own does not remove it.** Follow [Clean reviews are
-  not spent by main moving](#clean-reviews-are-not-spent-by-main-moving) to
-  classify the landed range; a no-interaction classification keeps the label
-  through the integration.
+- **Add it** when every required review at the current head is review-clean,
+  recording the reviewed head SHA in the same comment or update.
+- **Base movement alone does not remove it.** Classify the landed range per
+  [Clean reviews are not spent by main
+  moving](#clean-reviews-are-not-spent-by-main-moving); a no-interaction
+  classification keeps the label through the integration.
 - **Remove it** before a new round, author change, conflict recovery, restack,
   unresolved finding, or draft transition — anything that spends the clean
   reviews or reopens the head to a fresh finding.
-
-### Publish your state where tooling can read it
-
-Update both window-scoped options whenever state changes:
-
-```sh
-tmux set -w -t "${TMUX_PANE:?}" @agent "round 6 on pr4405, waiting on CI"
-tmux set -w -t "${TMUX_PANE:?}" @agent_state "pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
-
-# Clear when this window no longer owns the PR.
-tmux set -w -t "${TMUX_PANE:?}" -u @agent
-tmux set -w -t "${TMUX_PANE:?}" -u @agent_state
-```
-
-**Publish state as single, separate commands.** Never wrap them in `if`, `&&`,
-or a `for` loop. Publishing is the one thing that must never stop to ask
-permission: an approval prompt on it blocks the agent on the very act of
-reporting that it is blocked, and semi-autonomous work stops dead. A bare
-`tmux …` matches an approval rule for `tmux`; `if [ … ]; then tmux … && tmux …;
-fi` does not match it, because the command being judged is now the compound.
-That difference has stalled real work.
-
-`${TMUX_PANE:?}` is what keeps the target safe without a guard clause. If the
-variable is empty the shell fails the command outright and nothing is written —
-which matters, because `tmux set -w -t ""` does not error: it silently applies
-to whichever window is *current*, which is somebody else's.
-
-Always target `"${TMUX_PANE:?}"`. The state must include
-`head` and either `pr` or, before a PR exists, `issue`; add `round`, `reviews`,
-`blocked`, `waiting`, and `rec` when applicable. Values contain no spaces. `rec`
-is `continue`, `wait`, `merge`, `split`, `approve`, or `stop`. Clear both
-options when the window no longer owns the work.
-
-`blocked` and `waiting` are both things you are waiting on, split by **who can
-act on them**:
-
-- **`blocked`** takes issue or PR numbers only — things a person can open and
-  prioritise, and that the next agent hitting the same wall can find instead of
-  re-investigating it. If a flake blocks you and no issue exists, file one and
-  cite it.
-- **`waiting`** takes one or more comma-separated predicates a tool can evaluate
-  against your `head`: `check:<name>`, `checks`, `merge`, or `review`. The wait
-  ends only when every listed predicate clears. Use it when nothing is wrong
-  and nothing is openable — a check that has not reported yet is not a defect
-  and does not deserve an issue.
-
-When GitHub status is being acquired, publish `goal=advance|merge` and the
-unresolved status predicates in `waiting`. During a bounded wait, also publish
-`status-deadline=<UTC>` and at most one active `schedule=<id>`. Key that
-schedule to the recorded `head`, `waiting`, `goal`, and deadline; cancel stale
-runs and clear the ID before querying GitHub. Follow
-[GitHub status queries](docs/github-status-queries.md) for the request and
-response contract and
-[Status discovery](docs/round-orchestration.md#status-discovery) for round
-transitions and the 60-minute budget.
-
-`rec=wait` is coherent when either is populated. `blocked=ci` is the specific
-error this split exists to remove: it names nothing a person can open and
-nothing a tool can evaluate, so it reads as a wait on nothing.
-
-### Signal when you need a person
-
-When blocked on a human decision, set a persistent `HELP` state and send one
-best-effort nudge:
-
-```sh
-tmux set -w -t "${TMUX_PANE:?}" @agent "HELP: integrate main into pr4405, or close it?"
-tmux display-message -d 10000 -t "${TMUX_PANE:?}" \
-  "HELP pr4405 in w#{window_index}: integrate main, or close it?"
-```
-
-Send the nudge once, then stop and wait; the flag is not an answer. Clear `HELP`
-as soon as the decision arrives. Use ordinary state for progress and completion.
 
 ## User-directed workflow adjustments
 
@@ -227,28 +143,18 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - **Authorizing the next round before CI completes:** the agent does not need
   to check CI status first; proceed with the authorized round.
 - **Skip re-review after a trivial base interaction:** requires the user's
-  approval for one exact integration head against one exact analyzed base tip.
-  Offer this adjustment only for a `main`-targeting PR or bottom open stack
-  slice whose waiver lineage starts at one immutable review-clean head and
-  recorded base. The first candidate changes from that reviewed head solely to
-  integrate a moved base; a renewal may change from a recorded pending or
-  approved candidate in the same lineage solely to integrate another moved
-  base. At every step, resolve each overlap mechanically by taking the analyzed
-  base side verbatim or dropping the PR's change to that file. The cumulative
-  PR diff against the newest base must remain a subset of the original reviewed
-  diff, and no surviving reviewed claim, contract, or behavior may change.
-  Dropping an entire conflicting-file change may narrow the PR; explain why
-  that removal does not weaken its remaining claims. Present that evidence
-  before asking. Run the affected focused gates and retain all current-head CI
-  and mergeability requirements. The prior reviews remain evidence only for
-  their original reviewed head: remove `review-clean`, do not describe an
-  integration head as reviewed or review-clean, and record the immutable
-  reviewed head/base plus the approved exact integration head/base publicly.
-  Any later movement of either the head or base expires the current decision
-  and re-enters carry-forward analysis; a fresh waiver requires the same
-  cumulative lineage proof. Any semantic conflict resolution, new authored
-  change, or interaction with surviving reviewed behavior requires ordinary
-  re-review.
+  approval for one exact integration head against one exact analyzed base tip,
+  offered only for a `main`-targeting PR or bottom open stack slice whose
+  waiver lineage starts at one immutable review-clean head and recorded base
+  (a renewal may only integrate a further moved base from that same lineage).
+  Every overlap must resolve mechanically — analyzed base side verbatim, or
+  drop the PR's change to that file — and the cumulative diff against the
+  newest base must stay a subset of the original reviewed diff with no
+  surviving reviewed claim, contract, or behavior changed. `review-clean` stays
+  absent on the integration head; any later head or base movement expires the
+  decision, and any semantic conflict resolution or new authored change
+  requires ordinary re-review. Evidence to publish before asking:
+  [Trivial-interaction re-review waiver](docs/round-orchestration.md#trivial-interaction-re-review-waiver).
 
 ## Before changing files
 
@@ -256,16 +162,13 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   detach HEAD there.
 - From the primary checkout, run `git fetch origin main`, then create a
   descriptive branch and linked worktree:
-
-  ```sh
-  git worktree add -b <branch> <repo>/.worktrees/<slug> origin/main
-  ```
-
-  A stacked slice branches from its parent. During a GitHub outage, use the
-  recorded last-known base allowed by [the stack rules](#stacked-prs-for-multi-slice-issues).
-- Use one development worktree per PR and one temporary worktree per reviewer.
-  Put them under `.worktrees/` or, for reviewers, an OS temporary directory;
-  never directly under the home directory.
+  `git worktree add -b <branch> <repo>/.worktrees/<slug> origin/main`. A
+  stacked slice branches from its parent; during a GitHub outage, use the
+  recorded last-known base allowed by
+  [the stack rules](#stacked-prs-for-multi-slice-issues).
+- Use one development worktree per PR and one temporary worktree per reviewer,
+  under `.worktrees/` or (for reviewers) an OS temporary directory — never
+  directly under the home directory.
 - For an open PR, apply [Canonical round flow](#canonical-round-flow) before
   other work. Conflict recovery has first priority.
 - Never amend. Rebase only before the first push. After publication, merge the
@@ -274,11 +177,15 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 - After integrating or resolving conflicts, re-read this file and the relevant
   focused docs. Do not include unrelated or another contributor's changes.
 - Remove reviewer worktrees after review and reproduction finish. Remove a
-  development worktree after merge, or after the exact pushed head is unlocked,
-  all concurrent gates pass, and every required review is review-clean. Recreate
+  development worktree after merge, or once the pushed head is unlocked, all
+  concurrent gates pass, and every required review is review-clean — recreate
   it later if needed.
 
 ## Task-specific guidance
+
+Read the relevant entry before working in that area. This table covers the
+highest-value entry points; the full index — every design doc, contributor
+workflow doc, and PR template — lives in [`docs/README.md`](docs/README.md).
 
 | Area | Read first |
 | --- | --- |
@@ -287,207 +194,56 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | A change crossing subsystem ownership boundaries | `docs/overview.md` |
 | Implementation structure | the relevant section of `docs/architecture.md` |
 | Layering and consumer boundaries | `docs/design/inspection-layers.md` |
-| Artifact acquisition and workspace composition | `docs/design/artifact-acquisition-and-workspaces.md` |
-| Platform composition, overlays, and core-library entitlement | `docs/design/platform-composition-and-overlays.md` |
 | Command defaults and disclosure | `docs/design/progressive-disclosure.md` |
-| Output data shapes | `docs/design/output-shapes.md` |
-| Output style | `docs/design/style-guide.md` |
-| Sections and selection | `docs/design/section-model.md` |
-| View-facet identity and discovery | `docs/design/view-facet-registry.md` |
+| Output data shapes and style | `docs/design/output-shapes.md`, `docs/design/style-guide.md` |
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
-| Type, member, or API identity | `docs/design/type-member-api-representation.md` |
 | PDB and source acquisition | `docs/pdb-acquisition.md` |
-| Source Finding producers | `docs/design/source-finding-producers.md` |
-| Package resolution and caches | `docs/design/version-resolution.md` |
 | Security and untrusted input | `docs/design/untrusted-data-threat-model.md` |
-| Analysis, Findings, and Research | `docs/design/finding-adoption.md` |
-| Inspection graphs and characteristics | `docs/design/inspection-graph-document.md`, plus the contributing relationship producer's docs |
-| Inspection-graph modes | `docs/design/inspection-graph-modes.md` |
-| Call-graph projection | `docs/design/call-graph-projection.md` |
-| Shared IL/control-flow substrate | `docs/design/instruction-substrate.md`, plus the consuming subsystem's docs |
-| TypeScript facade generation for `[JSExport]` | `docs/design/ts-jsexport.md` |
-| IL round-trip tests | `tests/DotnetInspector.ILRoundtrip.Tests/README.md` |
 | Decompiler raising, structuring, typing, or printer behavior | `docs/decompiler-correctness-pipeline.md`, then `docs/decompiler-raise-discipline.md` |
-| Classic async state-machine reconstruction | `docs/design/classic-async-reconstruction.md` |
-| Decompiler harness-only behavior | `docs/decompiler-correctness-pipeline.md`, then the owning harness README |
-| Skills | `taste/skill-guidance.md` |
-| Stacked PRs and restacking | `docs/stacked-prs.md` |
-| Running a review round | `docs/round-orchestration.md` |
-| Querying GitHub PR and CI status | `docs/github-status-queries.md` |
-| Hosting a network-accessible inspect-web demo | `docs/runbooks/inspect-web-demo-hosting.md` |
-| Installing and pinning TLA+ and Java | `docs/runbooks/tla-plus-setup.md` |
-| TLA+ methodology and curated examples | `docs/tla-plus-methodology.md` |
-| Release and publishing | `docs/release-workflow.md` |
-| Changes spanning Markout and this repo | `docs/markout-co-development.md` |
-
-PR templates:
-
-| Change | Template |
-| --- | --- |
-| Raising, structuring, validity, fidelity, or corpus behavior | `docs/templates/decompiler-pr.md` |
-| Focused invalid-`Full` or burndown row fix | `docs/templates/decompiler-burndown-fix-pr.md` |
-| Compile-back harness, fidelity skeleton, or ReturnToSender coverage | `docs/templates/decompiler-compile-back-harness-pr.md` |
+| Everything else — design docs, contributor workflow, PR templates, skills | `docs/README.md` |
 
 Some files under `docs/design/` record proposals or design history. Prefer
 current product behavior and tests over design history. When current sources
 disagree, stop and resolve which owner is authoritative rather than silently
 choosing one.
 
-Keep user-facing product skills and repository-maintainer skills separate:
+Keep user-facing product skills (`skills/`, shipped in the binary) separate
+from repo-local contributor skills (`.github/skills/`, `.claude/skills/`); do
+not select a product skill merely because an agent is maintaining this
+repository. See
+[User-facing vs. repo-local skills](taste/skill-guidance.md#user-facing-vs-repo-local-skills)
+for the registration mechanics.
 
-- `skills/` contains user-facing guidance shipped in the dotnet-inspect binary.
-  Use these skills when consuming the published tool or when a product change
-  needs its user-facing commands, examples, and expectations reviewed. Do not
-  select them merely because an agent is maintaining this repository; they are
-  product artifacts, not contributor runbooks.
-  When adding a focused product skill, register it in `SkillCommand.Skills` and
-  add an `EmbeddedResource` line for it in
-  `src/dotnet-inspect/dotnet-inspect.csproj`; the embeds are enumerated per
-  skill. `FocusedSkillFilesRegistryAndEmbeddedResourcesAgree` keeps the skill
-  directories, runtime registry, and embedded resources equal. Its YAML
-  frontmatter `description:` is the single source of truth for the generated
-  skill listing.
-- `.github/skills/` and `.claude/skills/` contain repo-local guidance for
-  contributors and agents. Use the matching repo-local skill for release, CI,
-  corpus maintenance, and other repository operations. Do not register or
-  embed these skills in the product, and keep repository operations out of the
-  user-facing `skills/` tree.
-
-### Which dotnet-inspect to run
-
-For routine repository development and investigation, use the latest production
-dotnet-inspect:
-
-```bash
-dnx dotnet-inspect -y -- <command>
-```
-
-The production tool is normally current and its Native AOT executable starts
-much faster than `dotnet run`. Prefer it for inspecting packages, platform
-libraries, local artifacts, and existing product behavior while developing.
-
-Use the source version primarily to test behavior from the current worktree:
-
-```bash
-dotnet run --project src/dotnet-inspect -c Release -- <command>
-```
-
-The source command is required when the evidence depends on an unmerged change,
-when reproducing or validating a source-only fix, or when checking output that
-the production release does not yet contain. Do not cite the production tool as
-evidence for worktree behavior, and do not pay the source-build startup cost for
-routine development queries that the production tool can answer.
+For routine development, use production dotnet-inspect
+(`dnx dotnet-inspect -y -- <command>`) — normally current and much faster to
+start than `dotnet run --project src/dotnet-inspect -c Release -- <command>`,
+which is required only when evidence depends on an unmerged change. Full
+rationale:
+[`docs/dev-environment.md`](docs/dev-environment.md#which-dotnet-inspect-to-run).
 
 ## Design scope and composition
 
-Default every design effort to exactly one architectural owner and name its
-owning document. A focused owner is either an independently owned architecture
-unit whose authority was already stated in
-[the overview](docs/overview.md) or an existing focused owning document before
-the effort began, or exactly one new unit established by the effort. A
-new-owner effort adds the unit's authority entry to the overview, creates or
-names its focused owning document, and declares its responsibility, immediate
-boundaries, and non-claims. It may introduce a new responsibility or transfer
-one cohesive responsibility from one existing owner when that transfer is the
-effort's single claim and the donor's other authority is unchanged. The donor's
-relinquishment of that one responsibility and corrections that only remove
-stale statements assigning it to the donor are part of the transfer; those
-edits may not change any other owner contract. Any other normative donor change
-is a separate effort. A new owner may not aggregate responsibilities from
-multiple owners or create an umbrella owner to evade the broad-design gate. A
-project boundary alone neither creates nor erases a component boundary. Every
-focused issue and PR names the owner and owning document. For this rule, each
-such owner is one component.
+Full mechanics, the composition-document rules, TLA+ modeling guidance, and the
+over-broad-design recovery procedure live in
+[`docs/design-scope.md`](docs/design-scope.md). The binding rules:
 
-A focused design may specify its owner's immediate typed input and output
-obligations. It may reference an adjacent component's owner-issued types and
-state the preconditions it consumes and the results it returns, but it must not
-redefine that component's construction, validation, identity, lifetime, or
-failure semantics. Except for the bounded one-donor transfer above, if closing
-the claim requires normative changes in two owners, use two focused efforts and
-connect them with a thin composition map.
-
-A composition document may name sequencing and typed handoffs, but must
-reference owner contracts rather than restating participating components'
-internal inventories or policies. When another component needs prerequisite
-work, file or record that residual and handle it as an independently reviewable
-effort or stack slice. Do not expand the current design merely to make the whole
-end-to-end system appear closed. PR coherence does not justify combining
-independently owned component designs.
-
-A **broad design** sweeps an end-to-end lifecycle such as acquisition,
-analysis, publication, and presentation or, outside the bounded one-donor
-transfer above, normatively specifies multiple independently owned components.
-Do not start one or broaden a focused effort into one unless the user explicitly
-requests or approves that scope. A large issue, cross-cutting motivation,
-general request to redesign a subsystem, or reviewer suggestion is not
-approval. Before requesting approval, present the component map, explain why
-focused designs cannot close independently, and name the intended claims and
-non-claims.
-
-### Keep specifications readable; model interactions
-
-Design specifications own detailed requirements, component boundaries, and
-policies. Keep them readable as prose and typed contracts; do not turn them
-into unconventional EBNF-like descriptions of operational behavior. When a
-feature's correctness depends on significant stateful, concurrent, distributed,
-or scheduling interactions, use a small TLA+ model that states the relevant
-safety and liveness properties, and model-check it before implementation.
-(See [`docs/runbooks/tla-plus-setup.md`](docs/runbooks/tla-plus-setup.md) for
-installing and pinning the TLA+ tools and Java, and
-[`docs/tla-plus-methodology.md`](docs/tla-plus-methodology.md) for modeling
-methodology and curated examples.)
-Use the model to evaluate whether the interaction or algorithm is effective,
-and keep the design specification focused on what the system must guarantee.
-Link the model from the owning design and record its assumptions, checking
-bounds, checked properties, and any material counterexamples. These results
-establish evidence about the model, not the implementation.
-Implementation-level safety, soundness, or faithfulness claims must still
-follow
-[Asserted properties name their gate](#asserted-properties-name-their-gate).
-The model supplements rather than replaces the readable specification.
-
-### Reviewing focused designs
-
-Review a focused design against its named owner, owning document, immediate
-typed boundaries, and declared non-claims. If repeated review keeps discovering
-new component-internal contracts or manually synchronized cross-component
-inventories, stop and apply the scope-violation recovery transition. Adding
-more prose, stages, gates, or receipts to a sweeping document is not evidence
-that it closes.
-
-### Recovering from an over-broad design
-
-If you discover that current work violates this guidance, stop broadening,
-repairing, or reviewing the design in place and apply the
-[scope-violation recovery transition](#recovery-transitions). Keep a locked
-candidate unchanged while discussing the violation with the user. Name the
-components whose ownership has been combined, explain the closure or review
-evidence that exposed the problem, and propose component-sized replacements in
-priority order, including their owners, owning documents, immediate boundaries,
-dependencies and parallel work, claims, and non-claims.
-
-After that discussion, preserve significant design problems found in other
-components as focused issues rather than dropping them or absorbing them into
-the current design. Each issue names the owning component and document,
-concrete evidence and consequence, why the problem is outside the current
-claim, and any boundary or sequencing dependency. Filing the issue preserves
-the finding; it does not approve a solution or expand the current effort.
-
-Present three explicit outcomes, recommend one, and ask the user to choose:
-
-- **Split into focused successors.** Supersede the broad candidate and re-derive
-  each successor's normative contract in its owning document; do not copy or
-  mechanically move an unclosed contract. Close the broad effort, or replace it
-  with one named focused successor when the user explicitly chooses that use.
-- **Abandon.** Supersede and close the current effort without committing to
-  successors. Preserve useful analysis only as explicitly non-normative source
-  material and retain any already-filed focused issues as independent records.
-- **Approve a broad exception.** Record the user-approved scope and preserve
-  every other requirement in this section.
-
-Do not silently narrow the work or infer approval to continue broadly. Until the
-decision, do not dispatch another review or describe the design as ready.
+- Default every design effort to exactly one architectural owner with a named
+  owning document. A focused design may reference an adjacent owner's types but
+  must not redefine that owner's construction, validation, identity, lifetime,
+  or failure semantics. One bounded exception allows a single-claim transfer of
+  one cohesive responsibility between two owners; any other cross-owner change
+  needs two focused efforts connected by a thin composition map.
+- A **broad design** normatively specifies multiple independently owned
+  components (outside that one exception) or sweeps an end-to-end lifecycle.
+  Do not start or broaden into one without the user's explicit request or
+  approval; a large issue, cross-cutting motivation, or reviewer suggestion is
+  not approval.
+- If review keeps discovering new component-internal contracts the design
+  doesn't close, stop and apply the
+  [scope-violation recovery transition](#recovery-transitions): keep the locked
+  candidate unchanged, name the combined components, and ask the user to
+  choose among splitting into focused successors, abandoning, or approving a
+  recorded broad exception.
 
 ## Repository-wide engineering constraints
 
@@ -507,41 +263,23 @@ decision, do not dispatch another review or describe the design as ready.
 - Treat identifiers, provenance, local evidence, correspondence, and
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
+- Use inclusive terminology: "allow list"/"deny list", never
+  "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
+  "deny-listed").
 
 ### Security work follows the actual trust boundary
 
-Do not model our own code, another contributor or agent, or a user who can act
-on the machine as a hostile actor that product code must contain. A party that
-can edit the codebase, run code in the process, create local symlinks, or place
-credentials in the repository can already bypass product invariants and has
-more direct targets. Treat those scenarios as code review, testing, repository
-hygiene, or host-security concerns, not as reasons to add product hardening.
-
-Before accepting a security concern, identify how an actor outside the user's
-machine can affect the user through data that the tool reads. The primary
-boundary is untrusted internet-origin data such as packages from NuGet feeds,
-symbols, SourceLink data, and source content. A locally supplied assembly does
-not independently establish an attacker boundary; it may receive the same
-containment as an internet-origin assembly when both use a shared path, but
-that benefit is incidental and does not justify extra complexity.
-
+Our primary scenario is downloading and processing untrusted internet data; the
+tool never executes inspected code. Local actors, contributors, and agents are
+not part of the threat model — that is a code-review or repository-hygiene
+concern, not product hardening. The full trust-boundary table, existing
+controls, and structural-containment guidance (`HardenedJson`,
+`InertText.InertString`) live in
+[`docs/design/untrusted-data-threat-model.md`](docs/design/untrusted-data-threat-model.md#trust-boundaries).
 When a credible external-input threat exists, define it in the focused owning
-design before implementing the defense. Name the actor, input path, affected
-boundary, containment invariant, and enforcement gate. Prefer structural
-containment: a constrained type whose construction establishes the invariant,
-then thread that type through the object model so compiler checking, review,
-and tests preserve it. `HardenedJson` is a good example at a parsing boundary:
-one named entry point centralizes fail-closed policy instead of asking every
-caller to configure parsing correctly. `InertText.InertString` carries the same
-lesson further for values: its fail-closed construction contains untrusted text
-once, and the type carries that property through composition. Prefer these
-shapes over string conventions, scattered checks, sanitizers, or defenses
-against hypothetical hostile callers.
-
-Robustness against accidental internal mistakes still matters. Achieve it with
-simple, auditable code, structured types instead of strings, narrow APIs,
-compiler-enforced invariants, and focused tests -- not by pretending trusted
-code is an attacker.
+design first: name the actor, input path, boundary, containment invariant, and
+enforcement gate. Prefer a constrained type whose construction establishes the
+invariant over string conventions or scattered checks.
 
 ### Platform compatibility
 
@@ -562,51 +300,19 @@ code is an attacker.
 
 ### Output contract
 
-Commands that render sections follow this verbosity model:
-
-- `-v:q`: compact fields only; include high-value fields only.
-- `-v:m`: one section, plus an optional text line. Include all high-value
-  fields in that section.
-- `-v:n`: multiple sections are allowed; include all sections that are not
-  network-bound.
-- `-v:d`: all sections.
-
-New sections must not enter the default `-v:m` view unless they are the
-command's single high-value section. Focused flags may explicitly select a
-section and promote verbosity as needed. Keep alternate lenses, section
-selection, row queries, and rendering formats orthogonal; follow the current
-progressive-disclosure and output-shape docs for detailed behavior.
-
-### Terminology
-
-Prefer inclusive terminology in code, identifiers, comments, output, and docs.
-These substitutions are required, not stylistic:
-
-- Write "allow list" instead of "whitelist".
-- Write "deny list" instead of "blacklist".
-
-Match the surrounding casing and word form when substituting (for example
-`allowList`/`AllowList` for an identifier, "deny-listed" for an adjective).
+Commands follow the verbosity and section-selection model owned by
+[`docs/design/progressive-disclosure.md`](docs/design/progressive-disclosure.md).
+The binding rule for new work: a new section must not enter the default
+`-v:m` view unless it is the command's single high-value section.
 
 ## Building and testing
 
-Use the SDK selected by repository configuration and CI. Before installing an
-SDK or changing `PATH`, inspect the current selection:
+Use the SDK selected by repository configuration and CI; inspect the current
+selection (`command -v dotnet`, `dotnet --version`) before installing one or
+changing `PATH`. If `dotnet` is centrally installed, stop and ask before
+replacing or shadowing it. Follow `README.md#repository-development-sdk`.
 
-```bash
-command -v dotnet
-dotnet --version
-```
-
-If `dotnet` is centrally installed, stop and ask before replacing or shadowing
-it. Follow `README.md#repository-development-sdk`; do not change shell startup
-files unless asked.
-
-Build the normal graph with:
-
-```bash
-dotnet build dotnet-inspect.slnx -c Release
-```
+Build the normal graph with `dotnet build dotnet-inspect.slnx -c Release`.
 
 Tests are xUnit executables. **Use `dotnet run`, not `dotnet test`**;
 `dotnet test` silently executes no tests here. Always use Release because
@@ -628,151 +334,50 @@ A .NET correctness gate must run in Release. Do not use
 `[Conditional("DEBUG")]`; use a runtime opt-in such as `IrInvariants`. The host
 contract lives in `docs/decompiler-correctness-pipeline.md`.
 
-The CLI and decompiler suites skip `ilasm`/`ildasm` checks when those tools are
-missing; metadata tests do the same for `mdv`. Activate all three before relying
-on a clean run:
+Test-tool activation (`ilasm`/`ildasm`/`mdv`), the IL round-trip commands, and
+the `IsPackable`/`VersionPrefix` release rules live in
+[`docs/dev-environment.md`](docs/dev-environment.md#test-tooling-activation).
 
-```bash
-source eng/activate-iltools.sh --mdv
-```
+### Package acquisition and throwaway probes
 
-Source the wrapper; do not assemble `PATH` by hand. CI restores the same pinned
-tools and fails its lane if acquisition fails.
-
-The IL round-trip project has separate dependency restore and fast/full test
-commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
-`ILInspector.Decompiler.Tests` composes `Speed` and `Area` traits and offers a
-`--gate <preset>` flag (`--gate list` prints the table); the taxonomy and the
-per-change targeting advice live in `docs/decompiler-correctness-pipeline.md`.
-
-Only tool projects set `IsPackable=true`; `IsTool` also makes them available to
-solution-level publish. Internal library APIs are not external compatibility
-surfaces. Changing `VersionPrefix` is a coordinated package-and-site release:
-follow `docs/release-workflow.md`, publish dotnet-inspect and
-`https://dotnet-inspect.net` from the same commit, and update the shipped
-`README.md` and skills.
-
-### Package acquisition when nuget.org is disabled
-
-If a machine-level proxy lacks an exact pinned version and restore reports
-`NU1603`, do not edit machine configuration or commit a clearing
-`nuget.config`. Override sources for one restore:
-
-```bash
-dotnet restore dotnet-inspect.slnx -s https://api.nuget.org/v3/index.json
-```
-
-Prefer `--source` to `--add-source`; the package cache then satisfies later
-restores. Repeat after clearing the cache or changing to an uncached pin. Tool
-acquisition accepts the same override:
-
-```bash
-dotnet tool install -g dotnet-inspect --source https://api.nuget.org/v3/index.json
-dnx dotnet-inspect --source https://api.nuget.org/v3/index.json
-```
-
-### File-based apps
-
-For throwaway probes, use .NET file-based apps under `/tmp/` unless a specific
-Python library is required. Do not use `.csx`, `dotnet-script`, `dotnet script`,
-or `dotnet-fsi`.
-
-```bash
-dotnet run /tmp/check.cs
-```
+If nuget.org is disabled and restore reports `NU1603` for an uncached pin, or
+you need a throwaway probe, see
+[`docs/dev-environment.md`](docs/dev-environment.md) for the source-override
+and file-based-app commands.
 
 ## Evidence and validation
 
-Match evidence to the claim and use the smallest existing check that proves it:
+Match evidence to the claim and use the smallest existing check that proves it.
+Detailed practices — matching evidence to claim types, the style-oracle
+consultation procedure, and the harness/product boundary — live in
+[`docs/evidence-and-validation.md`](docs/evidence-and-validation.md). Two rules
+are load-bearing everywhere:
 
-- Start with focused tests for the changed subsystem; expand only when the
-  change crosses boundaries or focused results expose broader risk.
-- Do not serialize independent evidence. After the focused pre-push gate is
-  green, start broader local suites, current-head CI, and eligible fixed-head
-  review concurrently. Eligibility includes the per-round CI and conflict
-  rules under [Adversarial review](#adversarial-review). A long suite is not a
-  reason to delay an independent gate.
-- Run broad local suites once per authored head, not once per elapsed base
-  update. After a conflict-free base-only merge, inspect the integrated range
-  and rerun the focused gates for files, contracts, and behavior that can
-  interact with the branch. Let current-head CI provide the broad merge-path
-  confirmation. Rerun an otherwise non-interacting broad suite only when its
-  result is itself a claimed artifact, the integrated base changed its
-  prerequisites, or prior evidence exposed a reason.
-- For compiler-, metadata-, or IL-shape claims, include a compiled fixture or
-  real artifact canary when practical. Synthetic fixtures are appropriate for
-  unreachable states and seam isolation, but not as the only proof of a
-  compiler-produced shape.
-- Pair every new discriminator or heuristic with close negative cases. Preserve
-  candidate identity, provenance, local semantics, and default output unless
-  the change explicitly intends otherwise.
-- For output changes, exercise the affected Markdown and structured modes,
-  schema/query fields, ordering, and verbosity behavior.
-- For any taste- or style-oriented raise or rendering change, consult **both**
-  facets of the dotnet/runtime style oracle before landing it and record what
-  each says — the **declared** facet (`dotnet/runtime`'s `.editorconfig` and
-  enabled analyzers; quote the `dotnet_style_*`/`csharp_style_*` key or state it
-  is silent) and the **revealed** facet (the dominant form in `dotnet/runtime`
-  source, with `path/file.cs:line` witnesses). Cite the facet a claim rests on,
-  never infer one facet from the other, and never assert "oracle approved"
-  uncited; a knowing divergence is legitimate only when the consultation
-  happened and is recorded. See
-  [`docs/decompiler-taste.md`](docs/decompiler-taste.md#consulting-both-facets-is-required).
-- For corpus or performance claims, record the pinned input, command, baseline,
-  and result. Static analysis proves structural evidence, not runtime heat,
-  frequency, bytes, or impact; use a benchmark or profiler for runtime claims.
-- Documentation-only changes that make no measured behavior claim require
-  Markdown validation, not product builds or tests.
-- A doc comment or README that asserts a safety, soundness, or faithfulness
-  property must name the gate that enforces it, or explicitly mark the
-  property as unverified.
-
-### Asserted properties name their gate
-
-A safety, soundness, or faithfulness claim must name its enforcing gate or say
-`unverified`. Prefer deriving the gate's expected set from the declaration so
-both missing and stale entries fail. For wiring properties, add one named
-non-vacuity test that fails when the wiring is removed. A gate counts only when
-it runs in the suite's Release configuration; use runtime opt-ins, not
-`[Conditional("DEBUG")]`.
-
-### Harness boundary
-
-Harnesses own orchestration, fixtures, independent oracles, comparison, and
-reporting. They may parse source or diagnostics to measure evidence, but must
-exercise product-owned artifact construction. Do not construct, normalize,
-repair, or rewrite C# that is later compiled as product evidence, and do not add
-fallbacks or shape recognition that compensate for missing product behavior.
-If a test requires that compensation, stop, file the product gap, and fix it or
-mark the harness work blocked.
-
-Decompiler raising, typing, structuring, fidelity, or printer changes have
-additional evidence requirements. Follow the decompiler docs and PR templates
-rather than duplicating their evolving commands and gates here.
+- **Asserted properties name their gate.** A safety, soundness, or faithfulness
+  claim must name its enforcing gate or say `unverified`. A gate counts only
+  when it runs in the suite's Release configuration; use runtime opt-ins, not
+  `[Conditional("DEBUG")]`.
+- **Harnesses don't manufacture the evidence they check.** They own
+  orchestration, fixtures, oracles, and reporting, but must exercise
+  product-owned artifact construction — never construct, normalize, or repair
+  C# that is later compiled as product evidence. If a test needs that
+  compensation, stop and fix the product gap instead.
 
 ### Markdown
 
-All changed Markdown must pass `markdownlint` before commit. Run the fixer first
-when needed:
-
-```bash
-npx markdownlint-cli --fix <file>
-npx markdownlint-cli <file>
-```
+All changed Markdown must pass `markdownlint` before commit (fixer:
+`npx markdownlint-cli --fix <file>`; check: `npx markdownlint-cli <file>`).
 
 ## Adversarial review
 
 Review is a locked-head feedback loop: freeze and push one exact head, review
 that head, reconcile the feedback publicly, make any resulting fixes, and freeze
-the replacement head. Everything below serves that loop.
+the replacement head. These are the binding invariants; the rest of this
+section and [round orchestration](docs/round-orchestration.md) explain them.
 
-These are the binding invariants. The rest of this section explains them;
-driving the loop is
-[round orchestration](docs/round-orchestration.md).
-
-1. **One frozen head per round.** The lock begins at the push and ends two ways
-   only: the round closes — reconciled *and* green — or recovery supersedes the
-   attempt. Do not edit a head while it is held; fixes belong to the next cycle.
+1. **One frozen head per round.** The lock begins at the push and ends only
+   when the round closes (reconciled *and* green) or recovery supersedes the
+   attempt. Do not edit a locked head; fixes belong to the next cycle.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
@@ -784,12 +389,11 @@ driving the loop is
    CI and GitHub's live mergeability immediately before every merge attempt,
    even when `review-clean` is present.
 6. **A round closes only when reconciled and its applicable gates are green.**
-   Feedback must be publicly reconciled and every focused or post-push local
-   gate must succeed. A known-red current-head `ci-required` still blocks; an
-   unavailable or pending status follows
-   [Status acquisition cadence](#status-acquisition-cadence). For a
-   documentation-only PR, pre-commit `markdownlint` is the per-round local
-   gate. A failure requiring an author change restarts the *same* round.
+   A known-red current-head `ci-required` still blocks; unavailable or pending
+   status follows
+   [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
+   A documentation-only PR's per-round gate is pre-commit `markdownlint`. A
+   failure requiring an author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -797,203 +401,70 @@ driving the loop is
 
 ### Canonical round flow
 
-This section owns candidate formation, eligibility, locking, supersession, and
-recovery. `docs/round-orchestration.md` owns the mechanics.
+Full round-cycle steps, the eligibility table, and the `review-clean`
+definition live in
+[Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle). The
+essentials: integrate the effective base, make the change, run the focused
+gate, integrate again, push to lock the head, satisfy the eligibility row,
+dispatch reviewers, reconcile publicly, and close only when reconciliation and
+the applicable gates are green.
 
-#### The round cycle
+### Recovery transitions
 
-Steps 1-5 run unlocked. The push at step 6 locks the head until step 10 or a
-recovery transition supersedes it.
+Applied without waiting for CI; full conditions live in
+[Candidate lifecycle](docs/round-orchestration.md#candidate-lifecycle).
 
-1. Integrate the effective base.
-2. Make the initial or review-driven change.
-3. Run the focused gate.
-4. Integrate the effective base again.
-5. Re-run focused gates for anything the integrated range can affect.
-6. Push and record the candidate head and effective base; the lock begins.
-7. Satisfy the applicable eligibility row below.
-8. Dispatch every required reviewer at the exact candidate head.
-9. Reconcile all feedback publicly.
-10. Close only when reconciliation, the applicable local gates, and the status
-    acquisition cadence are satisfied. The lock ends, the round number is
-    spent, and the visible
-    [round report](docs/round-orchestration.md#the-round-report) is required.
-
-Both integrations happen before the push. Base movement after the push does not
-reopen the locked candidate.
-
-#### Status acquisition cadence
-
-*This cadence is repository policy; GitHub has no concept of review rounds or
-approval blocks.*
-
-- **Every round:** attempt one current-head snapshot of `ci-required`, failed
-  leaf checks, and mergeability. The round transition justifies the read; it is
-  not a time-triggered poll.
-- **Ordinary rounds:** if status remains pending or a rate limit or transient
-  GitHub failure prevents an accurate snapshot, record the observation and
-  continue to the next round. Unavailable status is not green, red, or evidence
-  of anything; a known conflict or non-green `ci-required` still takes its
-  recovery transition.
-- **Every third round:** spend up to 60 minutes acquiring status before the
-  round may advance. If the budget expires without a definitive result, publish
-  the
-  [status budget report](docs/round-orchestration.md#status-budget-report), set
-  `rec=stop`, and end the turn without starting the next round. A later user or
-  workflow turn re-enters status discovery. Rounds divisible by six also
-  follow the stronger boundary rule below.
-- **Every sixth round:** fresh green current-head `ci-required` and definite
-  positive mergeability are prerequisites before requesting approval for
-  another block. The 60-minute budget applies, but expiry produces a status
-  report, not an approval prompt. This rule supersedes the ordinary-round
-  continue behavior and the documentation-only CI allowance.
-
-| Attempt | Required before reviewer dispatch | May remain pending |
-| --- | --- | --- |
-| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
-| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to the cadence above |
-| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
-| Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict or non-green `ci-required` | Pending or unavailable CI and mergeability, subject to the cadence above |
-| Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
-
-Documentation-only candidates do not wait for CI before review. Read the
-applicable attempt row with only two substitutions: `markdownlint` must pass
-before commit and replaces any requirement for green current-head
-`ci-required`, and `ci-required` may remain pending at a non-boundary round.
-Every other requirement still applies, including the settled push, recorded
-effective base, status cadence, and round authorization. A documentation-only
-round may close after reconciliation and the local lint gate; `ci-required`
-remains mandatory at every six-round boundary and for final merge readiness.
-The user may authorize review in parallel with CI for other changes.
-
-#### Review-clean, and what it gates
-
-A review is **review-clean** when public reconciliation leaves no finding
-unresolved and the head did not move in response. A justified dismissal counts
-only when recorded publicly. A fix-producing round can complete but is not
-review-clean; only the replacement head can earn that status. A review-clean
-round ends adversarial review. The report classification `clean` is narrower
-and mandatory when every required reviewer returned no findings and the locked
-head stayed unchanged. Use `converging`, `neutral`, or `diverging` only when at
-least one reviewer returned a finding.
-
-#### Recovery transitions
-
-- **Conflict:** supersede the attempt, integrate and resolve, push immediately,
-  and restart the same round without waiting for CI. The six-round boundary
-  still applies. A conflict after clean review may instead take the exact-head
-  trivial-interaction waiver path below when its resolution satisfies every
-  stated condition; do not dispatch replacement reviewers while that decision
-  is pending.
+- **Conflict:** supersede, integrate, resolve, push immediately, and restart
+  the same round — or take the exact-head trivial-interaction waiver when
+  eligible.
 - **Scope violation:** keep the locked head unchanged while the user chooses
-  split, abandonment, or an explicitly approved broad exception. Split or
-  abandonment supersedes the attempt without spending the round; reconcile
-  returned findings publicly, then close the broad effort or replace it with a
-  user-selected focused successor. A replacement head follows the
-  author-change transition at the same round. A broad exception may resume the
-  unchanged attempt after its scope is recorded; any required head change
-  follows the author-change transition.
-- **Failure requiring an author change:** supersede the attempt, push the fix,
-  satisfy the failed-gate row, and restart the same round.
+  split, abandonment, or an approved broad exception (see
+  [Recovering from an over-broad design](docs/design-scope.md#recovering-from-an-over-broad-design)).
+- **Failure requiring an author change:** supersede, push the fix, satisfy the
+  failed-gate row, and restart the same round.
 - **Cancelled or evidenced transient failure:** keep the lock and retry the
-  unchanged head. Repeat only with concrete transient evidence; otherwise treat
-  it as requiring an author change.
+  unchanged head with concrete transient evidence; otherwise treat it as an
+  author change.
 
-If final-gate `ci-required` reports any conclusion other than success after a
-documentation-only round closes, it does not reopen or renumber that completed
-round. Retry at the unchanged head only with concrete evidence that the result
-is transient and requires no author change. Otherwise remove `review-clean`,
-make the required fix, and form a candidate at the next round number,
-respecting the next six-round authorization boundary.
-
-Never close with a required check red. A superseded attempt spends no round and
-gets no completion report. Let its reviewers finish or have cancellation
-acknowledged, carry every returned finding forward, and reconcile each one
-before the restarted round closes.
+A superseded attempt spends no round and gets no completion report; carry every
+returned finding forward.
 
 ### Forming a candidate
 
 Spend review only on a pushed, settled head formed by the canonical cycle.
 Record the exact head and effective base. If a conflict, author change,
 finding, or restack moves the head, form a replacement through the cycle again
-unless the user approves the exact-head trivial-interaction waiver below.
-
-While a candidate is locked, do not push or integrate. Recovery is the only
-mutation exception; a non-mutating fetch is allowed to re-establish state after
-a resume and for the carry-forward analysis below.
-
-Before merge, re-read GitHub state and confirm the expected head, non-draft
-status, positive mergeability, and successful current-head `ci-required`.
-A true draft flag, REST `mergeable: null` or GraphQL `mergeable: UNKNOWN`, a
-missing gate, or a gate from another head is not ready. A merge or readiness
-goal uses a GraphQL snapshot so documented `mergeStateStatus: BLOCKED` can also
-block the action; do not infer that enum from the undocumented values of REST
-`mergeable_state`. Follow [GitHub status queries](docs/github-status-queries.md).
-
-For stacks, every open layer must meet its applicable eligibility row. A
-known-red or conflicted parent blocks upper slices; a pending parent does not
-block a first or conflict-recovery attempt. Apply the remaining stack rules
-below.
+unless the user approves the exact-head trivial-interaction waiver below. While
+a candidate is locked, do not push or integrate other than for recovery; a
+non-mutating fetch is allowed to re-establish state after a resume and for
+carry-forward analysis. Before merge, confirm live GitHub readiness — see
+[Merge preflight](docs/round-orchestration.md#merge-preflight).
 
 ### Clean reviews are not spent by main moving
 
-When a `main`-targeting PR has a review-clean current head or a current head
-with a pending or approved trivial-interaction waiver and `origin/main` moves,
-assess the landed range before doing anything else; do not integrate blindly
-and do not start another round by default. Any movement beyond a waiver's
-recorded base expires that waiver before classification. This also applies to
-the bottom open stack slice. An upper slice follows its parent, so parent
-movement is a restack and requires review at the new head.
+When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
+head, or a head with a pending/approved trivial-interaction waiver, and
+`origin/main` moves, assess the landed range before doing anything else — do
+not integrate blindly and do not start another round by default. A base
+movement beyond a waiver's recorded base expires it before classification. An
+upper stack slice follows its parent instead: parent movement is a restack
+requiring review at the new head.
 
-After a non-mutating fetch, classify the exact landed range into exactly one
-outcome and act on it directly:
-
-- **No interaction.** The range does not touch files, contracts, or behavior
-  this change touches. From a review-clean head, keep `review-clean`, integrate
-  the exact analyzed tip by SHA, update the recorded head SHA, and skip
-  re-running validation, CI, and review. This is the common case on a
-  fast-moving `main` and is what ends the poll-and-rerun loop: repeated
-  non-interacting movement from a reviewed head never demands another gate.
-  From a pending or approved waiver head, integrate the exact tip but do not
-  transfer the old exact-head waiver: present the new head and base and ask for
-  a fresh waiver before dispatching review, retaining the waiver path's
-  current-head gate requirements. Merging itself still needs a live readiness
-  check and explicit user authorization (invariants 5 and 8 under [Adversarial
-  review](#adversarial-review)); base movement alone does not grant it.
-- **Trivial interaction.** The range overlaps files, but integration can
-  resolve every overlap mechanically by taking the analyzed base side verbatim
-  or dropping the PR's change to that file, and no surviving reviewed claim,
-  contract, or behavior changes. Remove `review-clean`, integrate the exact
-  analyzed tip, run affected focused gates, and push the resolution head.
-  Confirm that the resulting PR diff is a subset of the reviewed diff, then
-  present the old and new heads, exact resolution, diff comparison, why any
-  dropped change does not weaken the remaining claims, and gate results. Ask
-  whether to skip re-review for that exact head before dispatching reviewers.
-  A proactive approval may be recorded without asking again. Approval waives
-  re-review but does not transfer review evidence or restore `review-clean`;
-  current-head CI, live mergeability, and explicit merge authorization remain
-  mandatory. Without approval, run the ordinary replacement review.
-- **Significant interaction, no conflict.** The range touches related files,
-  contracts, or behavior but merges cleanly. Remove `review-clean`, integrate
-  the tip, re-run the applicable validation and current-head CI, and
-  re-dispatch the required reviewers at the new head as a normal round; the
-  prior clean reviews do not carry forward.
-- **Merge conflict requiring semantic resolution.** Remove `review-clean` and
-  treat it as an author change: integrate, resolve the conflict, rebuild and
-  re-test, and re-dispatch the required reviewers at the new head, following
-  the ordinary [conflict recovery transition](#recovery-transitions).
-
-Report the classification and the action taken as normal session output before
-changing labels, integrating a trivial interaction, or dispatching reviewers.
-Re-classify only when the landed range itself changes — a later, distinct base
-movement — not on every poll of an already-classified range. Follow the full
-[carry-forward procedure](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-
-### A quick read is not a round
-
-Use MAI-Code for early feedback on unsettled work. A quick read gets no isolated
-worktree or fixed head and satisfies no review tier. Label its findings as early
-feedback; the settled PR still requires its full round.
+After a non-mutating fetch, classify the landed range into exactly one
+outcome, act on it, and report the classification and action as normal session
+output before changing labels or dispatching reviewers; re-classify only when
+the landed range itself changes, not on every poll. Merging still needs a live
+readiness check and explicit user authorization regardless of classification.
+Full detection, classification, and action procedure:
+[Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
+The four outcomes: **no interaction** (keep `review-clean`, integrate by SHA,
+skip re-running anything — the common case), **trivial interaction**
+(overlaps resolve mechanically; remove `review-clean`, integrate, run affected
+gates, offer the exact-head re-review waiver), **significant interaction, no
+conflict** (remove `review-clean`, re-run validation and CI, re-dispatch
+reviewers as a normal round), and **merge conflict requiring semantic
+resolution** (treat as an author change under
+[Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
 
@@ -1002,34 +473,24 @@ feedback; the settled PR still requires its full round.
 | Trivial | No review. State why the change is trivial. |
 | Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
 
-When uncertain, use the standard round. Pick the second seat from the prior
-round's clean count:
-
-- **No prior round, or 0/2 clean:** prefer GPT-5.6 Sol again for the second
-  seat.
-- **1/2 clean:** keep GPT-5.6 Sol fixed, rule out last round's second seat,
-  then prefer a different family than the author (the author's family only as
-  a fallback) at that model's highest available quality.
-
-Record the choice and its reasoning on the PR.
-
-If a roster model is unavailable, substitute another model for that seat,
-report the substitution on the PR, and proceed without approval — a
-substituted seat still counts as filled. One round evaluates one settled head
-with all required reviewers.
+When uncertain, use the standard round. Second-seat selection by prior clean
+count lives in
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster). A MAI-Code
+quick read on unsettled work is neither tier: it gets no isolated worktree or
+fixed head and satisfies no review tier — label its findings as early
+feedback, since the settled PR still requires its full round.
 
 ### Running the round
 
 Give every reviewer the same self-contained prompt and a separate worktree.
 Review the whole head unless the user narrows scope. Reproduce findings before
-acting on them, wait for all locked-head reviews, and reconcile publicly.
-
-Word the prompt as a description of the property under test, not as an attack
-brief. A prompt that reads as an exploit tutorial can trip a model's content
-filter, and it fails silently: the reviewer returns nothing and looks broken.
-Suspect the prompt before the model when a reviewer returns empty. Follow
-[running a round](docs/round-orchestration.md#running-a-round) for mechanics and
-reporting.
+acting on them, wait for all locked-head reviews, and reconcile publicly. Word
+the prompt as a description of the property under test, not as an attack
+brief — an exploit-tutorial-style prompt can trip a model's content filter and
+fail silently (empty response, looks broken); suspect the prompt before the
+model. Follow
+[running a round](docs/round-orchestration.md#running-a-round) for mechanics
+and reporting.
 
 ### Keep review proportional to the contract
 
@@ -1040,85 +501,31 @@ simple, auditable enforcement over fixture seams or abstractions hardened
 against callers the contract excludes.
 
 A reviewer concern that materially expands functionality is a scope proposal,
-not automatically a landing requirement. Do not accept it without explicit
-operator approval. The default is to reject it as out of scope or record it as
-follow-up work; significant scope growth is normally not part of landing the
-current PR.
+not a landing requirement — reject it as out of scope or record it as
+follow-up work unless the operator explicitly approves it.
 
 ### Stop after six rounds
 
 Rounds 1-6 are the initial authorized block. Within an authorized block, a
-fix-producing round that requires replacement review continues automatically
-to the next round. Report `Recommendation: continue` and begin the next
-candidate cycle; do not ask for approval, set `HELP`, or wait for user input.
+fix-producing round that requires replacement review continues automatically:
+report `Recommendation: continue` and begin the next candidate cycle without
+asking for approval, setting `HELP`, or waiting for user input.
 
 Approval is required only before rounds 7, 13, 19, and so on. Each approval
 allows at most six more rounds; stop sooner when review converges. At a block
 boundary, conflict recovery may resolve and push immediately, but reviewers
-still wait for approval, unless an immutable split decision hold is active. A
-boundary push resets the status prerequisite; checks from the previous head do
-not satisfy it.
+still wait for approval unless an immutable split decision hold is active — a
+boundary push resets the status prerequisite, so checks from the previous head
+do not satisfy it. Before offering `approve next rounds`, acquire fresh green
+current-head `ci-required` and definite positive mergeability under the
+60-minute status budget; if it expires, publish the status budget report and
+stop observation without opening an approval prompt.
 
-Before offering `approve next rounds`, acquire fresh green current-head
-`ci-required` and definite positive mergeability under the 60-minute status
-budget. If the budget expires, publish the status budget report and stop
-observation without opening an approval prompt.
-
-Before requesting another block, answer:
-
-1. **What changed?** Summarize product, architecture, and test improvements,
-   findings retired, and confidence gained. Separate durable progress from
-   churn.
-2. **Are reviews converging?** Cite clean counts and repeated versus new finding
-   categories. State why dual-clean is or is not likely in the next block.
-3. **Are the foundations sound?** Classify remaining findings as architectural,
-   coverage gaps, contract expansion, or harness-only concerns.
-4. **Should implementation pause for a docs-only design PR?** Recommend it when
-   contracts, ownership, or architecture need direct repository-owner
-   engagement.
-5. **If design work was skipped last block, why skip it again?** The prior
-   decision is not standing authorization; identify the new evidence that makes
-   implementation rounds the better investment.
-
-When a PR reaches round 12, split the remaining work into focused successors
-unless the checkpoint establishes a strong reason to keep the PR intact and
-the user explicitly approves that exception. The strong reason must explain
-why the remaining claims cannot become independently reviewable successors,
-why the reviews are still converging, and why continuing the same PR is safer
-than splitting it. Reviewer familiarity, sunk cost, or the inconvenience of
-restacking are not strong reasons. Sprawling changes accumulated across review
-comments are themselves a sign that the remaining work should be split into
-focused successors. The same presumption and burden apply at every 6-round
-boundary after round 12.
-
-After round 12 or a later six-round boundary closes, the split recommendation
-puts the completed head in an immutable decision hold while the user decides.
-This is not a round lock; do not mutate the head or dispatch another round
-during the hold, including for conflict recovery. If approved, publicly assign
-every current change, claim, and finding — including resolved or dismissed
-findings and their resulting changes or rationale — to a focused successor, or
-explicitly record why an item is being dropped. Close the current PR as
-superseded without merging it, and open the successors from their effective
-base. Each successor starts at round 1; reviews, round counts, and authorization
-blocks do not carry forward.
-
-At round 12 and every 6-round boundary after (18, 24, and so on), also answer:
-
-1. **Would a design doc better define the design space?** Foundational APIs
-   weigh heavily toward yes.
-2. **Can hardening move to followups?** State whether deferring remaining
-   hardening to followup work would unlock this PR's value for other agent
-   work sooner.
-
-State the proposed remedy and end with one recommendation: split into focused
-successors, approve the next implementation block under the strong-reason
-exception, switch to a docs-only design PR, or stop. If consecutive rounds only
-strengthen the harness while the product goes unchallenged, report that count
-and recommend splitting or stopping rather than continuing by reflex.
-
-Publish the complete checkpoint as normal session output before opening the
-approval prompt. The prompt asks only which recommended action to authorize; it
-must not contain the checkpoint itself.
+Round 12, and every six-round boundary after it, carries a presumption to
+split remaining work into focused successors rather than continue, unless a
+strong, user-approved reason keeps the PR intact. Checkpoint questions, the
+split exception, and execution mechanics:
+[Block boundaries and splitting](docs/round-orchestration.md#block-boundaries-and-splitting).
 
 ## Lead with the demo
 
@@ -1142,49 +549,32 @@ Put it under `## Demo` above validation in the PR body.
 ## PR and CI discipline
 
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
-- Label a documentation-only PR (no product code, test, or build changes)
+  Label a documentation-only PR (no product code, test, or build changes)
   `documentation` when opening it.
-- When passing a file's content to `gh api` (for example a PR body), use
-  `-F key=@path` (typed `--field`, which expands `@path`), not `-f key=@path`
-  (raw `--raw-field`, which sends the literal string `@path`). This is a `gh`
-  flag distinction, not platform-specific. Verify with
-  `gh pr view <n> --json body -q .body` after creating or editing a PR body
-  this way.
-- Avoid high-level `gh` commands when they fail by querying deprecated GraphQL
-  fields. In particular, `gh pr edit` may hit the removed Projects (classic)
-  fields even when changing unrelated metadata. Do not retry it; use the
-  operation-specific REST endpoint through `gh api` instead. Use
-  `PATCH repos/{owner}/{repo}/pulls/<number>` for PR title, body, or base
-  changes; the issue labels POST and per-label DELETE endpoints for label
-  additions and removals; the issue assignees POST and DELETE endpoints for
-  assignee additions and removals; and
-  `PATCH repos/{owner}/{repo}/issues/<number>` for milestone changes. Do not
-  replace complete label or assignee arrays to perform an add or remove.
-  Verify the resulting metadata after the REST update.
-- Treat CI as confirmation: run the focused local gate, then push promptly.
-  Run eligible local suites, CI, and review concurrently.
-- Treat GitHub API capacity as shared and scarce repository capacity. Follow
-  [GitHub status queries](docs/github-status-queries.md): query only when the
-  round cadence or next action requires it, use response headers instead of
-  quota probes, and obey the bounded waiting rules instead of polling.
-- A settled candidate should spend wall-clock time in parallel. If an hour
-  passes without an authored change while an independent gate has not started,
-  fix the sequencing or record the blocker.
-- `ci-required` is this repository's aggregate merge gate, defined in
-  `.github/workflows/ci.yml`. It passes when all jobs that ran succeeded or
-  skipped; repository policy requires the aggregate itself to conclude
-  `success`, and a missing aggregate is not green. Never require a path-gated
-  job directly, and do not broaden CI without measured need.
+- Use REST endpoints via `gh api`, not `gh pr edit`, for PR/issue metadata
+  changes; see [GitHub API operations](docs/github-api-operations.md) for the
+  exact commands and the `-F`/`-f` distinction that matters for PR bodies.
+- Treat CI as confirmation: run the focused local gate, then push promptly;
+  run eligible local suites, CI, and review concurrently. Query GitHub status
+  only when the round cadence requires it, using response headers instead of
+  quota probes, and follow
+  [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
+  instead of polling. If an hour passes without an authored change while an
+  independent gate hasn't started, fix the sequencing or record the blocker.
+- `ci-required` is this repository's aggregate merge gate
+  (`.github/workflows/ci.yml`): it passes only when the aggregate itself
+  concludes `success`, and a missing aggregate is not green. Never require a
+  path-gated job directly, and do not broaden CI without measured need.
 - Keep PR summaries conclusion-first: claim, evidence, compatibility or
   non-action boundary, and exact validation.
-- `review-clean` records clean reviews as of a head SHA; it is advisory, not a
-  merge-eligibility claim. Confirm current-head CI and GitHub's live
-  mergeability at the moment of any merge attempt or readiness statement — do
-  not infer either from the label or from a prior check.
-- Never merge without explicit authorization for that PR. A clean review, green
-  CI, readiness comment, or request to prepare a PR is not authorization.
-  User-directed auto-merge authorizes only the exact reviewed head or the exact
-  head/base pair carrying an approved trivial-interaction waiver.
+- `review-clean` is advisory, not a merge-eligibility claim (see
+  [Keep the review-clean label current](#keep-the-review-clean-label-current)).
+  Confirm current-head CI and GitHub's live mergeability at the moment of any
+  merge attempt or readiness statement.
+- Never merge without explicit authorization for that PR. A clean review,
+  green CI, or readiness comment is not authorization. User-directed auto-merge
+  authorizes only the exact reviewed head or an approved trivial-interaction
+  waiver's exact head/base pair.
 
 ### Stacked PRs for multi-slice issues
 
@@ -1192,19 +582,19 @@ When an issue is too large for one coherent PR, prefer a **stack** — a sequenc
 of PRs targeting their predecessors — over one unreviewable PR or parallel PRs
 that race in the same files. `docs/stacked-prs.md` owns the mechanics.
 
-- Each slice must land independently with one claim and its own evidence. Fold
-  in any slice that depends on later work for correctness.
-- In every PR, name the slice position, parent PR, and remaining work.
-- Give each slice its own branch and worktree, branched from and targeted at its
-  parent. Only the bottom open slice uses `main`.
-- During a GitHub outage, branch from the recorded last-known base or parent.
-  On recovery, update and validate bottom-up before pushing.
+- Each slice must land independently with one claim and its own evidence, and
+  name its slice position, parent PR, and remaining work. Fold in any slice
+  that depends on later work for correctness.
+- Give each slice its own branch and worktree, branched from and targeted at
+  its parent; only the bottom open slice uses `main`. During a GitHub outage,
+  branch from the recorded last-known base or parent, then update and
+  validate bottom-up on recovery before pushing.
 - Merge bottom-up and confirm each retargeted diff still shows only its slice.
 - Restacking your own slices is the exception to the no-force-push rule. Use
   `--force-with-lease` and post a `range-diff` proving only the base changed.
 - Apply review depth and the canonical eligibility table per slice and
   stack-wide. Every upper-slice restack and every other moved head needs a
-  review-clean round. The sole exception is a bottom open slice with a
-  user-approved exact-head trivial-interaction waiver; restacking never retires
-  findings.
+  review-clean round — the sole exception is a bottom open slice with a
+  user-approved exact-head trivial-interaction waiver; restacking never
+  retires findings.
 - Stop when another slice would exist only to continue the stack.
