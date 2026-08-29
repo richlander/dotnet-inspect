@@ -466,9 +466,15 @@ a package whose README carries bidi, ESC, and LS hazards and asserts encoded
 stdout, contained stderr, parsed JSON payload fidelity, and exact `--out`
 export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
 gates both framed and `--bare` single-file content export with a UTF-16 payload
-that has no trailing newline. Package skill output is gated separately by
-`SkillDocuments_OmitPayloadsThatRequireContainment` and
-`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads`;
+that has no trailing newline.
+`Package_NuspecPrint_EncodesBomOnStdoutAndPreservesItInExplicitExport` and
+`Package_OrdinaryDocumentOutputStillPreservesExactBytes` gate byte-exact
+ordinary exports, including encoding, byte order mark, and line endings.
+Package skill output is gated separately by
+`SkillDocuments_OmitPayloadsThatRequireContainment`,
+`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads`,
+`SkillDocuments_PreserveSafeOriginalText`, and
+`SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks`;
 `Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment` gates the README
 role route. Future multi-row containment gates belong to the pending payload
 design.
