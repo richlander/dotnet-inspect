@@ -173,6 +173,8 @@ public static class CustomAttributeValueGuard
         PrimitiveTypeCode _memoEnumWidth;
         EntityHandle _memoEnumHandle;
         PrimitiveTypeCode _memoEnumHandleWidth;
+        EntityHandle _memoSystemTypeHandle;
+        bool _memoIsSystemType;
 
         public void Push(WorkItem item) => _work.Push(item);
 
@@ -237,6 +239,48 @@ public static class CustomAttributeValueGuard
             }
 
             return width;
+        }
+
+        /// <summary>
+        /// Skips a signature-typed named argument, matching SRM. SRM
+        /// special-cases only a rendered name of "System.Type"
+        /// (ArgTypeProvider.IsSystemType); structural ns+name checks miss
+        /// TypeRef {ns="", name="System.Type"} and nested System+Type, both
+        /// of which SRM consumes as a SerString.
+        /// </summary>
+        Result SkipNamedType(EntityHandle handle)
+        {
+            if (IsSrmSystemTypeMemoized(handle))
+                return SkipSerString(ref _value, _beforeMaterialize);
+            return SkipBytes(
+                ref _value,
+                EnumUnderlyingPrimitive.ByteSize(
+                    ResolveEnumHandleMemoized(handle)));
+        }
+
+        /// <summary>
+        /// Reports whether the handle renders as "System.Type", reusing the
+        /// previous answer when the handle repeats. Every element of a
+        /// signature-typed array of a named type carries the same handle, so
+        /// without this the walk renders that name once per declared element
+        /// — allocation proportional to an attacker-chosen count, inside the
+        /// guard whose purpose is to bound exactly that. The rendered name is
+        /// a pure function of the reader and the handle, so a repeated handle
+        /// has a repeated answer and guard/SRM alignment is unaffected.
+        /// </summary>
+        bool IsSrmSystemTypeMemoized(EntityHandle handle)
+        {
+            if (!handle.IsNil && handle == _memoSystemTypeHandle)
+                return _memoIsSystemType;
+
+            bool isSystemType = IsSrmSystemType(_reader, handle);
+            if (!handle.IsNil)
+            {
+                _memoSystemTypeHandle = handle;
+                _memoIsSystemType = isSystemType;
+            }
+
+            return isSystemType;
         }
 
         public Result Run()
@@ -334,11 +378,7 @@ public static class CustomAttributeValueGuard
                 ElementTypeObject => ProcessBoxed(depth),
                 ElementTypeSzArray => ProcessSzArray(depth),
                 ElementTypeClass or ElementTypeValueType => SkipNamedType(
-                    _reader,
-                    _signature.ReadTypeHandle(),
-                    ref _value,
-                    _beforeMaterialize,
-                    ResolveEnumHandleMemoized),
+                    _signature.ReadTypeHandle()),
                 ElementTypeVar or ElementTypeMVar => _substituteGenerics
                     ? ProcessGenericParameter(
                         depth,
@@ -666,26 +706,6 @@ public static class CustomAttributeValueGuard
             _substituteGenerics = frame.SubstituteGenerics;
             return Result.Safe;
         }
-    }
-
-    static Result SkipNamedType(
-        MetadataReader reader,
-        EntityHandle handle,
-        ref BlobReader value,
-        Action<int>? beforeMaterialize,
-        Func<EntityHandle, PrimitiveTypeCode> resolveEnum)
-    {
-        // SRM special-cases only a rendered name of "System.Type"
-        // (ArgTypeProvider.IsSystemType). Structural ns+name checks miss
-        // TypeRef {ns="", name="System.Type"} and nested System+Type, both
-        // of which SRM consumes as a SerString.
-        if (IsSrmSystemType(reader, handle))
-            return SkipSerString(
-                ref value,
-                beforeMaterialize);
-        return SkipBytes(
-            ref value,
-            EnumUnderlyingPrimitive.ByteSize(resolveEnum(handle)));
     }
 
     static Result ReadFieldOrPropType(
