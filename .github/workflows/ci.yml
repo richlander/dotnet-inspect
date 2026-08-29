@@ -484,7 +484,6 @@ jobs:
       # whether the fixture builds. Run the focused owner gates so CI proves
       # both lowerings issue equal authenticated JSExport wire facts.
       - name: Run JSExport runtime-async wire gates
-        shell: bash
         run: |
           set -euo pipefail
           results="$RUNNER_TEMP/jsexport-runtime-async-wire-tests.xml"
