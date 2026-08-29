@@ -710,9 +710,9 @@ public class LibraryCommand
                 ExtractResourcesIfRequested(resolvedPath!, options);
                 if (!IsPerformanceDocumentJsonWindowApplied(options)
                     && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
-                            options,
-                            options.JsonOutput,
-                            "library")
+                        options,
+                        options.JsonOutput,
+                        "library")
                     || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
@@ -878,9 +878,9 @@ public class LibraryCommand
 
                 if (!IsPerformanceDocumentJsonWindowApplied(options)
                     && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
-                            options,
-                            options.JsonOutput,
-                            "library")
+                        options,
+                        options.JsonOutput,
+                        "library")
                     || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
@@ -997,9 +997,9 @@ public class LibraryCommand
                 ExtractResourcesIfRequested(assemblyPath!, options);
                 if (!IsPerformanceDocumentJsonWindowApplied(options)
                     && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
-                            options,
-                            options.JsonOutput,
-                            "library")
+                        options,
+                        options.JsonOutput,
+                        "library")
                     || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
@@ -1033,6 +1033,15 @@ public class LibraryCommand
             }
         }
     }
+
+    private static bool IsPerformanceDocumentJsonWindowApplied(
+        LibraryOptions options) =>
+        options.PerformanceTriage.Top.HasValue
+        && options.IncludeSections is { Count: > 0 } sections
+        && sections.All(section =>
+            PerformanceKinds.Sections.Contains(
+                section,
+                StringComparer.Ordinal));
 
     private static int IntegrityExitCode(params LibraryInspection[] inspections)
         => IntegrityExitCode(0, inspections);
@@ -1350,17 +1359,8 @@ public class LibraryCommand
                     row.Evidence
                 }).ToArray());
             markoutWriter.Flush();
-        }, options.Rows);
+        }, options.Rows, rows.Count > 0 ? options.HumanRowWindowNote : null);
     }
-
-    private static bool IsPerformanceDocumentJsonWindowApplied(
-        LibraryOptions options) =>
-        options.PerformanceTriage.Top.HasValue
-        && options.IncludeSections is { Count: > 0 } sections
-        && sections.All(section =>
-            PerformanceKinds.Sections.Contains(
-                section,
-                StringComparer.Ordinal));
 
     private static (LibraryOptions Options, string? Error) NormalizeILOffsetSelection(LibraryOptions options)
     {

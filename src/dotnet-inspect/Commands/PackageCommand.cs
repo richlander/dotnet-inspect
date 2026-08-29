@@ -1099,6 +1099,12 @@ public class PackageCommand
                         options.Fields ?? options.Columns,
                         rendered,
                         diagnosticCandidates!);
+                    if (!string.IsNullOrWhiteSpace(rendered))
+                        OutputFormatter.WriteHumanRowWindowNote(
+                            Console.Out,
+                            options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                                ? options.HumanRowWindowNote
+                                : null);
                     Console.Out.Write(rendered);
                 }
                 else
@@ -1263,8 +1269,10 @@ public class PackageCommand
             if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
                     options,
                     options.JsonOutput,
-                    "package")
-                || ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                    "package"))
+                return 1;
+
+            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                 return 1;
 
             Console.WriteLine(JsonSerializer.Serialize(
@@ -3661,7 +3669,7 @@ public class PackageCommand
                 ["package", "version", "path", "size"],
                 windowedRows);
             markoutWriter.Flush();
-        });
+        }, humanRowWindowNote: options.Tsv || options.Jsonl ? null : options.HumanRowWindowNote);
     }
 
     private static void WritePackageFilesJsonl(
@@ -3968,11 +3976,17 @@ public class PackageCommand
             section,
             options.Fields,
             rows.Select(row => row[1]));
-        Console.Out.Write(
-            OutputFormatter.LimitRenderedTableRows(
-                rendered,
-                options.Rows,
-                !options.NoHeader));
+        var limited = OutputFormatter.LimitRenderedTableRows(
+            rendered,
+            options.Rows,
+            !options.NoHeader);
+        if (!string.IsNullOrWhiteSpace(limited))
+            OutputFormatter.WriteHumanRowWindowNote(
+                Console.Out,
+                options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                    ? options.HumanRowWindowNote
+                    : null);
+        Console.Out.Write(limited);
     }
 
     private static void DiagnoseMissingPackageFieldSectionFields(
@@ -4527,6 +4541,8 @@ public class PackageCommand
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
+        if (sections.Count == 1)
+            markdown = OutputFormatter.AddHumanRowWindowNote(markdown, libraryOptions.HumanRowWindowNote);
         OutputDestination.Write(
             libraryOptions.OutputPath,
             writer => OutputFormatter.WriteLfLine(writer, markdown));
@@ -4751,6 +4767,7 @@ public class PackageCommand
             JsonArray = options.JsonArray,
             ProjectionRow = options.PrintRow,
             Rows = options.Rows,
+            HumanRowWindowNote = options.HumanRowWindowNote,
             SourceOptions = options.SourceOptions,
             NoHeader = options.NoHeader,
             UserVerbosityOverride = options.Verbosity
@@ -4903,7 +4920,9 @@ public class PackageCommand
                     table.StableHeaders,
                     table.Rows);
                 markoutWriter.Flush();
-            });
+            }, humanRowWindowNote: options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                ? options.HumanRowWindowNote
+                : null);
         });
         return true;
     }
@@ -5600,7 +5619,14 @@ public class PackageCommand
                 ["TFM"]))
             return projectionExit;
 
-        OutputFormatter.WriteStringList(visibleTfms, "TFM", "Tfm", options.Tsv, options.Jsonl, Console.Out);
+        OutputFormatter.WriteStringList(
+            visibleTfms,
+            "TFM",
+            "Tfm",
+            options.Tsv,
+            options.Jsonl,
+            Console.Out,
+            visibleTfms.Count > 0 ? options.HumanRowWindowNote : null);
         return 0;
     }
 

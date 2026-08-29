@@ -1363,7 +1363,7 @@ public static class TimelineCommand
                 return 1;
 
             Console.WriteLine(JsonSerializer.Serialize(
-                view,
+                ApplyRowWindow(view, options.Rows),
                 TimelineJsonContext.Default.TimelineDocumentView));
             return 0;
         }
@@ -1387,7 +1387,7 @@ public static class TimelineCommand
                             formatter,
                             TimelineViewContext.Default,
                             writerOptions),
-                    options.Rows);
+                    options.Rows, options.HumanRowWindowNote);
             }
             else
             {
@@ -1406,16 +1406,39 @@ public static class TimelineCommand
                             formatter,
                             TimelineViewContext.Default,
                             writerOptions),
-                    options.Rows);
+                    options.Rows, options.HumanRowWindowNote);
             }
             return 0;
         }
 
         var writer = new MarkoutWriter(new MarkdownFormatter(), OutputFormatter.CreateWindowedOptions(options.Rows));
         TimelineViewContext.Default.Serialize(view, writer);
-        Console.WriteLine(writer.ToString().TrimEnd());
+        var hasContent = (view.Evaluations?.Count > 0) || (view.Transitions?.Count > 0);
+        var rendered = writer.ToString().TrimEnd();
+        Console.WriteLine(hasContent
+            ? OutputFormatter.AddHumanRowWindowNote(rendered, options.HumanRowWindowNote)
+            : rendered);
         return 0;
     }
+
+    private static TimelineDocumentView ApplyRowWindow(
+        TimelineDocumentView view,
+        RowWindow? rows) =>
+        new()
+        {
+            Title = view.Title,
+            Range = view.Range,
+            Type = view.Type,
+            Member = view.Member,
+            Finding = view.Finding,
+            Recommendation = view.Recommendation,
+            Evaluations = view.Evaluations is null
+                ? null
+                : RowWindow.Apply(rows, view.Evaluations).ToList(),
+            Transitions = view.Transitions is null
+                ? null
+                : RowWindow.Apply(rows, view.Transitions).ToList(),
+        };
 
     internal sealed record TimelineEvaluation(
         PackageVersionAddress Address,
@@ -1450,6 +1473,7 @@ public sealed record TimelineOptions : IProjectionOptions
     public bool NoHeader { get; init; }
     public bool Count { get; init; }
     public RowWindow? Rows { get; init; }
+    public string? HumanRowWindowNote { get; init; }
     public string[]? Select { get; init; }
     public bool SelectDefault { get; init; }
     public string[]? Columns { get; init; }

@@ -473,6 +473,62 @@ public class DiffCommandTests
             StringComparison.Ordinal);
     }
 
+    private static TypeDiff BreakingAndAdditiveTypeDiff(string typeFullName, string breakingMessage, string additiveMessage)
+        => new(
+            typeFullName,
+            [
+                new ApiChange(ChangeKind.MemberRemoved, ChangeClassification.Breaking, breakingMessage, null, null),
+                new ApiChange(ChangeKind.MemberAdded, ChangeClassification.Additive, additiveMessage, null, null),
+            ]);
+
+    [Fact]
+    public void RenderDiff_MarkdownWithRows_WindowsEachClassificationIndependently()
+    {
+        // Round 8 finding: the default (non-tabular) full-markdown path annotated its output
+        // with a "first N" note but rendered every change under every classification heading,
+        // because Markout's GroupBy-sectioned properties do not honor RowWindow. Each of
+        // Breaking/PotentiallyBreaking/Additive must window independently, at construction time.
+        var typeDiffs = new[]
+        {
+            BreakingAndAdditiveTypeDiff("Sample.Alpha", "Alpha breaking change", "Alpha additive change"),
+            BreakingAndAdditiveTypeDiff("Sample.Beta", "Beta breaking change", "Beta additive change"),
+        };
+        var diff = new ApiDiff { TypeDiffs = typeDiffs };
+
+        string markdown = DiffCommand.RenderDiff(
+            "Sample",
+            diff,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { Rows = RowWindow.Head(1) });
+
+        Assert.Contains("Alpha breaking change", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Beta breaking change", markdown, StringComparison.Ordinal);
+        Assert.Contains("Alpha additive change", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Beta additive change", markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderDiff_EmptyFilteredResult_DoesNotLeakRowWindowNote()
+    {
+        // Round 8 finding: a type filter that matched no changed types still rendered the
+        // "first N" note even though the resulting document had zero changes to window.
+        var diff = new ApiDiff
+        {
+            TypeDiffs = [BreakingAndAdditiveTypeDiff("Sample.Alpha", "Alpha breaking change", "Alpha additive change")],
+        };
+
+        string markdown = DiffCommand.RenderDiff(
+            "Sample",
+            diff,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { Rows = RowWindow.Head(1), TypeFilter = ["NoSuchType"] });
+
+        Assert.DoesNotContain("first 1", markdown, StringComparison.Ordinal);
+        Assert.Contains("No API changes detected.", markdown, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FilterApiDiffByMemberTargets_PreservesInspectionFailures()
     {
@@ -2489,6 +2545,224 @@ public class DiffCommandTests
             row.GetProperty("member").GetString()!.Contains("List<object>", StringComparison.Ordinal));
         Assert.True(analysis.GetArrayLength() > 0);
         Assert.True(implementation.GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ChangesJsonWithRows_WindowsChanges()
+    {
+        // Round 8 finding: diff --json -S Changes -n N ignored the item window entirely,
+        // serializing every change while --tabular (same underlying flat list) windowed
+        // correctly.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (unwindowedExitCode, unwindowedOutput, unwindowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Changes"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+            }));
+        var (windowedExitCode, windowedOutput, windowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Changes"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+                Rows = RowWindow.Head(1),
+            }));
+
+        Assert.Equal(0, unwindowedExitCode);
+        Assert.Empty(unwindowedError);
+        Assert.Equal(0, windowedExitCode);
+        Assert.Empty(windowedError);
+
+        using var unwindowedDocument = System.Text.Json.JsonDocument.Parse(unwindowedOutput);
+        using var windowedDocument = System.Text.Json.JsonDocument.Parse(windowedOutput);
+        var unwindowedCount = unwindowedDocument.RootElement.GetProperty("changes").GetArrayLength();
+        var windowedCount = windowedDocument.RootElement.GetProperty("changes").GetArrayLength();
+
+        Assert.True(unwindowedCount > 1, "fixture must produce more than one change to prove windowing");
+        Assert.Equal(1, windowedCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnalysisAndImplementationDiffJsonWithRows_WindowsBothSections()
+    {
+        // Round 9 finding: diff --json -S "Analysis Diff"/"Implementation Diff" -n N ignored
+        // the item window entirely (only Changes was fixed in Round 8), serializing every row
+        // while --table (same underlying view) windowed correctly.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (unwindowedExitCode, unwindowedOutput, unwindowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+            }));
+        var (windowedExitCode, windowedOutput, windowedError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+                Rows = RowWindow.Head(1),
+            }));
+
+        Assert.Equal(0, unwindowedExitCode);
+        Assert.Empty(unwindowedError);
+        Assert.Equal(0, windowedExitCode);
+        Assert.Empty(windowedError);
+
+        using var unwindowedDocument = System.Text.Json.JsonDocument.Parse(unwindowedOutput);
+        using var windowedDocument = System.Text.Json.JsonDocument.Parse(windowedOutput);
+        var unwindowedAnalysisCount = unwindowedDocument.RootElement.GetProperty("analysis_diff").GetArrayLength();
+        var unwindowedImplementationCount = unwindowedDocument.RootElement.GetProperty("implementation_diff").GetArrayLength();
+        var windowedAnalysisCount = windowedDocument.RootElement.GetProperty("analysis_diff").GetArrayLength();
+        var windowedImplementationCount = windowedDocument.RootElement.GetProperty("implementation_diff").GetArrayLength();
+
+        Assert.True(unwindowedAnalysisCount > 1, "fixture must produce more than one analysis-diff row to prove windowing");
+        Assert.True(unwindowedImplementationCount > 1, "fixture must produce more than one implementation-diff row to prove windowing");
+        Assert.Equal(1, windowedAnalysisCount);
+        Assert.Equal(1, windowedImplementationCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MultiSectionMarkdownWithRangeRows_DoesNotDoubleWindow()
+    {
+        // Round 10 finding (Sol): the multi-section (non-JSON) document markdown path built
+        // Analysis/Implementation/FindingTransitions views with options.Rows applied at
+        // construction (Round 9's fix), then RenderDocumentView applied the same window a
+        // second time via the Markout writer. Head(N)/Tail(N) are idempotent under double
+        // application, but an absolute range like "rows 2..3" is not: re-applying it to the
+        // already-windowed (shorter) list silently drops rows. Fixed by only windowing at
+        // construction time when producing JSON (which bypasses the writer's own windowing
+        // entirely); non-JSON output now windows exactly once, via the writer.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        // First confirm the JSON path (single window, at construction) sees >= 2 analysis rows
+        // so that a 2-row range window is meaningful and not itself clipped by a small fixture.
+        var (jsonExitCode, jsonOutput, jsonError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff"],
+                JsonOutput = true,
+                TypeFilter = ["DiffSample"],
+            }));
+        Assert.Equal(0, jsonExitCode);
+        Assert.Empty(jsonError);
+        using var jsonDocument = System.Text.Json.JsonDocument.Parse(jsonOutput);
+        var totalAnalysisRows = jsonDocument.RootElement.GetProperty("analysis_diff").GetArrayLength();
+        Assert.True(totalAnalysisRows >= 3, "fixture must produce at least 3 analysis-diff rows to prove a 2..3 range window is not double-applied");
+
+        var (markdownExitCode, markdownOutput, markdownError) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff", "Implementation Diff"],
+                TypeFilter = ["DiffSample"],
+                Rows = RowWindow.Range(2, 3),
+            }));
+
+        Assert.Equal(0, markdownExitCode);
+        Assert.Empty(markdownError);
+
+        var analysisTableStart = markdownOutput.IndexOf("## Analysis Diff", StringComparison.Ordinal);
+        var implementationTableStart = markdownOutput.IndexOf("## Implementation Diff", StringComparison.Ordinal);
+        Assert.True(analysisTableStart >= 0);
+        Assert.True(implementationTableStart > analysisTableStart);
+        var analysisSection = markdownOutput[analysisTableStart..implementationTableStart];
+
+        // A double-applied "rows 2..3" window on an already-2-row list would collapse to 0 or 1
+        // rows; confirm both rows in the range survive (row 2 and row 3 of the full list).
+        var analysisRowLines = analysisSection
+            .Split('\n')
+            .Where(line => line.StartsWith('|') && !line.Contains("---", StringComparison.Ordinal) && !line.Contains("Member", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(2, analysisRowLines.Count);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AnalysisDiffMarkdownEmptyWithRows_DoesNotLeakRowWindowNote()
+    {
+        // Round 9 finding: standalone `diff -S "Analysis Diff" -n N` leaked "first N" above
+        // "No analysis signal changes detected." when the type filter matched nothing.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Analysis Diff"],
+                TypeFilter = ["NoSuchType"],
+                Rows = RowWindow.Head(1),
+                HumanRowWindowNote = "first 1"
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.DoesNotContain("first 1", output, StringComparison.Ordinal);
+        Assert.Contains("No analysis signal changes detected.", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ImplementationDiffMarkdownEmptyWithRows_DoesNotLeakRowWindowNote()
+    {
+        // Round 9 finding: standalone `diff -S "Implementation Diff" -n N` leaked "first N"
+        // above "No implementation differences detected." when the type filter matched
+        // nothing.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Implementation Diff"],
+                TypeFilter = ["NoSuchType"],
+                Rows = RowWindow.Head(1),
+                HumanRowWindowNote = "first 1"
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.DoesNotContain("first 1", output, StringComparison.Ordinal);
+        Assert.Contains("No implementation differences detected.", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_FindingTransitionsMarkdownEmptyWithRows_DoesNotLeakRowWindowNote()
+    {
+        // Round 9 finding: standalone `diff -S "Finding Transitions" -n N` leaked "first N"
+        // above "No selected Finding exists at either endpoint." when the type filter matched
+        // nothing.
+        var v1 = FixtureCatalog.DiffPair.OldAssemblyPath();
+        var v2 = FixtureCatalog.DiffPair.NewAssemblyPath();
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
+            DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = $"{v1}..{v2}",
+                Select = ["Finding Transitions"],
+                TypeFilter = ["NoSuchType"],
+                Finding = "api.type",
+                Rows = RowWindow.Head(1),
+                HumanRowWindowNote = "first 1"
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.DoesNotContain("first 1", output, StringComparison.Ordinal);
+        Assert.Contains("No selected Finding exists at either endpoint.", output, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,5 +1,7 @@
+using System.Text.Json;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
@@ -205,6 +207,37 @@ public sealed class MatchCommandTests
         Assert.Contains("\"match\": {", output);
         Assert.Contains("\"implementation\": {", output);
         Assert.Contains("\"disposition\": \"Completed\"", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_JsonWithRows_RejectsUnwindowableReceiptDocument(
+        bool includeImplementation)
+    {
+        // Correspondence receipts are derived from the complete block set, so neither the
+        // plain document nor the implementation envelope can truncate every declared row
+        // set independently without invalidating the receipt.
+        var options = new MatchOptions
+        {
+            LeftSelector = $"{typeof(MatchSampleA).FullName}.Greet",
+            RightSelector = $"{typeof(MatchSampleA).FullName}.GreetFormal",
+            AssemblyPath = typeof(MatchCommandTests).Assembly.Location,
+            IncludeAll = true,
+            IncludeImplementation = includeImplementation,
+            JsonOutput = true,
+        };
+        var windowed = options with { Rows = RowWindow.Head(1) };
+
+        var (windowedExitCode, windowedOutput, windowedError) =
+            await ConsoleCapture.RunAsync(() => MatchCommand.ExecuteAsync(windowed));
+
+        Assert.Equal(1, windowedExitCode);
+        Assert.Empty(windowedOutput);
+        Assert.Contains(
+            "Document --json item windows are not yet supported by 'match'.",
+            windowedError,
+            StringComparison.Ordinal);
     }
 
     [Fact]

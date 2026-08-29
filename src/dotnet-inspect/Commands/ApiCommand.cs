@@ -103,6 +103,7 @@ public class ApiCommand
             ShapeOutput = options.ShapeOutput,
             ShapeExplicitlySet = options.ShapeExplicitlySet,
             Schema = options.Schema, Count = options.Count, Rows = options.Rows,
+            HumanRowWindowNote = options.HumanRowWindowNote,
             JsonArray = options.JsonArray,
             PerformanceTriage = options.PerformanceTriage,
             BodyKindQuery = options.BodyKindQuery,
@@ -1495,6 +1496,7 @@ public class ApiCommand
             // facility, so the combination is rejected rather than silently dropped.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
+            api.Types = RowWindow.Apply(options.Rows, api.Types).ToList();
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
             return successExitCode;
         }
@@ -1572,7 +1574,14 @@ public class ApiCommand
                 ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, factRows);
                 if (!TryReportEmptyProjection(factRows, options))
                     return 1;
-                Console.Out.Write(OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader));
+                var limitedFactRows = OutputFormatter.LimitRenderedTableRows(factRows, options.Rows, !options.NoHeader);
+                if (!string.IsNullOrWhiteSpace(limitedFactRows))
+                    OutputFormatter.WriteHumanRowWindowNote(
+                        Console.Out,
+                        options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                            ? options.HumanRowWindowNote
+                            : null);
+                Console.Out.Write(limitedFactRows);
                 return successExitCode;
             }
 
@@ -1584,7 +1593,14 @@ public class ApiCommand
             ProjectionDiagnostics.DiagnoseRendered(options.Fields ?? options.Columns, rendered);
             if (!TryReportEmptyProjection(rendered, options))
                 return 1;
-            Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
+            var limitedRendered = OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader);
+            if (!string.IsNullOrWhiteSpace(limitedRendered))
+                OutputFormatter.WriteHumanRowWindowNote(
+                    Console.Out,
+                    options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                        ? options.HumanRowWindowNote
+                        : null);
+            Console.Out.Write(limitedRendered);
         }
         else
         {
@@ -1600,6 +1616,8 @@ public class ApiCommand
                 var plainText = plain.ToString();
                 if (!TryReportEmptyProjection(plainText, options))
                     return 1;
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    plainText = OutputFormatter.AddHumanRowWindowNote(plainText, options.HumanRowWindowNote);
                 Console.Out.Write(plainText);
             }
             else
@@ -1610,6 +1628,8 @@ public class ApiCommand
                 var markdown = markdownWriter.ToString().TrimEnd();
                 if (!TryReportEmptyProjection(markdown, options))
                     return 1;
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    markdown = OutputFormatter.AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
                 OutputFormatter.WriteLfLine(Console.Out, markdown);
             }
         }
@@ -2314,10 +2334,7 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
-            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
-                    options,
-                    options.JsonOutput,
-                    "type"))
+            if (RejectUnsupportedTypeJsonRowWindow(options))
                 return 1;
             WriteJsonTypeOutput(type, options);
             return 0;
@@ -2661,7 +2678,10 @@ public class ApiCommand
                             view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                             explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, markoutWriter);
                         markoutWriter.Flush();
-                    }, options.Rows);
+                    }, options.Rows,
+                    options.Verbosity != Verbosity.Quiet && !options.Tsv && !options.Jsonl
+                        ? options.HumanRowWindowNote
+                        : null);
             }
             else
             {
@@ -2670,7 +2690,10 @@ public class ApiCommand
                     options.Columns, options.Fields,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(tableView, writer, formatter, ApiViewContext.Default, writerOptions),
-                    options.Rows);
+                    options.Rows,
+                    options.Verbosity != Verbosity.Quiet
+                        ? options.HumanRowWindowNote
+                        : null);
             }
         }
         else
@@ -2679,11 +2702,16 @@ public class ApiCommand
             writerOptions.RowWindow = RowWindow.ToMarkout(options.Rows);
             if (options.PlainText)
             {
-                var writer = new Markout.MarkoutWriter(sink, options.CreateFormatter(), writerOptions);
+                var plain = new StringWriter();
+                var writer = new Markout.MarkoutWriter(plain, options.CreateFormatter(), writerOptions);
                 ApiOutputFormatter.SerializeTypeDocument(
                     view, eventsView, methodGroupsView, methodsView, memberIndexView, operatorsView,
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
+                var plainText = plain.ToString().TrimEnd();
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    plainText = OutputFormatter.AddHumanRowWindowNote(plainText, options.HumanRowWindowNote);
+                OutputFormatter.WriteLfLine(sink, plainText);
             }
             else
             {
@@ -2711,6 +2739,8 @@ public class ApiCommand
                     explicitInterfaceImplementationsView, extensionMethodsView, view.MemberCode, writer);
                 writer.Flush();
                 var markdown = sw.ToString().TrimEnd();
+                if (options.Verbosity != Verbosity.Quiet && writerOptions.IncludeSections is { Count: 1 })
+                    markdown = OutputFormatter.AddHumanRowWindowNote(markdown, options.HumanRowWindowNote);
                 OutputFormatter.WriteLfLine(sink, markdown);
             }
         }
@@ -3614,6 +3644,24 @@ public class ApiCommand
             };
         }
 
+        // -n/-N applies the declared item window to whatever member list document JSON is
+        // about to serialize. Sort first to match the markdown/table writer's row order
+        // (kind, then name, then signature) so "first/last/top N" picks the same members
+        // in JSON as in markdown, then window.
+        outputType.Members = RowWindow.Apply(
+            options.Rows,
+            outputType.Members
+                .OrderBy(m => ApiOutputFormatter.GetMemberSortOrder(m.Kind))
+                .ThenBy(m => m.Name, StringComparer.Ordinal)
+                .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
+                .ToList()).ToList();
+        outputType.Interfaces = RowWindow.Apply(
+            options.Rows,
+            outputType.Interfaces).ToList();
+        outputType.TypeParameters = RowWindow.Apply(
+            options.Rows,
+            outputType.TypeParameters).ToList();
+
         // Project the durable identity (Digest + Canonical Signature) onto each member so
         // JSON consumers get the same overload handle the Markdown Digest column exposes.
         // Computed against the resolved declaring type, matching the table's anchor.
@@ -3628,6 +3676,25 @@ public class ApiCommand
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeCompactJsonContext.Default.ApiType));
         else
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeJsonContext.Default.ApiType));
+    }
+
+    private static bool RejectUnsupportedTypeJsonRowWindow(
+        ApiOptions options)
+    {
+        if (options.Rows is null
+            || options.IncludeSections is not { Count: > 0 } sections)
+            return false;
+
+        int selectedMemberSections = MemberSectionPredicates.Keys.Count(
+            sections.Contains);
+        if (selectedMemberSections <= 1)
+            return false;
+
+        CommandError.Write(
+            "type cannot apply an item window independently to multiple member "
+            + "sections in typed document JSON. Use --jsonl for row-shaped "
+            + "output, or select one member section.");
+        return true;
     }
 
     private static bool IsAnnotatedSourceDocumentJson(ApiOptions options)

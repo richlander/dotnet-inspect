@@ -240,7 +240,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -263,7 +263,9 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(output);
+                        Console.WriteLine(view.Rows is { Count: > 0 }
+                            ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                            : output);
                     }
                     if (inspectionFailures.Count > 0
                         && (options.Tabular
@@ -298,7 +300,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -321,7 +323,9 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(output);
+                        Console.WriteLine(view.Rows is { Count: > 0 }
+                            ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                            : output);
                     }
                     if (options.Tabular || options.NameOnly)
                     {
@@ -349,7 +353,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -372,7 +376,9 @@ public class DiffCommand
                                         inspectionFailures),
                                     OutputFormatter.CreateWindowedOptions(
                                         options.Rows));
-                        Console.WriteLine(output);
+                        Console.WriteLine(view.Rows is { Count: > 0 }
+                            ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                            : output);
                     }
                     if (options.Tabular
                         || options.NameOnly)
@@ -399,7 +405,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
                     else
                     {
@@ -408,7 +414,7 @@ public class DiffCommand
                             options.Columns, options.Fields,
                             (writer, formatter, writerOptions) =>
                                 MarkoutSerializer.Serialize(view, writer, formatter, DiffViewContext.Default, writerOptions),
-                            options.Rows);
+                            options.Rows, options.HumanRowWindowNote);
                     }
 
                     WriteIncompleteComparisonDiagnostic(
@@ -416,8 +422,10 @@ public class DiffCommand
                 }
                 else
                 {
-                    var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options);
-                    Console.WriteLine(output);
+                    var output = RenderDiff(inputs.Name, diff, inputs.FromVersion, inputs.ToVersion, options, out var hasContent);
+                    Console.WriteLine(hasContent
+                        ? OutputFormatter.AddHumanRowWindowNote(output, options.HumanRowWindowNote)
+                        : output);
                     if (options.NameOnly)
                     {
                         WriteIncompleteComparisonDiagnostic(
@@ -870,6 +878,15 @@ public class DiffCommand
                     : DiffSections.Changes.Name
             };
 
+        // JSON serializes the view's Rows directly, bypassing the Markout writer's own
+        // render-time windowing (RenderDocumentView's CreateWindowedOptions), so the window
+        // must be applied here instead. For non-JSON (markdown) output, RenderDocumentView
+        // already applies options.Rows once via the writer; windowing here too would apply it
+        // *twice*, which is only safe for idempotent Head/Tail windows and corrupts an
+        // absolute --rows range (e.g. "2..3" re-interpreted against the already-windowed,
+        // shorter list). So only window at construction time when producing JSON.
+        RowWindow? windowForConstruction = options.JsonOutput ? options.Rows : null;
+
         ApiDiff? changesDiff = null;
         DiffDetailedChangesView? changesView = null;
         if (selected.Contains(DiffSections.Changes.Name))
@@ -883,7 +900,8 @@ public class DiffCommand
                 inputs.Name,
                 ApplyFilters(changesDiff, options),
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                windowForConstruction);
         }
 
         AnalysisDiffView? analysisView = null;
@@ -898,7 +916,8 @@ public class DiffCommand
                 analysis.Summary,
                 inputs.FromVersion,
                 inputs.ToVersion,
-                decorateMember: false);
+                decorateMember: false,
+                window: windowForConstruction);
         }
 
         ImplementationDiffView? implementationView = null;
@@ -915,7 +934,8 @@ public class DiffCommand
                 inputs.Name,
                 implementation,
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                windowForConstruction);
         }
 
         FindingTransitionsView? findingTransitionsView = null;
@@ -926,7 +946,8 @@ public class DiffCommand
                 inputs.Name,
                 rows,
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                windowForConstruction);
         }
 
         var view = DiffOutputFormatter.BuildDocumentView(
@@ -945,8 +966,14 @@ public class DiffCommand
             return inspectionFailures.Count > 0;
         }
 
-        Console.WriteLine(DiffOutputFormatter.RenderDocumentView(
-            view, OutputFormatter.CreateWindowedOptions(options.Rows)));
+        bool hasContent = changesView?.Rows is { Count: > 0 }
+            || analysisView?.Rows is { Count: > 0 }
+            || implementationView?.Rows is { Count: > 0 }
+            || findingTransitionsView?.Rows is { Count: > 0 };
+        var rendered = DiffOutputFormatter.RenderDocumentView(view, OutputFormatter.CreateWindowedOptions(options.Rows));
+        Console.WriteLine(hasContent
+            ? OutputFormatter.AddHumanRowWindowNote(rendered, options.HumanRowWindowNote)
+            : rendered);
         return inspectionFailures.Count > 0;
     }
 
@@ -1478,27 +1505,35 @@ public class DiffCommand
     }
 
     internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options)
+        => RenderDiff(name, diff, fromVersion, toVersion, options, out _);
+
+    internal static string RenderDiff(string name, ApiDiff diff, string fromVersion, string toVersion, DiffOptions options, out bool hasContent)
     {
         var typeDiffs = ApplyFilters(diff, options);
 
         if (options.NameOnly)
         {
+            var visibleTypeDiffs = RowWindow.Apply(options.Rows, typeDiffs);
+            hasContent = visibleTypeDiffs.Count > 0;
             return OutputFormatter.RenderTable(showHeader: false, (writer, formatter) =>
             {
                 var nameWriter = new Markout.MarkoutWriter(writer, formatter, OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl));
-                DiffOutputFormatter.RenderNameOnly(nameWriter, typeDiffs);
+                DiffOutputFormatter.RenderNameOnly(nameWriter, visibleTypeDiffs);
                 nameWriter.Flush();
             });
         }
 
+        hasContent = typeDiffs.Any(td => td.Changes.Any());
         return DiffOutputFormatter.RenderFullMarkdown(
             name,
             typeDiffs,
             diff.InspectionFailures,
             fromVersion,
             toVersion,
-            OutputFormatter.CreateWindowedOptions(options.Rows));
+            OutputFormatter.CreateWindowedOptions(options.Rows),
+            options.Rows);
     }
+
 
     internal static ApiDiff BuildApiDiff(ApiSurface fromSurface, ApiSurface toSurface, DiffOptions options)
         => BuildApiDiff(
@@ -2507,6 +2542,7 @@ public record DiffOptions
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public RowWindow? Rows { get; init; }
+    public string? HumanRowWindowNote { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>

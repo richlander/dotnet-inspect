@@ -96,11 +96,11 @@ public class ImplementsCommand
                 if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
-                WriteJsonOutput(results, options.CompactJson);
+                WriteJsonOutput(results, options.Rows, options.CompactJson);
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Tabular, options.Tsv, options.Jsonl, options.NoHeader, options.Columns, options.Fields, options.Rows, options.HumanRowWindowNote);
             }
 
             return 0;
@@ -153,9 +153,12 @@ public class ImplementsCommand
         }
     }
 
-    private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)
+    private static void WriteJsonOutput(List<ImplementerResult> results, RowWindow? rows, bool compact)
     {
-        var jsonResults = results.Select(ImplementerJsonResult.From).ToList();
+        // Sort to match the markdown/table view's row order (TypeName) before windowing, so
+        // -n/--top picks the same "first/last/top N" implementers in JSON as in markdown/table.
+        var sorted = results.OrderBy(r => r.TypeName).ToList();
+        var jsonResults = RowWindow.Apply(rows, sorted).Select(ImplementerJsonResult.From).ToList();
         JsonOutputHelper.Write(jsonResults, ImplementsJsonContext.Default.ListImplementerJsonResult,
             ImplementsCompactJsonContext.Default.ListImplementerJsonResult, compact);
     }
@@ -175,7 +178,7 @@ public class ImplementsCommand
             options.Rows);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows, string? humanRowWindowNote = null)
     {
         var view = ImplementsOutputFormatter.BuildView(targetType, results);
 
@@ -190,12 +193,13 @@ public class ImplementsCommand
             OutputFormatter.WriteProjectedTable(Console.Out, !noHeader, tsv, jsonl, columns, fields,
                 (writer, formatter, writerOptions) =>
                     MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-                rows);
+                rows, humanRowWindowNote);
         }
         else
         {
             OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
-                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
+                opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts),
+                humanRowWindowNote: humanRowWindowNote);
         }
     }
 }

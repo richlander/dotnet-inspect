@@ -146,6 +146,7 @@ public static class InspectionCommandDefinitions
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
+                HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
                 Select = opts.ParseSelect(parseResult),
                 SelectDefault = opts.ParseSelectDefault(parseResult),
                 Columns = opts.ParseColumns(parseResult),

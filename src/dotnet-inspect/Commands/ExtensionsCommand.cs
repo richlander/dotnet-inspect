@@ -64,7 +64,7 @@ public class ExtensionsCommand
                 if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
 
-                WriteJsonOutput(results, options.CompactJson);
+                WriteJsonOutput(results, options.Rows, options.CompactJson);
             }
             else if (options.Tabular || options.Tsv || options.Jsonl || options.NoHeader)
             {
@@ -72,7 +72,7 @@ public class ExtensionsCommand
             }
             else
             {
-                WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows);
+                WriteMarkoutOutput(targetType, results, options.Verbosity, options.Rows, options.HumanRowWindowNote);
             }
 
             return 0;
@@ -367,9 +367,17 @@ public class ExtensionsCommand
         return results;
     }
 
-    private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
+    private static void WriteJsonOutput(List<ExtensionMethodResult> results, RowWindow? rows, bool compact)
     {
-        var jsonResults = results.Select(ExtensionMethodJsonResult.From).ToList();
+        // Sort to match the markdown/table view's row order (ReachablePath, then
+        // ExtensionClass, then MethodName) before windowing, so -n/--top picks the same
+        // "first/last/top N" extension methods in JSON as in markdown/table.
+        var sorted = results
+            .OrderBy(r => r.ReachablePath ?? "")
+            .ThenBy(r => r.ExtensionClass)
+            .ThenBy(r => r.MethodName)
+            .ToList();
+        var jsonResults = RowWindow.Apply(rows, sorted).Select(ExtensionMethodJsonResult.From).ToList();
         JsonOutputHelper.Write(jsonResults, ExtensionsJsonContext.Default.ListExtensionMethodJsonResult,
             ExtensionsCompactJsonContext.Default.ListExtensionMethodJsonResult, compact);
     }
@@ -391,11 +399,15 @@ public class ExtensionsCommand
             options.Rows);
     }
 
-    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)
+    private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows, string? humanRowWindowNote = null)
     {
         var view = ExtensionsOutputFormatter.BuildView(targetType, results, verbosity);
+        // The "No extension methods found." document is non-whitespace even with zero
+        // results, so the AddHumanRowWindowNote emptiness guard can't catch it here.
+        // Gate on the actual result count instead.
         OutputFormatter.WriteWindowedMarkdown(Console.Out, rows,
-            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts));
+            opts => MarkoutSerializer.Serialize(view, SearchViewContext.Default, opts),
+            humanRowWindowNote: results.Count == 0 ? null : humanRowWindowNote);
     }
 
     private static void WriteTableOutput(string targetType, List<ExtensionMethodResult> results, ExtensionsOptions options)
@@ -405,7 +417,7 @@ public class ExtensionsCommand
             options.Columns, options.Fields,
             (writer, formatter, writerOptions) =>
                 MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
-            options.Rows);
+            options.Rows, options.HumanRowWindowNote);
     }
 
     /// <summary>

@@ -120,6 +120,34 @@ public sealed class TimelineCommandTests
     }
 
     [Fact]
+    public async Task Write_MarkdownWithEmptyTransitions_DoesNotLeakRowWindowNote()
+    {
+        // Round 8 finding: the non-tabular multi-section markdown path unconditionally wrapped
+        // its rendered output with the human row-window note, even when the only selected
+        // section (Transitions) had zero rows to window.
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Transitions = [],
+        };
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Transitions" };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    Rows = RowWindow.Head(1),
+                    HumanRowWindowNote = "first 1",
+                },
+                sections)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain("first 1", result.Output);
+    }
+
+    [Fact]
     public async Task ProjectedJsonRoutingAudit_UnadoptedTypedDocumentFailsClosed()
     {
         var view = new TimelineDocumentView
@@ -147,6 +175,49 @@ public sealed class TimelineCommandTests
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
         Assert.Contains("requires lowered JSON", result.Error);
+    }
+
+    [Fact]
+    public async Task DocumentJsonAppliesItemWindowToEverySelectedRowSet()
+    {
+        var view = new TimelineDocumentView
+        {
+            Title = "Timeline",
+            Evaluations =
+            [
+                new("Sample@1.0.0", "1.0.0", "Present", 1, null),
+                new("Sample@1.0.1", "1.0.1", "Present", 1, null),
+            ],
+            Transitions =
+            [
+                new("1.0.0", "1.0.1", "1.0.0..1.0.1", "Added", "api.member", "Run", null),
+                new("1.0.1", "1.0.2", "1.0.1..1.0.2", "Changed", "api.member", "Run", null),
+            ],
+        };
+
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            TimelineCommand.Write(
+                view,
+                new TimelineOptions
+                {
+                    JsonOutput = true,
+                    Rows = RowWindow.Head(1),
+                },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    "Evaluations",
+                    "Transitions",
+                })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("Evaluations").GetArrayLength());
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("Transitions").GetArrayLength());
     }
 
     [Fact]
