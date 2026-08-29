@@ -963,17 +963,25 @@ conservative because no stable content coordinate exists to key a cache by.
 
 ### Target shape
 
-A workspace-scoped cache, keyed by realized package coordinate, admits through
-three open-workspace states per coordinate: absent, in flight, or ready with a
-retained realization. A demand for an absent coordinate starts the one
-admitting operation; a demand for an in-flight coordinate joins it instead of
-starting a second one; a demand for a ready coordinate reuses the retained
-realization directly. Every demand that admitted or joined one operation
-observes the same outcome. A failed operation is not cached as failed -- the
-coordinate returns to absent so a later demand can retry -- because a transient
-acquisition failure should not permanently poison a coordinate that never had
-a chance to succeed. Disposal adds draining, closing, releasing, and released
-states to govern terminal ownership.
+The per-coordinate admission primitive accepts only a
+`PackageRootRealization` whose asset selection is `Selected` and whose surface
+role is non-empty. A Root-only success has no assembly contexts or package-role
+session: it remains host-owned and bypasses this cache without a lease or
+cleanup request. In a mixed caller request, only selected coordinates enter
+this primitive after the adopting adapter performs the still-open request
+decomposition.
+
+For each admitted coordinate, a workspace-scoped cache keyed by its realized
+package coordinate admits through three open-workspace states: absent, in
+flight, or ready with a retained realization. A demand for an absent coordinate
+starts the one admitting operation; a demand for an in-flight coordinate joins
+it instead of starting a second one; a demand for a ready coordinate reuses the
+retained realization directly. Every demand that admitted or joined one
+operation observes the same outcome. A failed operation is not cached as
+failed -- the coordinate returns to absent so a later demand can retry --
+because a transient acquisition failure should not permanently poison a
+coordinate that never had a chance to succeed. Disposal adds draining, closing,
+releasing, and released states to govern terminal ownership.
 
 This says nothing about assembly-content identity, `AssemblyContextGroup`'s own
 callback/quiescence/disposal lifecycle (already modeled by
@@ -993,17 +1001,19 @@ version, and framework are not yet canonicalized as one realized coordinate.
 Deriving the cache key therefore still depends on `PackageCoordinateResolver`,
 the same normalizer `RealizedMemberCoordinate.Package` already defers to. This
 design consumes that resolved coordinate; it does not construct or normalize
-one.
+one. Root-only result construction and retention remain with the host boundary;
+this owner begins only after a selected coordinate is eligible for package-role
+realization.
 
 ### Shared-realization lifetime
 
-The workspace cache, not an admitting or reusing caller, owns each ready
-realization. A successful admission atomically publishes the ready cache entry
-and issues one `PackageRealizationLease` to every demand attached to that
-operation. A later authorized demand for the same coordinate receives its own
-lease over the same realization. The lease carries no package-selection,
-group-release, or cleanup authority; it only records that its demand may use
-the retained realization.
+For each admitted selected coordinate, the workspace cache, not an admitting or
+reusing caller, owns the ready realization. A successful admission atomically
+publishes the ready cache entry and issues one `PackageRealizationLease` to
+every demand attached to that operation. A later authorized demand for the same
+coordinate receives its own lease over the same realization. The lease carries
+no package-selection, group-release, or cleanup authority; it only records that
+its demand may use the retained realization.
 
 A ready cache entry remains retained when its active lease count reaches zero.
 The first slice has no eviction, time-to-live, memory-pressure release, or
@@ -1053,6 +1063,7 @@ recorded failure, the coordinate is terminal for that disposed workspace.
 
 The target contract remains unimplemented until these named gates land:
 
+- `PackageRealizationRootOnly_BypassesAdmissionWithoutLeaseOrCleanup`
 - `PackageRealizationReadyReuse_IssuesIndependentLeases`
 - `PackageRealizationReadyEntry_RemainsCachedWithoutLeases`
 - `PackageRealizationLease_ReturnIsIdempotent`

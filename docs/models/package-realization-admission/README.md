@@ -17,7 +17,14 @@ result.
 ## Scope
 
 The model contains two package coordinates and four demands. Each coordinate
-has an independent cache state:
+represents a `PackageRootRealization` with a selected, non-empty surface role
+that can produce a package-role session. Root-only successes remain host-owned
+and bypass this admission owner without a cache entry, lease, or cleanup
+request; preserving that boundary is the
+`PackageRealizationRootOnly_BypassesAdmissionWithoutLeaseOrCleanup`
+implementation gate.
+
+Each modeled coordinate has an independent cache state:
 
 - `Absent`, `InFlight`, and `Ready` govern open-workspace admission;
 - `Draining` receives an in-flight operation when disposal closes admission;
@@ -55,6 +62,7 @@ The model does not cover:
 
 - decomposition or rollback of one caller request spanning several package
   coordinates;
+- host retention and result construction for Root-only package coordinates;
 - construction or normalization of a realized package coordinate;
 - package selection, package-role planning, group quiescence, or the internal
   cleanup algorithm;
