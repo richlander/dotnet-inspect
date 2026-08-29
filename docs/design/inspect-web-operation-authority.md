@@ -167,7 +167,9 @@ type OperationFeatureEvent<TValue, TError, TProgress> =
     };
 
 interface OperationFeatureObserver<TValue, TError, TProgress> {
-  publish(event: OperationFeatureEvent<TValue, TError, TProgress>): void;
+  readonly publish: (
+    event: OperationFeatureEvent<TValue, TError, TProgress>,
+  ) => undefined;
 }
 
 interface OperationDiagnostic {
@@ -180,20 +182,24 @@ interface OperationDiagnostic {
 }
 
 interface OperationDiagnosticObserver {
-  report(diagnostic: OperationDiagnostic): void;
+  readonly report: (diagnostic: OperationDiagnostic) => undefined;
 }
 
 interface OperationProducerSink<TValue, TError, TProgress> {
-  reportProgress(value: TProgress): void;
-  reportTerminal(outcome: OperationOutcome<TValue, TError>): void;
-  reportQuiesced(): void;
-  reportUnexpectedFailure(error: unknown): void;
+  readonly reportProgress: (value: TProgress) => undefined;
+  readonly reportTerminal: (
+    outcome: OperationOutcome<TValue, TError>,
+  ) => undefined;
+  readonly reportQuiesced: () => undefined;
+  readonly reportUnexpectedFailure: (error: unknown) => undefined;
 }
 
 interface PreparedOperationProducer {
-  requestCancellation(reason: OperationCancelReason): void;
-  activate(): void;
-  abandon(): void;
+  readonly requestCancellation: (
+    reason: OperationCancelReason,
+  ) => undefined;
+  readonly activate: () => undefined;
+  readonly abandon: () => undefined;
 }
 
 type OperationPreparation<TPrepareError> =
@@ -213,11 +219,11 @@ interface OperationProducerAdapter<
   TProgress,
   TPrepareError,
 > {
-  prepare(
+  readonly prepare: (
     identity: OperationIdentity,
     input: TInput,
     sink: OperationProducerSink<TValue, TError, TProgress>,
-  ): OperationPreparation<TPrepareError>;
+  ) => OperationPreparation<TPrepareError>;
 }
 
 interface OperationSession<
@@ -252,18 +258,31 @@ The feature observer receives only owner-issued events and retains all
 responsibility for the view's data shape, rendering, focus, and wording.
 
 Feature-event delivery is synchronous, one event at a time, and guarded against
-operation-authority reentrancy. `start()` returns `feature-observer-active`, and
-handle cancellation, session cancellation, or disposal returns a rejected
-`OperationControlResult`, when called during feature-event delivery; none
-changes authority state. Product feature observers are required to return
-normally. If one throws, the authority catches the exception, faults and
-disposes that session before any later producer callout, resolves a still
-pending current outcome as `canceled("feature-observer-failed")`, preserves an
-already reserved cancellation forwarding or reserves one for an activated
-producer, abandons a prepared but unactivated producer, detaches the failed
-observer without publishing another feature event, and reports one
-`feature-observer` diagnostic. An outcome that was already terminal is not
-replaced. The exception does not escape through the public session API.
+operation-authority reentrancy. The feature-delivery guard is the first
+admission check for `start()`, handle cancellation, session cancellation, and
+disposal, before disposed, terminal, canceled, or idempotency checks.
+`start()` therefore returns `feature-observer-active`, and the other operations
+return a rejected `OperationControlResult`, during every feature event; none
+changes authority state.
+
+All immediate callback interfaces use readonly function properties whose
+return is `undefined`, not TypeScript methods returning `void`. Under strict
+function types, this rejects Promise-returning implementations and
+implementations whose event, diagnostic, input, sink, or cancellation-reason
+parameter is narrower than the owner-issued type. This is an internal typed
+TypeScript boundary; an adapter that admits untyped JavaScript must validate
+equivalent synchronous behavior before constructing these values.
+
+Product feature observers are required to return normally. If one throws, the
+authority performs an internal fault transition rather than reentering the
+public `dispose()` operation: it catches the exception, faults and disposes that
+session before any later producer callout, resolves a still pending current
+outcome as `canceled("feature-observer-failed")`, preserves an already reserved
+cancellation forwarding or reserves one for an activated producer, abandons a
+prepared but unactivated producer, detaches the failed observer without
+publishing another feature event, and reports one `feature-observer`
+diagnostic. An outcome that was already terminal is not replaced. The exception
+does not escape through the public session API.
 
 The diagnostic observer is also synchronous. Authority state is final before
 diagnostic delivery, so the observer may reenter operation APIs. If diagnostic
@@ -305,37 +324,42 @@ returns either:
 Preparation cannot report producer events and does not throw; its failures are
 represented by the typed preparation result. `abandon()` does not throw and
 releases every prepared resource synchronously without activating the producer,
-retaining the sink, or reporting an event. `activate()` does not throw; an
-activation failure is reported through the installed sink as producer failure
-followed by quiescence. These are immediate typed boundary obligations on an
-adapter, not definitions of its transport or physical implementation.
+retaining the sink, or reporting an event. Its successful return is the
+adapter's quiescence acknowledgement for that never-activated binding. If the
+candidate was already installed, the authority resolves its handle's
+`quiesced` promise exactly once from that return. `activate()` does not throw;
+an activation failure is reported through the installed sink as producer
+failure followed by quiescence. These are immediate typed boundary obligations
+on an adapter, not definitions of its transport or physical implementation.
 
 Starting an operation follows one owner-controlled synchronous sequence:
 
-1. return `session-disposed` if the feature session is disposed;
-2. return `identity-exhausted` if no safe identity remains, before producer
+1. return `feature-observer-active` if feature-event delivery is active;
+2. return `session-disposed` if the feature session is disposed;
+3. return `identity-exhausted` if no safe identity remains, before producer
    preparation;
-3. allocate the next page-wide identity and unpublished candidate record, and
+4. allocate the next page-wide identity and unpublished candidate record, and
    capture the session revision plus current identity;
-4. ask the adapter to prepare against that identity and candidate sink;
-5. compare the session revision and current identity with the captured values
+5. ask the adapter to prepare against that identity and candidate sink;
+6. compare the session revision and current identity with the captured values
    regardless of the preparation result;
-6. if the session was disposed, abandon a prepared binding and return
+7. if the session was disposed, abandon a prepared binding and return
    `session-disposed`;
-7. if another session transition occurred, abandon a prepared binding and
+8. if another session transition occurred, abandon a prepared binding and
    return `session-changed`;
-8. if the unchanged session received producer rejection, return
+9. if the unchanged session received producer rejection, return
    `producer-rejected` and discard the candidate without an authority
    transition;
-9. otherwise atomically install the prepared candidate as current, capture its
+10. otherwise atomically install the prepared candidate as current, capture its
    exact handle for the outer return, complete the prior pending outcome as
    `canceled("superseded")`, and reserve the prior operation's one cancellation
    forwarding plus one `started` or `replaced` feature event;
-10. publish the reserved feature event;
-11. if publication succeeded, activate the prepared current binding; otherwise
-    abandon it under the observer-failure rule;
-12. invoke the reserved prior cancellation endpoint; and
-13. return `OperationStartResult.started` with the captured handle.
+11. publish the reserved feature event;
+12. if publication succeeded, activate the prepared current binding; otherwise
+   abandon it and resolve its `quiesced` promise under the observer-failure
+   rule;
+13. invoke the reserved prior cancellation endpoint; and
+14. return `OperationStartResult.started` with the captured handle.
 
 The candidate is current before activation, and the cancellation endpoint
 exists before callbacks can reenter. A synchronous activation callback uses
@@ -416,7 +440,11 @@ resolve the handle again or regain publication authority.
 
 ### Cancellation and supersession
 
-`cancel()` is idempotent. Its first effective call:
+`cancel()` first applies the feature-delivery guard. During feature publication
+it returns `rejected` with reason `feature-observer-active` without consulting
+or changing the operation record, even if the outcome is already terminal or
+canceled. Outside feature publication it is idempotent. Its first effective
+call:
 
 - normalizes an omitted reason to `"user"`;
 - resolves the logical outcome as canceled;
@@ -427,7 +455,7 @@ resolve the handle again or regain publication authority.
 A later call returns `no-op`, changes no reason or state, and sends no producer
 request. A call after success, failure, or cancellation is also a strict local
 no-op.
-`cancelCurrent()` applies that same transition through the session.
+`cancelCurrent()` applies the same guard and transition through the session.
 
 Handle cancellation and session cancellation use one callout rule: the logical
 outcome, authority revocation, reason, and forwarding flag commit before the
@@ -450,7 +478,9 @@ from the prior producer cannot publish between supersession and installation.
 
 `quiesced` is independent of `outcome`. It resolves exactly once when the
 producer adapter reports that physical work settled and all operation-scoped
-callbacks, subscriptions, registrations, and payload references are released.
+callbacks, subscriptions, registrations, and payload references are released,
+or when successful synchronous `abandon()` acknowledges that a never-activated
+installed binding released every prepared resource.
 The authority component does not infer quiescence from logical cancellation, a
 terminal outcome, elapsed time, or feature cleanup.
 
@@ -460,7 +490,11 @@ result, progress, or focus state.
 
 ### Disposal
 
-Disposing a feature session:
+`dispose()` first applies the feature-delivery guard. During feature
+publication it returns `rejected` with reason `feature-observer-active` without
+consulting or changing session state, including while the reserved `disposed`
+event is being delivered. Outside feature publication, repeated disposal
+returns `no-op`. The first disposal:
 
 - atomically marks the session disposed, detaches ordinary feature publication,
   captures the observer only for one reserved `disposed` event, cancels its
@@ -593,6 +627,10 @@ exist and must include:
   changing any existing current operation or cancellation count;
 - typed `session-disposed`, `session-changed`, `identity-exhausted`,
   `feature-observer-active`, and `producer-rejected` results;
+- strict compile-time acceptance of synchronous full-parameter callback
+  function properties, plus negative TypeScript cases for Promise-returning
+  and narrowed-parameter feature observers, diagnostic observers, producer
+  sinks, adapters, and prepared bindings;
 - typed resource-free preparation rejection that leaves the prior current
   operation unchanged in the absence of reentrancy and produces no handle;
 - successful preparation that reenters start, cancellation, or disposal,
@@ -628,11 +666,13 @@ exist and must include:
 - terminal publication through its reserved event after logical completion,
   with no later authority write;
 - feature observers that attempt reentrant start, handle cancellation, session
-  cancellation, or disposal, requiring a typed pre-transition rejection and no
-  authority change;
+  cancellation, or disposal during each event kind, requiring the
+  feature-delivery rejection to win over disposed, terminal, canceled, and
+  idempotency results with no authority change;
 - feature observers that throw during every event kind, requiring session
   fault/disposal, typed cancellation of a pending operation, abandonment before
-  activation or one cancellation forwarding after activation, no further
+  activation or one cancellation forwarding after activation, exactly one
+  quiescence resolution for an abandoned installed candidate, no further
   feature event, one diagnostic, and no escaping exception;
 - diagnostic observers that throw or reenter, requiring final authority state,
   no escaping exception, and one last-resort console report without recursion;
