@@ -125,9 +125,11 @@ Activating a Finding annotation chip or inspector action makes that Finding
 primary and opens detail. The detail records whether its opener was the
 persistent inspector action or one exact annotation target, including the
 target's medium. A C# chip and an IL chip for one Finding are different
-openers.
+openers. This selection transition preserves active annotations, visible
+media, and coordinate visibility.
 
-Selecting a node makes that node primary and closes Finding detail. Annotation
+Selecting a node makes that node primary, closes Finding detail, and preserves
+active annotations, visible media, and coordinate visibility. Annotation
 toggles do not make a Finding primary. Removing the primary Finding from the
 active set clears primary and detail together; focus remains on the activated
 annotation toggle.
@@ -251,7 +253,8 @@ the chip inert or produce an empty success-shaped detail.
 Every Finding has a persistent modal inspector action even when it is
 unanchored, inactive, attached to the member header, or rendered only on a
 hidden medium. An annotation chip is an additional spatial opener, never the
-only way to inspect a Finding.
+only way to inspect a Finding. The inspector-action identity set is exactly the
+consumed Finding census; annotation eligibility must not filter it.
 
 Closing detail leaves the current surface, primary selection, active
 annotations, media, and coordinate visibility unchanged. It clears only the
@@ -338,6 +341,8 @@ bounded executable design model for viewer-local interaction. It checks:
 - modal dismissal and exercised embedded-primary eligibility derivation;
 - exact chip versus persistent-inspector detail openers, including distinct
   same-medium targets for one Finding and embedded-chip activation;
+- exact persistent-inspector action coverage for the consumed Finding census,
+  including an unanchored Finding;
 - primary selection, active annotations, rendered annotations, and derived
   reported state with independently checked precedence;
 - exact **Default**, **All**, **Clear**, medium, and coordinate control
@@ -345,8 +350,10 @@ bounded executable design model for viewer-local interaction. It checks:
 - document-supported C#/IL visibility with at least one available medium and
   a document-relative annotation universe, plus coordinate visibility;
 - layered Escape on both surfaces and pointer dismissal;
-- destruction of embedded detail on modal opening; and
-- exact focus and state preservation after direct or indirect detail closure.
+- destruction of embedded detail on modal opening;
+- exact focus and state preservation after direct or indirect detail closure;
+  and
+- annotation and presentation preservation across Finding and node selection.
 
 The model deliberately omits shell history, modal stacking outside this
 viewer, asynchronous navigation authority, packet state, declaration
@@ -361,7 +368,9 @@ Conformance requires:
 - TLC success and nonzero action coverage for the checked-in model, plus the
   documented mutation counterexamples;
 - action-matrix tests proving every chip-shaped element is a button with one
-  documented verb and equivalent pointer/keyboard activation;
+  documented verb and equivalent pointer/keyboard activation, plus set equality
+  between persistent inspector actions and the consumed Finding census with an
+  unanchored-Finding witness;
 - modal-session tests proving fresh initialization, eligible primary transfer,
   embedded-detail destruction on opening, state destruction on dismissal, and
   no detail transfer;
@@ -384,6 +393,9 @@ Conformance requires:
   same-medium targets and embedded-chip activation, historical eligible-primary
   transfer on modal opening, and preservation of surface, primary selection,
   annotation membership, media, and coordinates on direct close;
+- Finding- and node-selection tests beginning from non-default annotation,
+  media, and coordinate state and proving those orthogonal states are
+  preserved;
 - layered Escape tests distinguishing detail closure, modal dismissal, and
   embedded fall-through;
 - focus tests for direct close, annotation-set controls, annotation, media, and

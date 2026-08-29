@@ -162,6 +162,13 @@ VARIABLES
   openedOpener,
   openedTarget,
   openingEmbeddedPrimary,
+  openingPriorActive,
+  openingPriorMedia,
+  openingPriorCoordinates,
+  selectedNode,
+  nodePriorActive,
+  nodePriorMedia,
+  nodePriorCoordinates,
   toggledFinding,
   togglePriorActive,
   togglePriorPrimary,
@@ -181,7 +188,9 @@ vars ==
     reported, focus, eventPulse, lastAction, escapeLayered, closedDetail,
     closedSurface, closedPrimary, closedActive, closedMedia,
     closedCoordinates, dismissedPrimary, openedFinding, openedOpener,
-    openedTarget, openingEmbeddedPrimary, toggledFinding,
+    openedTarget, openingEmbeddedPrimary, openingPriorActive,
+    openingPriorMedia, openingPriorCoordinates, selectedNode,
+    nodePriorActive, nodePriorMedia, nodePriorCoordinates, toggledFinding,
     togglePriorActive, togglePriorPrimary, togglePriorDetail,
     togglePriorMedia, togglePriorCoordinates,
     activatedControl, controlPriorActive, controlPriorPrimary,
@@ -189,6 +198,9 @@ vars ==
 
 Annotatable ==
   AnnotatableFor(supportedMedia)
+
+InspectorFindings ==
+  Findings
 
 Reported(activeSet, defaultSet) ==
   IF activeSet = defaultSet
@@ -269,6 +281,15 @@ ClearOpenHistory ==
   /\ openedOpener' = "None"
   /\ openedTarget' = NoValue
   /\ openingEmbeddedPrimary' = NoPrimary
+  /\ openingPriorActive' = defaults
+  /\ openingPriorMedia' = {"CSharp"}
+  /\ openingPriorCoordinates' = FALSE
+
+ClearNodeHistory ==
+  /\ selectedNode' = NoValue
+  /\ nodePriorActive' = defaults
+  /\ nodePriorMedia' = {"CSharp"}
+  /\ nodePriorCoordinates' = FALSE
 
 ClearToggleHistory ==
   /\ toggledFinding' = NoValue
@@ -298,6 +319,7 @@ ClearHistory ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
 
@@ -328,6 +350,13 @@ Init ==
   /\ openedOpener = "None"
   /\ openedTarget = NoValue
   /\ openingEmbeddedPrimary = NoPrimary
+  /\ openingPriorActive = defaults
+  /\ openingPriorMedia = {"CSharp"}
+  /\ openingPriorCoordinates = FALSE
+  /\ selectedNode = NoValue
+  /\ nodePriorActive = defaults
+  /\ nodePriorMedia = {"CSharp"}
+  /\ nodePriorCoordinates = FALSE
   /\ toggledFinding = NoValue
   /\ togglePriorActive = defaults
   /\ togglePriorPrimary = NoPrimary
@@ -354,8 +383,12 @@ OpenEmbeddedChip(target) ==
   /\ openedOpener' = "Chip"
   /\ openedTarget' = target
   /\ openingEmbeddedPrimary' = NoPrimary
+  /\ openingPriorActive' = active
+  /\ openingPriorMedia' = visibleMedia
+  /\ openingPriorCoordinates' = coordinatesVisible
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, modalPrimary, modalDetail, active,
@@ -382,8 +415,12 @@ OpenModal ==
   /\ openedOpener' = "None"
   /\ openedTarget' = NoValue
   /\ openingEmbeddedPrimary' = embeddedPrimary
+  /\ openingPriorActive' = active
+  /\ openingPriorMedia' = visibleMedia
+  /\ openingPriorCoordinates' = coordinatesVisible
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, embeddedPrimary, supportedMedia, escapeLayered>>
@@ -407,6 +444,7 @@ DismissModal ==
   /\ dismissedPrimary' = modalPrimary
   /\ ClearCloseHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, supportedMedia>>
@@ -431,7 +469,8 @@ OpenModalFinding(finding, opener, target) ==
   /\ IF opener = "Chip"
      THEN /\ target \in VisibleTargets(active, visibleMedia)
           /\ FindingOf(target) = finding
-     ELSE target = NoValue
+     ELSE /\ target = NoValue
+          /\ finding \in InspectorFindings
   /\ modalPrimary' = FindingPrimary(finding)
   /\ modalDetail' =
        IF opener = "Chip"
@@ -444,8 +483,12 @@ OpenModalFinding(finding, opener, target) ==
   /\ openedOpener' = opener
   /\ openedTarget' = target
   /\ openingEmbeddedPrimary' = NoPrimary
+  /\ openingPriorActive' = active
+  /\ openingPriorMedia' = visibleMedia
+  /\ openingPriorCoordinates' = coordinatesVisible
   /\ ClearCloseHistory
   /\ ClearDismissHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail, active,
@@ -460,7 +503,15 @@ SelectModalNode(node) ==
   /\ focus' = NodeFocus(node)
   /\ eventPulse' = ~eventPulse
   /\ lastAction' = "SelectModalNode"
-  /\ ClearHistory
+  /\ selectedNode' = node
+  /\ nodePriorActive' = active
+  /\ nodePriorMedia' = visibleMedia
+  /\ nodePriorCoordinates' = coordinatesVisible
+  /\ ClearCloseHistory
+  /\ ClearDismissHistory
+  /\ ClearOpenHistory
+  /\ ClearToggleHistory
+  /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail, active,
                  supportedMedia, visibleMedia, coordinatesVisible, reported,
                  escapeLayered>>
@@ -486,6 +537,7 @@ CloseCurrentDetail ==
   /\ closedCoordinates' = coordinatesVisible
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, modalPrimary, active,
@@ -518,6 +570,7 @@ SetDefault ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  supportedMedia, escapeLayered>>
@@ -537,6 +590,7 @@ SetAll ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  supportedMedia, escapeLayered>>
@@ -556,6 +610,7 @@ ClearAll ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  supportedMedia, escapeLayered>>
@@ -589,6 +644,7 @@ ToggleAnnotation(finding) ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearControlHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
                  supportedMedia, visibleMedia, coordinatesVisible,
@@ -617,6 +673,7 @@ ToggleMedium(medium) ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
           supportedMedia, escapeLayered>>
@@ -636,6 +693,7 @@ ToggleCoordinates ==
   /\ ClearCloseHistory
   /\ ClearDismissHistory
   /\ ClearOpenHistory
+  /\ ClearNodeHistory
   /\ ClearToggleHistory
   /\ UNCHANGED <<defaults, surface, embeddedPrimary, embeddedDetail,
           supportedMedia, escapeLayered>>
@@ -698,6 +756,13 @@ TypeOK ==
   /\ openedOpener \in OpenerKinds
   /\ openedTarget \in Targets \cup {NoValue}
   /\ openingEmbeddedPrimary \in [kind : PrimaryKinds, value : Values]
+  /\ openingPriorActive \in SUBSET Annotatable
+  /\ openingPriorMedia \in SUBSET Media
+  /\ openingPriorCoordinates \in BOOLEAN
+  /\ selectedNode \in Nodes \cup {NoValue}
+  /\ nodePriorActive \in SUBSET Annotatable
+  /\ nodePriorMedia \in SUBSET Media
+  /\ nodePriorCoordinates \in BOOLEAN
   /\ toggledFinding \in Findings \cup {NoValue}
   /\ togglePriorActive \in SUBSET Annotatable
   /\ togglePriorPrimary \in [kind : PrimaryKinds, value : Values]
@@ -768,6 +833,10 @@ AnnotatableUniverseIsSupported ==
       (\E target \in FindingTargets(finding) :
          TargetMedium(target) \in supportedMedia)
 
+InspectorInventoryIsComplete ==
+  /\ InspectorFindings = Findings
+  /\ Unanchored \in InspectorFindings
+
 ReportedStateIsDerived ==
   CASE active = defaults ->
          reported = "Default"
@@ -811,6 +880,9 @@ FindingOpeningIsExact ==
          /\ openedOpener = "Chip"
          /\ embeddedPrimary = FindingPrimary(openedFinding)
          /\ embeddedDetail = ChipDetail(openedFinding, openedTarget)
+         /\ active = openingPriorActive
+         /\ visibleMedia = openingPriorMedia
+         /\ coordinatesVisible = openingPriorCoordinates
          /\ focus = DetailFocus(openedFinding)
     ELSE /\ surface = "Modal"
          /\ modalPrimary = FindingPrimary(openedFinding)
@@ -818,7 +890,20 @@ FindingOpeningIsExact ==
               IF openedOpener = "Chip"
               THEN ChipDetail(openedFinding, openedTarget)
               ELSE InspectorDetail(openedFinding)
+         /\ active = openingPriorActive
+         /\ visibleMedia = openingPriorMedia
+         /\ coordinatesVisible = openingPriorCoordinates
          /\ focus = DetailFocus(openedFinding)
+
+NodeSelectionOutcomeIsExact ==
+  lastAction = "SelectModalNode" =>
+    /\ surface = "Modal"
+    /\ modalPrimary = NodePrimary(selectedNode)
+    /\ modalDetail = NoDetail
+    /\ active = nodePriorActive
+    /\ visibleMedia = nodePriorMedia
+    /\ coordinatesVisible = nodePriorCoordinates
+    /\ focus = NodeFocus(selectedNode)
 
 AnnotationToggleOutcomeIsExact ==
   lastAction = "ToggleAnnotation" =>

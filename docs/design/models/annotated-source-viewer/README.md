@@ -48,6 +48,10 @@ The safety invariants check:
 - a concrete valid focus target throughout an open modal;
 - exact embedded and modal chip-or-inspector opening, including the exact
   same-medium target, plus historical eligible-primary transfer;
+- exact persistent-inspector inventory equality with the Finding census,
+  including an unanchored-Finding witness;
+- exact annotation and presentation preservation across modal Finding and node
+  selection;
 - exact detail closure, primary and presentation preservation, and
   chip-or-inspector focus restoration without changing surface;
 - stable control focus plus exact annotation membership, primary, and detail
@@ -108,7 +112,7 @@ each for `ToggleAnnotation` and `ToggleMedium`, and 3,096 for
 
 ## Mutation evidence
 
-Thirty-five deliberate targeted mutations were run against the same
+Thirty-eight deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -149,6 +153,9 @@ Each produced a concrete counterexample:
 | Clear eligible primary state while opening the modal | `ModalOpeningIsFresh` |
 | Change surface while directly closing detail | `DetailClosureOutcomeIsExact` |
 | Reset visible media during an annotation toggle | `AnnotationToggleOutcomeIsExact` |
+| Reset coordinates while opening modal Finding detail | `FindingOpeningIsExact` |
+| Reset coordinates while selecting a node | `NodeSelectionOutcomeIsExact` |
+| Restrict inspector actions to annotatable Findings | `InspectorInventoryIsComplete` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify.
