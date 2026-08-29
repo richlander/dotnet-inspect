@@ -333,6 +333,42 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
+    public void SyntaxInventory_TracksCollectionSpreads()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "return [..values];",
+            out IReadOnlyList<string> spreadFeatures,
+            out string? error),
+            error);
+        Assert.Contains("expression.collection-spread", spreadFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "return [values];",
+            out IReadOnlyList<string> elementFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("expression.collection-spread", elementFeatures);
+    }
+
+    [Fact]
+    public void SyntaxInventory_TracksStaticLocalFunctions()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "static int Local(int value) { return value; }",
+            out IReadOnlyList<string> staticFeatures,
+            out string? error),
+            error);
+        Assert.Contains("statement.static-local-function", staticFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "int Local(int value) { return value; }",
+            out IReadOnlyList<string> capturingFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("statement.static-local-function", capturingFeatures);
+    }
+
+    [Fact]
     public void Manifest_SyntaxInventoryRequiresExactObservedFeatureSet()
     {
         var row = Row(
@@ -392,6 +428,14 @@ public sealed class AuthoredSourceOracleManifestTests
             failure.Contains(
                 "observed syntax feature 'expression.add' is absent",
                 StringComparison.Ordinal));
+        Assert.Empty(report.ObservedFeatures!);
+        Assert.Equal(
+            [
+                "expression.add",
+                "expression.numeric-literal",
+                "statement.return",
+            ],
+            Assert.Single(report.FileInventory!).Features);
     }
 
     [Fact]
@@ -562,6 +606,41 @@ public sealed class AuthoredSourceOracleManifestTests
             failure.Contains(
                 "syntax inventory could not parse",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Manifest_UnparseableMemberDoesNotEnterAggregateInventory()
+    {
+        var valid = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact);
+        var malformed = Row(
+            "Oracle.cs",
+            2,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact,
+            printerBody: "return (");
+        var file = File(valid.Record, requirePrinterExact: true) with
+        {
+            Members = [Member(valid.Record), Member(malformed.Record)],
+            ExpectedFeatures = ["statement.return"],
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(
+            ManifestWithInventory(file),
+            [valid, malformed]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains(
+                "syntax inventory could not parse",
+                StringComparison.Ordinal));
+        Assert.Empty(report.ObservedFeatures!);
+        Assert.Equal(
+            ["statement.return"],
+            Assert.Single(report.FileInventory!).Features);
     }
 
     [Fact]

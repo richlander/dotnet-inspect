@@ -154,6 +154,7 @@ static class AuthoredSourceOracleManifest
                 ? "<missing source URL>"
                 : file.SourceUrl;
             bool fileShapeValid = true;
+            bool fileInventoryValid = true;
             if (string.IsNullOrWhiteSpace(file.SourceUrl)
                 || string.IsNullOrWhiteSpace(file.ChecksumAlgorithm)
                 || string.IsNullOrWhiteSpace(file.Checksum))
@@ -188,6 +189,7 @@ static class AuthoredSourceOracleManifest
                 if (file.ExpectedFeatures is null || file.ExpectedFeatures.Count == 0)
                 {
                     failures.Add($"{fileId}: expected syntax feature set is empty");
+                    fileInventoryValid = false;
                 }
                 else
                 {
@@ -195,23 +197,27 @@ static class AuthoredSourceOracleManifest
                     {
                         failures.Add(
                             $"{fileId}: syntax inventory requires Printer exact");
+                        fileInventoryValid = false;
                     }
                     if (file.ExpectedFeatures.Any(string.IsNullOrWhiteSpace))
                     {
                         failures.Add(
                             $"{fileId}: expected syntax feature is empty");
+                        fileInventoryValid = false;
                     }
                     if (file.ExpectedFeatures.Distinct(StringComparer.Ordinal).Count()
                         != file.ExpectedFeatures.Count)
                     {
                         failures.Add(
                             $"{fileId}: expected syntax feature is duplicated");
+                        fileInventoryValid = false;
                     }
                     if (!file.ExpectedFeatures.SequenceEqual(
                         file.ExpectedFeatures.Order(StringComparer.Ordinal)))
                     {
                         failures.Add(
                             $"{fileId}: expected syntax features are not ordinal-sorted");
+                        fileInventoryValid = false;
                     }
                 }
             }
@@ -287,6 +293,7 @@ static class AuthoredSourceOracleManifest
                         failures.Add(
                             $"{fileId}: {Display(row.Record)} has no captured "
                             + "Printer body for syntax inventory");
+                        fileInventoryValid = false;
                         continue;
                     }
                     if (!PrinterSyntaxInventory.TryCollect(
@@ -297,6 +304,7 @@ static class AuthoredSourceOracleManifest
                         failures.Add(
                             $"{fileId}: syntax inventory could not parse "
                             + $"{Display(row.Record)}: {inventoryError}");
+                        fileInventoryValid = false;
                         continue;
                     }
                     observedFeatures.UnionWith(features);
@@ -333,6 +341,7 @@ static class AuthoredSourceOracleManifest
                 {
                     failures.Add(
                         $"{fileId}: expected syntax feature '{missing}' was not observed");
+                    fileInventoryValid = false;
                 }
                 foreach (string stale in observedFeatures
                     .Except(expectedFeatures, StringComparer.Ordinal)
@@ -341,12 +350,13 @@ static class AuthoredSourceOracleManifest
                     failures.Add(
                         $"{fileId}: observed syntax feature '{stale}' is absent "
                         + "from expectedFeatures");
+                    fileInventoryValid = false;
                 }
             }
 
             if (inventoryEnabled)
             {
-                if (exact)
+                if (exact && fileInventoryValid)
                     observedInventory.UnionWith(observedFeatures);
                 fileInventory.Add(new FileInventoryEntry(
                     fileId,

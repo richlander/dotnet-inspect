@@ -76,6 +76,9 @@ static class PrinterSyntaxInventory
                 case GenericNameSyntax:
                     Features.Add("syntax.generic-name");
                     break;
+                case SpreadElementSyntax:
+                    Features.Add("expression.collection-spread");
+                    break;
                 case ExpressionSyntax and not TypeSyntax
                     and not OmittedArraySizeExpressionSyntax:
                     Add("expression", node.Kind(), "Expression");
@@ -141,6 +144,11 @@ static class PrinterSyntaxInventory
                 && @foreach.AwaitKeyword.IsKind(SyntaxKind.AwaitKeyword))
             {
                 Features.Add("statement.await-foreach");
+            }
+            if (node is LocalFunctionStatementSyntax localFunction
+                && localFunction.Modifiers.Any(SyntaxKind.StaticKeyword))
+            {
+                Features.Add("statement.static-local-function");
             }
             if (node is UsingStatementSyntax @using
                 && @using.AwaitKeyword.IsKind(SyntaxKind.AwaitKeyword))
