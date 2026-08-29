@@ -604,12 +604,32 @@ public sealed class StateMachineCompletenessTests
     /// measured at all — and that incidental failure would mask a laundered
     /// skip. With it, the sweep has something to report success about, so the
     /// only thing keeping it red is the damaged file being accounted for.
+    ///
+    /// Round 17 found that claim unasserted. Naming the damaged file in
+    /// `problems` was the whole test, and `problems` is where every failure
+    /// lands, so making TryMeasure return Inaccessible for everything still
+    /// passed: the damaged name appeared, by the unreadable route, while the
+    /// undamaged assembly failed too and nothing noticed. The survey line is now
+    /// asserted whole, which pins what succeeded as well as what did not — and
+    /// each case states its own accounting, because a one-byte file is
+    /// undecidable where the other two damages leave a decodable claim.
     /// </summary>
     [Theory]
-    [InlineData(DamageKind.MetadataSignature)]
-    [InlineData(DamageKind.Truncated)]
-    [InlineData(DamageKind.HeaderTruncated)]
-    public void Sweep_DamagedAssembly_IsNeverSilentlyDropped(DamageKind damage)
+    [InlineData(
+        DamageKind.MetadataSignature,
+        "1 managed assemblies measured, 0 non-managed skipped, "
+            + "0 unclassifiable, 0 unreadable.")]
+    [InlineData(
+        DamageKind.Truncated,
+        "1 managed assemblies measured, 0 non-managed skipped, "
+            + "0 unclassifiable, 0 unreadable.")]
+    [InlineData(
+        DamageKind.HeaderTruncated,
+        "1 managed assemblies measured, 0 non-managed skipped, "
+            + "1 unclassifiable, 0 unreadable.")]
+    public void Sweep_DamagedAssembly_IsNeverSilentlyDropped(
+        DamageKind damage,
+        string expectedSurvey)
     {
         string corpus = NewCorpusDirectory();
         try
@@ -627,6 +647,7 @@ public sealed class StateMachineCompletenessTests
                 $"A {damage} assembly left the population without failing the "
                     + $"sweep, which reported the rest as clean. {surveyed}");
             Assert.Contains("damaged.dll", problems);
+            AssertSurvey(expectedSurvey, surveyed);
         }
         finally
         {
@@ -656,7 +677,10 @@ public sealed class StateMachineCompletenessTests
             string? problems = SweepProblems(corpus, out string surveyed);
 
             Assert.True(problems is null, $"{surveyed}\n\n{problems}");
-            Assert.Contains("1 non-managed skipped", surveyed);
+            AssertSurvey(
+                "1 managed assemblies measured, 1 non-managed skipped, "
+                    + "0 unclassifiable, 0 unreadable.",
+                surveyed);
         }
         finally
         {
@@ -743,6 +767,10 @@ public sealed class StateMachineCompletenessTests
                 $"A damaged assembly named {name} was never enumerated, so the "
                     + $"sweep reported the corpus clean. {surveyed}");
             Assert.Contains(name, problems);
+            AssertSurvey(
+                "1 managed assemblies measured, 0 non-managed skipped, "
+                    + "0 unclassifiable, 0 unreadable.",
+                surveyed);
         }
         finally
         {
@@ -832,8 +860,10 @@ public sealed class StateMachineCompletenessTests
             // peculiarity is a link back to its own root has nothing unreadable
             // in it, and it holds exactly one undamaged assembly however many
             // times the walk passes the root.
-            Assert.Contains("0 unreadable", surveyed);
-            Assert.Contains("1 managed assemblies measured", surveyed);
+            AssertSurvey(
+                "1 managed assemblies measured, 0 non-managed skipped, "
+                    + "0 unclassifiable, 0 unreadable.",
+                surveyed);
         }
         finally
         {
@@ -841,6 +871,20 @@ public sealed class StateMachineCompletenessTests
             Directory.Delete(offRoot, recursive: true);
         }
     }
+
+    /// <summary>
+    /// Asserts the whole survey line, not a fragment of it.
+    ///
+    /// Round 17 found the count assertions this replaces matching by substring:
+    /// <c>"1 managed assemblies"</c> is satisfied by <c>11</c>, and
+    /// <c>"0 unreadable"</c> by <c>10</c>. Every inflation was reproduced and
+    /// the focused test still passed, so assertions written to pin exact counts
+    /// pinned only a lower digit. The survey is one line in a fixed format, so
+    /// comparing all of it is both exact and the smallest thing that can be:
+    /// four counters, one assertion, no room for a prefix to pass for a whole.
+    /// </summary>
+    static void AssertSurvey(string expected, string surveyed) =>
+        Assert.Equal(expected, surveyed.Trim());
 
     static byte[] Damage(byte[] image, DamageKind kind)
     {
