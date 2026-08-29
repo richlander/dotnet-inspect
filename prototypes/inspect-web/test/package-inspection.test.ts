@@ -22,6 +22,12 @@ import type {
 } from "../src/inspect-web-engine.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
 
+const selectedCompileLibrary = {
+  status: "Selected" as const,
+  targetFramework: "net10.0",
+  message: null,
+};
+
 function packageModel(
   overrides: Partial<AppPackage> = {},
 ): AppPackage {
@@ -97,6 +103,7 @@ function dependencyResult(
     assemblyReferences: [],
     dependencyGroupError: error,
     assemblyReferenceError: null,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
@@ -109,6 +116,7 @@ function integrationsResult(): BrowserPackageIntegrations {
     totalSignals: 0,
     isComplete: true,
     inspectionError: null,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
@@ -121,6 +129,7 @@ function opportunitiesResult(): BrowserPackageOpportunities {
     totalOpportunities: 0,
     isComplete: true,
     inspectionError: null,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
@@ -130,6 +139,7 @@ function performanceResult(): PackagePerformance {
     inspectionError: null,
     nonPublicOpportunities: 0,
     totalOpportunities: 0,
+    compileLibrary: selectedCompileLibrary,
   };
 }
 
