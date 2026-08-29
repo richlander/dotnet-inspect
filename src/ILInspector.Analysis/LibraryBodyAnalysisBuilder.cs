@@ -262,13 +262,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             typeSourceGenerated);
 
-    MethodIdentity?
+    AsyncBodyAttribution?
         ILibraryMethodAnalysisInfrastructure
-            .ResolveAsyncStateMachineSource(
+            .ResolveAsyncBody(
                 MethodIdentity method,
                 MethodDefinition methodDefinition,
                 bool typeSourceGenerated) =>
-        _asyncSourceResolver.ResolveDeclaredSourceMethod(
+        _asyncSourceResolver.ResolveAsyncBody(
             method,
             methodDefinition,
             typeSourceGenerated);
@@ -579,28 +579,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
     const int ParallelBuildMethodThreshold = 200;
 
-    // Name-based recognition of FRAMEWORK value types whose `newobj` resolves to a bare
-    // TypeRef the token dispatch cannot follow (a non-generic framework struct like DateTime
-    // or Guid lives in an assembly this one does not load). The common generic framework
-    // value types (Span/ReadOnlySpan/Memory/Nullable/ValueTuple`n) are constructed through a
-    // TypeSpec and are resolved authoritatively by the signature blob, so they are listed
-    // here only as a fast path. In-assembly and cross-assembly value types are NOT matched by
-    // name — that is the operand-token metadata path's job — because a display name omits
-    // assembly identity and would misclassify an external reference type that shares a
-    // namespace+name with an in-assembly struct (#1804 review).
-    static bool IsNonHeapConstructionByName(TypeRef type)
-    {
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType ?? type : type;
-        if (definition.Kind != TypeRefKind.Definition || !definition.TrustedFrameworkAssembly)
-            return false;
-        if (definition.Namespace == "System" && definition.Name is
-                "Span`1" or "ReadOnlySpan`1" or "Memory`1" or "ReadOnlyMemory`1" or "Nullable`1"
-                or "ValueTuple" or "ValueTuple`1" or "ValueTuple`2" or "ValueTuple`3" or "ValueTuple`4"
-                or "ValueTuple`5" or "ValueTuple`6" or "ValueTuple`7" or "ValueTuple`8")
-            return true;
-        return IsWellKnownValueType(definition.Namespace, definition.Name);
-    }
-
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
     {
         foreach (var handle in attributes)
@@ -720,180 +698,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
         }
         return ("", "");
-    }
-
-    // A value-type `newobj` whose operand is an unresolvable external TypeRef is still
-    // recorded (as a non-heap annotation) when the type is a recognized framework value
-    // type by name, so the row is not silently dropped.
-    bool IsUnresolvedExternalValueTypeConstruction(
-        int operandToken,
-        TypeRef type)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(operandToken);
-            var parent = handle.Kind switch
-            {
-                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
-                _ => default,
-            };
-            return parent.Kind == HandleKind.TypeReference
-                && IsNonHeapConstructionByName(type);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    // The declaring type and name behind a field-store operand. Returns (null, null)
-    // when the operand is not a resolvable field, leaving the escape-kind judgment to
-    // the allocation analysis that asked.
-    (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken, GenericScope callerScope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(fieldToken);
-            switch (handle.Kind)
-            {
-                case HandleKind.FieldDefinition:
-                    var field = _reader.GetFieldDefinition((FieldDefinitionHandle)handle);
-                    return (
-                        TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, field.GetDeclaringType(), 0),
-                        _reader.GetString(field.Name));
-                case HandleKind.MemberReference:
-                    return (
-                        ResolveMemberReferenceParentType(handle, callerScope),
-                        _reader.GetString(_reader.GetMemberReference((MemberReferenceHandle)handle).Name));
-                default:
-                    return (null, null);
-            }
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
-        {
-            return (null, null);
-        }
-    }
-
-    bool IsDelegateConstructorToken(int operandToken, MemberRef constructor)
-    {
-        if (constructor.Kind != MemberKind.Constructor
-            || constructor.ParameterTypes.Length != 2
-            || !constructor.ParameterTypes[0].Equals(TypeRef.CoreLib("System", "Object"))
-            || !constructor.ParameterTypes[1].Equals(TypeRef.CoreLib("System", "IntPtr")))
-        {
-            return false;
-        }
-
-        var definition = constructor.DeclaringType.Kind == TypeRefKind.GenericInstance
-            ? constructor.DeclaringType.ElementType ?? constructor.DeclaringType
-            : constructor.DeclaringType;
-        if (definition.TrustedFrameworkAssembly
-            && definition.Assembly == TypeRef.CoreLibrary
-            && definition.Namespace == "System"
-            && (definition.Name.StartsWith("Func`", StringComparison.Ordinal)
-                || definition.Name.StartsWith("Action`", StringComparison.Ordinal)
-                || definition.Name == "Action"))
-        {
-            return true;
-        }
-
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(operandToken);
-            EntityHandle parent = handle.Kind switch
-            {
-                HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType(),
-                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
-                _ => default,
-            };
-            return parent.Kind == HandleKind.TypeDefinition
-                && TypeDerivesFromMulticastDelegate((TypeDefinitionHandle)parent);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    bool TypeDerivesFromMulticastDelegate(TypeDefinitionHandle handle)
-    {
-        var visited = new HashSet<TypeDefinitionHandle>();
-        var current = handle;
-        while (visited.Add(current))
-        {
-            var baseHandle = _reader.GetTypeDefinition(current).BaseType;
-            switch (baseHandle.Kind)
-            {
-                case HandleKind.TypeReference:
-                    var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
-                    return _reader.GetString(baseRef.Namespace) == "System"
-                        && _reader.GetString(baseRef.Name) == "MulticastDelegate";
-                case HandleKind.TypeDefinition:
-                    current = (TypeDefinitionHandle)baseHandle;
-                    continue;
-                default:
-                    return false;
-            }
-        }
-        return false;
-    }
-
-    string? CalliReturnDetail(int token, GenericScope scope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            if (handle.Kind != HandleKind.StandaloneSignature)
-                return null;
-            var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    standalone.Signature,
-                    SignatureBlobGuard.Kind.StandaloneMethod))
-                return null;
-            var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
-            return signature.ReturnType.ToDisplayString();
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return null;
-        }
-    }
-
-    // True only when a `box` operand is positively identified as a value type that
-    // unconditionally allocates. ECMA-335 allows `box` on reference types (no allocation),
-    // generic parameters (compiler-mandated / JIT-specialized), and `Nullable<T>` (no
-    // allocation when null) — all excluded to avoid false positives. In-assembly types are
-    // resolved authoritatively via their base type; external types are accepted only from a
-    // curated set of well-known framework value types.
-    bool IsAllocatingValueTypeBox(int token, TypeRef boxed)
-    {
-        // Nullable<T> boxing allocates only when HasValue; conservatively exclude.
-        var leaf = boxed.Kind == TypeRefKind.GenericInstance ? boxed.ElementType ?? boxed : boxed;
-        if (leaf.Kind == TypeRefKind.Definition && leaf.Namespace == "System" && leaf.Name == "Nullable`1")
-            return false;
-
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            if (handle.Kind == HandleKind.TypeDefinition)
-                return IsValueTypeDefinition((TypeDefinitionHandle)handle);
-            // A constructed generic type (e.g. Box<int>) is a TypeSpec whose signature blob
-            // directly encodes value-type-ness (ELEMENT_TYPE_VALUETYPE vs ELEMENT_TYPE_CLASS),
-            // so we don't need to resolve the definition. Covers in-assembly and external
-            // generic structs alike; Nullable<T> is already excluded above.
-            if (handle.Kind == HandleKind.TypeSpecification)
-                return IsValueTypeSpec((TypeSpecificationHandle)handle);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-
-        return leaf.Kind == TypeRefKind.Definition
-            && leaf.TrustedFrameworkAssembly
-            && IsWellKnownValueType(leaf.Namespace, leaf.Name);
     }
 
     bool GenericParameterCanBeValueType(
@@ -1060,54 +864,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return false;
     }
 
-    // Reads a TypeSpec signature blob to decide value-type-ness directly from metadata. The
-    // signature is an ELEMENT_TYPE_* stream; a generic instance is GENERICINST followed by
-    // VALUETYPE (0x11) or CLASS (0x12), and a bare value/class spec starts with that byte.
-    bool IsValueTypeSpec(TypeSpecificationHandle handle)
-    {
-        const byte ElementTypeValueType = 0x11;
-        const byte ElementTypeGenericInst = 0x15;
-        var blob = _reader.GetBlobReader(_reader.GetTypeSpecification(handle).Signature);
-        if (blob.RemainingBytes == 0)
-            return false;
-        byte code = blob.ReadByte();
-        if (code == ElementTypeGenericInst)
-        {
-            if (blob.RemainingBytes == 0)
-                return false;
-            code = blob.ReadByte();
-        }
-        // VALUETYPE (0x11) is a value type; CLASS (0x12) and everything else is not.
-        return code == ElementTypeValueType;
-    }
-
-    // Authoritative in-assembly check: a value type extends System.ValueType or System.Enum.
-    bool IsValueTypeDefinition(TypeDefinitionHandle handle)
-    {
-        var baseHandle = _reader.GetTypeDefinition(handle).BaseType;
-        if (baseHandle.IsNil)
-            return false;
-        var (ns, name) = baseHandle.Kind switch
-        {
-            HandleKind.TypeReference => (_reader.GetString(_reader.GetTypeReference((TypeReferenceHandle)baseHandle).Namespace),
-                _reader.GetString(_reader.GetTypeReference((TypeReferenceHandle)baseHandle).Name)),
-            HandleKind.TypeDefinition => (_reader.GetString(_reader.GetTypeDefinition((TypeDefinitionHandle)baseHandle).Namespace),
-                _reader.GetString(_reader.GetTypeDefinition((TypeDefinitionHandle)baseHandle).Name)),
-            _ => ("", ""),
-        };
-        return ns == "System" && name is "ValueType" or "Enum";
-    }
-
-    static bool IsWellKnownValueType(string ns, string name)
-        => (ns == "System" && name is "Boolean" or "Byte" or "SByte" or "Char"
-                or "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64"
-                or "Single" or "Double" or "IntPtr" or "UIntPtr" or "Decimal"
-                or "Half" or "Int128" or "UInt128"
-                or "DateTime" or "DateTimeOffset" or "TimeSpan" or "Guid")
-           || (ns == "System.Numerics" && name is "BigInteger" or "Complex")
-           || (ns == "System" && name.StartsWith("ValueTuple", StringComparison.Ordinal))
-           || (ns == "System.Collections.Generic" && name == "KeyValuePair`2");
-
     TypeRef TypeFromEntity(EntityHandle handle)
     {
         try
@@ -1124,111 +880,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         {
             return TypeRef.Unsupported("interface implementation");
         }
-    }
-
-    // Resolves a metadata type token (TypeDef/TypeRef/TypeSpec) to a TypeRef, used to
-    // inspect a newarr element type. Returns Unsupported on any malformed/unknown token.
-    TypeRef ResolveTypeToken(int token, GenericScope scope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            return handle.Kind switch
-            {
-                HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
-                HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
-                HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, scope, (TypeSpecificationHandle)handle, 0),
-                _ => TypeRef.Unsupported("newarr element"),
-            };
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return TypeRef.Unsupported("newarr element");
-        }
-    }
-
-    bool IsInAssemblyReferenceTypeElement(int elementToken)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(elementToken);
-            return handle.Kind == HandleKind.TypeDefinition
-                && !IsValueTypeDefinition((TypeDefinitionHandle)handle);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    TypeRef? ResolveMemberReferenceParentType(EntityHandle handle, GenericScope callerScope)
-    {
-        var parent = _reader.GetMemberReference((MemberReferenceHandle)handle).Parent;
-        return parent.Kind switch
-        {
-            HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)parent, 0),
-            HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)parent, 0),
-            HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, callerScope, (TypeSpecificationHandle)parent, 0),
-            _ => null,
-        };
-    }
-
-    static int ArgumentSlotCount(MethodIdentity method)
-        => method.ParameterTypes.Length + (method.IsStatic ? 0 : 1);
-
-    MemberRef ResolveCalliMember(int token, GenericScope scope)
-    {
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(token);
-            if (handle.Kind != HandleKind.StandaloneSignature)
-                return MemberRef.Unsupported("calli signature unavailable");
-            var standalone = _reader.GetStandaloneSignature((StandaloneSignatureHandle)handle);
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    standalone.Signature,
-                    SignatureBlobGuard.Kind.StandaloneMethod))
-            {
-                return MemberRef.Unsupported("calli signature unavailable");
-            }
-
-            var signature = standalone.DecodeMethodSignature(TypeRefDecoder.Instance, scope);
-            return new MemberRef(
-                TypeRef.Unsupported("function pointer"),
-                "calli",
-                signature.ParameterTypes,
-                signature.ReturnType,
-                MemberKind.FunctionPointer)
-            {
-                HasThis = signature.Header.IsInstance,
-                SignatureHeader = signature.Header.RawValue,
-                RequiredParameterCount =
-                    signature.RequiredParameterCount,
-                GenericArity = signature.GenericParameterCount,
-                OpenParameterTypes = signature.ParameterTypes,
-                OpenReturnType = signature.ReturnType,
-            };
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException)
-        {
-            return MemberRef.Unsupported("calli signature unavailable");
-        }
-    }
-
-    GenericScope CreateScope(TypeDefinition typeDef, MethodDefinition methodDef)
-        => new(GenericParameterNames(typeDef.GetGenericParameters()), GenericParameterNames(methodDef.GetGenericParameters()));
-
-    ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
-    {
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
     }
 
 }

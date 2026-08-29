@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using DotnetInspector.Artifacts;
 
 namespace ILInspector.Metadata;
 
@@ -176,8 +178,53 @@ public abstract record AssemblyResolutionProvenance
 /// </summary>
 public sealed class AssemblyAcquisitionRegistration
 {
-    internal AssemblyAcquisitionRegistration()
+    readonly object _gate = new();
+    Guid? _moduleVersionId;
+
+    internal AssemblyAcquisitionRegistration(
+        ArtifactAcquisitionRegistration? artifactRegistration = null)
     {
+        ArtifactRegistration = artifactRegistration;
+    }
+
+    /// <summary>
+    /// Exact artifact acquisition registration that authorized this assembly
+    /// descriptor, when the descriptor was projected from an artifact.
+    /// </summary>
+    public ArtifactAcquisitionRegistration? ArtifactRegistration { get; }
+
+    /// <summary>
+    /// Module generation bound to the artifact-backed descriptor.
+    /// </summary>
+    public Guid? ModuleVersionId
+    {
+        get
+        {
+            lock (_gate)
+                return _moduleVersionId;
+        }
+    }
+
+    internal void BindModuleVersionId(Guid moduleVersionId)
+    {
+        if (moduleVersionId == Guid.Empty)
+        {
+            throw new BadImageFormatException(
+                "The selected assembly has an empty module version identifier.");
+        }
+
+        lock (_gate)
+        {
+            if (_moduleVersionId is Guid existing
+                && existing != moduleVersionId)
+            {
+                throw new BadImageFormatException(
+                    "The opened assembly module version identifier does not "
+                    + "match the artifact-bound acquisition descriptor.");
+            }
+
+            _moduleVersionId = moduleVersionId;
+        }
     }
 }
 
@@ -296,6 +343,41 @@ public sealed class ResolvedAssemblyReference
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
         DateTime? lastWriteTimeUtc = null)
+        => CreateFromStreamIfManagedCore(
+            artifactRegistration: null,
+            openRead,
+            provenance,
+            lastWriteTimeUtc);
+
+    /// <summary>
+    /// Projects one authorized artifact registration into a managed assembly
+    /// descriptor while preserving artifact correspondence.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="openRead"/> remains the caller-supplied guarded content
+    /// capability. Artifact access and lease validation stay with the artifact
+    /// owner; this boundary decodes assembly identity and binds the non-empty
+    /// module version identifier.
+    /// </remarks>
+    public static ResolvedAssemblyReference? CreateFromArtifactIfManaged(
+        ArtifactAcquisitionRegistration artifactRegistration,
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(artifactRegistration);
+        return CreateFromStreamIfManagedCore(
+            artifactRegistration,
+            openRead,
+            provenance,
+            lastWriteTimeUtc);
+    }
+
+    static ResolvedAssemblyReference? CreateFromStreamIfManagedCore(
+        ArtifactAcquisitionRegistration? artifactRegistration,
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc)
     {
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -328,13 +410,30 @@ public sealed class ResolvedAssemblyReference
 
         using (peReader)
         {
+            MetadataReader metadata =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
+            if (artifactRegistration is not null
+                && !metadata.IsAssembly)
+            {
+                return null;
+            }
+
             AssemblyReferenceIdentity identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    MetadataFormatAdmission.GetMetadataReader(peReader));
+                AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
             if (string.IsNullOrWhiteSpace(identity.Name))
                 return null;
 
-            return Create(
+            var registration =
+                new AssemblyAcquisitionRegistration(artifactRegistration);
+            if (artifactRegistration is not null)
+            {
+                ModuleDefinition module = metadata.GetModuleDefinition();
+                registration.BindModuleVersionId(
+                    metadata.GetGuid(module.Mvid));
+            }
+
+            return new ResolvedAssemblyReference(
+                registration,
                 identity,
                 path: null,
                 openRead,
@@ -469,6 +568,38 @@ public sealed class ResolvedAssemblyReference
     /// returned by <see cref="OpenRead"/>, when available.
     /// </summary>
     public DateTime? LastWriteTimeUtc { get; }
+
+    internal void ValidateArtifactContent(PEReader peReader)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        if (Registration.ArtifactRegistration is null)
+            return;
+        if (!peReader.HasMetadata)
+        {
+            throw new BadImageFormatException(
+                "The artifact-bound assembly image has no managed metadata.");
+        }
+
+        MetadataReader metadata =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
+        if (!metadata.IsAssembly)
+        {
+            throw new BadImageFormatException(
+                "The artifact-bound image is a module, not an assembly.");
+        }
+
+        AssemblyReferenceIdentity actual =
+            AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
+        if (actual != Identity)
+        {
+            throw new BadImageFormatException(
+                "The opened assembly identity does not match the "
+                + "artifact-bound acquisition descriptor.");
+        }
+
+        ModuleDefinition module = metadata.GetModuleDefinition();
+        Registration.BindModuleVersionId(metadata.GetGuid(module.Mvid));
+    }
 
     /// <summary>
     /// Returns this descriptor with the same acquisition registration and an

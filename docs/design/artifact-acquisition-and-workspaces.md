@@ -376,6 +376,13 @@ and registration observations and retained-content opens revalidate the query
 lease supplied when the reference was issued. The type makes no claim that the
 content is a managed assembly; Metadata owns that decode and identity.
 
+Assembly projection passes the exact acquisition registration and the
+reference's guarded content callback to
+`ResolvedAssemblyReference.CreateFromArtifactIfManaged`. Metadata retains the
+registration, decodes assembly identity, and binds a non-empty MVID. It does
+not receive the workspace role set or interpret a lease-scoped path as content
+authority, designation, or trust.
+
 It does not:
 
 - resolve package versions;
