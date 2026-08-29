@@ -1,9 +1,12 @@
 # CoreCache mechanism
 
 This document owns the mechanism contract of `DotnetInspector.Core`'s
-`CoreCache`/`AsyncCache`: the process-wide cache root, the filesystem key
-scheme, path-context containment, initialization lifecycle, and versioned
-category maintenance. It does not own cache semantics — the complete key,
+`CoreCache`: the process-wide cache root, the filesystem key scheme,
+path-context containment, initialization lifecycle, and versioned category
+maintenance. It does not own `AsyncCache`, an unrelated in-memory
+single-flight coalescer in the same project with no lifecycle dependency on
+`CoreCache` — see [Non-claims](#non-claims). It does not own cache
+semantics — the complete key,
 freshness, validation, publication, and concurrency behavior each cached
 result requires is the calling owner's responsibility, per
 [the `CoreCache` section of the inspection space](../inspection-space.md#corecache).
@@ -52,23 +55,30 @@ differently, but the difference is enforced for only one of them:
 - **`extension`** is concatenated verbatim after the hash suffix. Every
   current call site passes a literal (`"json"`, `"forbidden"`, `"miss"`,
   `"md"`, `"tsv"`).
+- **`appName`** (`Initialize`'s first parameter) is concatenated verbatim into
+  every platform's default base path (`GetDefaultBasePath`'s
+  `Path.Combine(..., AppName)` on each branch); `Initialize` only rejects a
+  null or all-whitespace value. The current production caller passes one
+  fixed literal at process startup.
 
-The contract is: **`category` and `extension` are caller-owned literals, never
-derived from external content; `key` is the only parameter this mechanism
-defends.** This must hold for every future caller, including one that builds a
-category name from a feed, package, or platform identifier — those must be
-routed through `key`, not `category` or `extension`.
+The contract is: **`category`, `extension`, and `appName` are caller-owned
+literals, never derived from external content; `key` is the only parameter
+this mechanism defends.** This must hold for every future caller, including
+one that builds a category name from a feed, package, or platform identifier
+— those must be routed through `key`, not `category`, `extension`, or
+`appName`.
 
 **Gap:** the contract above is enforced only by code review convention today.
-`GetCategoryPath`, `GetFilePath`, `TryGet`, `TryGetBytes`, `Set`, and
-`SetBytes` do not reject a `category` or `extension` containing a path
-separator or a `..` segment, so a future caller that violates the contract
-(for example, building a category from a package id) would silently gain a
-path-traversal write/read primitive outside the cache root, undetected by any
-existing test. Closing this gap — for example, asserting both parameters
-contain no directory separator and no `.` segment before every path
-computation — is recommended follow-up work; this document records the
-invariant so that follow-up has a contract to enforce against.
+`GetCategoryPath`, `GetFilePath`, `GetDefaultBasePath`, `TryGet`,
+`TryGetBytes`, `Set`, and `SetBytes` do not reject a `category`, `extension`,
+or `appName` containing a path separator or a `..` segment, so a future
+caller that violates the contract (for example, building a category from a
+package id) would silently gain a path-traversal write/read primitive outside
+the cache root, undetected by any existing test. Closing this gap — for
+example, asserting all three parameters contain no directory separator and no
+`.` segment before every path computation — is recommended follow-up work;
+this document records the invariant so that follow-up has a contract to
+enforce against.
 
 ## Path-context containment
 
@@ -79,16 +89,26 @@ path (`GetLegacyBasePath()`). `IsPathInCacheContext` fails closed — any
 exception while resolving the full path (malformed path, denied access)
 returns `false`, never `true`.
 
+**Gap:** the descendant check (`IsSameOrChildPath`) compares paths with
+`StringComparison.OrdinalIgnoreCase` unconditionally, on every platform. On a
+case-sensitive filesystem (ordinary Linux/macOS volumes), a path that differs
+from the cache root only in case is accepted as a descendant even though it
+names a distinct location outside the actual root — so the "cannot escape the
+cache root" guarantee below does not hold there. This document's containment
+claims describe the guard's intended behavior, not a verified guarantee on
+case-sensitive filesystems; treat that as an open, unenforced case, not as
+closed by `EnsurePathInCacheContext` alone.
+
 **Gap:** this guard runs only inside `Clear`, immediately before
 `Directory.Delete`. It does not run on the write path (`Set`/`SetBytes`
 create directories and move files into `GetFilePath`'s result without calling
 it) or the read path. Because `category` is contract-restricted to literals
 (see above), a conforming caller never needs the guard there today — but the
-guard's absence means a `category`/`extension` contract violation on the
-write path is not caught by this mechanism at all, only a violation reached
-through `Clear`'s category argument is. A future defensive check on
-`category`/`extension` (the gap above) would close both paths at once and
-make this asymmetry moot.
+guard's absence means a `category`/`extension`/`appName` contract violation
+on the write path is not caught by this mechanism at all, only a violation
+reached through `Clear`'s category argument is. A future defensive check on
+`category`/`extension`/`appName` (the gap above) would close both paths at
+once and make this asymmetry moot.
 
 ## Initialization lifecycle
 
@@ -140,13 +160,16 @@ member's own integer suffix (for example prefix `pkg-index-v`, current
   previous generation's tasks, waits for them best-effort, and starts a new
   generation rather than waiting for the old one to finish on its own.
 
-`CancelAndWaitForMaintenance`/an implicit wait inside `Clear(category: null)`
-are the only ways a caller observes completed maintenance; both drain the
-current generation (or cancel it after a timeout) and consume the recorded
-byte/directory counters. Routine (non-`Clear`) maintenance is silent: a
-caller that never calls `Clear` or `CancelAndWaitForMaintenance` never learns
-whether background retirement ran, succeeded, or was skipped because a prior
-run left the directory absent.
+`CancelAndWaitForMaintenance`/`Clear` are the only ways a caller observes
+completed maintenance. **Every** `Clear` call — not only `Clear(category:
+null)` — unconditionally waits (`Timeout.InfiniteTimeSpan`) for the current
+maintenance generation before deleting anything; only `Clear(null)` also
+*consumes* the recorded byte/directory counters into its return value
+(`Clear(category)` waits the same way but reports `0` maintenance bytes).
+Routine (non-`Clear`) maintenance is silent: a caller that never calls
+`Clear` or `CancelAndWaitForMaintenance` never learns whether background
+retirement ran, succeeded, or was skipped because a prior run left the
+directory absent.
 
 ## `Clear` and concurrent writers
 
@@ -165,15 +188,24 @@ caller clears a category while concurrently writing to it; a future one must
 either serialize its own writes around a `Clear` or accept that the write may
 be silently lost.
 
-## Telemetry is not a correctness signal
+## Telemetry is fire-and-forget but not exception-isolated
 
-`InfoTracker.RecordCacheHit`/`RecordCacheMiss` and `CacheTelemetry.Record`
-are recorded on every `TryGet`/`TryGetBytes`/`Set`/`SetBytes` outcome, but
-recording is fire-and-forget and never affects the return value or throws.
-Telemetry may undercount (a `Set` that never reaches the `try` body's
+`InfoTracker.RecordCacheHit`/`RecordCacheMiss` and `CacheTelemetry.Record` are
+recorded on every `TryGet`/`TryGetBytes`/`Set`/`SetBytes` outcome. Recording
+itself does nothing to protect a cache result: `CacheTelemetry.Record` calls
+every subscribed `IObserver<CacheObservation>.OnNext` synchronously, with no
+surrounding `try`/`catch`. A throwing subscriber therefore changes cache
+behavior at the call site — on a `TryGet` hit, the call happens inside the
+method's own blanket `catch`, so a subscriber exception silently turns a hit
+into a miss (`null`); on a `TryGet` miss, the call happens outside any
+`catch`, so a subscriber exception propagates to the cache caller. This
+mechanism does not isolate telemetry from the operation it is recording;
+"fire-and-forget" describes the caller's intent, not an enforced boundary.
+Telemetry may also undercount (a `Set` that never reaches the `try` body's
 `CacheTelemetry.Record` call because an earlier line threw is silently
 uncounted) and must not be read as an audit trail of cache correctness — only
-as an operational signal.
+as an operational signal, and only when every subscriber is known not to
+throw.
 
 ## Non-claims
 
