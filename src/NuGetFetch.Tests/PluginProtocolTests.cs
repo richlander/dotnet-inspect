@@ -1259,12 +1259,17 @@ public sealed class PluginProtocolTests : IDisposable
             "10");
         var writeInterrupted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseInterruption = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var quiescenceAwaiting = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var resourcesDisposing = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var hooks = new PluginConnection.PluginConnectionTestHooks
         {
+            RequestWriteStarted = () => writeStarted.TrySetResult(),
             RequestWriteInterrupted = () =>
             {
                 writeInterrupted.TrySetResult();
@@ -1275,6 +1280,7 @@ public sealed class PluginProtocolTests : IDisposable
                     .GetAwaiter()
                     .GetResult();
             },
+            ConnectionQuiescenceAwaiting = () => quiescenceAwaiting.TrySetResult(),
             ConnectionResourcesDisposing = value => resourcesDisposing.TrySetResult(value),
         };
         FakePlugin plugin = CreatePlugin(
@@ -1296,6 +1302,9 @@ public sealed class PluginProtocolTests : IDisposable
             canShowDialog: false,
             cancellation.Token);
 
+        await writeStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
         cancellation.Cancel();
         await writeInterrupted.Task.WaitAsync(
             TimeSpan.FromSeconds(5),
@@ -1305,10 +1314,10 @@ public sealed class PluginProtocolTests : IDisposable
 
         try
         {
-            await Assert.ThrowsAsync<TimeoutException>(async () =>
-                await resourcesDisposing.Task.WaitAsync(
-                    TimeSpan.FromMilliseconds(200),
-                    TestContext.Current.CancellationToken));
+            await quiescenceAwaiting.Task.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+            Assert.False(resourcesDisposing.Task.IsCompleted);
         }
         finally
         {
