@@ -4,7 +4,6 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Collections.Immutable;
 using CSharpText;
-using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGet.Versioning;
@@ -16,12 +15,6 @@ namespace DotnetInspector.Services;
 /// </summary>
 public static class PlatformResolver
 {
-    /// <summary>
-    /// Process-lifetime cache for the parameterless GetInstalledFrameworks() overload.
-    /// Framework installations don't change during a CLI invocation.
-    /// </summary>
-    private static List<FrameworkInfo>? _cachedFrameworks;
-
     /// <summary>
     /// Returns true if the name looks like a platform assembly.
     /// </summary>
@@ -282,38 +275,13 @@ public static class PlatformResolver
 
     /// <summary>
     /// Discovers all installed frameworks with their versions across all packs directories.
+    /// Default discovery is live because the active cache root, DOTNET_ROOT,
+    /// and pack contents can change during a process. Gated by
+    /// GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterCoreCacheRootChanges.
     /// </summary>
-    public static List<FrameworkInfo> GetInstalledFrameworks(string? packsDirectory = null)
-    {
-        // Use process-lifetime cache for the common no-arg path
-        if (packsDirectory == null)
-        {
-            var cached = Volatile.Read(ref _cachedFrameworks);
-            if (cached != null)
-            {
-                using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
-                CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Hit);
-                return cached;
-            }
-        }
-
-        if (packsDirectory == null)
-        {
-            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
-            CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Miss);
-        }
-
-        var result = GetInstalledFrameworksCore(packsDirectory);
-
-        if (packsDirectory == null)
-        {
-            Volatile.Write(ref _cachedFrameworks, result);
-            using var cacheScope = NetworkTelemetry.Scope(NetworkTrafficKind.PlatformResolution);
-            CacheTelemetry.Record("platform-frameworks", "installed-frameworks", CacheAccessResult.Store);
-        }
-
-        return result;
-    }
+    public static List<FrameworkInfo> GetInstalledFrameworks(
+        string? packsDirectory = null) =>
+        GetInstalledFrameworksCore(packsDirectory);
 
     private static List<FrameworkInfo> GetInstalledFrameworksCore(string? packsDirectory)
     {

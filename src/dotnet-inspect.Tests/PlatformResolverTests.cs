@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using DotnetInspector.Core;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -1016,6 +1017,63 @@ public class PlatformResolverTests
             if (Directory.Exists(tempPacksDir))
                 Directory.Delete(tempPacksDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public void GetInstalledFrameworks_DefaultDiscoveryRefreshesAfterCoreCacheRootChanges()
+    {
+        CoreCache.Initialize("dotnet-inspect");
+        var (baselineRefPath, _, baselineError) =
+            PlatformResolver.ResolveFramework("runtime");
+        if (baselineRefPath is null)
+        {
+            Assert.Skip($"Runtime reference pack not available: {baselineError}");
+            return;
+        }
+
+        const string SyntheticVersion = "999.0.0";
+        string temporaryCache = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-platform-cache-").FullName;
+        try
+        {
+            CoreCache.Initialize("dotnet-inspect-test", temporaryCache);
+            string packsDirectory =
+                Assert.IsType<string>(PlatformPackService.GetPacksCachePath());
+            string syntheticRefPath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                SyntheticVersion,
+                "ref",
+                "net999.0");
+            Directory.CreateDirectory(syntheticRefPath);
+            File.Copy(
+                typeof(PlatformResolverTests).Assembly.Location,
+                Path.Combine(syntheticRefPath, "System.Runtime.dll"));
+
+            FrameworkInfo runtime = Assert.Single(
+                PlatformResolver.GetInstalledFrameworks(),
+                framework => framework.ShortName == "runtime");
+            Assert.Equal(SyntheticVersion, runtime.LatestVersion);
+            Assert.Equal(
+                Path.Combine(
+                    packsDirectory,
+                    "Microsoft.NETCore.App.Ref"),
+                runtime.Path);
+        }
+        finally
+        {
+            CoreCache.Initialize("dotnet-inspect");
+            Directory.Delete(temporaryCache, recursive: true);
+        }
+
+        var resolved = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+            PlatformResolver.LookupType("System.String"));
+        Assert.NotNull(resolved.Candidate.Assembly.Path);
+        Assert.True(File.Exists(resolved.Candidate.Assembly.Path));
+        Assert.False(
+            resolved.Candidate.Assembly.Path.StartsWith(
+                temporaryCache,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
