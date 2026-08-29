@@ -215,6 +215,49 @@ So containment goes late — but not "as late as possible", which is just the
 per-site approach with better manners. It goes at **the last structural boundary
 every rendered value must cross**.
 
+### Package skills entering agent context
+
+A NuGet package can author `skills/**/SKILL.md`, and dotnet-inspect deliberately
+projects those documents into an autonomous agent's context. The package author
+is therefore the external actor, the package archive or restored package cache
+is the input path, and skill inventory or document output is the affected
+presentation boundary.
+
+The YAML frontmatter parser trims only YAML spacing (space, tab, and a CR left
+by CRLF line splitting), so concerning separators survive parsing. The project
+skill inventory then folds only a description's ordinary CR/LF line endings to
+the inventory's single-line shape, leaving every other separator available for
+concern classification. It applies `TextPolicy.Field` to every parsed `name`
+and normalized `description`, then uses
+`InertString.ReplaceIfContainmentRequired` to represent a value carrying a
+`TextConcern` as `[Text omitted: required containment]` instead of sharing the
+package-authored field through the inventory. Structurally invalid Agent Skills
+metadata still fails visibly under the existing validation rules.
+
+Every package-relative `skills/**/SKILL.md` document applies `TextPolicy.Prose`
+before link normalization and before any stdout, JSON, JSONL, or `--output`
+destination, whether reached through the skill section, `--content`, or a
+package README declaration. A document carrying a `TextConcern` is replaced as
+a whole by `InertString.ContainmentRequiredPlaceholder`; otherwise its full
+safe presented text is retained, including literal backslashes that required
+only reversible disambiguation inside `InertString`. A constrained
+`ContainmentSelectedText` is produced only after that classification and is
+carried through the shared content and print projections without re-encoding.
+Exact package bytes are never retained for a skill document, so an alternate
+selection or file-output route cannot bypass the decision used for agent
+context. This behavior is gated by
+`Project_SkillsInventory_ReplacesContainedYamlFields`,
+`Project_SkillsInventory_PreservesBlockIndicatorConcerns`,
+`Project_SkillsInventory_FoldsLiteralBlockDescription`,
+`SkillDocuments_OmitPayloadsThatRequireContainment`, and
+`SkillDocuments_PreserveSafeOriginalText`,
+`SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks`,
+`Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment`, and
+`SkillDocuments_OutputAliasesWritePackageAndProjectPayloads` in the Release
+`dotnet-inspect.Tests` suite. The close negative
+`Package_OrdinaryDocumentOutputStillPreservesExactBytes` keeps the exception
+limited to package skill paths.
+
 ### Why a structural boundary and not a rule
 
 A boundary is worth something only if it cannot be walked around, so the claim
@@ -591,6 +634,16 @@ Backslash disambiguation does not set it. A view may OR that signal across its
 artifact-derived values so a CLI can refuse the view or require an explicit
 trust-axis opt-out. It still does not answer whether the value suits another
 policy.
+
+`ReplaceIfContainmentRequired(InertString)` is the typed suppression form for a
+caller that must not share even the inert spelling of text carrying a
+`TextConcern`. It returns the supplied inert containment text when
+`RequiredContainment` is true and otherwise preserves the current value,
+including literal-backslash disambiguation that set `WasEncoded` without
+setting a concern. `ReplaceIfContainmentRequired_ReplacesConcernedTextOnly`
+gates that distinction. `ContainmentRequiredPlaceholder` provides the standard
+typed value `[Text omitted: required containment]`; the method still requires
+an argument so a caller can choose a more specific inert replacement.
 
 Unambiguous literal backslashes remain literal. A lone `\`, `\q`, and the
 incomplete `\u2` cannot be mistaken for a complete canonical spelling, so
