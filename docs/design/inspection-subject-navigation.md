@@ -355,9 +355,9 @@ Subject and lens activation return one of these semantic outcomes:
 | Outcome | State effect |
 | --- | --- |
 | Applied | Installs the exact requested subject or lens in a replacement snapshot |
-| Unavailable | Returns current availability without substituting another requested target; installs a replacement when refreshed facts or reconciliation change the snapshot |
+| Unavailable | Applies no target or fallback; a completed exact lens evaluation installs its non-effective exact-request basis and evidence when either differs, while other operations install a replacement only when evaluation or reconciliation changes the snapshot |
 | Rejected | Retains state because the command is stale, foreign, or invalid |
-| Failed | Retains state because navigation evaluation failed |
+| Failed | A completed Registry or Navigation-policy lens evaluation installs its non-effective basis and evidence when either differs; Navigation preparation failure retains the prior snapshot |
 | Superseded | Produces no visible effect because a newer explicit intent owns the session |
 
 Standalone lens activation first requires the request's exact subject to equal
@@ -372,8 +372,8 @@ Registry result without fallback:
 | Registry result | Navigation outcome |
 | --- | --- |
 | Available | `Applied` with the exact requested subject-bound lens, unless later Navigation preparation fails or the operation is superseded |
-| Unavailable | `Unavailable` with the exact registry reason |
-| Failed | `Failed` with the registry diagnostic identified as the source |
+| Unavailable | `Unavailable` with the exact registry reason and a non-effective exact-request basis |
+| Failed | `Failed` with the registry diagnostic identified as the source and a non-effective exact-request basis |
 | Inapplicable | `Rejected` as structurally invalid for the exact subject |
 | Unknown | `Rejected` as an unknown facet ID |
 
@@ -381,6 +381,9 @@ Every outcome retains the exact registry result and request identity, including
 the absent descriptor in `Unknown`. A Navigation-owned preparation failure
 after an available registry result remains distinguishable from a
 Registry-owned failed result. Neither failure is rewritten as unavailable.
+A valid exact request that completes as Registry `Unavailable` or `Failed`
+installs its exact-request basis and evidence whenever that replacement differs
+from the prior snapshot. It does not retain an earlier recommendation basis.
 
 An unavailable request never silently activates a sibling, ancestor, or
 recommended Type. If the already committed subject became invalid
@@ -389,9 +392,10 @@ outcome is returned.
 
 Outcome labels do not determine revision behavior. Every semantically changed
 snapshot advances the state revision, including an unavailable result with
-refreshed descriptors or a reconciled active subject. An unavailable result
-shares the unchanged-snapshot outcome class only when the complete snapshot is
-unchanged.
+refreshed descriptors, a reconciled active subject, or a changed lens basis or
+evidence. The same rule applies to a completed Registry or policy `Failed`
+outcome. A non-success result shares the unchanged-snapshot outcome class only
+when the complete snapshot is unchanged.
 
 Selecting a Library does not also select a Type. Selecting a Type or Member
 directly returns its complete ancestor context.
@@ -572,6 +576,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`
 - `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`
 - `ExplicitLensResolution_RetainsExactRegistryEvidence`
+- `ExactNonSuccess_InstallsExactRequestBasis`
 - `NavigationPreparationFailure_RemainsDistinctFromRegistryFailure`
 - `RecommendationBasis_RefreshRerunsRecommendation`
 - `ExactNonSuccessLens_RefreshReresolvesExactIdentityWithoutFallback`
@@ -609,7 +614,15 @@ chosen lens. The exact mapping gate covers all five Registry results, and its
 evidence gate likewise compares each result with independently retained input
 evidence rather than reconstructing expected evidence from Navigation output.
 The cross-subject activation gate uses the same facet ID on two exact subjects
-and requires rejection before a throwing Registry-resolution sentinel.
+and requires rejection before a throwing Registry-resolution sentinel. It
+compares the returned complete request identity with independently retained
+input. The canonical mismatch gate independently retains the requested subject,
+the differently bound lens, and the restoration operation identity; it requires
+the correlated pair to abort before a throwing Registry-resolution sentinel.
+The exact-non-success gate begins with a recommendation basis, submits an exact
+request returning `Unavailable` and `Failed` in separate cases, and requires
+the installed replacement basis and evidence to equal the independent request
+and Registry result before the refresh gate re-resolves that identity.
 
 ## Acceptance cases
 
