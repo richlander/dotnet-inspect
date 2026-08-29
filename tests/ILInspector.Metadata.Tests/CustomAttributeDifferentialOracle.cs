@@ -152,8 +152,14 @@ static class CustomAttributeDifferentialOracle
                 WriteInlineElementType(value, array.Element, context);
                 break;
             case BoxedShape:
-                throw new InvalidOperationException(
-                    "A boxed value cannot itself be spelled as an inline element type.");
+                // `object` *as a nested element type* is spelled
+                // ELEMENT_TYPE_BOXED. This is the one position where 0x51 is
+                // correct: it declares the element type, and each element then
+                // carries its own FieldOrPropType byte. A top-level `object`
+                // argument still writes its FieldOrPropType directly, with no
+                // 0x51 prefix — see BoxedShape.WriteValue.
+                value.WriteByte(0x51);
+                break;
             case EnumHandleShape:
                 value.WriteByte(0x55);
                 value.WriteSerializedString(context.EnumSerializedName);
@@ -243,11 +249,16 @@ static class CustomAttributeDifferentialOracle
     /// Produces one fixed-argument shape.
     /// </summary>
     /// <remarks>
-    /// The custom-attribute grammar admits an <c>SZARRAY</c> of scalars, not an
-    /// array of arrays: a jagged array has no spelling here, and SRM refuses
-    /// one outright. Generating those would compare the two walkers on inputs
-    /// neither is contracted to agree about, so array elements are always
-    /// leaves.
+    /// The custom-attribute grammar admits an <c>SZARRAY</c> of scalars or of
+    /// <c>object</c>, but not an array of arrays: ECMA-335 §II.23.3 allows one
+    /// <c>SZARRAY</c> prefix before an <c>Elem</c>, and <c>Elem</c> does not
+    /// itself include <c>SZARRAY</c>. Jagged arrays therefore have no spelling
+    /// here and SRM refuses them outright, so generating them would compare the
+    /// two walkers on inputs neither is contracted to agree about. An
+    /// <c>object[]</c> is a different case and is legal: the array's declared
+    /// element type is <c>object</c>, and each element carries its own
+    /// <c>FieldOrPropType</c> byte. Array elements are therefore leaves or
+    /// boxed leaves — never boxed arrays, which would reintroduce nesting.
     /// </remarks>
     internal static Shape NextShape(Random random)
     {
@@ -260,7 +271,7 @@ static class CustomAttributeDifferentialOracle
         };
     }
 
-    /// <summary>A scalar: the only thing an array element or boxed value may be.</summary>
+    /// <summary>A scalar: the only thing a boxed value may directly contain.</summary>
     static Shape NextLeafShape(Random random, string prefix)
         => random.Next(0, 4) switch
         {
@@ -278,11 +289,16 @@ static class CustomAttributeDifferentialOracle
         "System.Collections.Generic.List`1[[System.Int32]]",
     ];
 
-    /// <summary>An array of scalars; a negative count is the null-array encoding.</summary>
+    /// <summary>
+    /// An array of scalars, or an <c>object[]</c> whose elements are boxed
+    /// leaves; a negative count is the null-array encoding.
+    /// </summary>
     static ArrayShape NextArrayShape(Random random, string prefix)
-        => new(
-            NextLeafShape(random, prefix),
-            random.Next(6) == 0 ? -1 : random.Next(0, 4));
+    {
+        Shape leaf = NextLeafShape(random, prefix);
+        Shape element = random.Next(3) == 0 ? new BoxedShape(leaf) : leaf;
+        return new ArrayShape(element, random.Next(6) == 0 ? -1 : random.Next(0, 4));
+    }
 
     /// <summary>A generated image and the ground truth the generator knows about it.</summary>
     internal sealed class Case(

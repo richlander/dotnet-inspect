@@ -65,6 +65,7 @@ public sealed class CustomAttributeDifferentialOracleTests
     public void GeneratedBlobs_SrmDecodesEveryBlobTheGuardApproves()
     {
         var divergences = new List<string>();
+        int approved = 0;
 
         for (int seed = 0; seed < SeedCount; seed++)
         {
@@ -73,6 +74,8 @@ public sealed class CustomAttributeDifferentialOracleTests
 
             if (!CustomAttributeValueGuard.IsSafeToDecode(generated.Reader, attribute))
                 continue;
+
+            approved++;
 
             var decoded = AttributeDecoder.TryDecode(generated.Reader, attribute);
             if (decoded is null)
@@ -90,6 +93,12 @@ public sealed class CustomAttributeDifferentialOracleTests
         }
 
         Assert.Empty(divergences);
+
+        // Without this the loop body is skippable: a guard that refused
+        // everything would leave `divergences` empty and pass vacuously when
+        // this test is run in isolation. Every generated blob is well-formed,
+        // so the guard must approve all of them.
+        Assert.Equal(SeedCount, approved);
     }
 
     /// <summary>
@@ -161,6 +170,7 @@ public sealed class CustomAttributeDifferentialOracleTests
         bool emptyArray = false;
         bool nullString = false;
         bool systemType = false;
+        bool objectArray = false;
         bool enumHandleSpelled = false;
         bool enumNameSpelled = false;
         bool int32Enum = false;
@@ -179,6 +189,7 @@ public sealed class CustomAttributeDifferentialOracleTests
         Assert.True(emptyArray, "no zero-length array was generated");
         Assert.True(nullString, "no null string was generated");
         Assert.True(systemType, "no System.Type argument was generated");
+        Assert.True(objectArray, "no object[] (array of boxed elements) was generated");
         Assert.True(enumHandleSpelled, "no handle-spelled enum was generated");
         Assert.True(enumNameSpelled, "no serialized-name enum was generated");
         Assert.True(int32Enum, "no enum over an Int32 underlying type was generated");
@@ -195,6 +206,7 @@ public sealed class CustomAttributeDifferentialOracleTests
                     array = true;
                     nullArray |= a.Count < 0;
                     emptyArray |= a.Count == 0;
+                    objectArray |= a.Element is CustomAttributeDifferentialOracle.BoxedShape;
                     // An array element inherits its parent's encoding context.
                     Visit(a.Element, boxedContext, underlying);
                     break;

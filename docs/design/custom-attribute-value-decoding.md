@@ -299,8 +299,12 @@ attack; a gate defined only over generated metadata cannot see gap 4 at all.
 `tests/ILInspector.Metadata.Tests/CustomAttributeDifferentialOracle.cs` is the
 first slice of that gate. It generates over a **named subset** of the legal
 fixed-argument grammar — primitives, strings, `System.Type` serialized names,
-`SZARRAY` of those scalars, boxed values, and both enum spellings — and asserts
-I1 in both directions. The subset is deliberately small enough that every
+`SZARRAY` of those scalars, `object[]` whose elements each carry their own
+`FieldOrPropType` byte, boxed values, and both enum spellings — and asserts I1
+in both directions. `object[]` reaches the one position where
+`ELEMENT_TYPE_BOXED` (`0x51`) is the correct spelling: `object` **as a nested
+element type**. A top-level `object` argument writes its `FieldOrPropType`
+directly, and prefixing `0x51` there would produce a non-canonical blob. The subset is deliberately small enough that every
 member of it is well-formed by construction, which is what lets the generated
 length serve as ground truth.
 
