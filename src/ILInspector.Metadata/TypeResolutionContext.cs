@@ -174,13 +174,15 @@ public sealed class TypeResolutionCatalog : IDisposable
 
     /// <summary>
     /// Extracts a resolution-aware API surface from the same retained candidate
-    /// image used by this catalog's resolution generations.
+    /// image used by this catalog's resolution generations. External base facts
+    /// remain opt-in because they add one type request per surfaced external base.
     /// </summary>
     public ResolutionAwareApiSurfaceOutcome ExtractApiSurface(
         ResolvedAssemblyReference source,
         IAssemblyBindingPolicy bindingPolicy,
         bool includeAll = false,
-        bool typesOnly = false)
+        bool typesOnly = false,
+        bool resolveBaseTypes = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
@@ -213,7 +215,8 @@ public sealed class TypeResolutionCatalog : IDisposable
                     this,
                     bindingPolicy,
                     includeAll,
-                    typesOnly);
+                    typesOnly,
+                    resolveBaseTypes);
         if (readyRegistration.InventoryFailure is { } inventoryFailure)
         {
             surface.InspectionFailures.Add(
@@ -2191,6 +2194,10 @@ public sealed class TypeResolutionContext : IDisposable
                                     defined
                                         .DeclaringAssemblyDefinesCoreLibraryRoot,
                                     defined.GenericParameterCount,
+                                    defined.IsPubliclyAccessible,
+                                    defined
+                                        .HasAccessibleParameterlessConstructor,
+                                    defined.IsAbstract,
                                     kindResolutionFailure,
                                     kindResolutionDependencyAssembly),
                                 hops.ToImmutable()));
@@ -2752,6 +2759,9 @@ public sealed class TypeResolutionContext : IDisposable
                     definition.Kind,
                     definition.DeclaringAssemblyDefinesCoreLibraryRoot,
                     definition.GenericParameterCount,
+                    definition.IsPubliclyAccessible,
+                    definition.HasAccessibleParameterlessConstructor,
+                    definition.IsAbstract,
                     definition.KindResolutionFailure,
                     definition.KindResolutionDependencyAssembly),
                 resolved.Hops);

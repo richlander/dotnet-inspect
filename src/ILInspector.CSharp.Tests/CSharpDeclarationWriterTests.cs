@@ -1,10 +1,45 @@
 using System.Text;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpDeclarationWriterTests
 {
+    [Fact]
+    public void ExplicitQualifier_UsesContainingGenericParameterName()
+    {
+        using var stream = File.OpenRead(
+            typeof(CSharpDeclarationWriterTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = surface.Types.Single(
+            type => type.Kind == "class"
+                && type.Name.Contains(
+                    nameof(OpenGenericExplicitPropertyFixture<int>),
+                    StringComparison.Ordinal));
+        ApiMember property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(".Item", StringComparison.Ordinal));
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                property);
+
+        Assert.Contains(
+            $"{nameof(IOpenGenericExplicitPropertyFixture<int>)}<TValue>.Item",
+            declaration,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "<T0>",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void TypeDeclaration_PreservesRecordModifiers()
     {
@@ -1203,6 +1238,276 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitInterfaceProperty_UsesDeclarationLeafForUndottedName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Counter",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "ICollectionCount",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                SameImageProvenance(
+                    "Samples",
+                    "ICounter",
+                    "get_Count"),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "ICollectionCount",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "int Samples.ICounter.Count { get; }",
+            declaration);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceMethod_UsesDeclarationLeafForUndottedName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Implementation",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "explicit-interface-implementation",
+            ExplicitInterfaceProvenance =
+                SameImageProvenance(
+                    "Samples",
+                    "IContract",
+                    "Run"),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Invoke"
+            }
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "int Samples.IContract.Run()",
+            declaration);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceProperty_AmbiguousTypedProvenanceDeclines()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Counter",
+            Kind = "class"
+        };
+        var definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["ICounter"]))
+            .Name;
+        var member = new ApiMember
+        {
+            Name = "Contracts.ICounter.Count",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                new ApiExplicitInterfaceProvenance(
+                    [
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Left",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                            "Contracts.ICounter",
+                            "get_Count"),
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Right",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                            "Contracts.ICounter",
+                            "get_Count")
+                    ]),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Contracts.ICounter.Count",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get" }
+                ]
+            }
+        };
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Ambiguous,
+            member.ExplicitInterfaceProvenance.Kind);
+        Assert.DoesNotContain(
+            "Contracts.ICounter",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceProperty_PreservesExternalAliasAndConstructedType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Counter",
+            Kind = "class"
+        };
+        var definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["ICounter`1"]))
+            .Name;
+        var member = new ApiMember
+        {
+            Name = "dependency::Contracts.ICounter<int>.Count",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                new ApiExplicitInterfaceProvenance(
+                    [
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Dependency",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                            "Contracts.ICounter<int>",
+                            "get_Count")
+                    ]),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Count",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal(
+            "int dependency::Contracts.ICounter<int>.Count { get; }",
+            declaration);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceProperty_UsesRealVisualBasicDeclarationLeaf()
+    {
+        using var stream = File.OpenRead(
+            typeof(Microsoft.VisualBasic.Collection).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName
+                == "Microsoft.VisualBasic.Collection");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == "ICollectionCount");
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "int System.Collections.ICollection.Count { get; }",
+            declaration);
+    }
+
+    [Fact]
+    public void UnavailableVisualBasicMethodImplDoesNotEmitPrivateVirtual()
+    {
+        using var stream = File.OpenRead(
+            typeof(Microsoft.VisualBasic.Collection).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName
+                == "Microsoft.VisualBasic.Collection");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name
+                == "ICollectionGetEnumerator");
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "private System.Collections.IEnumerator ICollectionGetEnumerator()",
+            declaration);
+    }
+
+    [Fact]
+    public void OrdinaryOperator_WithMethodImplProvenance_RetainsPublicModifier()
+    {
+        var type = new ApiType
+        {
+            Namespace = "System",
+            Name = "Int128",
+            Kind = "struct"
+        };
+        var member = new ApiMember
+        {
+            Name = "op_CheckedAddition",
+            Kind = "operator",
+            IsStatic = true,
+            Signature =
+                "System.Int128 op_CheckedAddition(System.Int128 left, System.Int128 right)",
+            ExplicitInterfaceProvenance = SameImageProvenance()
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal(
+            "public static System.Int128 operator checked +(System.Int128 left, System.Int128 right)",
+            declaration);
+    }
+
+    [Fact]
     public void ExplicitInterfaceImplementation_WithUnsafeSignature_RetainsUnsafeModifier()
     {
         var type = new ApiType { Namespace = "Samples", Name = "UnsafeImpl", Kind = "class" };
@@ -1795,4 +2100,41 @@ public sealed class CSharpDeclarationWriterTests
                 }
             ]
         };
+
+    static ApiExplicitInterfaceProvenance SameImageProvenance(
+        string? @namespace = null,
+        string? name = null,
+        string? declarationMemberName = null)
+    {
+        MetadataTypeDefinitionName? definitionName = null;
+        if (@namespace is not null && name is not null)
+        {
+            definitionName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        @namespace,
+                        [name]))
+                .Name;
+        }
+        return new ApiExplicitInterfaceProvenance(
+            [
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.SameImage,
+                    definitionName,
+                    declarationMemberName:
+                        declarationMemberName)
+            ]);
+    }
+
+    interface IOpenGenericExplicitPropertyFixture<T>
+    {
+        T Item { get; }
+    }
+
+    sealed class OpenGenericExplicitPropertyFixture<TValue> :
+        IOpenGenericExplicitPropertyFixture<TValue>
+    {
+        TValue IOpenGenericExplicitPropertyFixture<TValue>.Item =>
+            default!;
+    }
 }

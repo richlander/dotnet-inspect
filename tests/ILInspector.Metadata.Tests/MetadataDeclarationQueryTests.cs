@@ -135,6 +135,26 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.Equal("private", methodAccessibility!.Invoke(null, [MethodAttributes.PrivateScope]));
         Assert.Equal("private", fieldAccessibility!.Invoke(null, [FieldAttributes.PrivateScope]));
+
+        var surfaceMethodAccessibility = typeof(ApiSurfaceExtractor).GetMethod(
+            "GetAccessibility",
+            BindingFlags.Static | BindingFlags.NonPublic,
+            [typeof(MethodAttributes)]);
+        var surfaceFieldAccessibility = typeof(ApiSurfaceExtractor).GetMethod(
+            "GetFieldAccessibility",
+            BindingFlags.Static | BindingFlags.NonPublic,
+            [typeof(FieldAttributes)]);
+
+        Assert.Equal(
+            "private",
+            surfaceMethodAccessibility!.Invoke(
+                null,
+                [MethodAttributes.PrivateScope]));
+        Assert.Equal(
+            "private",
+            surfaceFieldAccessibility!.Invoke(
+                null,
+                [FieldAttributes.PrivateScope]));
     }
 
     [Fact]

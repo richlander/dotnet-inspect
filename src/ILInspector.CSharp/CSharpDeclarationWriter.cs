@@ -1173,7 +1173,7 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.Kind != "explicit-interface-implementation")
+        else if (!IsExplicitInterfaceMember(member))
         {
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
                 && type.Kind == "interface"
@@ -1275,13 +1275,12 @@ internal static class CSharpDeclarationWriter
 
     static IEnumerable<string> CollectExplicitInterfaceTypeReferences(ApiMember member)
     {
-        if (member.Kind != "explicit-interface-implementation")
+        if (!IsExplicitInterfaceMember(member))
             yield break;
 
-        int memberSeparator = member.Name.LastIndexOf('.');
-        if (memberSeparator > 0)
+        if (ExplicitInterfaceQualifier(member) is { } qualifier)
         {
-            foreach (var reference in ExtractTypeNames(member.Name[..memberSeparator]))
+            foreach (var reference in ExtractTypeNames(qualifier))
                 yield return reference;
         }
     }
@@ -1824,34 +1823,78 @@ internal static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type)}({parameters})";
             return true;
         }
-        if (member.Kind == "method"
+        if ((member.Kind == "method"
+                || member.Kind == "explicit-interface-implementation"
+                    && member.ExplicitInterfaceProvenance is not null
+                    && !IsExplicitInterfaceProperty(member)
+                    && !IsExplicitInterfaceEvent(member))
             && methodParameters is not { Count: > 0 }
             && model.MemberName is { Length: > 0 } memberName
             && model.ReturnType is { Length: > 0 } returnType)
         {
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
-            signature = AppendMemberTypeParameterConstraints($"{returnType} {memberName}({parameters})", member, model.TypeParameters);
+            string emittedMemberName = memberName;
+            if (IsExplicitInterfaceMember(member))
+            {
+                string? qualifier = ExplicitInterfaceQualifier(member);
+                string? leaf = ExplicitInterfaceMemberLeaf(
+                    member,
+                    model.MemberName,
+                    member.Name);
+                if (qualifier is null || leaf is null)
+                    return false;
+                string typeParameterList =
+                    model.TypeParameters.Count == 0
+                        ? ""
+                        : $"<{string.Join(", ", model.TypeParameters.Select(parameter => parameter.Name))}>";
+                emittedMemberName =
+                    $"{qualifier}.{leaf}{typeParameterList}";
+            }
+            signature = AppendMemberTypeParameterConstraints(
+                $"{returnType} {emittedMemberName}({parameters})",
+                member,
+                model.TypeParameters);
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
             && model.ReturnType is { Length: > 0 } propertyType
             && model.Accessors.Count > 0
-            && (member.Kind == "explicit-interface-implementation"
+            && (IsExplicitInterfaceProperty(member)
                 || IsOrdinaryPropertyName(member.Name)
                     && IsOrdinaryPropertyName(model.MemberName)))
         {
+            bool isExplicitProperty =
+                IsExplicitInterfaceProperty(member);
+            string? explicitQualifier = isExplicitProperty
+                ? ExplicitInterfaceQualifier(member)
+                : null;
+            string? explicitMemberLeaf = isExplicitProperty
+                && model.MemberName != "this[]"
+                    ? ExplicitInterfaceMemberLeaf(
+                        member,
+                        model.MemberName,
+                        member.Name)
+                    : null;
+            if (isExplicitProperty
+                && (explicitQualifier is null
+                    || model.MemberName != "this[]"
+                        && explicitMemberLeaf is null))
+                return false;
+
             var head = model.IsRequired ? $"required {propertyType}" : propertyType;
             var propertyMemberName = model.MemberName == "this[]"
-                ? IsExplicitInterfaceProperty(member)
-                    ? $"{member.Name[..(member.Name.LastIndexOf('.') + 1)]}this[{parameters}]"
+                ? isExplicitProperty
+                    ? $"{explicitQualifier}.this[{parameters}]"
                     : $"this[{parameters}]"
+                : isExplicitProperty
+                    ? $"{explicitQualifier}.{explicitMemberLeaf}"
                 : string.IsNullOrWhiteSpace(model.MemberName)
                     ? member.Name
                     : model.MemberName!;
             signature = options.OmitPropertyAccessors
                 ? $"{head} {propertyMemberName}"
-                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(accessor => AccessorDeclaration(accessor, options.IncludeSignatureAttributes)))} }}";
+                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(accessor => AccessorDeclaration(accessor, options.IncludeSignatureAttributes, IsExplicitInterfaceProperty(member))))} }}";
             return true;
         }
         if ((member.Kind == "event" || IsExplicitInterfaceEvent(member))
@@ -1860,16 +1903,32 @@ internal static class CSharpDeclarationWriter
                 || IsOrdinaryPropertyName(member.Name)
                     && IsOrdinaryPropertyName(model.MemberName)))
         {
-            var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
-                ? member.Name
-                : model.MemberName!;
+            bool isExplicitEvent = IsExplicitInterfaceEvent(member);
+            string? explicitQualifier = isExplicitEvent
+                ? ExplicitInterfaceQualifier(member)
+                : null;
+            string? explicitMemberLeaf = isExplicitEvent
+                ? ExplicitInterfaceMemberLeaf(
+                    member,
+                    model.MemberName,
+                    member.Name)
+                : null;
+            if (isExplicitEvent
+                && (explicitQualifier is null
+                    || explicitMemberLeaf is null))
+                return false;
+            var eventMemberName = isExplicitEvent
+                ? $"{explicitQualifier}.{explicitMemberLeaf}"
+                : string.IsNullOrWhiteSpace(model.MemberName)
+                    ? member.Name
+                    : model.MemberName!;
             signature = $"{eventType} {eventMemberName}";
             return true;
         }
 
-        // Keep extension projections, explicit implementations, operators, and
-        // unsupported event shapes on compatibility text until the remaining
-        // declaration-level facts are represented in ApiSignature.
+        // Keep extension projections, operators, and unsupported event shapes
+        // on compatibility text until the remaining declaration-level facts are
+        // represented in ApiSignature.
         return false;
 
         static bool HasStructuredMetadataOnlyDefault(ApiParameter parameter)
@@ -1882,13 +1941,15 @@ internal static class CSharpDeclarationWriter
 
         static string AccessorDeclaration(
             ApiAccessor accessor,
-            bool includeSignatureAttributes)
+            bool includeSignatureAttributes,
+            bool omitAccessibility)
         {
             var attributePrefix = !includeSignatureAttributes
                 || accessor.ReturnAttributes.Count == 0
                 ? ""
                 : $"[return: {string.Join(", ", accessor.ReturnAttributes)}] ";
-            return string.IsNullOrWhiteSpace(accessor.Accessibility)
+            return omitAccessibility
+                || string.IsNullOrWhiteSpace(accessor.Accessibility)
                 ? $"{attributePrefix}{accessor.Kind};"
                 : $"{attributePrefix}{accessor.Accessibility} {accessor.Kind};";
         }
@@ -1900,14 +1961,224 @@ internal static class CSharpDeclarationWriter
     }
 
     static bool IsExplicitInterfaceProperty(ApiMember member)
-        => member.Kind == "explicit-interface-implementation"
-            && member.Name.Contains('.', StringComparison.Ordinal)
-            && HasOnlyAccessors(member, "get", "set", "init");
+        => IsExplicitInterfaceMember(member)
+            && (member.Kind == "property"
+                || member.Kind == "explicit-interface-implementation"
+                    && member.Name.Contains('.', StringComparison.Ordinal)
+                    && HasOnlyAccessors(member, "get", "set", "init"));
 
     static bool IsExplicitInterfaceEvent(ApiMember member)
+        => IsExplicitInterfaceMember(member)
+            && (member.Kind == "event"
+                || member.Kind == "explicit-interface-implementation"
+                    && HasOnlyAccessors(member, "add", "remove"));
+
+    internal static bool IsExplicitInterfaceMember(ApiMember member)
         => member.Kind == "explicit-interface-implementation"
-            && member.Name.Contains('.', StringComparison.Ordinal)
-            && HasOnlyAccessors(member, "add", "remove");
+            || member.ExplicitInterfaceProvenance is not null
+                // MethodImpl provenance also appears on ordinary operators and
+                // finalizers; property/event kinds are the shapes whose ordinary
+                // metadata kind needs provenance to recover explicit C# syntax.
+                && member.Kind is ("property" or "event");
+
+    static string? ExplicitInterfaceQualifier(ApiMember member)
+    {
+        if (member.ExplicitInterfaceProvenance is { } provenance)
+        {
+            if (provenance.Kind
+                is ApiExplicitInterfaceProvenanceKind.Unavailable
+                    or ApiExplicitInterfaceProvenanceKind.Ambiguous)
+            {
+                return null;
+            }
+
+            MetadataTypeDefinitionName? definitionName = null;
+            string? interfaceTypeName = null;
+            bool hasDeclaration = false;
+            foreach (ApiExplicitInterfaceDeclarationContext declaration
+                in provenance.Declarations)
+            {
+                if (declaration.Kind
+                        == ApiExplicitInterfaceDeclarationKind.Unavailable
+                    || declaration.DefinitionName is not { } candidate
+                    || definitionName is not null
+                        && definitionName != candidate
+                    || hasDeclaration
+                        && declaration.InterfaceTypeName != interfaceTypeName)
+                {
+                    return null;
+                }
+                definitionName = candidate;
+                interfaceTypeName = declaration.InterfaceTypeName;
+                hasDeclaration = true;
+            }
+
+            string? qualifier = interfaceTypeName;
+            if (qualifier is null && definitionName is not null)
+            {
+                qualifier = TryFormatDefinitionName(
+                    definitionName,
+                    out string? formatted)
+                    ? formatted
+                    : null;
+            }
+            if (qualifier is not null)
+            {
+                string? alias = ExplicitInterfaceAlias(member.Name);
+                return alias is null
+                    ? qualifier
+                    : $"{alias}::{RemoveAlias(qualifier)}";
+            }
+        }
+
+        int memberSeparator = member.Name.LastIndexOf('.');
+        return memberSeparator > 0
+            ? member.Name[..memberSeparator]
+            : null;
+    }
+
+    static string? ExplicitInterfaceAlias(string memberName)
+    {
+        int separator = memberName.IndexOf("::", StringComparison.Ordinal);
+        return separator > 0
+            ? memberName[..separator]
+            : null;
+    }
+
+    static string RemoveAlias(string typeName)
+    {
+        int separator = typeName.IndexOf("::", StringComparison.Ordinal);
+        return separator >= 0
+            ? typeName[(separator + 2)..]
+            : typeName;
+    }
+
+    static string? ExplicitInterfaceMemberLeaf(
+        ApiMember member,
+        string? modelName,
+        string fallback)
+    {
+        if (member.ExplicitInterfaceProvenance is { } provenance)
+        {
+            if (provenance.Kind
+                is ApiExplicitInterfaceProvenanceKind.Unavailable
+                    or ApiExplicitInterfaceProvenanceKind.Ambiguous)
+            {
+                return null;
+            }
+
+            string? declarationLeaf = null;
+            bool hasDeclaration = false;
+            foreach (ApiExplicitInterfaceDeclarationContext declaration
+                in provenance.Declarations)
+            {
+                string? candidate =
+                    ExplicitInterfaceDeclarationMemberLeaf(
+                        member.Kind,
+                        declaration.DeclarationMemberName);
+                if (candidate is null
+                    || hasDeclaration
+                        && candidate != declarationLeaf)
+                {
+                    return null;
+                }
+                declarationLeaf = candidate;
+                hasDeclaration = true;
+            }
+
+            if (hasDeclaration)
+                return declarationLeaf;
+        }
+
+        string name = string.IsNullOrWhiteSpace(modelName)
+            ? fallback
+            : modelName;
+        int separator = name.LastIndexOf('.');
+        return separator >= 0
+            ? name[(separator + 1)..]
+            : null;
+    }
+
+    static string? ExplicitInterfaceDeclarationMemberLeaf(
+        string memberKind,
+        string? declarationName)
+    {
+        if (string.IsNullOrWhiteSpace(declarationName))
+            return null;
+
+        int separator = declarationName.LastIndexOf('.');
+        string methodName = separator >= 0
+            ? declarationName[(separator + 1)..]
+            : declarationName;
+        string[] prefixes = memberKind switch
+        {
+            "property" => ["get_", "set_"],
+            "event" => ["add_", "remove_", "raise_"],
+            _ => [],
+        };
+        if (prefixes.Length == 0)
+        {
+            return IsIdentitySafeIdentifier(methodName)
+                ? EscapeIdentifier(methodName)
+                : null;
+        }
+        foreach (string prefix in prefixes)
+        {
+            if (!methodName.StartsWith(
+                    prefix,
+                    StringComparison.Ordinal)
+                || methodName.Length == prefix.Length)
+            {
+                continue;
+            }
+
+            string leaf = methodName[prefix.Length..];
+            return IsIdentitySafeIdentifier(leaf)
+                ? EscapeIdentifier(leaf)
+                : null;
+        }
+        return null;
+    }
+
+    static bool TryFormatDefinitionName(
+        MetadataTypeDefinitionName definitionName,
+        out string? formatted)
+    {
+        var parts = new List<string>();
+        if (definitionName.Namespace.Length > 0)
+        {
+            foreach (string part in definitionName.Namespace.Split('.'))
+            {
+                if (!IsIdentitySafeIdentifier(part))
+                {
+                    formatted = null;
+                    return false;
+                }
+                parts.Add(EscapeIdentifier(part));
+            }
+        }
+
+        foreach (string segment in definitionName.Segments)
+        {
+            if (segment.IndexOf('`') >= 0
+                || !IsIdentitySafeIdentifier(segment))
+            {
+                formatted = null;
+                return false;
+            }
+            parts.Add(EscapeIdentifier(segment));
+        }
+
+        formatted = string.Join(".", parts);
+        return formatted.Length > 0;
+    }
+
+    static bool IsIdentitySafeIdentifier(string value)
+        => CSharpIdentifier.IsIdentifierLike(value)
+            && !value.EnumerateRunes().Any(
+                static rune =>
+                    Rune.GetUnicodeCategory(rune)
+                        == System.Globalization.UnicodeCategory.Format);
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);

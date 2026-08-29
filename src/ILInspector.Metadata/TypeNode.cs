@@ -52,6 +52,9 @@ internal abstract class TypeNode
     internal virtual string StructuralIdentity()
         => CSharpText.XmlDocumentationNotation.NormalizeParameterType(RenderCanonical());
 
+    internal virtual string PlatformNormalizedStructuralIdentity()
+        => StructuralIdentity();
+
     internal IEnumerable<ApiTypeReferenceIdentity> ReferencedTypes()
     {
         if (this is NamedTypeNode { AssemblyIdentity: { } assembly } named)
@@ -338,13 +341,25 @@ internal sealed class NamedTypeNode(
     string name,
     bool isReferenceType,
     MetadataTypeNameParts? metadataName = null,
+    ScopedNamedTypeIdentity? scopedIdentity = null,
     ApiAssemblyIdentity? assemblyIdentity = null) : TypeNode
 {
     public string Name => name;
     public ApiAssemblyIdentity? AssemblyIdentity => assemblyIdentity;
     public MetadataTypeNameParts? MetadataName => metadataName;
+    internal ScopedNamedTypeIdentity? ScopedIdentity => scopedIdentity;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
+
+    internal override string StructuralIdentity()
+        => scopedIdentity is not null && metadataName is not null
+            ? scopedIdentity.Named(metadataName, normalizePlatform: false)
+            : base.StructuralIdentity();
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => scopedIdentity is not null && metadataName is not null
+            ? scopedIdentity.Named(metadataName, normalizePlatform: true)
+            : base.PlatformNormalizedStructuralIdentity();
 
     public override string Render(bool canonicalTuples)
     {
@@ -371,6 +386,9 @@ internal sealed class GenericTypeNode(
     bool degradedGenericType = false,
     MetadataTypeNameParts? metadataName = null,
     string? structuralMetadataName = null,
+    string? structuralBaseIdentity = null,
+    string? platformNormalizedStructuralBaseIdentity = null,
+    ScopedNamedTypeIdentity? scopedIdentity = null,
     ApiAssemblyIdentity? definitionAssemblyIdentity = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
@@ -386,18 +404,51 @@ internal sealed class GenericTypeNode(
     public MetadataTypeNameParts? MetadataName => metadataName;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
-    public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
+    public override bool IsDegraded => degradedGenericType
+        || arguments.Any(argument => argument.IsDegraded);
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()
-        => metadataName is null
-            ? StructuralTypeIdentity.Generic(
-                structuralMetadataName ?? baseName,
+        => scopedIdentity is not null && metadataName is not null
+            ? scopedIdentity.Generic(
+                metadataName,
+                arguments.Select(argument => argument.StructuralIdentity()),
+                normalizePlatform: false)
+            : structuralBaseIdentity is not null
+            ? StructuralTypeIdentity.OpaqueGeneric(
+                structuralBaseIdentity,
                 arguments.Select(argument => argument.StructuralIdentity()))
-            : StructuralTypeIdentity.Generic(
-                metadataName.Namespace,
-                metadataName.Segments,
-                arguments.Select(argument => argument.StructuralIdentity()));
+            : metadataName is null
+                ? StructuralTypeIdentity.Generic(
+                    structuralMetadataName ?? baseName,
+                    arguments.Select(argument => argument.StructuralIdentity()))
+                : StructuralTypeIdentity.Generic(
+                    metadataName.Namespace,
+                    metadataName.Segments,
+                    arguments.Select(argument => argument.StructuralIdentity()));
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => scopedIdentity is not null && metadataName is not null
+            ? scopedIdentity.Generic(
+                metadataName,
+                arguments.Select(argument =>
+                    argument.PlatformNormalizedStructuralIdentity()),
+                normalizePlatform: true)
+            : platformNormalizedStructuralBaseIdentity is not null
+                ? StructuralTypeIdentity.OpaqueGeneric(
+                    platformNormalizedStructuralBaseIdentity,
+                    arguments.Select(argument =>
+                        argument.PlatformNormalizedStructuralIdentity()))
+                : metadataName is null
+                    ? StructuralTypeIdentity.Generic(
+                        structuralMetadataName ?? baseName,
+                        arguments.Select(argument =>
+                            argument.PlatformNormalizedStructuralIdentity()))
+                    : StructuralTypeIdentity.Generic(
+                        metadataName.Namespace,
+                        metadataName.Segments,
+                        arguments.Select(argument =>
+                            argument.PlatformNormalizedStructuralIdentity()));
 
     static long EstimateRenderedLength(
         string baseName,
@@ -496,7 +547,20 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
         Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 3);
 
     internal override string StructuralIdentity()
-        => $"{elementType.StructuralIdentity()}[]";
+        => StructuralTypeIdentity.Array(
+            elementType.StructuralIdentity(),
+            isSzArray: true,
+            rank: 1,
+            sizes: [],
+            lowerBounds: []);
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => StructuralTypeIdentity.Array(
+            elementType.PlatformNormalizedStructuralIdentity(),
+            isSzArray: true,
+            rank: 1,
+            sizes: [],
+            lowerBounds: []);
 
     public override string Render(bool canonicalTuples)
     {
@@ -519,32 +583,46 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
 }
 
 /// <summary>Multi-dimensional arrays (int[,], etc.).</summary>
-internal sealed class MDArrayTypeNode(
-    TypeNode elementType,
-    int rank,
-    ImmutableArray<int> arraySizes = default,
-    ImmutableArray<int> arrayLowerBounds = default) : TypeNode
+internal sealed class MDArrayTypeNode(TypeNode elementType, ArrayShape shape)
+    : TypeNode
 {
     public TypeNode ElementType => elementType;
-    public int Rank => rank;
+    public ArrayShape Shape => shape;
+    public int Rank => shape.Rank;
     public ImmutableArray<int> ArraySizes =>
-        arraySizes.IsDefault ? [] : arraySizes;
+        shape.Sizes.IsDefault ? [] : shape.Sizes;
     public ImmutableArray<int> ArrayLowerBounds =>
-        arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
+        shape.LowerBounds.IsDefault ? [] : shape.LowerBounds;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
     internal override bool HasStructuralPayload => elementType.HasStructuralPayload;
     public override long EstimatedRenderedLength =>
         Math.Min(
             int.MaxValue,
-            elementType.EstimatedRenderedLength + Math.Max(rank, 0L) + 2);
+            elementType.EstimatedRenderedLength
+            + Math.Max(shape.Rank, 0L)
+            + 2);
 
     internal override string StructuralIdentity()
-        => $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
+        => StructuralTypeIdentity.Array(
+            elementType.StructuralIdentity(),
+            isSzArray: false,
+            shape.Rank,
+            shape.Sizes,
+            shape.LowerBounds);
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => StructuralTypeIdentity.Array(
+            elementType.PlatformNormalizedStructuralIdentity(),
+            isSzArray: false,
+            shape.Rank,
+            shape.Sizes,
+            shape.LowerBounds);
 
     public override string Render(bool canonicalTuples)
     {
-        var result = $"{elementType.Render(canonicalTuples)}[{new string(',', rank - 1)}]";
+        var result =
+            $"{elementType.Render(canonicalTuples)}[{new string(',', shape.Rank - 1)}]";
         return IsNullableAnnotated ? $"{result}?" : result;
     }
 
@@ -575,6 +653,9 @@ internal sealed class PointerTypeNode(TypeNode elementType) : TypeNode
     internal override string StructuralIdentity()
         => $"{elementType.StructuralIdentity()}*";
 
+    internal override string PlatformNormalizedStructuralIdentity()
+        => $"{elementType.PlatformNormalizedStructuralIdentity()}*";
+
     public override string Render(bool canonicalTuples) => $"{elementType.Render(canonicalTuples)}*";
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
@@ -602,6 +683,9 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
 
     internal override string StructuralIdentity()
         => $"{elementType.StructuralIdentity()}@";
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => $"{elementType.PlatformNormalizedStructuralIdentity()}@";
 
     public override string Render(bool canonicalTuples) => $"ref {elementType.Render(canonicalTuples)}";
 
@@ -666,6 +750,18 @@ internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signatur
             signature.RequiredParameterCount,
             signature.ParameterTypes.Select(parameter => parameter.StructuralIdentity()),
             signature.ReturnType.StructuralIdentity());
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => StructuralTypeIdentity.FunctionPointer(
+            signature.Header.CallingConvention,
+            signature.Header.Attributes.HasFlag(SignatureAttributes.Instance),
+            signature.Header.Attributes.HasFlag(SignatureAttributes.ExplicitThis),
+            signature.GenericParameterCount,
+            signature.RequiredParameterCount,
+            signature.ParameterTypes.Select(parameter =>
+                parameter.PlatformNormalizedStructuralIdentity()),
+            signature.ReturnType.PlatformNormalizedStructuralIdentity());
+
     public override long EstimatedRenderedLength
     {
         get
@@ -729,6 +825,9 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 
     internal override string StructuralIdentity() => inner.StructuralIdentity();
 
+    internal override string PlatformNormalizedStructuralIdentity()
+        => inner.PlatformNormalizedStructuralIdentity();
+
     public override string Render(bool canonicalTuples) => inner.Render(canonicalTuples);
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
@@ -756,6 +855,12 @@ internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool i
             isRequired,
             modifier.StructuralIdentity(),
             Inner.StructuralIdentity());
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => StructuralTypeIdentity.Modified(
+            isRequired,
+            modifier.PlatformNormalizedStructuralIdentity(),
+            Inner.PlatformNormalizedStructuralIdentity());
 
     public override void ApplyDynamic(byte[]? flags, ref int position)
     {
@@ -787,4 +892,34 @@ internal sealed class PinnedTypeNode(TypeNode inner) : PassthroughTypeNode(inner
 
     internal override string StructuralIdentity()
         => StructuralTypeIdentity.Pinned(Inner.StructuralIdentity());
+
+    internal override string PlatformNormalizedStructuralIdentity()
+        => StructuralTypeIdentity.Pinned(
+            Inner.PlatformNormalizedStructuralIdentity());
+}
+
+internal sealed record ScopedNamedTypeIdentity(
+    string Scope,
+    string PlatformNormalizedScope,
+    byte RawTypeKind)
+{
+    internal string Named(
+        MetadataTypeNameParts name,
+        bool normalizePlatform)
+        => StructuralTypeIdentity.ScopedNamed(
+            normalizePlatform ? PlatformNormalizedScope : Scope,
+            RawTypeKind,
+            name.Namespace,
+            name.Segments);
+
+    internal string Generic(
+        MetadataTypeNameParts name,
+        IEnumerable<string> typeArguments,
+        bool normalizePlatform)
+        => StructuralTypeIdentity.ScopedGeneric(
+            normalizePlatform ? PlatformNormalizedScope : Scope,
+            RawTypeKind,
+            name.Namespace,
+            name.Segments,
+            typeArguments);
 }

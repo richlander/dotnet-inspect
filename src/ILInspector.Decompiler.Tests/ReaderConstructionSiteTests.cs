@@ -236,11 +236,11 @@ public sealed class ReaderConstructionSiteTests
                  "Deliberately unclassified: opens the assembly a located type came "
                  + "from to read method bodies. This is the sibling path from issue "
                  + "#4411, and it must not mint core-library identity."),
-            ["MemberBodyProducer.ComposeMemberCore(ApiType, ApiMember, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions, MemberRenderAttributeMode)"] =
+            ["MemberBodyProducer.ComposeMemberCore(ApiType, ApiMember, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions, MemberRenderAttributeMode, MemberBodyView)"] =
                 (TrustRole.ObtainsReader,
                  "Deliberately unclassified, for the same reason as ComposeCore: a "
                  + "sibling opened to read one member's body."),
-            ["MemberBodyProducer.ComposeMembersBatch(ApiType, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, MemberRenderAttributeMode)"] =
+            ["MemberBodyProducer.ComposeMembersBatch(ApiType, Func`1<ResolvedTypeDefinition>, Func`3<ResolvedTypeDefinition, MetadataContext, MetadataSource>, MetadataContext, PrinterOptions, MemberRenderAttributeMode, MemberBodyView)"] =
                 (TrustRole.ObtainsReader,
                  "Deliberately unclassified, for the same reason as ComposeCore: a "
                  + "sibling opened to read a batch of bodies."),

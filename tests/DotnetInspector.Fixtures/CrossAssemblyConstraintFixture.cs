@@ -9,6 +9,33 @@ public abstract class ExternalGenericBase<T>;
 public abstract class ExternalDerivedFromGeneric
     : ExternalGenericBase<int>;
 
+public abstract class CrossAssemblyAccessorBase
+{
+    public virtual int Value => 1;
+
+    public virtual int this[int index]
+    {
+        get => index;
+        set { }
+    }
+
+    public virtual event EventHandler? Changed
+    {
+        add { }
+        remove { }
+    }
+}
+
+public abstract class CrossAssemblyNeedsArgumentBase
+{
+    protected CrossAssemblyNeedsArgumentBase(int value)
+    {
+        Value = value;
+    }
+
+    protected int Value { get; }
+}
+
 public abstract class CrossAssemblyConstraintBase
 {
     public abstract T? ClassConstraint<T>(T? value)

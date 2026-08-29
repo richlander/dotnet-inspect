@@ -949,6 +949,9 @@ public sealed class ResolvedTypeDefinition
         MetadataTypeDefinitionKind kind,
         bool declaringAssemblyDefinesCoreLibraryRoot,
         int genericParameterCount,
+        bool isPubliclyAccessible,
+        bool hasAccessibleParameterlessConstructor,
+        bool isAbstract,
         TypeResolutionFailure? kindResolutionFailure = null,
         AssemblyReferenceIdentity? kindResolutionDependencyAssembly =
             null)
@@ -961,6 +964,10 @@ public sealed class ResolvedTypeDefinition
         DeclaringAssemblyDefinesCoreLibraryRoot =
             declaringAssemblyDefinesCoreLibraryRoot;
         GenericParameterCount = genericParameterCount;
+        IsPubliclyAccessible = isPubliclyAccessible;
+        HasAccessibleParameterlessConstructor =
+            hasAccessibleParameterlessConstructor;
+        IsAbstract = isAbstract;
         KindResolutionFailure = kindResolutionFailure;
         KindResolutionDependencyAssembly =
             kindResolutionDependencyAssembly;
@@ -980,6 +987,9 @@ public sealed class ResolvedTypeDefinition
     public bool IsValueType =>
         Kind == MetadataTypeDefinitionKind.ValueType;
     public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
+    public bool IsPubliclyAccessible { get; }
+    public bool HasAccessibleParameterlessConstructor { get; }
+    public bool IsAbstract { get; }
 }
 
 /// <summary>

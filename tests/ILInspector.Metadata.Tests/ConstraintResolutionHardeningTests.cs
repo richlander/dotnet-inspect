@@ -907,6 +907,9 @@ public class ConstraintResolutionHardeningTests
                 .TypeKind);
         ApiSurfaceInspectionFailure failure =
             Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve generic parameter constraints",
+            failure.Operation);
         Assert.Contains(
             "dependency authentication",
             failure.Detail,
@@ -1222,6 +1225,73 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void ExternalBaseKindFailurePreservesTerminalAssemblyIdentity()
+    {
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "Consumer",
+                "Outer",
+                "Outer");
+        byte[] outerImage =
+            BuildTypeWithExternalConstructedBase(
+                "Outer",
+                "Outer",
+                genericDefinition: false,
+                "Facade",
+                "Type`1");
+        byte[] facadeImage =
+            BuildForwarder(
+                "Facade",
+                "Middle",
+                "Type`1");
+        byte[] middleImage =
+            BuildForwarder(
+                "Middle",
+                "Target",
+                "Type`1");
+        byte[] targetImage =
+            BuildModuleExportTarget(
+                "Target",
+                "Part.netmodule",
+                "Type`1");
+        ResolvedAssemblyReference source =
+            Descriptor(consumerImage);
+        ResolvedAssemblyReference outer =
+            Descriptor(outerImage);
+        ResolvedAssemblyReference facade =
+            Descriptor(facadeImage);
+        ResolvedAssemblyReference middle =
+            Descriptor(middleImage);
+        ResolvedAssemblyReference target =
+            Descriptor(targetImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(
+                outer,
+                facade,
+                middle,
+                target),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
+        Assert.Equal(
+            "Target",
+            Assert.IsType<AssemblyReferenceIdentity>(
+                failure.DependencyAssembly)
+            .Name);
+    }
+
+    [Fact]
     public void SameImageConstructedBaseHopPreservesTerminalKindDependency()
     {
         byte[] dependencyImage =
@@ -1352,6 +1422,93 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void BaseAuthenticationBudgetExhaustionIsVisibleOnApiSurface()
+    {
+        byte[] firstImage = BuildBaseBudgetFirst();
+        byte[] secondImage = BuildBaseBudgetSecond();
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "BaseBudgetConsumer",
+                "BaseBudgetA",
+                "Base");
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        ResolvedAssemblyReference first = Descriptor(firstImage);
+        ResolvedAssemblyReference second = Descriptor(secondImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog(
+            new TypeResolutionContextOptions
+            {
+                MaxTypeResolutionRequests = 1,
+            });
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(first, second),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        Assert.Null(
+            Assert.Single(surface.Types).BaseTypeResolution);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
+        Assert.Contains(
+            "dependency authentication",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "configured budget of 1",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingExternalBaseIsReportedAsBaseResolutionFailure()
+    {
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "MissingBaseConsumer",
+                "MissingBaseAssembly",
+                "Base");
+        ResolvedAssemblyReference source = Descriptor(consumerImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MissingPolicy(),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
+        Assert.Equal(
+            "MissingBaseAssembly",
+            failure.DependencyAssembly?.Name);
+        Assert.Contains(
+            "external base type",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "generic-constraint",
+            failure.Detail,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            candidate => candidate.Operation
+                == ApiSurface.ConstraintResolutionOperation);
+    }
+
+    [Fact]
     public void TransitiveDependencyOpenFailurePreservesResolvedIdentity()
     {
         byte[] dependencyImage =
@@ -1448,6 +1605,66 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void MultiHopBaseKindFailureRemainsVisibleOnApiSurface()
+    {
+        byte[] terminalImage =
+            BuildGenericType("Terminal", "Base`1");
+        byte[] middleImage =
+            BuildTypeWithExternalConstructedBase(
+                "Middle",
+                "Middle`1",
+                genericDefinition: true,
+                "Terminal",
+                "Base`1");
+        byte[] outerImage =
+            BuildTypeWithExternalConstructedBase(
+                "Outer",
+                "Outer",
+                genericDefinition: false,
+                "Middle",
+                "Middle`1");
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "Consumer",
+                "Outer",
+                "Outer");
+        ResolvedAssemblyReference terminal =
+            UnreadableDescriptor(terminalImage);
+        ResolvedAssemblyReference middle = Descriptor(middleImage);
+        ResolvedAssemblyReference outer = Descriptor(outerImage);
+        ResolvedAssemblyReference consumer = Descriptor(consumerImage);
+        var policy = new MappingPolicy(
+            outer,
+            middle,
+            terminal);
+
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            consumer,
+            catalog,
+            policy,
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        Assert.Null(
+            Assert.Single(surface.Types).BaseTypeResolution);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
+        Assert.Equal(
+            "Terminal",
+            failure.DependencyAssembly?.Name);
+        Assert.Contains(
+            "external base type could not be opened",
+            failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DiscoveryBudgetExhaustionIsVisibleOnApiSurface()
     {
         byte[] image = BuildTwoConstraintConsumer();
@@ -1486,6 +1703,50 @@ public class ConstraintResolutionHardeningTests
             "configured budget of 1",
             failure.Detail,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RequestBudgetFailuresAreDistinctByPurpose()
+    {
+        byte[] image = BuildThreeReferenceConsumer();
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var pe = Reader(image);
+        MetadataReader reader = pe.GetMetadataReader();
+        Assert.Equal(
+            3,
+            reader.GetTableRowCount(TableIndex.TypeRef));
+        var plan = new TypeParameterKindClassifier.ResolutionPlan(
+            reader,
+            source,
+            maxTypeResolutionRequests: 1);
+        TypeDefinitionHandle subject =
+            MetadataTokens.TypeDefinitionHandle(2);
+
+        Assert.NotNull(
+            plan.Project(
+                MetadataTokens.TypeReferenceHandle(1),
+                subject));
+        Assert.Null(
+            plan.Project(
+                MetadataTokens.TypeReferenceHandle(2),
+                subject,
+                TypeParameterKindClassifier.ResolutionPlan
+                    .RequestPurpose.BaseType));
+        Assert.Null(
+            plan.Project(
+                MetadataTokens.TypeReferenceHandle(3),
+                subject));
+
+        Assert.Collection(
+            plan.RequestBudgetFailures,
+            failure => Assert.Equal(
+                TypeParameterKindClassifier.ResolutionPlan
+                    .RequestPurpose.BaseType,
+                failure.Purpose),
+            failure => Assert.Equal(
+                TypeParameterKindClassifier.ResolutionPlan
+                    .RequestPurpose.Constraint,
+                failure.Purpose));
     }
 
     [Fact]
@@ -1586,6 +1847,95 @@ public class ConstraintResolutionHardeningTests
                 failure.DependencyAssembly!.Name,
                 failure.Detail,
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Extract_DoesNotAuthorizeOpenGenericTypeReferenceBase()
+    {
+        byte[] definitionImage = BuildGenericBaseDefinition();
+        byte[] consumerImage = BuildDirectBaseConsumer();
+        ResolvedAssemblyReference definition =
+            Descriptor(definitionImage);
+        ResolvedAssemblyReference consumer =
+            Descriptor(consumerImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            consumer,
+            catalog,
+            new MappingPolicy(definition),
+            includeAll: true,
+            resolveBaseTypes: true);
+        Assert.Null(
+            Assert.Single(surface.Types).BaseTypeResolution);
+    }
+
+    [Fact]
+    public void Extract_DoesNotTreatNamedMethodAsConstructor()
+    {
+        byte[] definitionImage =
+            BuildMalformedConstructorBaseDefinition();
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "MalformedConstructorConsumer",
+                "MalformedConstructorBase",
+                "Base");
+        ResolvedAssemblyReference definition =
+            Descriptor(definitionImage);
+        ResolvedAssemblyReference consumer =
+            Descriptor(consumerImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            consumer,
+            catalog,
+            new MappingPolicy(definition),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        ApiBaseTypeResolution resolution = Assert.IsType<
+            ApiBaseTypeResolution>(
+                Assert.Single(surface.Types).BaseTypeResolution);
+        Assert.Equal(
+            "N.Base",
+            resolution.DefinitionName.ToEscapedFullName());
+        Assert.True(resolution.IsPubliclyAccessible);
+        Assert.False(
+            resolution.HasAccessibleParameterlessConstructor);
+    }
+
+    [Fact]
+    public void Extract_PreservesEventRaiserAndOtherMethods()
+    {
+        byte[] image = BuildEventSemanticsAssembly();
+        using var pe = Reader(image);
+
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(
+                pe,
+                includeAll: true).Types);
+
+        Assert.Contains(
+            type.Members,
+            member => member.Kind == "method"
+                && member.Name == "raise_E");
+        Assert.Contains(
+            type.Members,
+            member => member.Kind == "method"
+                && member.Name == "other_E");
+        Assert.DoesNotContain(
+            type.Members,
+            member => member.Kind == "method"
+                && member.Name is "add_E" or "remove_E");
+        ApiMember eventMember = Assert.Single(
+            type.Members,
+            member => member.Kind == "event");
+        Assert.NotNull(eventMember.AdderToken);
+        Assert.NotNull(eventMember.RemoverToken);
     }
 
     static byte[] BuildChain(
@@ -2081,6 +2431,118 @@ public class ConstraintResolutionHardeningTests
                 "U0",
                 AddConstructedClass(metadata, baseType));
         AddGenericParameter(metadata, definition);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildBaseBudgetFirst()
+    {
+        MetadataBuilder metadata = NewMetadata("BaseBudgetA");
+        AssemblyReferenceHandle other =
+            AddReference(metadata, "BaseBudgetB");
+        TypeReferenceHandle root =
+            metadata.AddTypeReference(
+                other,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Root"));
+        AddModule(metadata);
+        AddType(
+            metadata,
+            "Base",
+            AddConstructedClass(metadata, root));
+        AddParameterlessMethod(
+            metadata,
+            ".ctor",
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildBaseBudgetSecond()
+    {
+        MetadataBuilder metadata = NewMetadata("BaseBudgetB");
+        AddModule(metadata);
+        TypeDefinitionHandle root =
+            AddType(metadata, "Root`1");
+        AddGenericParameter(metadata, root);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMalformedConstructorBaseDefinition()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("MalformedConstructorBase");
+        AddModule(metadata);
+        AddType(metadata, "Base");
+        AddParameterlessMethod(
+            metadata,
+            ".ctor",
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildEventSemanticsAssembly()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("EventSemantics");
+        AssemblyReferenceHandle systemRuntime =
+            AddReference(metadata, "System.Runtime");
+        TypeReferenceHandle objectType =
+            metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+        AddModule(metadata);
+        TypeDefinitionHandle type =
+            AddType(metadata, "EventOwner");
+        MethodDefinitionHandle raiser =
+            AddParameterlessMethod(
+                metadata,
+                "raise_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        MethodDefinitionHandle other =
+            AddParameterlessMethod(
+                metadata,
+                "other_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        MethodDefinitionHandle adder =
+            AddParameterlessMethod(
+                metadata,
+                "add_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        MethodDefinitionHandle remover =
+            AddParameterlessMethod(
+                metadata,
+                "remove_E",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName);
+        EventDefinitionHandle eventDefinition =
+            metadata.AddEvent(
+                EventAttributes.None,
+                metadata.GetOrAddString("E"),
+                objectType);
+        metadata.AddEventMap(type, eventDefinition);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Raiser,
+            raiser);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Other,
+            other);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Adder,
+            adder);
+        metadata.AddMethodSemantics(
+            eventDefinition,
+            MethodSemanticsAttributes.Remover,
+            remover);
         return Serialize(metadata);
     }
 
@@ -2589,6 +3051,108 @@ public class ConstraintResolutionHardeningTests
         }
 
         return Serialize(metadata);
+    }
+
+    static byte[] BuildThreeReferenceConsumer()
+    {
+        MetadataBuilder metadata =
+            NewMetadata("ThreeReferences");
+        AssemblyReferenceHandle reference =
+            AddReference(metadata, "Dependency");
+        AddModule(metadata);
+        TypeDefinitionHandle consumer =
+            AddType(metadata, "Consumer`1");
+        AddGenericParameter(metadata, consumer);
+        for (int i = 0; i < 3; i++)
+        {
+            metadata.AddTypeReference(
+                reference,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString($"Base{i}"));
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericBaseDefinition()
+    {
+        MetadataBuilder metadata = NewMetadata("GenericBase");
+        AddModule(metadata);
+        TypeDefinitionHandle definition =
+            AddType(metadata, "Base`1");
+        AddGenericParameter(metadata, definition);
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.SpecialName
+                | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDirectBaseConsumer()
+    {
+        MetadataBuilder metadata = NewMetadata("DirectBaseConsumer");
+        AssemblyReferenceHandle definition =
+            AddReference(metadata, "GenericBase");
+        TypeReferenceHandle baseType =
+            metadata.AddTypeReference(
+                definition,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base`1"));
+        AddModule(metadata);
+        AddType(metadata, "Derived", baseType);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDirectBaseConsumer(
+        string assemblyName,
+        string baseAssembly,
+        string baseName)
+    {
+        MetadataBuilder metadata = NewMetadata(assemblyName);
+        AssemblyReferenceHandle definition =
+            AddReference(metadata, baseAssembly);
+        TypeReferenceHandle baseType =
+            metadata.AddTypeReference(
+                definition,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(baseName));
+        AddModule(metadata);
+        AddType(metadata, "Derived", baseType);
+        return Serialize(metadata);
+    }
+
+    static MethodDefinitionHandle AddParameterlessMethod(
+        MetadataBuilder metadata,
+        string name,
+        MethodAttributes attributes)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                static returnType => returnType.Void(),
+                static _ => { });
+        return metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
     }
 
     static MetadataBuilder NewMetadata(
