@@ -21,7 +21,7 @@ The model keeps these values abstract:
 
 - request, progress, result, error, and cancellation-reason payloads;
 - browser task and microtask queues;
-- TypeScript implementation and DOM rendering;
+- TypeScript implementation, feature/diagnostic observers, and DOM rendering;
 - producer placement, cancellation checkpoints, and callback mechanics;
 - multiple feature sessions and page-wide operation-ID allocation;
 - worker epochs, transport, liveness, crashes, and restart;
@@ -43,8 +43,9 @@ of the owning design's `inspect-web-operation-authority` implementation gate.
 - Progress is bounded to one attempt per operation in the checked
   configuration. One is sufficient to expose stale or post-terminal delivery;
   the bound makes no throughput claim.
-- Disposal is optional. After disposal, physical producers may still settle
-  and release, but no new logical operation is legal.
+- Disposal is optional and may occur before the first operation. After
+  disposal, physical producers may still settle and release, but no new
+  logical operation is legal.
 
 Weak fairness in `Spec` covers producer admission, settlement, and release. It
 also starts each operation when doing so remains continuously enabled.
@@ -83,7 +84,7 @@ The recorded run used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 `tla2tools.jar` has SHA-256
 `eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
 With two operations and one progress attempt per operation, TLC generated
-9,194 states, found 3,917 distinct states, reached depth 14, and reported no
+9,195 states, found 3,918 distinct states, reached depth 14, and reported no
 error.
 
 The positive model explicitly explores a suppressed callback attempt after

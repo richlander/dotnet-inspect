@@ -39,7 +39,8 @@ replaced independently. Starting work gives the authority component:
 - the feature session;
 - a producer adapter;
 - an operation-specific input owned by the feature; and
-- feature callbacks for admitted progress and a terminal result.
+- one typed feature-event observer and one diagnostic observer supplied when
+  the session is created.
 
 The authority component synchronously returns an `OperationStartResult` and
 gives a preparing producer adapter an owner-issued identity plus an event sink.
@@ -80,12 +81,16 @@ type OperationCancelReason =
   | "user"
   | "superseded"
   | "disposed"
+  | "feature-observer-failed"
   | "timeout"
   | "worker-restarted";
 
-type OperationOutcome<TValue, TError> =
+type OperationTerminalOutcome<TValue, TError> =
   | { readonly kind: "succeeded"; readonly value: TValue }
-  | { readonly kind: "failed"; readonly error: TError }
+  | { readonly kind: "failed"; readonly error: TError };
+
+type OperationOutcome<TValue, TError> =
+  | OperationTerminalOutcome<TValue, TError>
   | {
       readonly kind: "canceled";
       readonly reason: OperationCancelReason;
@@ -100,13 +105,14 @@ interface OperationHandle<TValue, TError> {
   readonly id: OperationId;
   readonly outcome: Promise<OperationOutcome<TValue, TError>>;
   readonly quiesced: Promise<void>;
-  cancel(reason?: OperationCancelReason): void;
+  cancel(reason?: OperationCancelReason): OperationControlResult;
 }
 
 type OperationStartError<TPrepareError> =
   | { readonly kind: "session-disposed" }
   | { readonly kind: "session-changed" }
   | { readonly kind: "identity-exhausted" }
+  | { readonly kind: "feature-observer-active" }
   | {
       readonly kind: "producer-rejected";
       readonly error: TPrepareError;
@@ -121,6 +127,61 @@ type OperationStartResult<TValue, TError, TPrepareError> =
       readonly kind: "rejected";
       readonly reason: OperationStartError<TPrepareError>;
     };
+
+type OperationControlResult =
+  | { readonly kind: "applied" }
+  | { readonly kind: "no-op" }
+  | {
+      readonly kind: "rejected";
+      readonly reason: "feature-observer-active";
+    };
+
+type OperationFeatureEvent<TValue, TError, TProgress> =
+  | {
+      readonly kind: "started";
+      readonly operation: OperationIdentity;
+    }
+  | {
+      readonly kind: "replaced";
+      readonly previousOperationId: OperationId;
+      readonly operation: OperationIdentity;
+      readonly reason: "superseded";
+    }
+  | {
+      readonly kind: "progress";
+      readonly progress: OperationProgress<TProgress>;
+    }
+  | {
+      readonly kind: "terminal";
+      readonly operationId: OperationId;
+      readonly outcome: OperationTerminalOutcome<TValue, TError>;
+    }
+  | {
+      readonly kind: "canceled";
+      readonly operationId: OperationId;
+      readonly reason: OperationCancelReason;
+    }
+  | {
+      readonly kind: "disposed";
+      readonly operationId: OperationId | null;
+    };
+
+interface OperationFeatureObserver<TValue, TError, TProgress> {
+  publish(event: OperationFeatureEvent<TValue, TError, TProgress>): void;
+}
+
+interface OperationDiagnostic {
+  readonly kind:
+    | "producer-contract"
+    | "producer-callout"
+    | "feature-observer";
+  readonly operationId: OperationId | null;
+  readonly error: unknown;
+}
+
+interface OperationDiagnosticObserver {
+  report(diagnostic: OperationDiagnostic): void;
+}
 
 interface OperationProducerSink<TValue, TError, TProgress> {
   reportProgress(value: TProgress): void;
@@ -176,8 +237,8 @@ interface OperationSession<
       TPrepareError
     >,
   ): OperationStartResult<TValue, TError, TPrepareError>;
-  cancelCurrent(reason?: OperationCancelReason): void;
-  dispose(): void;
+  cancelCurrent(reason?: OperationCancelReason): OperationControlResult;
+  dispose(): OperationControlResult;
 }
 ```
 
@@ -185,6 +246,30 @@ These interfaces define only the immediate preparation and event handoff; the
 adapter's transport-specific implementation remains producer-owned. Feature
 code controls an immediate callback through `cancelCurrent()` or `dispose()`,
 because the returned handle is not observable until `start()` returns.
+
+The page owner creates a session with its feature and diagnostic observers.
+The feature observer receives only owner-issued events and retains all
+responsibility for the view's data shape, rendering, focus, and wording.
+
+Feature-event delivery is synchronous, one event at a time, and guarded against
+operation-authority reentrancy. `start()` returns `feature-observer-active`, and
+handle cancellation, session cancellation, or disposal returns a rejected
+`OperationControlResult`, when called during feature-event delivery; none
+changes authority state. Product feature observers are required to return
+normally. If one throws, the authority catches the exception, faults and
+disposes that session before any later producer callout, resolves a still
+pending current outcome as `canceled("feature-observer-failed")`, preserves an
+already reserved cancellation forwarding or reserves one for an activated
+producer, abandons a prepared but unactivated producer, detaches the failed
+observer without publishing another feature event, and reports one
+`feature-observer` diagnostic. An outcome that was already terminal is not
+replaced. The exception does not escape through the public session API.
+
+The diagnostic observer is also synchronous. Authority state is final before
+diagnostic delivery, so the observer may reenter operation APIs. If diagnostic
+delivery throws, the authority catches it and writes the original diagnostic
+plus observer failure to the browser's last-resort console sink without
+recursively invoking the observer.
 
 `OperationId` is opaque. Feature code cannot construct one from a request,
 package identity, display string, or local counter. The page owner atomically
@@ -245,10 +330,12 @@ Starting an operation follows one owner-controlled synchronous sequence:
 9. otherwise atomically install the prepared candidate as current, capture its
    exact handle for the outer return, complete the prior pending outcome as
    `canceled("superseded")`, and reserve the prior operation's one cancellation
-   forwarding;
-10. activate the prepared current binding;
-11. invoke the reserved prior cancellation endpoint; and
-12. return `OperationStartResult.started` with the new handle.
+   forwarding plus one `started` or `replaced` feature event;
+10. publish the reserved feature event;
+11. if publication succeeded, activate the prepared current binding; otherwise
+    abandon it under the observer-failure rule;
+12. invoke the reserved prior cancellation endpoint; and
+13. return `OperationStartResult.started` with the captured handle.
 
 The candidate is current before activation, and the cancellation endpoint
 exists before callbacks can reenter. A synchronous activation callback uses
@@ -269,12 +356,14 @@ cannot publish the stale producer error into the newer view.
 
 The authority commit in step 9 completes before either later external callout.
 Cancellation-forwarded state is reserved before invoking its endpoint.
+The feature event publishes before producer activation, so feature-owned
+loading or replacement state exists before an immediate producer report.
 `activate()` is non-throwing by the prepared-binding contract. A cancellation
 endpoint exception is caught at that exact boundary, reported to the diagnostic
 observer, and cannot roll back logical cancellation, prevent handle return, or
-cause another forwarding attempt. Producer events and reentrant feature
-actions may run during either callout, but the outer start writes no authority
-state afterward.
+cause another forwarding attempt. Producer events and diagnostic reentrancy
+may run during later callouts, but the outer start writes no authority state
+after its commit.
 
 Each operation is bound to one producer adapter. Retrying creates a new
 operation identity; neither the feature nor the adapter redispatches an old
@@ -289,28 +378,41 @@ hold:
 - it is that session's current operation; and
 - its logical outcome is pending.
 
-Progress, success, failure, and feature-state cleanup all use this one
-authority predicate. Request equality, a loading flag, or an independently
-maintained generation number is not a substitute.
+Progress and the acquisition of a success or failure terminal-event reservation
+use this one authority predicate. Cancellation, replacement, disposal, and
+observer-failure cleanup instead acquire their one-time feature-event or
+cancellation-forwarding reservations atomically with the transition that
+revokes authority. A reservation authorizes only its captured callout; it does
+not restore general publication authority. Request equality, a loading flag,
+or an independently maintained generation number is not a substitute.
 
-Progress from an operation without authority is discarded. A producer success
-or expected failure without authority is consumed without publication. An
-unexpected late producer failure also cannot mutate the stale view, but the
-authority component forwards it to the producer diagnostic observer so stale
-suppression does not become silent failure suppression.
+Progress with authority reserves one `progress` event before calling the
+feature observer; no authority state is written after the callout. Progress
+without authority is discarded. A producer success or expected failure without
+authority is consumed without publication. An unexpected late producer failure
+also cannot mutate the stale view, but the authority component forwards it to
+the diagnostic observer so stale suppression does not become silent failure
+suppression.
 
 ### Logical completion
 
-The first authorized terminal transition resolves `outcome` exactly once:
+The first authorized logical-completion transition atomically resolves
+`outcome` exactly once and reserves exactly one corresponding feature event:
 
-- producer success resolves `succeeded`;
-- producer failure resolves `failed`; or
-- cancellation resolves `canceled` with the first normalized reason.
+- producer success or failure reserves `terminal`;
+- direct cancellation reserves `canceled`;
+- replacement reserves `replaced`, which also announces the new operation; and
+- disposal reserves `disposed`.
 
-Physical producer completion after logical cancellation does not replace the
-canceled outcome. Duplicate terminal reports are producer-contract failures
-reported diagnostically; they do not resolve the handle again or regain
-publication authority.
+These variants do not stack: replacement does not additionally publish
+`canceled` plus `started`, and disposal does not additionally publish
+`canceled`. A producer-reported canceled outcome uses `canceled` with its typed
+reason. Each reserved event remains authorized after the outcome or current
+operation changes, publishes after the authority commit, and permits no later
+authority write from that transition. Physical producer completion after
+logical cancellation does not replace the canceled outcome. Duplicate terminal
+reports are producer-contract failures reported diagnostically; they do not
+resolve the handle again or regain publication authority.
 
 ### Cancellation and supersession
 
@@ -318,27 +420,31 @@ publication authority.
 
 - normalizes an omitted reason to `"user"`;
 - resolves the logical outcome as canceled;
-- revokes publication authority; and
+- revokes publication authority;
+- reserves one `canceled` feature event; and
 - asks the bound producer adapter to cancel exactly once.
 
-A later call changes no reason or state and sends no producer request. A call
-after success, failure, or cancellation is a strict local no-op.
+A later call returns `no-op`, changes no reason or state, and sends no producer
+request. A call after success, failure, or cancellation is also a strict local
+no-op.
 `cancelCurrent()` applies that same transition through the session.
 
 Handle cancellation and session cancellation use one callout rule: the logical
 outcome, authority revocation, reason, and forwarding flag commit before the
-external cancellation endpoint is invoked. Endpoint exceptions are caught at
-that boundary, emitted to the diagnostic observer, and do not escape, undo the
-transition, or permit another forwarding attempt. Reentrant producer events
-therefore observe the canceled outcome.
+feature event publishes; the external cancellation endpoint is invoked only
+after that feature callout. Endpoint exceptions are caught at that boundary,
+emitted to the diagnostic observer, and do not escape, undo the transition, or
+permit another forwarding attempt. Reentrant producer events therefore observe
+the canceled outcome.
 Each handle remains bound to its originating operation record. Calling an old
 handle never delegates to the session's current operation and cannot change a
 replacement's outcome, authority, cancellation count, or producer endpoint.
 
 Starting a replacement operation applies the same transition to the prior
-current operation with reason `"superseded"`. The replacement becomes current
-in the same synchronous transaction, so a callback from the prior producer
-cannot publish between supersession and installation.
+current operation with reason `"superseded"`, but publishes the single
+`replaced` event instead of separate `canceled` and `started` events. The
+replacement becomes current in the same synchronous transaction, so a callback
+from the prior producer cannot publish between supersession and installation.
 
 ### Quiescence
 
@@ -356,14 +462,18 @@ result, progress, or focus state.
 
 Disposing a feature session:
 
-- atomically marks the session disposed, removes all feature publication
-  callbacks, cancels its pending current operation as `"disposed"`, clears
-  current authority, and reserves that operation's cancellation forwarding;
+- atomically marks the session disposed, detaches ordinary feature publication,
+  captures the observer only for one reserved `disposed` event, cancels its
+  pending current operation as `"disposed"`, clears current authority, and
+  reserves cancellation forwarding for an active current producer, if any,
+  instead of a separate `canceled` event;
 - prevents new starts from the instant of that commit;
+- publishes the reserved disposal event;
 - invokes the reserved cancellation endpoint only after the complete commit,
-  using the same diagnostic exception containment as direct cancellation; and
-- optionally awaits the session's outstanding `quiesced` promises when its
-  caller requires physical resource release.
+  feature publication, and the same diagnostic exception containment as direct
+  cancellation; and
+- leaves callers that require physical resource release to await the retained
+  handles' `quiesced` promises.
 
 No authority state is written after the disposal callout. A synchronous
 producer callback or attempted reentrant start therefore observes a disposed
@@ -406,12 +516,14 @@ This trace is the docs-only demo for the intended value:
 
 ```text
 Source session starts A
-  A is current; loading may publish
+  A is current
+  started(A) publishes before producer A activates
 
 Source session starts B
   A outcome = canceled("superseded")
-  producer A receives one cancellation request
   B is current
+  replaced(A, B) publishes before producer B activates
+  producer A receives one cancellation request
 
 Producer A reports progress, success, and release
   progress and success do not publish
@@ -420,7 +532,7 @@ Producer A reports progress, success, and release
 
 Producer B reports success, then release
   B outcome = succeeded(value)
-  success publishes to the current source view
+  terminal(B, succeeded(value)) publishes once
   B.quiesced resolves
 ```
 
@@ -457,9 +569,10 @@ must preserve the canceled logical outcome, suppressed publication, and
 eventual producer quiescence. Choosing between them is producer policy.
 
 The model deliberately abstracts page-wide allocation, multiple sessions,
-TypeScript implementation, browser queues, producer internals, worker
-transport, managed interop, and arbitrary operation cardinality. Those are
-covered by focused implementation gates or adjacent owners.
+TypeScript implementation and observer callouts, browser queues, producer
+internals, worker transport, managed interop, and arbitrary operation
+cardinality. Those are covered by focused implementation gates or adjacent
+owners.
 
 ## Required implementation gate
 
@@ -478,8 +591,8 @@ exist and must include:
   available sequence without rolling allocation state back;
 - visible allocation exhaustion without adapter preparation and without
   changing any existing current operation or cancellation count;
-- typed `session-disposed`, `session-changed`, `identity-exhausted`, and
-  `producer-rejected` results;
+- typed `session-disposed`, `session-changed`, `identity-exhausted`,
+  `feature-observer-active`, and `producer-rejected` results;
 - typed resource-free preparation rejection that leaves the prior current
   operation unchanged in the absence of reentrancy and produces no handle;
 - successful preparation that reenters start, cancellation, or disposal,
@@ -507,6 +620,22 @@ exist and must include:
 - supersession atomically replacing current authority;
 - progress, success, failure, and cleanup mutations that try to update a stale
   view;
+- exact `started`, `replaced`, `progress`, `terminal`, `canceled`, and
+  `disposed` feature events, including start/replacement publication before
+  producer activation and cancellation/disposal publication before producer
+  cancellation, with no stacked cancellation/start events for replacement or
+  disposal;
+- terminal publication through its reserved event after logical completion,
+  with no later authority write;
+- feature observers that attempt reentrant start, handle cancellation, session
+  cancellation, or disposal, requiring a typed pre-transition rejection and no
+  authority change;
+- feature observers that throw during every event kind, requiring session
+  fault/disposal, typed cancellation of a pending operation, abandonment before
+  activation or one cancellation forwarding after activation, no further
+  feature event, one diagnostic, and no escaping exception;
+- diagnostic observers that throw or reenter, requiring final authority state,
+  no escaping exception, and one last-resort console report without recursion;
 - unexpected stale failure reaching diagnostics without reaching feature
   state;
 - terminal, cancel, and release races;
@@ -517,6 +646,8 @@ exist and must include:
 - disposal atomically preventing starts and publication before its endpoint
   callout, including a callout that synchronously attempts another start, while
   retaining event consumption through quiescence;
+- disposal before any operation starts, producing exactly one `disposed(null)`
+  event, followed by rejected start and no producer activity;
 - one source-view adoption preserving its current feature behavior; and
 - a neighboring browser-`fetch` adapter proving placement independence.
 

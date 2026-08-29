@@ -400,7 +400,6 @@ ReportAfterRelease(op) ==
 
 DisposeOwner ==
     /\ ownerPhase = OwnerActive
-    /\ producerPhase[OperationA] # NotStarted
     /\ ownerPhase' = OwnerDisposed
     /\ current' = NoOperation
     /\ visibleOperation' = NoOperation
