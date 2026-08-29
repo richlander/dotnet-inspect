@@ -99,9 +99,9 @@ point after which no further Progress arrives are environment actions and are
 not required to occur.
 
 The positive model makes request timeout effective from registration through
-the serialized write and response wait. `CurrentStalledWrite.cfg` instead
-matches the current control flow, where the timer may expire but `SendAsync`
-does not observe it until `WriteAsync` returns. With no fairness assumption that
+the serialized write and response wait. `CurrentStalledWrite.cfg` mutates that
+rule to defer timeout observation until the serialized write returns. With no
+fairness assumption that
 the plugin drains stdin, TLC finds that a request can remain in the writer
 forever after Progress has stopped. The positive rule does not abandon that
 writer and reuse the pipe: timeout or caller cancellation while a request owns
@@ -130,12 +130,16 @@ product behavior:
 | Initialization follows the required wire sequence | `PluginProtocolTests.InitializationFollowsTheProtocolSequence` |
 | The symmetric handshake accepts only protocol 2.0.0 | `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo`, `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse`, and `PluginProtocolTests.InvalidOrUnsupportedOutboundHandshakeStopsInitialization` |
 | A dying process settles the current request as plugin failure | `PluginProtocolTests.WhenOnePluginDiesDuringTheRequest_TheNextIsTried` |
-| Caller cancellation remains caller cancellation | `PluginProtocolTests.CallerCancellationContinuesToPropagate`, `PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, and `PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation` |
+| Caller cancellation remains caller cancellation | `PluginProtocolTests.CallerCancellationContinuesToPropagate`, `PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, `PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation`, and `PluginProtocolTests.CancellationWhileReplacingAClosedConnectionRemainsCancellation` |
 | A malformed response header does not end the read loop | `PluginProtocolTests.AProtocolMessageWithNonStringHeadersIsIgnoredRatherThanEndingTheConversation` |
 | Concurrent request-ID correlation and out-of-order replies | Unverified. |
 | Progress renews the matching implementation timer | Unverified; the design previously described this as tested, but no matching test exists. |
 | Pipe loss closes admission before pending requests are collected | `PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout`, `PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, and `PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot` |
-| A stalled in-progress write is bounded by terminating the connection | Not implemented; `CurrentStalledWrite.cfg` abstracts the current control flow. |
+| A stalled in-progress write is bounded by terminating the connection | `PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests`, `PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation`, and `PluginProtocolTests.AResponseCannotLeaveItsRequestWriterStalled` |
+| Concurrent write-fault and caller-cancellation outcomes are arbitrated once | `PluginProtocolTests.CallerCancellationWinsAConcurrentWriteFailure` |
+| Terminal connections quiesce before synchronization resources are disposed | `PluginProtocolTests.ConnectionResourcesWaitForInterruptedRequestsToQuiesce` and `PluginProtocolTests.ConnectionResourcesWaitForInboundResponseWritersToQuiesce` |
+| An interrupted write that remains unobservable cannot race disposed connection resources | `PluginProtocolTests.AnUnfinishedInterruptedWriteRetainsConnectionResources` |
+| A request racing terminal publication retries on a replacement connection | `PluginProtocolTests.ARequestRacingTerminalPublicationRetriesOnAReplacementConnection` |
 | Malformed plugin-originated payloads settle inbound work | `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and `PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse` |
 
 Formal model-to-implementation correspondence is unverified. In particular,
