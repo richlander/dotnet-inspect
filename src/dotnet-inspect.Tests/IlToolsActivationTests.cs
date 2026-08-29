@@ -613,24 +613,30 @@ public class IlToolsActivationTests
     /// snippet, so the gate rejects any runnable snippet that invokes the
     /// producer directly -- `PATH="$(eng/restore-iltools.sh):$PATH"` never
     /// mentions `export` and would otherwise sail through.
+    ///
+    /// The guidance moved out of AGENTS.md when that file was slimmed to its
+    /// line cap, so this reads the document that owns test-tool activation
+    /// today. Pointing it at a file that no longer carries the guidance turns
+    /// the gate into a failure that says nothing about PATH assembly.
     /// </summary>
     [Fact]
-    public void AgentsMarkdown_DelegatesIlToolsPathAssemblyToTheScript()
+    public void DevEnvironmentDoc_DelegatesIlToolsPathAssemblyToTheScript()
     {
-        var agents = File.ReadAllText(Path.Combine(RepoRoot, "AGENTS.md"));
+        var doc = File.ReadAllText(
+            Path.Combine(RepoRoot, "docs", "dev-environment.md"));
 
-        Assert.Contains("source eng/activate-iltools.sh", agents);
+        Assert.Contains("source eng/activate-iltools.sh", doc);
 
-        foreach (var block in FencedBashBlocks(agents).Where(b => b.Contains("iltools")))
+        foreach (var block in FencedBashBlocks(doc).Where(b => b.Contains("iltools")))
         {
             Assert.False(
                 block.Contains("restore-iltools.sh"),
-                $"AGENTS.md tells the reader to run the producer directly instead of sourcing\n" +
+                $"docs/dev-environment.md tells the reader to run the producer directly instead of sourcing\n" +
                 $"eng/activate-iltools.sh, which puts the PATH assembly back outside the gate:\n{block}");
 
             Assert.False(
                 block.Contains("PATH="),
-                $"AGENTS.md assembles PATH by hand instead of sourcing eng/activate-iltools.sh:\n{block}");
+                $"docs/dev-environment.md assembles PATH by hand instead of sourcing eng/activate-iltools.sh:\n{block}");
         }
     }
 
