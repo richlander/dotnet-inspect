@@ -422,7 +422,10 @@ internal sealed class PluginConnection : IAsyncDisposable
                     break;
 
                 case MessageMethods.Log:
-                    LogRequest? log = payload?.Deserialize(PluginJsonContext.Default.LogRequest);
+                    LogRequest? log = DeserializeInboundPayload(
+                        payload,
+                        PluginJsonContext.Default.LogRequest,
+                        MessageMethods.Log);
 
                     if (log is not null && _log is not null)
                     {
@@ -434,7 +437,10 @@ internal sealed class PluginConnection : IAsyncDisposable
                             requestId,
                             MessageTypes.Response,
                             MessageMethods.Log,
-                            new LogResponse(ResponseCodes.Success)),
+                            new LogResponse(
+                                log is null
+                                    ? ResponseCodes.Error
+                                    : ResponseCodes.Success)),
                         PluginJsonContext.Default.EnvelopeLogResponse,
                         _shutdown.Token).ConfigureAwait(false);
                     break;
@@ -446,9 +452,12 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
     }
 
-    private static HandshakeResponse NegotiateHandshake(JsonElement? payload)
+    private HandshakeResponse NegotiateHandshake(JsonElement? payload)
     {
-        HandshakeRequest? request = payload?.Deserialize(PluginJsonContext.Default.HandshakeRequest);
+        HandshakeRequest? request = DeserializeInboundPayload(
+            payload,
+            PluginJsonContext.Default.HandshakeRequest,
+            MessageMethods.Handshake);
 
         // We speak exactly one version, so compatibility reduces to the plugin's floor not
         // exceeding it. NuGet's rule is the general form of the same test.
@@ -460,6 +469,23 @@ internal sealed class PluginConnection : IAsyncDisposable
         }
 
         return new HandshakeResponse(ResponseCodes.Success, ProtocolVersion);
+    }
+
+    private T? DeserializeInboundPayload<T>(
+        JsonElement? payload,
+        JsonTypeInfo<T> type,
+        string method)
+        where T : class
+    {
+        try
+        {
+            return payload?.Deserialize(type);
+        }
+        catch (JsonException)
+        {
+            _log?.Invoke($"Credential plugin sent a malformed '{method}' payload.");
+            return null;
+        }
     }
 
     private static TimeSpan ReadTimeoutOverride(string variable, TimeSpan fallback) =>

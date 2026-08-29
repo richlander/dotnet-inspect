@@ -162,8 +162,9 @@ closes request admission before the read loop collects and settles pending reque
 plugin-originated request receives an error response or the connection terminates; it never becomes
 abandoned work, checked by `InboundFailureIsContained` and
 `MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
-stalled-write or shutdown-admission rules, and malformed inbound payload handling remains tracked
-by #3551.
+stalled-write or shutdown-admission rules. Malformed inbound Handshake and Log payload handling is
+enforced by `PluginProtocolTests.MalformedInboundHandshakeReceivesAnErrorResponse` and
+`PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse`.
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).

@@ -276,6 +276,56 @@ public sealed class PluginProtocolTests : IDisposable
     }
 
     [Fact]
+    public async Task MalformedInboundHandshakeReceivesAnErrorResponse()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "malformed-inbound-handshake",
+            username: "u",
+            password: "p",
+            inboundHandshakePayload:
+                """{"ProtocolVersion":123,"MinimumProtocolVersion":"1.0.0"}""");
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
+        PackageSourceCredential? credential = await provider.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"),
+            isRetry: false,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(credential);
+
+        ReceivedMessage response = plugin.WaitForMessage("fake-handshake", MessageTypes.Response);
+        Assert.Equal(MessageMethods.Handshake, response.Method);
+        Assert.Equal(
+            ResponseCodes.Error,
+            response.Payload.GetProperty("ResponseCode").GetString());
+    }
+
+    [Fact]
+    public async Task MalformedInboundLogReceivesAnErrorResponse()
+    {
+        FakePlugin plugin = CreatePlugin(
+            "malformed-inbound-log",
+            username: "u",
+            password: "p",
+            afterSetLogLevel:
+                """emit '{"RequestId":"malformed-log","Type":"Request","Method":"Log","Payload":{"LogLevel":123,"Message":"ignored"}}'""");
+
+        await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
+        PackageSourceCredential? credential = await provider.GetCredentialsAsync(
+            new Uri("https://feed.example/v3/index.json"),
+            isRetry: false,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(credential);
+
+        ReceivedMessage response = plugin.WaitForMessage("malformed-log", MessageTypes.Response);
+        Assert.Equal(MessageMethods.Log, response.Method);
+        Assert.Equal(
+            ResponseCodes.Error,
+            response.Payload.GetProperty("ResponseCode").GetString());
+    }
+
+    [Fact]
     public async Task AConnectionDisposedBeforeARequestDegradesToNoCredentials()
     {
         FakePlugin plugin = CreatePlugin(
@@ -353,6 +403,8 @@ public sealed class PluginProtocolTests : IDisposable
         string responseCode = "Success",
         string? authenticationTypes = null,
         string? preamble = null,
+        string? inboundHandshakePayload = null,
+        string? afterSetLogLevel = null,
         bool exitOnCredentialRequest = false)
     {
         // Values are embedded in a double-quoted bash string, so every JSON quote needs a
@@ -378,7 +430,7 @@ public sealed class PluginProtocolTests : IDisposable
         string body = """
             __PREAMBLE__
             # Open with our own handshake, as a real plugin does. The host must answer it.
-            emit '{"RequestId":"fake-handshake","Type":"Request","Method":"Handshake","Payload":{"ProtocolVersion":"2.0.0","MinimumProtocolVersion":"1.0.0"}}'
+            emit '{"RequestId":"fake-handshake","Type":"Request","Method":"Handshake","Payload":__INBOUND_HANDSHAKE__}'
 
             while IFS= read -r line; do
               printf '%s\n' "$line" >> "$RECORD"
@@ -389,8 +441,11 @@ public sealed class PluginProtocolTests : IDisposable
               case "$method" in
                 Handshake)
                   emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"Handshake\",\"Payload\":{\"ResponseCode\":\"Success\",\"ProtocolVersion\":\"2.0.0\"}}" ;;
-                MonitorNuGetProcessExit|Initialize|SetLogLevel)
+                MonitorNuGetProcessExit|Initialize)
                   emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"$method\",\"Payload\":{\"ResponseCode\":\"Success\"}}" ;;
+                SetLogLevel)
+                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"$method\",\"Payload\":{\"ResponseCode\":\"Success\"}}"
+                  __AFTER_SET_LOG_LEVEL__ ;;
                 GetOperationClaims)
                   emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetOperationClaims\",\"Payload\":{\"Claims\":[__CLAIMS__]}}" ;;
                 GetAuthenticationCredentials)
@@ -403,6 +458,11 @@ public sealed class PluginProtocolTests : IDisposable
             .Replace("__CLAIMS__", Quoted(claims))
             .Replace("__AUTH_ACTION__", credentialAction)
             .Replace("__CREDENTIAL__", credentialPayload)
+            .Replace(
+                "__INBOUND_HANDSHAKE__",
+                inboundHandshakePayload
+                    ?? """{"ProtocolVersion":"2.0.0","MinimumProtocolVersion":"1.0.0"}""")
+            .Replace("__AFTER_SET_LOG_LEVEL__", afterSetLogLevel ?? string.Empty)
             .Replace("__PREAMBLE__", preamble ?? string.Empty);
 
         return CreateRawPlugin(name, body);
@@ -474,6 +534,37 @@ public sealed class PluginProtocolTests : IDisposable
             return requests;
         }
 
+        public ReceivedMessage WaitForMessage(string requestId, string type)
+        {
+            for (int attempt = 0; attempt < 40; attempt++)
+            {
+                foreach (string line in ReadAllLinesWithRetry())
+                {
+                    using JsonDocument document = JsonDocument.Parse(line);
+                    JsonElement root = document.RootElement;
+
+                    if (root.GetProperty("RequestId").GetString() == requestId
+                        && root.GetProperty("Type").GetString() == type)
+                    {
+                        JsonElement payload = root.TryGetProperty("Payload", out JsonElement value)
+                            ? value.Clone()
+                            : default;
+
+                        return new ReceivedMessage(
+                            requestId,
+                            type,
+                            root.GetProperty("Method").GetString()!,
+                            payload);
+                    }
+                }
+
+                Thread.Sleep(25);
+            }
+
+            throw new Xunit.Sdk.XunitException(
+                $"The plugin did not receive {type} message '{requestId}'.");
+        }
+
         private string[] ReadAllLinesWithRetry()
         {
             // The plugin appends as it goes and we read while it may still be running.
@@ -492,4 +583,10 @@ public sealed class PluginProtocolTests : IDisposable
             }
         }
     }
+
+    private sealed record ReceivedMessage(
+        string RequestId,
+        string Type,
+        string Method,
+        JsonElement Payload);
 }
