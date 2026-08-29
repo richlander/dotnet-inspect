@@ -830,10 +830,15 @@ destination instead.
 Activating an available item for a non-modal transition closes the menu. A
 successful inspection transition focuses the returned active-subject
 level-one heading; a successful routed transition focuses that surface's
-level-one heading. An unavailable, rejected, failed, or aborted result renders
-its product-returned current surface, returns focus to the stable menu-button
-invoker, and makes the outcome visible. Installation, focus, and announcement
-occur only while their returned effect authority remains current.
+level-one heading. An unavailable, rejected, failed, or aborted result that
+retains the renderer returns focus to the stable menu-button invoker and makes
+the outcome visible. When an unavailable result installs a replacement
+renderer, its focus effect resolves the corresponding coordinate or subject
+menu button in the new lifetime. If that control is not mounted, it focuses the
+new destination's level-one heading, then the persistent `dotnet-inspect` shell
+control when no destination heading is mounted. It never focuses the invoker
+node from the outgoing renderer. Installation, focus, and announcement occur
+only while their returned effect authority remains current.
 
 Before an asynchronous transition or snapshot installation removes the focused
 element, the UI synchronously parks focus on the persistent `dotnet-inspect`
@@ -1195,8 +1200,10 @@ these named Inspect Web tests:
   applied, unavailable with and without a replacement snapshot, rejected,
   failed, and aborted results plus product-side discard of superseded work. It
   proves exact snapshot, canonical URL, and history handling, including
-  replacement for reconciliation-driven unavailable snapshots, plus
-  acknowledgement or abandonment.
+  replacement for reconciliation-driven unavailable snapshots. It also proves
+  that such replacement resolves menu-result focus in the new renderer, with
+  destination-heading and persistent-shell fallbacks, before acknowledgement
+  or abandonment.
 - `navigation-consumer.test.ts`:
   `maintenance snapshots replace history without stealing focus` covers
   authority validation, canonical URL replacement, selective announcement,
@@ -1229,7 +1236,8 @@ these named Inspect Web tests:
   `lens tabs and Library options separate focus from committed selection`
   covers roving tabs, disabled-option discoverability, manual listbox commit,
   cancellation, synchronous focus parking, native-select replacement, tablist
-  omission, and result-authorized focus.
+  omission, result-authorized focus, and rejection of an outgoing-renderer menu
+  invoker as a post-replacement focus target.
 
 The implementation fixture supplies typed product results through the normal
 navigation-consumer boundary. It does not construct a parallel host catalog or
@@ -1305,7 +1313,10 @@ outcomes:
    and its callbacks to the new lifetime.
 3. Return an unavailable outcome whose refreshed or reconciled snapshot changes
    the active subject. Confirm that it installs the exact returned snapshot but
-   replaces history rather than pushing the unrequested subject change.
+   replaces history rather than pushing the unrequested subject change. Confirm
+   that focus reaches the corresponding menu button in the new renderer, or its
+   destination-heading or persistent-shell fallback, and never the outgoing
+   invoker node.
 4. Return an unavailable outcome without a replacement snapshot, then rejected
    and failed outcomes. Confirm that each retains the prior snapshot, URL, and
    history while presenting its exact evidence.
