@@ -697,9 +697,11 @@ rules: underscore spelling, function relocation, listener API preference, and
 sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
 four, plus the five unsafe-operation rules scoped to the generated
 `engine/wwwroot/inspect-web-engine.js` artifact, are the *complete* set of
-relaxations: a toolchain test pins it against Oxlint's resolved configuration,
-so a fifth disable — written at the top level or inside an `overrides` entry —
-fails rather than passing quietly.
+disabled rules: a toolchain test pins it against Oxlint's resolved
+configuration, so a fifth disable — written at the top level or inside an
+`overrides` entry — fails rather than passing quietly. Turning a rule off is
+not the only way to lose it, so options, plugin settings and the global
+environment are pinned beside the severities; those are described below.
 
 Existing JavaScript tests and verification scripts remain covered by Oxlint's
 correctness and suspicious rules, but not by its unsafe-operation type rules:
@@ -733,6 +735,17 @@ resolved settings against Oxlint's resolution of an empty config, so the claim
 is literally "this project changes no setting" and an Oxlint release that adds a
 plugin's settings block does not churn it.
 
+Severities, options and settings describe what the rules do; the *environment*
+decides what they can see, and a rule that sees nothing reports nothing.
+`eslint/no-global-assign` fires only on a name the configuration calls a
+read-only global, so it can be silenced two ways without touching a severity:
+re-declare the name as writable through `globals`, or drop the `env` that
+supplied it — deleting `browser` silences an assignment to `document` exactly
+as `globals: { document: "writable" }` does. Both keys are pinned, at the top
+level and inside every `overrides` entry, as one map: this project declares no
+`globals` at all, and its environments are `browser` plus `es2022` at the top
+level and Node for scripts, tests and the Vite config.
+
 `promise/always-return` is enabled and pinned by name: the two side-effect
 continuations handed to `observeAsync` return explicitly, because their promises
 are consumed rather than terminal and so fall outside the upstream
@@ -760,15 +773,21 @@ configuration outside the project cannot merge into it, and makes one option
 change: `require-sri` uses `target: "crossorigin"`, so third-party bytes must
 carry a digest while same-origin files Vite emits are not asked for one.
 `.htmlvalidateignore` names only generated output — `/dist`, `node_modules`,
-`bin` and `obj` — anchored the way the project inventory prunes: `dist` is
-generated at the project root only, so an unanchored entry would also exclude an
-authored `src/dist`, while `bin` and `obj` are .NET build output beside
-`engine/InspectWeb.Engine.csproj` and are pruned at any depth. The `bin` and
-`obj` entries matter only once the engine project has been built, which is why
-they went unnoticed locally and surfaced on CI: without them html-validate was
-linting `engine/bin/**` and `engine/obj/**` — MSBuild static-web-asset
-placeholders and copied `wwwroot` output that no one authored and no one can
-fix.
+`bin` and `obj`. Only `dist` is anchored: it is generated at the project root
+only, so an unanchored entry would also exclude an authored `src/dist`. The
+other three match at any depth, which makes the ignore file deliberately
+*broader* than the project inventory's own pruning — the inventory exempts
+anything under `public/`, `src/`, `test/` and `scripts/` outright, and prunes
+`bin` and `obj` only beside a `.csproj`. The two are not equivalent and are not
+meant to be. What makes the comparison below valid is containment in the safe
+direction: every directory the inventory prunes is also ignored, so no owned
+document is measured against a file the linter refused to open. Where the two
+do diverge — an authored `src/bin/probe.html`, say — the set comparison fails
+loudly rather than passing quietly. The `bin` and `obj` entries matter only once
+the engine project has been built, which is why they went unnoticed locally and
+surfaced on CI: without them html-validate was linting `engine/bin/**` and
+`engine/obj/**` — MSBuild static-web-asset placeholders and copied `wwwroot`
+output that no one authored and no one can fix.
 
 Eight toolchain tests hold that wiring honest. They pin the preset list, the
 `root: true` setting, and the *whole* `rules` object — `require-sri` is the only

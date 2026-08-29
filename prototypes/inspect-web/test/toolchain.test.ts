@@ -1613,6 +1613,8 @@ interface PrintedOxlintOverride {
   readonly files: readonly string[];
   readonly plugins?: readonly string[] | null;
   readonly rules?: Readonly<Record<string, string | readonly unknown[]>>;
+  readonly env?: Readonly<Record<string, boolean>> | null;
+  readonly globals?: Readonly<Record<string, string>> | null;
 }
 
 interface PrintedOxlintConfig {
@@ -1620,6 +1622,8 @@ interface PrintedOxlintConfig {
   readonly rules: Readonly<Record<string, string | readonly unknown[]>>;
   readonly overrides?: readonly PrintedOxlintOverride[];
   readonly settings?: unknown;
+  readonly env?: Readonly<Record<string, boolean>> | null;
+  readonly globals?: Readonly<Record<string, string>> | null;
 }
 
 // `src/dotnet-inspect.ts` rather than an arbitrary file: it is the product source the two
@@ -1814,6 +1818,50 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
   } finally {
     rmSync(dirname(stock), { force: true, recursive: true });
   }
+
+  // Severities, options and settings all describe what the rules do. The environment
+  // describes what they can see, and a rule that sees nothing reports nothing.
+  // `eslint/no-global-assign` fires only on a name the configuration calls a read-only
+  // global, so there are two ways to silence it without touching a severity: re-declare
+  // the name as writable through `globals`, or remove it from the environment by dropping
+  // the `env` that supplied it. Round 4 (Sol, seat A) found the first with
+  // `globals: { document: "writable" }`; the second turned out to be the same hole
+  // through the neighbouring key, since deleting `browser` from `env` silences the
+  // identical assignment.
+  //
+  // Both scopes are read, because an override carries `env` and `globals` too and round 2
+  // established that an override is exactly where a relaxation goes to stay invisible.
+  // Pinned as one map rather than as four assertions, for the reason the relaxation sets
+  // are: naming today's environment says nothing about a `globals` block added to an
+  // override beside it.
+  const environments = Object.fromEntries([
+    ["<top level>", {
+      env: printed.env ?? {},
+      globals: printed.globals ?? {},
+    }] as const,
+    ...(printed.overrides ?? []).map(override => [
+      override.files.join(", "),
+      { env: override.env ?? {}, globals: override.globals ?? {} },
+    ] as const),
+  ]);
+
+  assert.deepEqual(environments, {
+    "<top level>": {
+      env: { browser: true, es2022: true },
+      globals: {},
+    },
+    "scripts/*.ts, test/**/*.ts, **/vite.config.ts": {
+      env: { browser: false, node: true },
+      globals: {},
+    },
+    "engine/wwwroot/inspect-web-engine.js": {
+      env: {},
+      globals: {},
+    },
+  }, "the environment decides which names the enabled rules treat as globals, so a "
+    + "`globals` entry or a dropped `env` narrows a rule as effectively as turning it "
+    + "off, and leaves every category, family, severity, option and setting read above "
+    + "reading exactly as before");
 });
 
 // Documents are the one kind of authored file every gate above is blind to: the compiler
@@ -1888,12 +1936,22 @@ function withSpecimen<T>(
   body: (relativePath: string) => T,
 ): T {
   const full = join(root, name);
-  mkdirSync(dirname(full), { recursive: true });
+  const directory = dirname(full);
+  // Round 4 (Opus, seat B): removing the file but not the directory left an empty
+  // `src/dist` in the working tree after every run, because round 1's fix moved a
+  // specimen into a directory this project does not otherwise have. Only a directory
+  // this helper created is removed, so a specimen written beside real files cannot take
+  // them with it.
+  const created = !existsSync(directory);
+  mkdirSync(directory, { recursive: true });
   writeFileSync(full, markup);
   try {
     return body(projectRelative(root, full));
   } finally {
     rmSync(full, { force: true });
+    if (created) {
+      rmSync(directory, { force: true, recursive: true });
+    }
   }
 }
 
@@ -2076,6 +2134,43 @@ test("html-validate reads exactly the documents this project owns", () => {
 
   assert.ok(owned.length > 0,
     "this project owns no documents, so this comparison proves nothing");
+
+  // The whole-glob read above answers the *extras* direction: a document html-validate
+  // processed that this project does not own. It cannot answer the direction that
+  // matters, because `--dump-source` prints each document's full text after its header
+  // and the headers are recovered from that same stream. Round 4 (Opus, seat B) wrote a
+  // document whose body contained a well-formed `Source <path>@1:1` line naming a file an
+  // ancestor `.htmlvalidateignore` had excluded: the set matched, `npm run lint` exited
+  // 0, and `index.html` carried an unreported `<img>` with no `alt`. An oracle recovered
+  // by pattern-matching the data it is measuring is not an oracle.
+  //
+  // Asking per document removes the channel instead of hardening the pattern. When
+  // html-validate is handed one path, the only document text that can reach stdout is
+  // that document's own, and it reaches stdout only if the file was opened -- an ignored
+  // path prints `No files matching patterns` and nothing else. So the presence of any
+  // header answers "was this file read", whatever the file says. Requiring a delimiter
+  // after the header would not have helped; an author can write both lines.
+  const skipped = owned.filter((document) => {
+    const probe = spawnSync(
+      "npx",
+      [
+        "--no",
+        "--",
+        "html-validate",
+        "--config",
+        htmlValidateInvocation.config,
+        "--dump-source",
+        document,
+      ],
+      { cwd: root, encoding: "utf8" },
+    );
+    return !/^Source /mu.test(probe.stdout);
+  });
+
+  assert.deepEqual(skipped, [],
+    "html-validate was handed this document on its own and did not open it, so an "
+      + "ignore file somewhere above, beside or below this project is excluding markup "
+      + "`npm run lint` reports clean");
   assert.deepEqual(read, owned,
     "html-validate processed a different set of documents than this project owns, so "
       + "`npm run lint` is reporting clean over markup nothing checked");
@@ -2151,11 +2246,16 @@ test("html-validate still demands a digest on third-party bytes", () => {
 // document added to this file would leave analysis with every gate green. Both entries
 // are build or dependency output; nothing authored may be listed.
 //
-// The entries are anchored the way the inventory walk prunes, which is the correspondence
-// that lets the walk stand in for the glob's reachable set. `dist` is generated at the
-// project root only, so it is written `/dist`; round 1 (Sol, seat B) showed the
-// unanchored spelling silently excluding `src/dist`. `node_modules` is pruned at any
-// depth, so it stays unanchored.
+// The entries are *not* a mirror of the inventory walk, and round 4 (Opus, seat B) was
+// right to object to an earlier comment here that said they were. The walk exempts
+// anything under `public/`, `src/`, `test/` and `scripts/` outright and prunes `bin` and
+// `obj` only beside a `.csproj`; these entries match at any depth unconditionally, so the
+// ignore file is strictly broader. What licenses the comparison is containment in the
+// safe direction -- everything the walk prunes is also ignored -- so no owned document is
+// ever measured against a file the linter refused to open. Where they diverge the set
+// comparison fails, which is the loud outcome. `dist` is the one anchored entry, because
+// it is generated at the project root only and round 1 (Sol, seat B) showed the
+// unanchored spelling silently excluding an authored `src/dist`.
 test("the html-validate ignore file names only generated directories", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const ignored = readFileSync(join(root, ".htmlvalidateignore"), "utf8")
@@ -2164,12 +2264,13 @@ test("the html-validate ignore file names only generated directories", () => {
     .filter(line => line !== "");
 
   assert.deepEqual(ignored, ["/dist", "node_modules", "bin", "obj"],
-    "these mirror how the project inventory prunes, which is what lets the two sets be "
-      + "compared at all; an entry here that is not generated output hides real markup");
+    "every entry here must be generated output, and must stay a superset of what the "
+      + "inventory walk prunes; an entry that covers authored markup hides it from the "
+      + "lint");
 
-  // The walk prunes exactly what the ignore file names, so anything it reports is a
-  // document the lint is expected to reach. A new entry here that covered authored markup
-  // would make this list non-empty rather than making the lint quietly smaller.
+  // Anything the walk reports is a document the lint is expected to reach. A new entry
+  // above that covered authored markup would make this list non-empty rather than making
+  // the lint quietly smaller.
   const documents = projectSourceFiles(root, htmlDocumentExtensions, unprunedRoots)
     .map(file => projectRelative(root, file));
   assert.ok(documents.length > 0,
