@@ -112,6 +112,13 @@ substrates, and inspection producers that will extend that space.
   without entering the inspected application's browser dependency closure,
   emits one opinionated TypeScript module, and leaves compilation and
   publication to the consumer.
+- [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
+  owns the safety contract for decoding custom-attribute values
+  from untrusted metadata: the alignment, bounding, and guard-work invariants
+  relating `CustomAttributeValueGuard` to SRM's decode, the two
+  width-resolution paths and the distinct mechanism each uses to stay in
+  agreement, and the bound, charging, and refusal semantics.
+  `SignatureBlobGuard` retains its structural signature bounds.
 
 ## Engineering guidance
 
