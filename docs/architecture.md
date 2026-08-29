@@ -203,6 +203,38 @@ The owning documents define construction and failure semantics. Adjacent
 components consume those values without recreating their validation or
 inferring them from formatted text.
 
+### Portable and bound currencies
+
+Portability is one axis of a currency, not a synonym for durability,
+correspondence, or displayability:
+
+| Form | Examples | Boundary rule |
+| ---- | -------- | ------------- |
+| Bound or non-portable | Live readers, IR nodes, query contexts, leases, body-scoped offsets, and generation-scoped catalog keys | Meaning depends on one live image, body, request, workspace, or catalog generation. These values do not cross that boundary. |
+| Portable | Artifact coordinates and digests, XML documentation API identifiers, persisted member projections, workspace definition records, and materialized source/text spans | The owner defines enough stable data for the value to cross a query, process, serialization, or persistence boundary. Portability does not make equality prove correspondence. |
+
+Projection from bound to portable is explicit and records what authority or
+precision was erased. Rebinding a portable value is another owner operation
+with validation and a typed failure; it is not a cast back to the live value.
+The full scope/lifetime/portability/correspondence matrix is owned by
+[Inspection space](inspection-space.md#core-currencies).
+
+This use of *portable* describes an architectural boundary. It is independent
+of format names such as Portable PDB.
+
+### Interchange formats
+
+Interchange is a separate axis: it defines an external or cross-host syntax
+from which an owner constructs typed currencies. A value can be portable
+without having a standardized interchange syntax, and accepted interchange
+text is not automatically trusted identity.
+
+| Format | Owner and typed boundary | Carries | Does not carry |
+| ------ | ------------------------ | ------- | -------------- |
+| XML documentation API identifiers | `CSharpText.XmlDocumentationNotation` produces `XmlDocMemberIdentity`; [type/member/API representation](design/type-member-api-representation.md) owns its role among identity projections. | Portable `T:`, `M:`, and related lookup notation with the XML documentation signature grammar. | A live metadata binding, Member Index identity, or proof that two members correspond. |
+| Workspace share packets | `WorkspaceSharePacketCodec` in `DotnetInspector.Queries`; [workspace definitions](design/workspace-definitions.md#the-url-share-packet) owns the versioned projection. | A bounded canonical base64url/JSON projection of acquisition coordinates, binding contexts, navigation focus, and optional initial view state. | Acquired artifacts, a serialized live workspace, credentials, or query results. |
+| Nuspec XML | `DotnetInspector.Services.NuspecParser` over the shared `HardenedXml` boundary; [nuspec structural compatibility](design/nuspec-structural-compatibility.md) owns accepted document shapes. | Untrusted package-manifest structure projected into `NuspecData`, then validated by consuming package queries. | Authoritative package coordinates or acquisition provenance merely because the manifest declares them. |
+
 ## Representation-specific identities
 
 The codebase deliberately has more than one type or member representation.
@@ -245,6 +277,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | Query planning or execution | [Inspection layers](design/inspection-layers.md) | `DotnetInspector.Queries`, optional query companions |
 | Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md) | `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
 | Metadata, API, type, or member facts | [Assembly inspection query](design/assembly-inspection-query.md), [representation](design/type-member-api-representation.md) | `ILInspector.Metadata*`, `ILInspector.CSharp`, `CSharpText` |
+| Portable identities or interchange formats | [Inspection space currencies](inspection-space.md#core-currencies), [workspace definitions](design/workspace-definitions.md), [nuspec compatibility](design/nuspec-structural-compatibility.md) | `CSharpText.XmlDocumentationNotation`, `DotnetInspector.Queries.Definitions.WorkspaceSharePacket*`, `DotnetInspector.Services.NuspecParser` |
 | Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |
 | IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `ILInspector.Findings` |
 | Decompilation or implementation comparison | [Decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
