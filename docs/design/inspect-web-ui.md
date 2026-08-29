@@ -910,8 +910,11 @@ When a navigation destination surface's renderer is replaced or unmounted, the
 consumer abandons every returned authority associated with that lifetime before
 discarding its callbacks. It also abandons a result that returns after its
 destination was destroyed or remounted. A remounted surface has a new lifetime,
-cannot consume callbacks from the destroyed one, and requests synchronization
-when the marker remains set and no earlier request is awaiting product
+cannot consume callbacks from the destroyed one, and schedules a fresh
+synchronization request when the marker remains set and no earlier request is
+awaiting product settlement. Mounting and request creation are separate
+consumer actions; the outstanding marker preserves the obligation between
+them. Every admitted request retains its exact identity until product
 settlement. Another abandonment preserves the marker and permits a later
 request after the prior one settles; the UI imposes no retry ceiling.
 Superseded work requires neither acknowledgement nor abandonment because the
@@ -935,16 +938,17 @@ dedicated synchronization response can intervene between every deferred
 effect. It includes prerequisite abort, product-side discard of superseded
 work, synchronization debt, bounded request identity, old-lifetime response
 abandonment, and fresh remount requests without modeling product revisions. TLC
-exhaustively checked 245,856 generated states and 179,524 distinct states at
+exhaustively checked 166,998 generated states and 117,928 distinct states at
 depth 20. Separate mutation configurations produced a counterexample when
 current-authority validation, disposition-driven installation,
 install-before-focus ordering, deferred-focus separation, complete-effect
 acknowledgement, acknowledgement debt clearing, destruction abandonment,
 abandonment debt preservation, remount synchronization, request/lifetime
-correlation, persistent focus safety, or replacement abandonment was removed.
-The dedicated recovery configuration also reached the complete trace in which
-an old-lifetime response is abandoned before a fresh current-lifetime response
-is consumed. The
+correlation, bounded request admission, persistent focus safety, or replacement
+abandonment was removed. The model also requires every exact admitted
+synchronization request to reach settlement. The dedicated recovery
+configuration reached the complete trace in which an old-lifetime response is
+abandoned before a fresh current-lifetime response is consumed. The
 [model README](models/inspect-web-navigation-consumer/README.md) records the
 tool versions, bounds, action coverage, mutation results, and deliberate
 abstraction of exact browser-history classification and browser-trigger-specific
@@ -1364,11 +1368,13 @@ these named Inspect Web tests:
   or destruction. A late response retains its exact request identity and old
   lifetime, is abandoned rather than consumed by the remounted destination, and
   must settle before the current lifetime issues another request. Repeated
-  abandonment permits later requests without a UI retry ceiling. A newer
-  current semantic result may instead discharge the same obligation through
-  its returned disposition. A Back or Forward traversal started after a
-  request makes the request's result foreign to the selected entry, so it is
-  abandoned without a history write.
+  abandonment permits later requests without a UI retry ceiling. It also proves
+  that remount and request creation are separate actions, the outstanding
+  marker survives between them, and every exact issued request reaches
+  settlement. A newer current semantic result may instead discharge the same
+  obligation through its returned disposition. A Back or Forward traversal
+  started after a request makes the request's result foreign to the selected
+  entry, so it is abandoned without a history write.
 - `navigation-consumer.test.ts`:
   `maintenance results honor synchronization disposition without stealing
   focus` covers authority validation, no snapshot or history write for
@@ -1568,11 +1574,12 @@ outcomes:
     session-scoped consumer retains any already-pending request's identity and
     old lifetime rather than issuing a second request. Return that old response
     and confirm that it is abandoned and settled before the current lifetime
-    requests fresh synchronization, installs the complete current snapshot
-    under fresh authority, replaces history, and acknowledges. Repeat
-    abandonment and confirm that another request remains possible. Start Back
-    or Forward after a request but before its result and confirm that the
-    foreign result is abandoned without changing the newly selected entry.
+    separately issues fresh synchronization, installs the complete current
+    snapshot under fresh authority, replaces history, and acknowledges. Confirm
+    that every exact issued request reaches settlement. Repeat abandonment and
+    confirm that another request remains possible. Start Back or Forward after
+    a request but before its result and confirm that the foreign result is
+    abandoned without changing the newly selected entry.
 18. While synchronization remains outstanding, return a newer current
     maintenance or explicit result. Confirm that its disposition controls
     installation and that acknowledgement of that current authority discharges

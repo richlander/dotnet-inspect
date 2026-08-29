@@ -44,9 +44,12 @@ originating surface lifetimes so a late response cannot be mistaken for a
 fresh request after remount. `RequestSynchronization` and
 `ReturnSynchronization` abstract the dedicated product protocol under fresh
 authority. Only one request is pending; a current explicit result may settle it
-while discharging the same debt. The finite bounds of two operations, three
-surface lifetimes, and two request identities limit only model exploration;
-they are not a UI or product retry ceiling.
+while discharging the same debt. Request creation remains a separate transition
+after remount rather than an atomic part of mounting. The model admits a request
+only while one bounded operation token remains available to represent a
+current-lifetime response. That capacity rule prevents a finite-state
+exploration artifact; the bounds of two operations, three surface lifetimes,
+and two request identities are not a UI or product retry ceiling.
 
 Inspection Subject Navigation discards superseded work without publishing a
 consumer result or effect authority. The model represents that terminal path as
@@ -86,7 +89,7 @@ The model states these required properties:
 - the typed synchronization disposition, not semantic outcome, decides whether
   installation is required;
 - abandonment preserves synchronization debt;
-- remount requests synchronization when debt remains;
+- eligible debt after remount eventually requests synchronization;
 - acknowledgement of a synchronization-required result clears the debt;
 - one synchronization request remains pending until product settlement;
 - a synchronization response is consumed only by its originating mounted
@@ -97,14 +100,16 @@ The model states these required properties:
   product supersession; and
 - outstanding debt without returned authority eventually requests
   synchronization, unless the surface is destroyed, the debt is discharged, or
-  another current result arrives first.
+  another current result arrives first; and
+- every exact synchronization request eventually reaches product settlement.
 
-The primary configuration exhaustively checks state shape and the three
-temporal properties while the required guards are enabled. Twelve mutation
+The primary configuration exhaustively checks state shape and four temporal
+properties while the required guards are enabled. Eleven mutation
 configurations disable one safety guard at a time and retain an independent
-witness invariant, demonstrating that each safety rule is non-vacuous. These
-are model claims, not implementation-conformance claims. Required implementation
-gates are named in the owning UI document.
+witness invariant. Two more disable liveness guards and violate the matching
+temporal property. Together they demonstrate that all thirteen checked rules
+are non-vacuous. These are model claims, not implementation-conformance claims.
+Required implementation gates are named in the owning UI document.
 
 ## Model checking
 
@@ -123,22 +128,22 @@ Run the primary model from this directory:
   -config UiEffectLifecycle.cfg UiEffectLifecycle.tla
 ```
 
-The complete breadth-first check generated 245,856 states, found 179,524
+The complete breadth-first check generated 166,998 states, found 117,928
 distinct states, reached depth 20, and reported no errors. Action coverage was
 nonzero for every modeled transition:
 
 | Action | Distinct | Invocations |
 | ------ | -------: | ----------: |
-| `BeginIntent` | 525 | 648 |
-| `ReturnResult` | 14,130 | 23,088 |
-| `RequestSynchronization` | 90 | 14,814 |
-| `ReturnSynchronization` | 27,060 | 35,220 |
-| `DiscardSuperseded` | 78 | 1,838 |
-| `RunEffect` | 22,914 | 45,906 |
-| `Acknowledge` | 6,102 | 7,542 |
-| `AbandonStale` | 9,390 | 33,900 |
-| `DestroySurface` | 67,505 | 97,394 |
-| `MountSurface` | 31,729 | 34,837 |
+| `BeginIntent` | 621 | 900 |
+| `ReturnResult` | 12,876 | 22,296 |
+| `RequestSynchronization` | 120 | 240 |
+| `ReturnSynchronization` | 4,560 | 6,720 |
+| `DiscardSuperseded` | 78 | 1,706 |
+| `RunEffect` | 20,130 | 42,522 |
+| `Acknowledge` | 5,406 | 6,810 |
+| `AbandonStale` | 8,154 | 29,976 |
+| `DestroySurface` | 46,145 | 65,816 |
+| `MountSurface` | 19,837 | 22,549 |
 
 The coverage figures use one worker so action counters are deterministic:
 
@@ -151,8 +156,9 @@ The coverage figures use one worker so action counters are deterministic:
 
 ## Mutation probes
 
-Twelve configurations disable one required guard while retaining an independent
-witness invariant:
+Thirteen configurations disable one required guard. Eleven retain an
+independent witness invariant; the two liveness mutations violate their
+matching temporal property:
 
 | Configuration | Disabled rule | Detected by |
 | ------------- | ------------- | ----------- |
@@ -165,9 +171,10 @@ witness invariant:
 | `ReplaceWithoutAbandonMutation.cfg` | outgoing-lifetime abandonment during renderer replacement | `ReplacementAbandonsOutgoingAuthority` |
 | `OutcomeDrivenInstallMutation.cfg` | disposition-driven installation independent of semantic outcome | `DispositionControlsInstallation` |
 | `AbandonClearsDebtMutation.cfg` | preservation of synchronization debt during abandonment | `AbandonmentPreservesSynchronizationDebt` |
-| `RemountWithoutSynchronizationMutation.cfg` | fresh synchronization request after remount with debt | `RemountRequestsSynchronization` |
+| `RemountWithoutSynchronizationMutation.cfg` | eventual synchronization request for eligible debt after remount | `EveryOutstandingDebtRequestsSynchronization` |
 | `AcknowledgeLeavesDebtMutation.cfg` | clearing synchronization debt only after complete acknowledgement | `AcknowledgeClearsSynchronizationDebt` |
 | `StaleSynchronizationResponseMutation.cfg` | exact request/lifetime correlation before consuming a synchronization response | `SynchronizationResponseMatchesRequestLifetime` |
+| `StrandedSynchronizationRequestMutation.cfg` | request admission only while bounded response capacity remains | `EverySynchronizationRequestSettles` |
 
 TLC finds a counterexample for every mutation. Exact partial-state counts are
 not recorded because parallel workers may discover the first counterexample in

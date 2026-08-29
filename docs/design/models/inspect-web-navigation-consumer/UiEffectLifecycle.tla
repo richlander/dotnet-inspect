@@ -21,7 +21,8 @@ CONSTANTS
   EnforceAbandonPreservesDebt,
   EnforceRemountSynchronization,
   EnforceDebtClearOnAcknowledge,
-  EnforceSynchronizationCorrelation
+  EnforceSynchronizationCorrelation,
+  EnforceRequestCapacity
 
 ASSUME MaxIntents >= 2
 ASSUME MaxSurfaceEpoch >= 2
@@ -38,6 +39,7 @@ ASSUME EnforceAbandonPreservesDebt \in BOOLEAN
 ASSUME EnforceRemountSynchronization \in BOOLEAN
 ASSUME EnforceDebtClearOnAcknowledge \in BOOLEAN
 ASSUME EnforceSynchronizationCorrelation \in BOOLEAN
+ASSUME EnforceRequestCapacity \in BOOLEAN
 
 Tokens == 1..MaxIntents
 SynchronizationRequests == 1..MaxSynchronizationRequests
@@ -109,7 +111,6 @@ VARIABLES
   replacementWitness,
   dispositionWitness,
   abandonmentWitness,
-  remountWitness,
   debtWitness,
   synchronizationCorrelationWitness
 
@@ -140,7 +141,6 @@ vars ==
      replacementWitness,
      dispositionWitness,
      abandonmentWitness,
-     remountWitness,
      debtWitness,
      synchronizationCorrelationWitness >>
 
@@ -173,7 +173,6 @@ Init ==
   /\ replacementWitness = TRUE
   /\ dispositionWitness = TRUE
   /\ abandonmentWitness = TRUE
-  /\ remountWitness = TRUE
   /\ debtWitness = TRUE
   /\ synchronizationCorrelationWitness = TRUE
 
@@ -182,6 +181,9 @@ CurrentAuthority(i) ==
   /\ status[i] = "returned"
   /\ i = currentIntent
   /\ operationSurface[i] = surfaceEpoch
+
+RequestCapacityAvailable ==
+  ~EnforceRequestCapacity \/ nextIntent < MaxIntents
 
 BeginIntent ==
   /\ mounted
@@ -215,7 +217,6 @@ BeginIntent ==
                   replacementWitness,
                   dispositionWitness,
                   abandonmentWitness,
-                  remountWitness,
                   debtWitness,
                   synchronizationCorrelationWitness >>
 
@@ -257,7 +258,6 @@ ReturnResult(i, result, resultDisposition) ==
                   deferredFocusWitness,
                   replacementWitness,
                   abandonmentWitness,
-                  remountWitness,
                   debtWitness,
                   synchronizationCorrelationWitness,
                   focusLocation,
@@ -273,6 +273,8 @@ RequestSynchronization ==
   /\ synchronizationDebt
   /\ pendingSynchronizationRequest = 0
   /\ nextSynchronizationRequest < MaxSynchronizationRequests
+  /\ RequestCapacityAvailable
+  /\ (surfaceEpoch = 1 \/ EnforceRemountSynchronization)
   /\ \A i \in Tokens : status[i] # "returned"
   /\ LET r == nextSynchronizationRequest + 1 IN
      /\ nextSynchronizationRequest' = r
@@ -302,7 +304,6 @@ RequestSynchronization ==
                   replacementWitness,
                   dispositionWitness,
                   abandonmentWitness,
-                  remountWitness,
                   debtWitness,
                   synchronizationCorrelationWitness >>
 
@@ -378,7 +379,6 @@ ReturnSynchronization(r) ==
                   deferredFocusWitness,
                   replacementWitness,
                   abandonmentWitness,
-                  remountWitness,
                   debtWitness >>
 
 DiscardSuperseded(i) ==
@@ -411,7 +411,6 @@ DiscardSuperseded(i) ==
                   replacementWitness,
                   dispositionWitness,
                   abandonmentWitness,
-                  remountWitness,
                   debtWitness,
                   synchronizationCorrelationWitness >>
 
@@ -494,7 +493,6 @@ RunEffect(i, effect, replaceSurface) ==
                   destructionWitness,
                   dispositionWitness,
                   abandonmentWitness,
-                  remountWitness,
                   debtWitness,
                   synchronizationCorrelationWitness >>
 
@@ -554,7 +552,6 @@ Acknowledge(i) ==
                   replacementWitness,
                   dispositionWitness,
                   abandonmentWitness,
-                  remountWitness,
                   synchronizationCorrelationWitness >>
 
 AbandonStale(i) ==
@@ -594,7 +591,6 @@ AbandonStale(i) ==
                   deferredFocusWitness,
                   replacementWitness,
                   dispositionWitness,
-                  remountWitness,
                   debtWitness,
                   synchronizationCorrelationWitness >>
 
@@ -648,7 +644,6 @@ DestroySurface ==
                   deferredFocusWitness,
                   replacementWitness,
                   dispositionWitness,
-                  remountWitness,
                   debtWitness,
                   synchronizationCorrelationWitness >>
 
@@ -657,37 +652,6 @@ MountSurface ==
   /\ surfaceEpoch < MaxSurfaceEpoch
   /\ mounted' = TRUE
   /\ surfaceEpoch' = surfaceEpoch + 1
-  /\ nextSynchronizationRequest' =
-       IF EnforceRemountSynchronization
-          /\ synchronizationDebt
-          /\ pendingSynchronizationRequest = 0
-          /\ nextSynchronizationRequest < MaxSynchronizationRequests
-       THEN nextSynchronizationRequest + 1
-       ELSE nextSynchronizationRequest
-  /\ pendingSynchronizationRequest' =
-       IF EnforceRemountSynchronization
-          /\ synchronizationDebt
-          /\ pendingSynchronizationRequest = 0
-          /\ nextSynchronizationRequest < MaxSynchronizationRequests
-       THEN nextSynchronizationRequest + 1
-       ELSE pendingSynchronizationRequest
-  /\ synchronizationRequestSurface' =
-       IF EnforceRemountSynchronization
-          /\ synchronizationDebt
-          /\ pendingSynchronizationRequest = 0
-          /\ nextSynchronizationRequest < MaxSynchronizationRequests
-       THEN
-         [synchronizationRequestSurface EXCEPT
-            ![nextSynchronizationRequest + 1] = surfaceEpoch + 1]
-       ELSE synchronizationRequestSurface
-  /\ remountWitness' =
-       /\ remountWitness
-       /\ (~(synchronizationDebt
-             /\ pendingSynchronizationRequest = 0
-             /\ nextSynchronizationRequest < MaxSynchronizationRequests)
-           \/ /\ pendingSynchronizationRequest' # 0
-              /\ synchronizationRequestSurface'
-                   [pendingSynchronizationRequest'] = surfaceEpoch')
   /\ UNCHANGED << currentIntent,
                   nextIntent,
                   operationSurface,
@@ -697,6 +661,9 @@ MountSurface ==
                   required,
                   completed,
                   synchronizationDebt,
+                  nextSynchronizationRequest,
+                  pendingSynchronizationRequest,
+                  synchronizationRequestSurface,
                   settledSynchronizationRequests,
                   synchronizationResponseHandling,
                   focusLocation,
@@ -755,7 +722,6 @@ TypeOK ==
   /\ replacementWitness \in BOOLEAN
   /\ dispositionWitness \in BOOLEAN
   /\ abandonmentWitness \in BOOLEAN
-  /\ remountWitness \in BOOLEAN
   /\ debtWitness \in BOOLEAN
   /\ synchronizationCorrelationWitness \in BOOLEAN
 
@@ -801,8 +767,6 @@ DispositionControlsInstallation == dispositionWitness
 
 AbandonmentPreservesSynchronizationDebt == abandonmentWitness
 
-RemountRequestsSynchronization == remountWitness
-
 AcknowledgeClearsSynchronizationDebt == debtWitness
 
 SynchronizationRequestShape ==
@@ -833,6 +797,7 @@ NeedsSynchronizationRequest ==
   /\ synchronizationDebt
   /\ pendingSynchronizationRequest = 0
   /\ nextSynchronizationRequest < MaxSynchronizationRequests
+  /\ RequestCapacityAvailable
   /\ \A i \in Tokens : status[i] # "returned"
 
 EveryReturnedAuthoritySettles ==
@@ -849,6 +814,11 @@ EveryOutstandingDebtRequestsSynchronization ==
       \/ ~mounted
       \/ ~synchronizationDebt
       \/ \E i \in Tokens : status[i] = "returned"
+
+EverySynchronizationRequestSettles ==
+  \A r \in SynchronizationRequests :
+    pendingSynchronizationRequest = r
+    ~> r \in settledSynchronizationRequests
 
 Fairness ==
   /\ \A i \in Tokens : WF_vars(ReturnAnyResult(i))
