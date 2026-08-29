@@ -88,7 +88,7 @@ public sealed class BodyShapesSectionTests
                     "Kind=ObjectCreationExpression",
                     "--columns",
                     "Kind;Token",
-                    "--rows",
+                    "-n",
                     "1",
                     "--jsonl",
                 ])
@@ -671,7 +671,7 @@ public sealed class BodyShapesSectionTests
                     "--plaintext",
                     "--columns",
                     "Kind;Member",
-                    "--rows",
+                    "-n",
                     "2",
                 ])
                 .InvokeAsync());

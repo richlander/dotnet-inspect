@@ -2512,14 +2512,14 @@ public class OutputFormatterTests
     [Fact]
     public void BuildRowWindow_CountWithoutDirectionIsLeadingWindow()
     {
-        var window = SharedOptions.BuildRowWindow("3", fromEnd: false);
+        var window = SharedOptions.BuildRowWindow(RowSpec.FromCount(3), fromEnd: false);
         Assert.Equal(RowWindow.Head(3), window);
     }
 
     [Fact]
     public void BuildRowWindow_CountWithTailIsTrailingWindow()
     {
-        var window = SharedOptions.BuildRowWindow("3", fromEnd: true);
+        var window = SharedOptions.BuildRowWindow(RowSpec.FromCount(3), fromEnd: true);
         Assert.Equal(RowWindow.Tail(3), window);
     }
 
