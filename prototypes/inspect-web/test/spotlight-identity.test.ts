@@ -2746,6 +2746,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
   assert.doesNotMatch(handoff, /state\.packageQueryOpenedFromApp = false/);
   assert.doesNotMatch(handoff, /state\.packageQueryReturnFocus = null/);
+  assert.doesNotMatch(
+    handoff,
+    /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
     /function renderPackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*restorePackageQueryFocus\(document, focus\)/);
@@ -2760,7 +2763,16 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function closePackageQueryRoute\(\) \{\s*navigationSequence\.begin\(\);[\s\S]*history\.back\(\)/);
   assert.match(
     appSource,
+    /function closePackageQueryRoute\(\) \{[\s\S]*state\.packageQueryReturnFocusPending =\s*state\.packageQueryReturnFocus !== null;[\s\S]*history\.back\(\)/);
+  assert.match(
+    appSource,
     /function openCredits\(\) \{[\s\S]*?navigationSequence\.begin\(\);\s*state\.packageQueryOpen = false/);
+  assert.match(
+    appSource,
+    /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
+  assert.match(
+    appSource,
+    /const current = state\.packageQueryState\.request\s*\? withScopeQuery\(state\.packageQueryState\.request, validPrefix\)\s*: createQueryRequest\(validPrefix\)/);
 });
 
 test("authoritative location restore clears filters and applies aggregate Platform scope", () => {

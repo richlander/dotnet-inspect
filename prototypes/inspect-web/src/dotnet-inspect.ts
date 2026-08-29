@@ -279,6 +279,7 @@ import {
   createQueryRequest,
   initialQueryState,
   toggleFacet,
+  withScopeQuery,
   type PackageQueryState,
   type QueryFacetTerm,
 } from "./package-query.ts";
@@ -589,6 +590,7 @@ const initialState = {
   packageQueryNavigationError: "",
   packageQueryOpenedFromApp: false,
   packageQueryReturnFocus: null,
+  packageQueryReturnFocusPending: false,
   packageQueryState: initialQueryState(),
   packageQueryFacets: [],
   platformIndex: null,
@@ -6865,8 +6867,12 @@ function bindHomeEvents() {
     const input =
       document.querySelector<HTMLInputElement>("#spotlight-input");
     input?.focus();
-    if (input && state.packageQueryReturnFocus === "home-search")
+    if (input
+      && state.packageQueryReturnFocusPending
+      && state.packageQueryReturnFocus === "home-search") {
       state.packageQueryReturnFocus = null;
+      state.packageQueryReturnFocusPending = false;
+    }
   });
 }
 
@@ -6950,12 +6956,16 @@ function focusPackageQueryInput() {
 }
 
 function restorePackageQueryReturnFocus() {
-  if (state.packageQueryReturnFocus !== "package-search") return;
+  if (!state.packageQueryReturnFocusPending
+    || state.packageQueryReturnFocus !== "package-search") return;
   requestAnimationFrame(() => {
     const input =
       document.querySelector<HTMLInputElement>("#package-query-input");
     input?.focus();
-    if (input) state.packageQueryReturnFocus = null;
+    if (input) {
+      state.packageQueryReturnFocus = null;
+      state.packageQueryReturnFocusPending = false;
+    }
   });
 }
 
@@ -6976,6 +6986,7 @@ function openPackageQueryRoute(seed = "") {
   state.packageQueryReturnFocus = state.home
     ? "home-search"
     : "package-search";
+  state.packageQueryReturnFocusPending = false;
   state.packageQueryOpen = true;
   state.credits = false;
   state.home = false;
@@ -6992,6 +7003,8 @@ function openPackageQueryRoute(seed = "") {
 function closePackageQueryRoute() {
   navigationSequence.begin();
   if (state.packageQueryOpenedFromApp) {
+    state.packageQueryReturnFocusPending =
+      state.packageQueryReturnFocus !== null;
     history.back();
     return;
   }
@@ -6999,6 +7012,7 @@ function closePackageQueryRoute() {
   packageQueryController.cancel();
   state.packageQueryOpenedFromApp = false;
   state.packageQueryReturnFocus = null;
+  state.packageQueryReturnFocusPending = false;
   state.credits = false;
   state.home = true;
   spotlight.reset();
@@ -7042,8 +7056,8 @@ function togglePackageQueryFacet(facetKey: string, prefix: string) {
 
   state.packageQueryPrefix = validPrefix;
   state.packageQueryNavigationError = "";
-  const current = state.packageQueryState.request?.scopeQuery === validPrefix
-    ? state.packageQueryState.request
+  const current = state.packageQueryState.request
+    ? withScopeQuery(state.packageQueryState.request, validPrefix)
     : createQueryRequest(validPrefix);
   void packageQueryController.run(toggleFacet(current, facet));
 }
@@ -10259,6 +10273,7 @@ window.addEventListener("popstate", () => {
   if (isPackageQueryPath(location.pathname)) {
     clearNavigationError();
     state.packageQueryOpen = true;
+    state.packageQueryReturnFocusPending = false;
     state.credits = false;
     state.home = false;
     spotlight.reset();
@@ -10269,6 +10284,8 @@ window.addEventListener("popstate", () => {
   if (state.packageQueryOpen) {
     state.packageQueryOpen = false;
     packageQueryController.cancel();
+    state.packageQueryReturnFocusPending =
+      state.packageQueryReturnFocus !== null;
   }
   const loc = parseLocation();
   if (isCreditsPath(location.pathname)) {

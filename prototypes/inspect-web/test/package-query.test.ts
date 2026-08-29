@@ -11,6 +11,7 @@ import {
   toggleFacet,
   withCompletion,
   withFacet,
+  withScopeQuery,
   withoutFacet,
   type PackageQueryDataSource,
   type QueryCompletion,
@@ -65,6 +66,19 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.equal(defaults.requestedLimit, 200);
   assert.equal(defaults.requestedMatchLimit, 100);
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
+});
+
+test("withScopeQuery preserves facets and bounds while changing the prefix", () => {
+  const request = {
+    ...withFacet(createQueryRequest("Microsoft."), TFM_FACET),
+    requestedLimit: 25,
+    requestedMatchLimit: 10,
+  };
+
+  assert.deepEqual(withScopeQuery(request, "System."), {
+    ...request,
+    scopeQuery: "System.",
+  });
 });
 
 test("toggleFacet replaces an active facet in the same producer-owned selection group", () => {

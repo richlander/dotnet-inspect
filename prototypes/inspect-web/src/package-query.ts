@@ -42,6 +42,16 @@ export function createQueryRequest(
   };
 }
 
+export function withScopeQuery(
+  request: QueryRequest,
+  scopeQuery: string,
+): QueryRequest {
+  return {
+    ...request,
+    scopeQuery,
+  };
+}
+
 export function withFacet(
   request: QueryRequest,
   facet: QueryFacetTerm,
