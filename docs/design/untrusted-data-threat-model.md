@@ -260,6 +260,23 @@ contributor writing normal code, which is how an invariant actually decays, and
 `SourceLinkProvenanceTests.ASourceLinkOrigin_CannotBeConstructedOrRewrittenOutsideItsOwnAssembly`
 is the gate for them. It deliberately does not claim more.
 
+**Nor is a local actor on the user's own machine.** Do not model our own code,
+another contributor or agent, or a user who can act on the machine as a hostile
+actor that product code must contain. A party that can edit the codebase, run
+code in the process, create local symlinks, or place credentials in the
+repository can already bypass product invariants and has more direct targets.
+Treat those scenarios as code review, testing, or repository-hygiene concerns,
+not as reasons to add product hardening. Before accepting a security concern,
+identify how an actor *outside* the user's machine can affect the user through
+data the tool reads — that is the boundary table above. A locally supplied
+assembly does not independently establish an attacker boundary; it may receive
+the same containment as an internet-origin assembly when both use a shared
+path, but that benefit is incidental and does not justify extra complexity.
+Robustness against accidental internal mistakes still matters, and is achieved
+with simple, auditable code, structured types instead of strings, narrow APIs,
+compiler-enforced invariants, and focused tests — not by pretending trusted
+code is an attacker.
+
 ## Existing controls
 
 ### Assemblies are parsed, never loaded

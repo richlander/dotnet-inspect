@@ -3,7 +3,7 @@
 This runbook records how to install the TLA+ tools (`tla2tools.jar`) and their
 Java prerequisite on each OS a contributor might use to build or check the
 small TLA+ models referenced by
-[`AGENTS.md`](../../AGENTS.md#keep-specifications-readable-model-interactions).
+[`docs/design-scope.md`](../design-scope.md#keep-specifications-readable-model-interactions).
 It does not cover the Toolbox GUI or the VS Code extension; this repository
 uses the command-line tools only.
 
