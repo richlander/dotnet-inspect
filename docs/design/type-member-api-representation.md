@@ -580,7 +580,7 @@ string SimpleName)` is private to
 
 **The model duplication is a committed decision, not drift.**
 The
-[implementation architecture map](../architecture.md#representation-specific-identities)
+[architecture map](../architecture.md#representation-specific-identities)
 records the boundary, and
 `docs/metadata-primitives.md` preserves the evidence while reopening only the
 bounded mechanics below the models. Analysis needs semantic structure for

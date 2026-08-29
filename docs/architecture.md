@@ -1,4 +1,4 @@
-# Implementation architecture
+# Architecture
 
 This document maps the current implementation and its explicit migration
 boundaries to the architecture owned by the rest of the documentation set. It
@@ -16,9 +16,6 @@ Authority is intentionally distributed:
   contracts.
 - [CLI host architecture](cli-architecture.md) describes command-host
   composition without treating the CLI as the whole product.
-
-When this map disagrees with an owning design or current tests, the owner and
-tests win.
 
 ## Essential shape
 

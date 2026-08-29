@@ -7,7 +7,7 @@ metadata, Analysis, source, decompilation, or comparison facts it presents.
 
 See:
 
-- [Implementation architecture](architecture.md) for the whole-product map;
+- [Architecture](architecture.md) for the whole-product map;
 - [Command transitions](design/command-transition-model.md) for command versus
   option boundaries;
 - [Progressive disclosure](design/progressive-disclosure.md) for verbosity,

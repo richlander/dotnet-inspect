@@ -121,7 +121,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
-- [Implementation architecture](architecture.md): host-neutral composition,
+- [Architecture](architecture.md): host-neutral composition,
   logical layers, project regions, currencies, and code-navigation map.
 - [CLI host architecture](cli-architecture.md): command-host responsibilities,
   request lifetime, selection, and presentation composition.
