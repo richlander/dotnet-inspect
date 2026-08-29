@@ -1312,14 +1312,18 @@ public class AuthoredCorpusRatchetTests
         var tracked = AuthoredCorpusHistoryCardTests.TrackedHistory();
         var comparison = AuthoredCorpusRatchet.CompareNewestRow(tracked);
         var newest = tracked[^1];
-        var baseline = tracked[^2];
 
         Assert.False(comparison.Skipped, comparison.SkipReason);
+        var baseline = Assert.IsType<HistoryRun>(comparison.Baseline);
         if (newest.Commit == AcceptedAugust29BaselineCommit)
         {
-            Assert.Equal(["correct"], comparison.Regressions.Select(metric => metric.Name));
-            Assert.Equal(1564, baseline.Correct);
-            Assert.Equal(1562, newest.Correct);
+            var regression = Assert.Single(comparison.Regressions);
+
+            Assert.Equal("correct", regression.Name);
+            Assert.Equal(1564d, regression.Baseline);
+            Assert.Equal(1562d, regression.Current);
+            Assert.Equal("2026-08-14", baseline.Date);
+            Assert.Equal("56f8cef5831bd969a42196b5999125f982006913", baseline.Commit);
         }
         else
         {
@@ -1454,25 +1458,49 @@ public class AuthoredCorpusRatchetTests
                 ".github",
                 "workflows",
                 "deep-inspect.yml"));
+        int scheduleStart = workflow.IndexOf("  schedule:", StringComparison.Ordinal);
         int packageSweepStart = workflow.IndexOf("  package-sweep:", StringComparison.Ordinal);
         int authoredCorpusStart = workflow.IndexOf("  authored-corpus-ratchet:", StringComparison.Ordinal);
+        string schedule = workflow[
+            scheduleStart..
+            workflow.IndexOf("env:", scheduleStart, StringComparison.Ordinal)];
         string packageSweep = workflow[
             packageSweepStart..
             workflow.IndexOf("  test:", packageSweepStart, StringComparison.Ordinal)];
         string authoredCorpus = workflow[
             authoredCorpusStart..
             workflow.IndexOf("  report-scheduled-failure:", authoredCorpusStart, StringComparison.Ordinal)];
-        const string dailySchedule =
-            "(github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')";
-        const string weeklySchedule =
-            "(github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1')";
 
-        Assert.Contains("- cron: '0 6 * * *'", workflow, StringComparison.Ordinal);
-        Assert.Contains("- cron: '0 9 * * 1'", workflow, StringComparison.Ordinal);
-        Assert.Contains(dailySchedule, authoredCorpus, StringComparison.Ordinal);
-        Assert.DoesNotContain(weeklySchedule, authoredCorpus, StringComparison.Ordinal);
-        Assert.Contains(weeklySchedule, packageSweep, StringComparison.Ordinal);
-        Assert.DoesNotContain(dailySchedule, packageSweep, StringComparison.Ordinal);
+        Assert.Equal(
+            ["- cron: '0 6 * * *'", "- cron: '0 9 * * 1'"],
+            schedule
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .Where(line => line.StartsWith("- cron:", StringComparison.Ordinal)));
+        Assert.Equal(
+            """
+            (github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1') || inputs.lane == 'package-sweep'
+            """,
+            JobCondition(packageSweep));
+        Assert.Equal(
+            """
+            (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *') || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
+            """,
+            JobCondition(authoredCorpus));
+
+        static string JobCondition(string job)
+        {
+            string[] lines = job.Replace("\r", "", StringComparison.Ordinal).Split('\n');
+            int conditionStart = Array.FindIndex(lines, line => line == "    if: >-");
+
+            Assert.True(conditionStart >= 0);
+            return string.Join(
+                ' ',
+                lines
+                    .Skip(conditionStart + 1)
+                    .TakeWhile(line => line.StartsWith("      ", StringComparison.Ordinal))
+                    .Select(line => line.Trim()));
+        }
     }
 
     [Fact]
