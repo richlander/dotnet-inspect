@@ -487,12 +487,10 @@ public sealed class AnalysisDescriptor
                 {
                     if (!ReferenceEquals(
                             requirements[left].Capability,
-                            requirements[right].Capability)
-                        && requirements[left].Modes.Intersect(
-                            requirements[right].Modes).Any())
+                            requirements[right].Capability))
                     {
                         throw new ArgumentException(
-                            "Overlapping requirements with one capability identifier must share its exact descriptor.",
+                            "Requirements with one capability identifier must share its exact descriptor.",
                             nameof(UniverseRequirements));
                     }
                 }
@@ -704,7 +702,8 @@ public sealed class AnalysisRequestRejection
         AnalysisRequestRejectionReason.UnsupportedTargetRole =>
             "Bind targets only to the owner-issued roles declared for this surface.",
         AnalysisRequestRejectionReason.InvalidMode =>
-            "Targeted requests require a privileged anchor; Census requests forbid one.",
+            "Targeted requests require a privileged anchor; "
+            + "Census requests require a report-domain target and forbid privileged anchors.",
         AnalysisRequestRejectionReason.MissingUniverse =>
             "Supply one owner-issued finite analysis universe.",
         AnalysisRequestRejectionReason.UnboundedUniverse =>
@@ -915,11 +914,35 @@ public sealed class AnalysisCapabilityCatalog
             target.Role.Function == AnalysisTargetFunction.PrivilegedAnchor);
         bool hasReportDomain = reportSurface.Targets.Any(target =>
             target.Role.Function == AnalysisTargetFunction.ReportDomain);
-        if ((request.Mode == AnalysisQuestionMode.Targeted && !hasAnchor)
-            || (request.Mode == AnalysisQuestionMode.Census
-                && (hasAnchor || !hasReportDomain)))
+        ImmutableArray<AnalysisTargetRoleDescriptor> invalidModeRoles =
+            request.Mode switch
+            {
+                AnalysisQuestionMode.Targeted when !hasAnchor =>
+                [
+                    .. surface.TargetRoles.Where(role =>
+                        role.Function == AnalysisTargetFunction.PrivilegedAnchor),
+                ],
+                AnalysisQuestionMode.Census when hasAnchor || !hasReportDomain =>
+                [
+                    .. reportSurface.Targets
+                        .Where(target =>
+                            target.Role.Function
+                                == AnalysisTargetFunction.PrivilegedAnchor)
+                        .Select(target => target.Role)
+                        .Concat(!hasReportDomain
+                            ? surface.TargetRoles.Where(role =>
+                                role.Function == AnalysisTargetFunction.ReportDomain)
+                            : [])
+                        .Distinct<AnalysisTargetRoleDescriptor>(
+                            ReferenceEqualityComparer.Instance),
+                ],
+                _ => [],
+            };
+        if (!invalidModeRoles.IsEmpty)
         {
-            return Reject(AnalysisRequestRejectionReason.InvalidMode);
+            return Reject(
+                AnalysisRequestRejectionReason.InvalidMode,
+                targetRoles: invalidModeRoles);
         }
 
         ImmutableArray<AnalysisTargetRoleDescriptor> countMismatch =

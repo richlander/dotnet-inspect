@@ -149,7 +149,9 @@ public sealed class AnalysisRequestTests
                 mode: AnalysisQuestionMode.Targeted));
 
         Assert.Equal(AnalysisRequestRejectionReason.InvalidMode, rejection.Reason);
-        Assert.Empty(rejection.TargetRoles);
+        Assert.Equal(
+            [fixture.MemberAnchor, fixture.FallbackAnchor],
+            rejection.TargetRoles);
     }
 
     [Fact]
@@ -172,6 +174,7 @@ public sealed class AnalysisRequestTests
             fixture.Request(surface: surface));
 
         Assert.Equal(AnalysisRequestRejectionReason.InvalidMode, rejection.Reason);
+        Assert.Equal([fixture.MemberAnchor], rejection.TargetRoles);
     }
 
     [Fact]
@@ -187,7 +190,7 @@ public sealed class AnalysisRequestTests
             fixture.Request(surface: surface));
 
         Assert.Equal(AnalysisRequestRejectionReason.InvalidMode, rejection.Reason);
-        Assert.Empty(rejection.TargetRoles);
+        Assert.Equal([fixture.WorkspaceDomain], rejection.TargetRoles);
     }
 
     [Fact]
@@ -364,7 +367,7 @@ public sealed class AnalysisRequestTests
     }
 
     [Fact]
-    public void AnalysisDescriptor_RejectsOverlappingCapabilityIdentityCollision()
+    public void AnalysisDescriptor_RequiresOneExactCapabilityIdentityPerId()
     {
         Fixture fixture = new();
         var capability = new AnalysisUniverseCapabilityDescriptor(
@@ -377,22 +380,32 @@ public sealed class AnalysisRequestTests
         var second = new AnalysisUniverseRequirementDescriptor(
             new AnalysisDeclarationId("requirement.second"),
             capability,
-            [AnalysisQuestionMode.Census]);
+            [AnalysisQuestionMode.Targeted]);
         AnalysisDescriptor shared = fixture.WithUniverseRequirements(first, second);
         AnalysisUniverseDescription universe = fixture.Universe(
             new UniverseIdentity("shared"),
             new Boundary("selected types"),
             capabilities: [capability]);
 
-        AnalysisRequestPlan plan = Assert.IsType<
+        AnalysisRequestPlan censusPlan = Assert.IsType<
             AnalysisRequestPlanResult.Accepted>(
                 new AnalysisCapabilityCatalog([shared]).Plan(
                     fixture.Request(
                         analysis: shared,
                         universe: universe),
                     fixture.Environment)).Plan;
+        AnalysisRequestPlan targetedPlan = Assert.IsType<
+            AnalysisRequestPlanResult.Accepted>(
+                new AnalysisCapabilityCatalog([shared]).Plan(
+                    fixture.Request(
+                        analysis: shared,
+                        surface: fixture.MemberSurface(),
+                        universe: universe,
+                        mode: AnalysisQuestionMode.Targeted),
+                    fixture.Environment)).Plan;
 
-        Assert.Equal([first, second], plan.UniverseRequirements);
+        Assert.Equal([first], censusPlan.UniverseRequirements);
+        Assert.Equal([second], targetedPlan.UniverseRequirements);
 
         var lookalike = new AnalysisUniverseCapabilityDescriptor(
             capability.Id,
@@ -400,9 +413,54 @@ public sealed class AnalysisRequestTests
         var collision = new AnalysisUniverseRequirementDescriptor(
             new AnalysisDeclarationId("requirement.collision"),
             lookalike,
-            [AnalysisQuestionMode.Census]);
+            [AnalysisQuestionMode.Targeted]);
         Assert.Throws<ArgumentException>(() =>
             fixture.WithUniverseRequirements(first, collision));
+    }
+
+    [Fact]
+    public void AnalysisCapability_SelectsReportSurfaceDeclarationByMode()
+    {
+        Fixture fixture = new();
+        var analysis = new AnalysisDescriptor(
+            fixture.Analysis.Id,
+            fixture.Analysis.Revision,
+            fixture.Analysis.Cost,
+            fixture.Analysis.Modes,
+            [
+                new AnalysisReportSurfaceSupport(
+                    AnalysisReportSurfaceKind.Workspace,
+                    AnalysisQuestionMode.Census,
+                    [fixture.WorkspaceDomain]),
+                new AnalysisReportSurfaceSupport(
+                    AnalysisReportSurfaceKind.Workspace,
+                    AnalysisQuestionMode.Targeted,
+                    [fixture.MemberAnchor]),
+            ],
+            fixture.Analysis.UniverseRequirements,
+            fixture.Analysis.StructuralPrerequisites,
+            fixture.Analysis.HostRequirements,
+            fixture.Analysis.Projections);
+        var surface = new AnalysisReportSurface(
+            AnalysisReportSurfaceKind.Workspace,
+            new SurfaceIdentity("targeted-workspace"),
+            [
+                new AnalysisTargetBinding(
+                    fixture.MemberAnchor,
+                    new TargetIdentity("M:Example.Run")),
+            ]);
+
+        AnalysisRequestPlan plan = Assert.IsType<
+            AnalysisRequestPlanResult.Accepted>(
+                new AnalysisCapabilityCatalog([analysis]).Plan(
+                    fixture.Request(
+                        analysis: analysis,
+                        surface: surface,
+                        mode: AnalysisQuestionMode.Targeted),
+                    fixture.Environment)).Plan;
+
+        Assert.Same(surface, plan.ReportSurface);
+        Assert.Equal(AnalysisQuestionMode.Targeted, plan.Mode);
     }
 
     [Fact]
@@ -614,14 +672,19 @@ public sealed class AnalysisRequestTests
         Fixture analysisDominated = new(
             analysisCost: InspectionCost.Unbounded,
             queryDependencyCost: InspectionCost.NetworkFree);
+        Fixture bounded = new(
+            analysisCost: InspectionCost.NetworkFree,
+            queryDependencyCost: InspectionCost.NetworkFree);
 
         AnalysisRequestPlan queryPlan = queryDominated.Accepted(
             queryDominated.Request());
         AnalysisRequestPlan analysisPlan = analysisDominated.Accepted(
             analysisDominated.Request());
+        AnalysisRequestPlan boundedPlan = bounded.Accepted(bounded.Request());
 
         Assert.Equal(InspectionCost.Unbounded, queryPlan.Cost);
         Assert.Equal(InspectionCost.Unbounded, analysisPlan.Cost);
+        Assert.Equal(InspectionCost.NetworkFree, boundedPlan.Cost);
     }
 
     [Fact]

@@ -387,10 +387,11 @@ The runtime implementation is verified by these named gates:
 - `AnalysisCapability_AllDeclaredRejectionsPrecedeProducerExecution`
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
 - `AnalysisCapability_RequiresConfiguredOwnerIssuedDescriptorIdentity`
+- `AnalysisCapability_SelectsReportSurfaceDeclarationByMode`
 - `AnalysisCapability_ModeScopesUniverseRequirementsAndProjections`
 - `AnalysisCapability_RejectsTargetRoleCardinalityMismatch`
 - `AnalysisDescriptor_RejectsModeWithoutSatisfiableSurfaceOrProjection`
-- `AnalysisDescriptor_RejectsOverlappingCapabilityIdentityCollision`
+- `AnalysisDescriptor_RequiresOneExactCapabilityIdentityPerId`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_CostIsMaximumOfAnalysisAndTransitiveQueries`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
