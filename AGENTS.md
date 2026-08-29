@@ -73,10 +73,12 @@ Before continuing:
 
 ## Making your work findable
 
-Each window must identify its PR, current state, and any decision it needs.
-Full tmux mechanics and rationale live in
-[Agent session state](docs/agent-session-state.md); this section states the
-binding rules.
+This section is tmux-specific and applies only inside a tmux pane — check
+`[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
+attach state to, so skip it entirely. Each window must identify its PR,
+current state, and any decision it needs. Full tmux mechanics and rationale
+live in [Agent session state](docs/agent-session-state.md); this section
+states the binding rules.
 
 - **Rename the window** to `pr<number>` (or `i<number>` before a PR exists),
   always targeting `"${TMUX_PANE:?}"`, and keep it stable except for a

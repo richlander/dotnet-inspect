@@ -4,6 +4,19 @@
 binding rules: every window identifies its PR, current state, and any decision
 it needs. This document owns the tmux mechanics and the reasoning behind them.
 
+## Detecting tmux
+
+Everything below applies only inside a tmux pane. Test with `[ -n "$TMUX" ]`
+before running any of it; `$TMUX` is set by the tmux client and is empty or
+unset in a plain shell, an SSH session without tmux, most CI runners, and most
+IDE-embedded terminals. `"${TMUX_PANE:?}"` itself is the safety net for the
+common case where tmux is running but the variable is unexpectedly empty — it
+is not a substitute for the `$TMUX` check, which guards the case where tmux is
+not running at all. When `$TMUX` is unset, skip window naming and state
+publishing outright: there is no window to rename and no window-scoped option
+to attach state to, so silently continue the task without them rather than
+erroring or improvising a substitute.
+
 ## Name the window for identity
 
 ```sh
