@@ -208,11 +208,15 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
         var methodArray = methods.ToImmutable();
         var directCalls = calls.ToImmutable();
+        bool fieldAccessCensusComplete =
+            results.All(result =>
+                !result.RequiresCompleteFieldAccessCensus
+                || result.FieldAccessCensusComplete);
         RemoveExternallyStoredAsyncFieldSources(
             resultSinks,
             fieldStores,
             fieldLoads,
-            _isScoped);
+            _isScoped || !fieldAccessCensusComplete);
         var nonHeapNewObjOperandTokens = _includeMethodEvidence
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
@@ -266,7 +270,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
         ImmutableArray<MethodResultSink>.Builder resultSinks,
         ImmutableArray<FieldStoreFact>.Builder fieldStores,
         ImmutableArray<FieldLoadFact>.Builder fieldLoads,
-        bool isScoped)
+        bool withholdWholeAssemblyProof)
     {
         for (int index = 0; index < resultSinks.Count; index++)
         {
@@ -277,13 +281,15 @@ internal sealed class LibraryBodyAnalysisAccumulator
             bool hasExternalStore = fieldStores.Any(store =>
                 store.EvidenceMethod != sink.EvidenceMethod
                 && store.IsReachable != false
-                && source.Field.Equals(store.Identity));
+                && source.Field.MightBeSameFieldAs(
+                    store.Identity));
             bool hasExternalAddressEscape = fieldLoads.Any(load =>
                 load.EvidenceMethod != sink.EvidenceMethod
                 && load.IsAddress
                 && load.IsReachable != false
-                && source.Field.Equals(load.Identity));
-            if (!isScoped
+                && source.Field.MightBeSameFieldAs(
+                    load.Identity));
+            if (!withholdWholeAssemblyProof
                 && !hasExternalStore
                 && !hasExternalAddressEscape)
             {

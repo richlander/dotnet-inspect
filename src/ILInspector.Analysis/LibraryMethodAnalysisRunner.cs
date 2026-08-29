@@ -146,6 +146,11 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<FieldStoreFact> FieldStores;
     public ImmutableArray<FieldLoadFact> FieldLoads;
     public ImmutableArray<MethodReturnFlow> ReturnFlows;
+    // Set before metadata/body classification; only a proven bodiless method
+    // can opt out of the unscoped absence census.
+    public bool RequiresCompleteFieldAccessCensus;
+    // Set only after MethodCallAnalysis has collected every field access.
+    public bool FieldAccessCensusComplete;
     public ImmutableArray<AllocationOccurrence> Allocations;
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
@@ -551,7 +556,12 @@ internal sealed class LibraryMethodAnalysisRunner(
                 : new LibraryMethodAnalysisResult();
         }
 
-        var result = new LibraryMethodAnalysisResult();
+        var result = new LibraryMethodAnalysisResult
+        {
+            RequiresCompleteFieldAccessCensus =
+                includeJsonWireContractFlow
+                && !plan.IsScoped,
+        };
         var evidence =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
@@ -610,6 +620,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 || !HasManagedIlBody(
                     methodDefinition.ImplAttributes))
             {
+                result.RequiresCompleteFieldAccessCensus =
+                    false;
                 if (includeAsyncSiblingOpportunities
                     && (bodyScope is null
                         || bodyScope.Contains(
@@ -926,6 +938,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                     fieldStores: fieldStores,
                     fieldLoads: fieldLoads,
                     returnFlows: returnFlows);
+                result.FieldAccessCensusComplete =
+                    result.RequiresCompleteFieldAccessCensus;
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))

@@ -385,18 +385,29 @@ resolved-value, field-access, and suspension facts into
 `AsyncStateMachineFieldResultSource`. This preserves direct-call provenance
 across one exact compiler state-machine field without relying on generated
 field names. The source store must dominate the initial suspension, the result
-field must have neither an exact store nor an exact address escape outside the
-physical state-machine body, and every suspension and completion must use the
-same exact local trusted framework builder field. Its task/value-task family and
-result type must match the kickoff source. Address escapes inside the body,
-custom or spoofed builders, re-entering null cleanup, and every ambiguous
-identity, store, or reachability case remain unresolved. Scoped body indexes
-withhold this whole-assembly absence proof.
+field must have neither a possible-alias store nor a possible-alias address
+escape outside the physical state-machine body, and the whole-assembly
+field-access census must be complete. Every recognizable trusted framework
+builder suspension must use the same exact local builder field, match the
+kickoff source's task/value-task family and result type, pass the current state
+machine as its by-ref state-machine argument, and have no control-flow path to
+the selected result load. Completion uses that same exact builder field.
+Address escapes inside the body, custom or spoofed builders, re-entering null
+cleanup, and every ambiguous identity, store, census, or reachability case
+remain unresolved. Scoped body indexes withhold this whole-assembly absence
+proof. The shared exception-aware block graph conservatively joins a finally
+handler's possible leave continuations, so a suspension enclosed by
+`try`/`finally` may remain unresolved when that join can reach the result load.
+`ResultSinks_WithholdFieldSourceForConservativeFinallyFlow` gates this
+fail-closed boundary.
 `ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField` and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
 `ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
+`ResultSinks_RejectUnresolvedExternalFieldStoreAlias`,
 `ResultSinks_AuthenticateStateMachineCompletionBuilderField`,
 `ResultSinks_SuppressStateMachineFieldSourceForScopedCensus`,
+`ResultSinks_SuppressFieldSourceWhenAssemblyCensusIsIncomplete`,
+`ResultSinks_SuppressFieldSourceWhenBodyClassificationFails`,
 `ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
 `AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate that
 composition.

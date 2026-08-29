@@ -128,23 +128,33 @@ state machine, Analysis can additionally issue
 only direct call results from one store that dominates the initial suspension
 to the post-suspension framework builder completion. Later continuation
 dispatches may bypass the original store physically; the field persists its
-value across those transitions. Suspension and completion must use the same
-exact local builder field. Its trusted framework family and result type must
-match the authenticated kickoff source's `Task<T>` or `ValueTask<T>`. The fact
-retains the result field identity and physical store, load, and source-call
-offsets; null cleanup stores emitted after the load are allowed only when they
-cannot flow back to that load. Unknown reachability, an unresolved or foreign
-field, another non-null write, an exact store or address escape outside the
-physical state-machine body, an address escape inside it, a looped or initially
-non-dominating source store, another builder field, or a custom async builder
-remains unresolved. A scoped body census withholds the fact because it cannot
-establish whole-assembly absence of external writes and address escapes.
+value across those transitions. Every recognizable trusted framework builder
+suspension must use the same exact local builder field, authenticate the current
+state-machine instance as its by-ref state-machine argument, and have no
+control-flow path to the selected load; completion uses that same field. The
+builder family and result type must match the authenticated kickoff source's
+`Task<T>` or `ValueTask<T>`. The fact retains the result field identity and
+physical store, load, and source-call offsets; null cleanup stores emitted after
+the load are allowed only when they cannot flow back to that load. Unknown
+reachability, an unresolved or foreign field, another non-null write, a
+possible-alias store or address escape outside the physical state-machine body,
+an address escape inside it, a looped or initially non-dominating source store,
+another builder field, a custom async builder, or an incomplete field-access
+census remains unresolved. A scoped body census withholds the fact because it
+cannot establish whole-assembly absence of external writes and address escapes.
+The shared exception-aware block graph conservatively joins a finally handler's
+possible leave continuations, so a suspension enclosed by `try`/`finally` may
+remain unresolved when that join can reach the result load.
 `LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
 and
 `ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
 `ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
+`ResultSinks_RejectUnresolvedExternalFieldStoreAlias`,
 `ResultSinks_AuthenticateStateMachineCompletionBuilderField`,
 `ResultSinks_SuppressStateMachineFieldSourceForScopedCensus`,
+`ResultSinks_SuppressFieldSourceWhenAssemblyCensusIsIncomplete`,
+`ResultSinks_SuppressFieldSourceWhenBodyClassificationFails`,
+`ResultSinks_WithholdFieldSourceForConservativeFinallyFlow`,
 `ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
 `AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate the positive,
 fail-closed, scope-completeness, and equality boundaries.

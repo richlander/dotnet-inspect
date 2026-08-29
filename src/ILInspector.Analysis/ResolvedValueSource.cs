@@ -10,48 +10,50 @@ namespace ILInspector.Analysis;
 /// transparent-operation walk can prove (see
 /// <see cref="ResolvedValueSet"/>). Anything else stays unresolved rather than
 /// being approximated, so a consumer that requires proof fails closed.
+/// Numeric values are part of the public contract; new kinds use new explicit
+/// values. <c>ResolvedValueSourceKind_PreservesPublishedValues</c> gates them.
 /// </remarks>
 public enum ResolvedValueSourceKind
 {
     /// <summary>A <c>call</c>/<c>callvirt</c> result.</summary>
-    CallResult,
+    CallResult = 0,
 
     /// <summary>A <c>newobj</c> result.</summary>
-    NewObjectResult,
+    NewObjectResult = 1,
 
     /// <summary>An <c>ldc.i4*</c> literal.</summary>
-    Int32Literal,
+    Int32Literal = 2,
 
     /// <summary>An <c>ldstr</c> literal resolved through the user-string heap.</summary>
-    StringLiteral,
+    StringLiteral = 3,
 
     /// <summary>An <c>ldnull</c> constant.</summary>
-    NullReference,
+    NullReference = 4,
 
     /// <summary>An <c>ldsfld</c> of a resolved static field.</summary>
-    StaticFieldLoad,
+    StaticFieldLoad = 5,
 
     /// <summary>
     /// An <c>ldfld</c> of a resolved instance field whose receiver Analysis
     /// proved to be an argument slot
     /// (<see cref="ResolvedValueSource.ArgumentIndex"/>).
     /// </summary>
-    InstanceFieldLoad,
+    InstanceFieldLoad = 6,
+
+    /// <summary>An <c>ldarg*</c> of an argument slot.</summary>
+    Argument = 7,
+
+    /// <summary>An <c>ldtoken</c> of a resolved type.</summary>
+    TypeHandle = 8,
 
     /// <summary>An <c>ldsflda</c> of a resolved static field.</summary>
-    StaticFieldAddress,
+    StaticFieldAddress = 9,
 
     /// <summary>
     /// An <c>ldflda</c> of a resolved instance field whose receiver Analysis
     /// proved to be an argument slot.
     /// </summary>
-    InstanceFieldAddress,
-
-    /// <summary>An <c>ldarg*</c> of an argument slot.</summary>
-    Argument,
-
-    /// <summary>An <c>ldtoken</c> of a resolved type.</summary>
-    TypeHandle,
+    InstanceFieldAddress = 10,
 }
 
 /// <summary>

@@ -44,6 +44,22 @@ public sealed class MethodCallResolvedValueTests
         [s_marshaler]);
 
     [Fact]
+    public void ResolvedValueSourceKind_PreservesPublishedValues()
+    {
+        Assert.Equal(0, (int)ResolvedValueSourceKind.CallResult);
+        Assert.Equal(1, (int)ResolvedValueSourceKind.NewObjectResult);
+        Assert.Equal(2, (int)ResolvedValueSourceKind.Int32Literal);
+        Assert.Equal(3, (int)ResolvedValueSourceKind.StringLiteral);
+        Assert.Equal(4, (int)ResolvedValueSourceKind.NullReference);
+        Assert.Equal(5, (int)ResolvedValueSourceKind.StaticFieldLoad);
+        Assert.Equal(6, (int)ResolvedValueSourceKind.InstanceFieldLoad);
+        Assert.Equal(7, (int)ResolvedValueSourceKind.Argument);
+        Assert.Equal(8, (int)ResolvedValueSourceKind.TypeHandle);
+        Assert.Equal(9, (int)ResolvedValueSourceKind.StaticFieldAddress);
+        Assert.Equal(10, (int)ResolvedValueSourceKind.InstanceFieldAddress);
+    }
+
+    [Fact]
     public void ResolvedValueSet_RejectsInconsistentResolutionState()
     {
         var source = new ResolvedValueSource(

@@ -431,6 +431,8 @@ public sealed record DirectCall(
     /// </summary>
     public ResolvedValueSet? ResolvedReceiverValue { get; init; }
 
+    internal bool SecondByRefArgumentIsCurrentInstance { get; init; }
+
     /// <summary>
     /// Ordered element provenance for span-shaped arguments the C# compiler
     /// built from a recognized inline-array or single-element

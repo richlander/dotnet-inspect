@@ -14,7 +14,9 @@ using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.MalformedOwnershipFixtures;
+using ILInspector.Analysis.UnoptimizedAsyncFixtures;
 using ILInspector.CallGraph;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -1629,6 +1631,39 @@ public class LibraryBodyIndexTests
                         .SourceCallOffsets.Contains(
                             call.ILOffset))
                 .Callee.Name);
+
+        var unoptimized = LibraryBodyIndex.Open(
+            typeof(UnoptimizedAsyncFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures
+                    .JsonWireContractFlow);
+        MethodIdentity referenceStateMachine = Assert.Single(
+            unoptimized.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(UnoptimizedAsyncFixture)
+                && method.Name == nameof(
+                    UnoptimizedAsyncFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink referenceSink = Assert.Single(
+            unoptimized.ResultSinks,
+            candidate => candidate.Caller
+                    == referenceStateMachine
+                && candidate.StateMachineFieldSource
+                    is not null);
+        DirectCall referenceSuspension = Assert.Single(
+            unoptimized.DirectCalls,
+            call => call.Caller == referenceStateMachine
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        Assert.Contains(
+            typeof(UnoptimizedAsyncFixture).Assembly.GetTypes(),
+            type => type.IsClass
+                && typeof(IAsyncStateMachine)
+                    .IsAssignableFrom(type));
+        Assert.True(
+            referenceSuspension
+                .SecondByRefArgumentIsCurrentInstance);
     }
 
     [Fact]
@@ -1677,6 +1712,18 @@ public class LibraryBodyIndexTests
             nameof(
                 ClassicAsyncSiblingFixture
                     .ReenteringCleanupSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .MixedSuspensionBuilderSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ImmediateCompletionSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .WrongStateMachineArgumentSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .FailedExternalStoreSource),
             nameof(
                 ClassicAsyncSiblingFixture
                     .StoresAfterDifferentSuspension),
@@ -1930,6 +1977,81 @@ public class LibraryBodyIndexTests
                 "System.Runtime.CompilerServices",
                 "AsyncValueTaskMethodBuilder`1"));
 
+        MethodIdentity mixedSuspension = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .MixedSuspensionBuilderSource));
+        DirectCall[] mixedSuspensionCalls =
+        [
+            .. index.DirectCalls.Where(call =>
+                call.Caller == mixedSuspension
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"),
+        ];
+        Assert.Equal(2, mixedSuspensionCalls.Length);
+        Assert.Contains(
+            mixedSuspensionCalls,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder`1"));
+        Assert.Contains(
+            mixedSuspensionCalls,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncValueTaskMethodBuilder`1"));
+
+        MethodIdentity immediateCompletion = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ImmediateCompletionSource));
+        DirectCall immediateSuspension = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == immediateCompletion
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        MethodResultSink immediateSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == immediateCompletion
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                });
+        Assert.True(
+            immediateSuspension.ILOffset
+                < immediateSink.ResolvedValue!.Single!.ILOffset);
+
+        MethodIdentity wrongStateMachineArgument = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .WrongStateMachineArgumentSource));
+        DirectCall wrongArgumentSuspension = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == wrongStateMachineArgument
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        Assert.Equal(
+            wrongArgumentSuspension.EvidenceMethod.DeclaringType,
+            wrongArgumentSuspension.Callee.ParameterTypes[1]
+                .ElementType);
+        Assert.False(
+            wrongArgumentSuspension
+                .SecondByRefArgumentIsCurrentInstance);
+
         MethodIdentity reenteringCleanup = Assert.Single(
             index.DeclaredMethods,
             method => method.DeclaringType.Name
@@ -1958,6 +2080,405 @@ public class LibraryBodyIndexTests
                 && reenteringField.Equals(store.Identity)
                 && store.Value.Single?.Kind
                     == ResolvedValueSourceKind.NullReference);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_WithholdFieldSourceForConservativeFinallyFlow()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredAcrossFinally));
+        DirectCall completion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name == "SetResult");
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.EvidenceMethod
+                    == completion.EvidenceMethod
+                && candidate.ILOffset == completion.ILOffset);
+
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        Assert.Equal(
+            ResolvedValueSourceKind.InstanceFieldLoad,
+            sink.ResolvedValue?.Single?.Kind);
+        Assert.Null(sink.StateMachineFieldSource);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_SuppressFieldSourceWhenAssemblyCensusIsIncomplete()
+    {
+        string sourcePath =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int corruptMethodToken;
+        using (var stream = new MemoryStream(
+            image,
+            writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreStateMachine));
+            MethodDefinitionHandle corruptHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Corrupt");
+            MethodDefinition corrupt =
+                reader.GetMethodDefinition(corruptHandle);
+            corruptMethodToken =
+                MetadataTokens.GetToken(corruptHandle);
+            DecodedInstruction call = MethodInstructions
+                .Decode(peReader.GetMethodBody(
+                    corrupt.RelativeVirtualAddress))
+                .Instructions
+                .First(instruction =>
+                    instruction.OpCode == ILOpCode.Call);
+            int bodyOffset = RvaToFileOffset(
+                peReader.PEHeaders,
+                corrupt.RelativeVirtualAddress);
+            int headerSize = MethodHeaderSize(
+                image,
+                bodyOffset);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    bodyOffset
+                        + headerSize
+                        + call.OperandOffset,
+                    sizeof(int)),
+                0x06FFFFFF);
+        }
+
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"analysis-census-{Guid.NewGuid():N}");
+        string path = Path.Combine(
+            scratchDirectory,
+            "fixture.dll");
+        try
+        {
+            Directory.CreateDirectory(scratchDirectory);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .JsonWireContractFlow);
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreSource));
+
+            Assert.Contains(
+                index.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                    == corruptMethodToken);
+            MethodResultSink sink = Assert.Single(
+                index.ResultSinks,
+                candidate => candidate.Caller == source
+                    && candidate.ResolvedValue?.Single is
+                    {
+                        Kind:
+                            ResolvedValueSourceKind.InstanceFieldLoad,
+                        FieldIdentity: not null,
+                    });
+            FieldIdentity field =
+                sink.ResolvedValue!.Single!.FieldIdentity!;
+            Assert.DoesNotContain(
+                index.FieldStores,
+                store => store.EvidenceMethod
+                        != sink.EvidenceMethod
+                    && store.IsReachable != false
+                    && field.MightBeSameFieldAs(
+                        store.Identity));
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                candidate => candidate.Caller == source
+                    && candidate.StateMachineFieldSource
+                        is not null);
+            AssertCompilerPositiveSuppressedByCensus(index);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            if (Directory.Exists(scratchDirectory))
+                Directory.Delete(scratchDirectory);
+        }
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectUnresolvedExternalFieldStoreAlias()
+    {
+        string sourcePath =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int fieldOperandToken;
+        int corruptMethodToken;
+        using (var stream = new MemoryStream(
+            image,
+            writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreStateMachine));
+            MethodDefinitionHandle corruptHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Corrupt");
+            MethodDefinitionHandle probeHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Probe");
+            fieldOperandToken =
+                MetadataTokens.GetToken(probeHandle);
+            corruptMethodToken =
+                MetadataTokens.GetToken(corruptHandle);
+            MethodDefinition corrupt =
+                reader.GetMethodDefinition(corruptHandle);
+            DecodedInstruction store = MethodInstructions
+                .Decode(peReader.GetMethodBody(
+                    corrupt.RelativeVirtualAddress))
+                .Instructions
+                .Single(instruction =>
+                    instruction.OpCode == ILOpCode.Stfld);
+            int bodyOffset = RvaToFileOffset(
+                peReader.PEHeaders,
+                corrupt.RelativeVirtualAddress);
+            int headerSize = MethodHeaderSize(
+                image,
+                bodyOffset);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    bodyOffset
+                        + headerSize
+                        + store.OperandOffset,
+                    sizeof(int)),
+                fieldOperandToken);
+        }
+
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"analysis-alias-{Guid.NewGuid():N}");
+        string path = Path.Combine(
+            scratchDirectory,
+            "fixture.dll");
+        try
+        {
+            Directory.CreateDirectory(scratchDirectory);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .JsonWireContractFlow);
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreSource));
+
+            Assert.Contains(
+                index.FieldStores,
+                store => store.FieldToken == fieldOperandToken
+                    && store.Identity is null);
+            Assert.DoesNotContain(
+                index.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                    == corruptMethodToken);
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                sink => sink.Caller == source
+                    && sink.StateMachineFieldSource is not null);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            if (Directory.Exists(scratchDirectory))
+                Directory.Delete(scratchDirectory);
+        }
+    }
+
+    [Fact]
+    public void
+        ResultSinks_SuppressFieldSourceWhenBodyClassificationFails()
+    {
+        string sourcePath =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int corruptMethodToken;
+        using (var stream = new MemoryStream(
+            image,
+            writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreStateMachine));
+            MethodDefinitionHandle corruptHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Corrupt");
+            corruptMethodToken =
+                MetadataTokens.GetToken(corruptHandle);
+            Assert.True(
+                reader.GetHeapSize(HeapIndex.Blob)
+                    <= ushort.MaxValue
+                && reader.GetHeapSize(HeapIndex.String)
+                    <= ushort.MaxValue);
+            int signatureHandleOffset =
+                peReader.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.MethodDef)
+                + (MetadataTokens.GetRowNumber(
+                        corruptHandle)
+                    - 1)
+                    * reader.GetTableRowSize(
+                        TableIndex.MethodDef)
+                + sizeof(int)
+                + sizeof(ushort)
+                + sizeof(ushort)
+                + sizeof(ushort);
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    signatureHandleOffset,
+                    sizeof(ushort)),
+                ushort.MaxValue);
+        }
+
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"analysis-signature-{Guid.NewGuid():N}");
+        string path = Path.Combine(
+            scratchDirectory,
+            "fixture.dll");
+        try
+        {
+            Directory.CreateDirectory(scratchDirectory);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .JsonWireContractFlow);
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreSource));
+
+            Assert.Contains(
+                index.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                    == corruptMethodToken);
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                sink => sink.Caller == source
+                    && sink.StateMachineFieldSource is not null);
+            AssertCompilerPositiveSuppressedByCensus(index);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            if (Directory.Exists(scratchDirectory))
+                Directory.Delete(scratchDirectory);
+        }
+    }
+
+    static void AssertCompilerPositiveSuppressedByCensus(
+        LibraryBodyIndex index)
+    {
+        MethodIdentity compilerPositive = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        Assert.DoesNotContain(
+            index.ResultSinks,
+            sink => sink.Caller == compilerPositive
+                && sink.StateMachineFieldSource is not null);
+    }
+
+    static int MethodHeaderSize(
+        byte[] image,
+        int bodyOffset)
+    {
+        byte first = image[bodyOffset];
+        if ((first & 0x3) == 0x2)
+            return 1;
+        ushort flagsAndSize =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(
+                    bodyOffset,
+                    sizeof(ushort)));
+        return (flagsAndSize >> 12) * 4;
+    }
+
+    static int RvaToFileOffset(
+        PEHeaders headers,
+        int rva)
+    {
+        foreach (SectionHeader section
+            in headers.SectionHeaders)
+        {
+            int size = Math.Max(
+                section.VirtualSize,
+                section.SizeOfRawData);
+            if (rva >= section.VirtualAddress
+                && rva < section.VirtualAddress + size)
+            {
+                return section.PointerToRawData
+                    + rva
+                    - section.VirtualAddress;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"RVA 0x{rva:X8} was not found.");
     }
 
     [Fact]
