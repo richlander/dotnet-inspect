@@ -699,7 +699,12 @@ Browser history uses the same classification:
   `replaceState` when initial shared-link activation, refresh, Back, or Forward
   restores the exact requested state. If that restoration instead installs a
   changed unavailable or reconciled snapshot, replace the selected entry with
-  the returned canonical state; and
+  the returned canonical state. If Back or Forward returns unavailable without
+  a replacement, rejected, failed, or aborted, replace the browser-selected
+  entry with the retained snapshot's canonical location, surface and announce
+  the exact outcome, and focus the retained destination heading or persistent
+  shell fallback. This writes no new entry and lets a later traversal continue
+  past the failed location; and
 - do not mutate history for hover, focus, uncommitted listbox movement,
   disclosure animation, or incidental scroll position.
 
@@ -750,10 +755,19 @@ installs only the snapshot actually returned by the navigation session and
 never updates local subject or lens state ahead of that result. Installation is
 one atomic consumer effect: it commits the returned snapshot, its rendered
 content, and the UI-owned canonical URL and history-commit
-classification. Rejected and failed results do not mutate the URL or history,
-and superseded work never reaches the consumer. An aborted effect likewise
-retains the current snapshot, URL, and history because navigation never
-received the prerequisite input needed to produce a replacement.
+classification. An unavailable result without a replacement snapshot, a
+rejected result, and a failed result do not mutate the URL or history, and
+superseded work never reaches the consumer. An aborted effect likewise retains
+the current snapshot, URL, and history because navigation never received the
+prerequisite input needed to produce a replacement.
+
+The non-mutating unavailable-without-replacement, rejected, failed, and aborted
+rules above describe transitions whose initiating UI action has not already
+changed the browser entry. After Back or Forward selects an entry, a
+non-installing outcome instead replaces that selected entry with the retained
+snapshot's canonical location as defined by the browser-history classification.
+This is location realignment, not a snapshot installation or successful
+restoration.
 
 An applied result uses the initiating explicit action's push-or-replace
 classification or a browser restoration's adopt classification. An unavailable
@@ -1234,6 +1248,13 @@ these named Inspect Web tests:
   the stale result changes no rendered snapshot, canonical URL, history entry,
   focus, or shell announcement before its authority is abandoned.
 - `navigation-consumer.test.ts`:
+  `non-installing browser restoration realigns the selected entry` exercises
+  Back and Forward with unavailable-without-replacement, rejected, failed, and
+  aborted outcomes. Each case retains the snapshot, replaces the
+  browser-selected entry with its canonical location, surfaces and announces
+  the outcome, focuses the retained destination heading or shell fallback, and
+  pushes no entry.
+- `navigation-consumer.test.ts`:
   `acknowledgement follows every required visible effect` proves that
   installation, focus, and announcement complete before acknowledgement.
 - `navigation-consumer.test.ts`:
@@ -1415,6 +1436,12 @@ outcomes:
    restoration adopts the current entry, while a changed unavailable or
    reconciled restoration replaces that entry with its returned canonical
    state.
+6. Use Back and Forward with unavailable-without-replacement, rejected, failed,
+   and aborted restoration outcomes. Confirm that each retains the rendered
+   snapshot, replaces the browser-selected entry with the retained canonical
+   location, surfaces and announces the outcome, focuses the retained
+   destination heading or shell fallback, and lets a later traversal continue
+   past the failed location without a pushed entry.
 
 ### Package-source composition
 
