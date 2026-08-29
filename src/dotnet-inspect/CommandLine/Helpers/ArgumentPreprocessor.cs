@@ -346,9 +346,7 @@ public static class ArgumentPreprocessor
 
         foreach (string alias in option.Aliases.Append(option.Name))
         {
-            if (rawArgs.Any(arg =>
-                arg.Equals($"{alias}={value}", StringComparison.Ordinal)
-                || arg.Equals($"{alias}:{value}", StringComparison.Ordinal)))
+            if (rawArgs.Any(arg => IsInlineOptionValue(arg, alias, value)))
             {
                 return true;
             }
@@ -356,6 +354,15 @@ public static class ArgumentPreprocessor
 
         return false;
     }
+
+    private static bool IsInlineOptionValue(
+        string argument,
+        string alias,
+        string value)
+        => argument.Equals($"{alias}={value}", StringComparison.Ordinal)
+            || argument.Equals($"{alias}:{value}", StringComparison.Ordinal)
+            || alias is ['-', not '-']
+                && argument.Equals($"{alias}{value}", StringComparison.Ordinal);
 
     private static bool TryParseAttachedLineWindow(
         string token,
@@ -390,12 +397,17 @@ public static class ArgumentPreprocessor
                 continue;
             }
 
-            int separator = token.IndexOfAny(['=', ':']);
-            if (token.StartsWith('-', StringComparison.Ordinal)
-                && separator >= 0
-                && token.AsSpan(separator + 1).Equals(
-                    value,
-                    StringComparison.Ordinal))
+            if (GetOptionResults(parseResult).Any(
+                option => option.Tokens.Any(
+                        optionToken => optionToken.Value.Equals(
+                            value,
+                            StringComparison.Ordinal))
+                    && option.Option.Aliases
+                        .Append(option.Option.Name)
+                        .Any(alias => IsInlineOptionValue(
+                            token,
+                            alias,
+                            value))))
             {
                 occurrence++;
             }

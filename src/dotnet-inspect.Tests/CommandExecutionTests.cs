@@ -7782,20 +7782,26 @@ public partial class CommandExecutionTests
                 StringSplitOptions.RemoveEmptyEntries));
     }
 
-    [Fact]
-    public async Task Router_ShorthandAfterInlineRequiredValueUsesRawOccurrence()
+    [Theory]
+    [InlineData("--library=-1")]
+    [InlineData("--library:-1")]
+    [InlineData("-o=-1")]
+    [InlineData("-o:-1")]
+    [InlineData("-o-1")]
+    public async Task Router_ShorthandAfterInlineRequiredValueUsesRawOccurrence(
+        string requiredValue)
     {
         var direct = await RunAppInDirectoryAsync(
             Path.GetTempPath(),
             "member",
             "System.String.ToString",
-            "--library=-1",
+            requiredValue,
             "-1",
             "--help");
         var routed = await RunAppInDirectoryAsync(
             Path.GetTempPath(),
             "System.String.ToString",
-            "--library=-1",
+            requiredValue,
             "-1",
             "--help");
 
@@ -7806,6 +7812,28 @@ public partial class CommandExecutionTests
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries));
         Assert.Equal(direct.Output, routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ConcatenatedOptionalValueRemainsOwned()
+    {
+        var direct = await RunAppAsync(
+            "member",
+            "System.String.ToString",
+            "-T-n1",
+            "--help");
+        var routed = await RunAppAsync(
+            "System.String.ToString",
+            "-T-n1",
+            "--help");
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal(direct.Output, routed.Output);
+        Assert.True(
+            routed.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length > 1);
     }
 
     [Fact]
@@ -7824,6 +7852,100 @@ public partial class CommandExecutionTests
             "Option '-n' expects a single argument but 2 were provided",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ShorthandAfterConcatenatedRequiredValueUsesNormalDuplicateOptionValidation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Foo",
+            "-o-1",
+            "-1",
+            "-1",
+            "--help");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Option '-n' expects a single argument but 2 were provided",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_ConcatenatedValuesPreserveImplicitFileRouting()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.ConcatenatedOptions",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("a.txt", "a"),
+                ("b.txt", "b"),
+            ]);
+        string outputPath = Path.Combine(tempDir, "-1");
+        try
+        {
+            string[] projection =
+            [
+                packagePath,
+                "-S",
+                "Package files",
+                "--paths",
+                "-T-n1",
+            ];
+
+            var direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. projection]);
+            var routed = await RunAppInDirectoryAsync(
+                tempDir,
+                projection);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.True(
+                routed.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length > 1);
+
+            string[] redirected =
+            [
+                packagePath,
+                "-S",
+                "Package files",
+                "--paths",
+                "-o-1",
+                "-1",
+                "--tips",
+                "q",
+            ];
+
+            direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. redirected]);
+            Assert.Equal(0, direct.Exit);
+            Assert.Empty(direct.Output);
+            string directOutput = File.ReadAllText(outputPath);
+            Assert.Single(
+                directOutput.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            File.Delete(outputPath);
+            routed = await RunAppInDirectoryAsync(
+                tempDir,
+                redirected);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(directOutput, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Theory]

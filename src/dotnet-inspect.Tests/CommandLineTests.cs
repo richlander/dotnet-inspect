@@ -775,11 +775,33 @@ public class CommandLineTests
     [Theory]
     [InlineData("--path=-n1")]
     [InlineData("--library=-n1")]
+    [InlineData("-T=-n1")]
+    [InlineData("-T:-n1")]
+    [InlineData("-T-n1")]
     public void ParsedLineWindow_InlineOptionalValueRemainsAValue(string option)
     {
         PreprocessAndApplyLineWindow(["package", "Foo", option]);
 
         Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("--out=-1")]
+    [InlineData("--out:-1")]
+    [InlineData("-o=-1")]
+    [InlineData("-o:-1")]
+    [InlineData("-o-1")]
+    public void PreprocessArgs_ShorthandAfterInlineRequiredValueUsesRawOccurrence(
+        string output)
+    {
+        string[] result = PreprocessAndApplyLineWindow(
+            ["package", "Foo", output, "-1", "--help"]);
+
+        Assert.Equal(
+            ["package", "Foo", output, "-n", "1", "--help"],
+            result);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
 
