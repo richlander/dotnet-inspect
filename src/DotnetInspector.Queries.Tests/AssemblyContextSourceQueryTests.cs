@@ -156,7 +156,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task MissingPdbSource_FallsBackToDecompiler()
+    public async Task UnresolvedPdbSource_FallsBackToDecompiler()
     {
         TestAssembly assembly = TestAssembly.Create();
         AssemblyMemberSourceRequest request =
@@ -185,8 +185,9 @@ public sealed class AssemblyContextSourceQueryTests
             nameof(SourceFixture.Describe),
             decompiled.Text,
             StringComparison.Ordinal);
-        Assert.IsType<FindingInspection<string>.Absent>(
+        var failed = Assert.IsType<FindingInspection<string>.Failed>(
             decompiled.PdbAttempt.Lines.Value);
+        Assert.Contains("remains unresolved", failed.Error.Reason);
         Assert.Empty(host.SourceRequests);
         Assert.True(assembly.Policy.SelectionCount > 0);
     }
@@ -268,7 +269,7 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
-    public async Task MissingPdbSourceForType_FallsBackToDecompiler()
+    public async Task UnresolvedPdbSourceForType_FallsBackToDecompiler()
     {
         TestAssembly assembly = TestAssembly.Create();
         AssemblyTypeSourceRequest request =
@@ -298,8 +299,9 @@ public sealed class AssemblyContextSourceQueryTests
             decompiled.Text,
             StringComparison.Ordinal);
         Assert.True(decompiled.Decompilation.Succeeded);
-        Assert.IsType<FindingInspection<string>.Absent>(
+        var failed = Assert.IsType<FindingInspection<string>.Failed>(
             decompiled.PdbAttempt.Lines.Value);
+        Assert.Contains("remains unresolved", failed.Error.Reason);
     }
 
     [Fact]
