@@ -402,9 +402,13 @@ public static partial class CSharpBodyDiff
     /// demands every IL-medium node be exactly one contiguous span, a
     /// narrower contract than <see cref="AnnotatedSourceNode"/> itself
     /// enforces -- so it only runs once the cheap, projection-free presence
-    /// counts already show a declaration could plausibly be promoted; a
-    /// document with no such candidate must not pay, or risk failing, a
-    /// projection it will never use.
+    /// counts show a declaration could plausibly be promoted, and only when
+    /// some matched pair is even shaped like the rewrite being looked for.
+    /// Even then, a projection attempt can still fail on an unrelated
+    /// structural IL node elsewhere in the same document: that failure is
+    /// caught and treated the same as "no rewrite found" rather than allowed
+    /// to propagate, since a document is never required to satisfy an
+    /// invariant this narrow, internal carve-out happens to need.
     /// </remarks>
     static void ClassifyUnprovenancedDeclarations(
         AnnotatedSourceDocument beforeDocument,
@@ -453,43 +457,74 @@ public static partial class CSharpBodyDiff
         // than AnnotatedSourceNode itself enforces (a non-instruction
         // IL-medium node, such as a structural "Block", may legitimately span
         // several rendered lines). Build it only when a declaration could
-        // plausibly be promoted; a document with no such candidate must not
-        // newly fail to satisfy an invariant it never needed.
+        // plausibly be promoted, and only when some matched pair is even
+        // shaped like the call-site rewrite this carve-out looks for; a
+        // document with no such candidate must not newly fail to satisfy an
+        // invariant it never needed. Even then, an unrelated structural IL
+        // node elsewhere in the same document can still violate that
+        // invariant (round-1 review, reviewers A and B): the projection is
+        // an aid to this narrow carve-out, not something this document was
+        // ever required to support, so a failure here must fall back to the
+        // conservative Unsupported verdict rather than propagate.
         bool callSiteRewriteMatched = false;
         if (declarationAdded || declarationRemoved)
         {
-            var beforeProjection = CSharpAnnotatedSourceProjection.Create(beforeDocument);
-            var afterProjection = CSharpAnnotatedSourceProjection.Create(afterDocument);
-            var beforeProjectedById = beforeProjection.Document.Nodes.ToDictionary(static node => node.Id);
-            var afterProjectedById = afterProjection.Document.Nodes.ToDictionary(static node => node.Id);
+            var beforeById = beforeNodes.ToDictionary(static node => node.Id);
+            var afterById = afterNodes.ToDictionary(static node => node.Id);
+            bool hasInvocationMatch = matches.Any(match =>
+                beforeById.TryGetValue(match.Before.NodeId, out var beforeMatched)
+                && afterById.TryGetValue(match.After.NodeId, out var afterMatched)
+                && string.Equals(beforeMatched.Kind, "InvocationExpression", StringComparison.Ordinal)
+                && string.Equals(afterMatched.Kind, "InvocationExpression", StringComparison.Ordinal));
 
-            // A genuine call-site rewrite: both sides are InvocationExpression
-            // nodes rendered as one contiguous projected span each (so the
-            // rewrite check has a single, unambiguous run of characters to
-            // compare) whose selected, IL-projected text actually differs. An
-            // unchanged call that merely happens to retain matching IL evidence
-            // does not count -- that is not evidence that anything was rewritten
-            // alongside it. Nor does an invocation that still spans multiple
-            // projected pieces on either side after removing IL lines: this
-            // carve-out declines to guess at such a call's true text equality
-            // rather than risk treating a merely differently-interleaved,
-            // unchanged multi-line call as a rewrite (SelectedTextEqual compares
-            // spans pairwise by position, not by full concatenation, so a
-            // multi-span pairing is not reliable evidence either way here).
-            callSiteRewriteMatched = matches.Any(match =>
-                beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
-                && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
-                && beforeProjectedById.TryGetValue(beforeProjectedId, out var beforeCallNode)
-                && afterProjectedById.TryGetValue(afterProjectedId, out var afterCallNode)
-                && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
-                && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
-                && beforeCallNode.Spans.Count == 1
-                && afterCallNode.Spans.Count == 1
-                && !SelectedTextEqual(
-                    beforeProjection.Document,
-                    beforeCallNode,
-                    afterProjection.Document,
-                    afterCallNode));
+            if (hasInvocationMatch)
+            {
+                try
+                {
+                    var beforeProjection = CSharpAnnotatedSourceProjection.Create(beforeDocument);
+                    var afterProjection = CSharpAnnotatedSourceProjection.Create(afterDocument);
+                    var beforeProjectedById = beforeProjection.Document.Nodes.ToDictionary(static node => node.Id);
+                    var afterProjectedById = afterProjection.Document.Nodes.ToDictionary(static node => node.Id);
+
+                    // A genuine call-site rewrite: both sides are InvocationExpression
+                    // nodes rendered as one contiguous projected span each (so the
+                    // rewrite check has a single, unambiguous run of characters to
+                    // compare) whose selected, IL-projected text actually differs. An
+                    // unchanged call that merely happens to retain matching IL evidence
+                    // does not count -- that is not evidence that anything was rewritten
+                    // alongside it. Nor does an invocation that still spans multiple
+                    // projected pieces on either side after removing IL lines: this
+                    // carve-out declines to guess at such a call's true text equality
+                    // rather than risk treating a merely differently-interleaved,
+                    // unchanged multi-line call as a rewrite (SelectedTextEqual compares
+                    // spans pairwise by position, not by full concatenation, so a
+                    // multi-span pairing is not reliable evidence either way here).
+                    callSiteRewriteMatched = matches.Any(match =>
+                        beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
+                        && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
+                        && beforeProjectedById.TryGetValue(beforeProjectedId, out var beforeCallNode)
+                        && afterProjectedById.TryGetValue(afterProjectedId, out var afterCallNode)
+                        && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+                        && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+                        && beforeCallNode.Spans.Count == 1
+                        && afterCallNode.Spans.Count == 1
+                        && !SelectedTextEqual(
+                            beforeProjection.Document,
+                            beforeCallNode,
+                            afterProjection.Document,
+                            afterCallNode));
+                }
+                catch (ArgumentException)
+                {
+                    // A structural IL node elsewhere in the document does not
+                    // fit CSharpAnnotatedSourceProjection.Create's narrower
+                    // contract. This carve-out has no evidence either way in
+                    // that case, so it declines to guess rather than let an
+                    // unrelated shape it was never asked to verify surface as
+                    // a thrown exception from a public correspondence API.
+                    callSiteRewriteMatched = false;
+                }
+            }
         }
 
         foreach (var node in beforeNodes)

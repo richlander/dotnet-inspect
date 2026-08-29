@@ -1883,6 +1883,87 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_DoesNotThrowWhenDeclarationCandidateCoexistsWithMultiSpanIlNode()
+    {
+        // Close negative (round-1 review, reviewers A and B, on the previous
+        // fix): a sole null-provenance LocalFunctionStatement makes
+        // declarationAdded true, so the call-site rewrite check does build a
+        // projection -- but a wholly unrelated structural "Block" IL node
+        // elsewhere in the same document still violates
+        // CSharpAnnotatedSourceProjection.Create's one-contiguous-span
+        // requirement. The declaration-count gate alone cannot rule this out,
+        // since it says nothing about the document's IL node shapes. The
+        // projection attempt must fail conservatively -- leaving the
+        // declaration Unsupported -- rather than let the document's
+        // unrelated shape surface as a thrown exception from
+        // IssueCorrespondence.
+        const string invocationText = "A();";
+        const string declarationText = "static void Own()\n{\n}";
+        string afterText = $"{invocationText}\n{declarationText}";
+        int afterInvocationStart = afterText.IndexOf(invocationText, StringComparison.Ordinal);
+        int afterDeclarationStart = afterText.IndexOf(declarationText, StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            invocationText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, invocationText.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                // Unrelated to the invocation or the declaration below: a
+                // structural, offsetless IL node spanning two disjoint
+                // pieces, which AnnotatedSourceNode permits but
+                // CSharpAnnotatedSourceProjection.Create does not.
+                new AnnotatedSourceNode(
+                    1,
+                    "Block",
+                    SourceLineKind.Il,
+                    [
+                        new AnnotatedSourceSpan(0, 1),
+                        new AnnotatedSourceSpan(2, 1),
+                    ],
+                    IlOffset: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterInvocationStart, invocationText.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                new AnnotatedSourceNode(
+                    1,
+                    "LocalFunctionStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterDeclarationStart, declarationText.Length)],
+                    Provenance: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        // CompareStructure's own projection (pre-existing, unconditional, and
+        // out of scope for this carve-out) would itself reject this
+        // document's unrelated Block node; this test verifies only that
+        // IssueCorrespondence -- the narrower surface this carve-out owns --
+        // does not throw and classifies the declaration conservatively.
+    }
+
+    [Fact]
     public void IssuedCorrespondence_RoundTripsDocumentNodeProvenanceAndUnmatchedNodes()
     {
         var before = TrustedDocument(
