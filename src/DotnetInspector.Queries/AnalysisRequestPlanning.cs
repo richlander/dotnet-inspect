@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 
 namespace DotnetInspector.Queries;
 
@@ -40,6 +41,13 @@ public enum AnalysisModeViolation
     CensusContainsPrivilegedAnchor,
 }
 
+/// <summary>A violated report-surface cardinality invariant.</summary>
+public enum AnalysisReportSurfaceCardinalityViolation
+{
+    MissingTarget,
+    WorkspaceRequiresSingleTarget,
+}
+
 /// <summary>
 /// Reference-identity base for owner-issued analysis request declarations.
 /// </summary>
@@ -55,8 +63,18 @@ public abstract class AnalysisRequestDefinition
     public string Name { get; }
 }
 
-/// <summary>An owner-issued report-target role.</summary>
-public sealed class AnalysisTargetRoleDescriptor(string name) : AnalysisRequestDefinition(name);
+/// <summary>Planner-readable base for an owner-issued typed report-target role.</summary>
+public abstract class AnalysisTargetRoleDescriptor : AnalysisRequestDefinition
+{
+    protected AnalysisTargetRoleDescriptor(string name)
+        : base(name)
+    {
+    }
+}
+
+/// <summary>An owner-issued report-target role bound to one identity currency.</summary>
+public sealed class AnalysisTargetRoleDescriptor<TIdentity>(string name)
+    : AnalysisTargetRoleDescriptor(name);
 
 /// <summary>An owner-issued evidence capability supplied by a universe provider.</summary>
 public sealed class AnalysisUniverseCapabilityDescriptor(string name)
@@ -64,6 +82,7 @@ public sealed class AnalysisUniverseCapabilityDescriptor(string name)
 
 /// <summary>
 /// One descriptor-issued requirement for an evidence-universe capability.
+/// Owners may specialize it with typed concept or producer-policy scope.
 /// </summary>
 public class AnalysisUniverseRequirementDescriptor : AnalysisRequestDefinition
 {
@@ -91,20 +110,20 @@ public sealed class AnalysisPreflightRequirementDescriptor(string name)
 public sealed class AnalysisProjectionDescriptor(string name) : AnalysisRequestDefinition(name);
 
 /// <summary>
-/// One role accepted by an analysis for a report surface and question mode.
+/// Planner-readable base for one typed role accepted by an analysis.
 /// </summary>
-public sealed class AnalysisTargetRoleDeclaration
+public abstract class AnalysisTargetRoleDeclaration
 {
-    public AnalysisTargetRoleDeclaration(
+    protected AnalysisTargetRoleDeclaration(
         AnalysisReportSurfaceKind surfaceKind,
         AnalysisQuestionMode mode,
-        AnalysisTargetRoleDescriptor role,
         AnalysisTargetFunction function)
     {
-        ArgumentNullException.ThrowIfNull(role);
+        AnalysisRequestGuard.EnumDefined(surfaceKind, nameof(surfaceKind));
+        AnalysisRequestGuard.EnumDefined(mode, nameof(mode));
+        AnalysisRequestGuard.EnumDefined(function, nameof(function));
         SurfaceKind = surfaceKind;
         Mode = mode;
-        Role = role;
         Function = function;
     }
 
@@ -112,17 +131,38 @@ public sealed class AnalysisTargetRoleDeclaration
 
     public AnalysisQuestionMode Mode { get; }
 
-    public AnalysisTargetRoleDescriptor Role { get; }
+    public abstract AnalysisTargetRoleDescriptor Role { get; }
 
     public AnalysisTargetFunction Function { get; }
 }
 
 /// <summary>
-/// One producer-owned analysis declaration. Definition instances are identities.
+/// One role and identity currency accepted for a report surface and question mode.
 /// </summary>
-public class AnalysisDescriptor : AnalysisRequestDefinition
+public sealed class AnalysisTargetRoleDeclaration<TIdentity>
+    : AnalysisTargetRoleDeclaration
 {
-    public AnalysisDescriptor(
+    public AnalysisTargetRoleDeclaration(
+        AnalysisReportSurfaceKind surfaceKind,
+        AnalysisQuestionMode mode,
+        AnalysisTargetRoleDescriptor<TIdentity> role,
+        AnalysisTargetFunction function)
+        : base(surfaceKind, mode, function)
+    {
+        ArgumentNullException.ThrowIfNull(role);
+        Role = role;
+    }
+
+    public override AnalysisTargetRoleDescriptor<TIdentity> Role { get; }
+}
+
+/// <summary>
+/// Planner-readable base for one producer-owned analysis declaration.
+/// Concrete descriptor instances and subtypes remain owner-issued identities.
+/// </summary>
+public abstract class AnalysisDescriptor : AnalysisRequestDefinition
+{
+    protected AnalysisDescriptor(
         string name,
         string revision,
         IReadOnlyList<AnalysisQuestionMode> supportedModes,
@@ -135,19 +175,25 @@ public class AnalysisDescriptor : AnalysisRequestDefinition
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(revision);
         Revision = revision;
-        SupportedModes = FreezeValues(supportedModes, nameof(supportedModes), requireNonEmpty: true);
-        TargetRoles = FreezeDefinitions(targetRoles, nameof(targetRoles), requireNonEmpty: true);
-        SupportedProjections = FreezeDefinitions(
+        SupportedModes = AnalysisRequestGuard.FreezeEnums(
+            supportedModes,
+            nameof(supportedModes),
+            requireNonEmpty: true);
+        TargetRoles = AnalysisRequestGuard.FreezeDefinitions(
+            targetRoles,
+            nameof(targetRoles),
+            requireNonEmpty: true);
+        SupportedProjections = AnalysisRequestGuard.FreezeDefinitions(
             supportedProjections,
             nameof(supportedProjections),
             requireNonEmpty: true);
-        UniverseRequirements = FreezeDefinitions(
+        UniverseRequirements = AnalysisRequestGuard.FreezeDefinitions(
             universeRequirements,
             nameof(universeRequirements));
-        StructuralPrerequisites = FreezeDefinitions(
+        StructuralPrerequisites = AnalysisRequestGuard.FreezeDefinitions(
             structuralPrerequisites,
             nameof(structuralPrerequisites));
-        PreflightRequirements = FreezeDefinitions(
+        PreflightRequirements = AnalysisRequestGuard.FreezeDefinitions(
             preflightRequirements,
             nameof(preflightRequirements));
 
@@ -200,50 +246,14 @@ public class AnalysisDescriptor : AnalysisRequestDefinition
     public ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> StructuralPrerequisites { get; }
 
     public ImmutableArray<AnalysisPreflightRequirementDescriptor> PreflightRequirements { get; }
-
-    private static ImmutableArray<T> FreezeValues<T>(
-        IReadOnlyList<T> values,
-        string parameterName,
-        bool requireNonEmpty)
-        where T : struct, Enum
-    {
-        ArgumentNullException.ThrowIfNull(values, parameterName);
-        ImmutableArray<T> frozen = [.. values];
-        if (requireNonEmpty && frozen.IsEmpty)
-            throw new ArgumentException("At least one value is required.", parameterName);
-        if (frozen.Length != frozen.Distinct().Count())
-            throw new ArgumentException("Duplicate values are not permitted.", parameterName);
-        return frozen;
-    }
-
-    private static ImmutableArray<T> FreezeDefinitions<T>(
-        IReadOnlyList<T>? values,
-        string parameterName,
-        bool requireNonEmpty = false)
-        where T : class
-    {
-        if (values is null)
-        {
-            if (requireNonEmpty)
-                throw new ArgumentNullException(parameterName);
-            return [];
-        }
-
-        ImmutableArray<T> frozen = [.. values];
-        if (requireNonEmpty && frozen.IsEmpty)
-            throw new ArgumentException("At least one declaration is required.", parameterName);
-        if (frozen.Any(static value => value is null))
-            throw new ArgumentException("Null declarations are not permitted.", parameterName);
-        if (frozen.Distinct(ReferenceEqualityComparer.Instance).Count() != frozen.Length)
-            throw new ArgumentException("Duplicate declarations are not permitted.", parameterName);
-        return frozen;
-    }
 }
 
-/// <summary>One typed report identity bound to an owner-issued role.</summary>
+/// <summary>One typed report identity bound to a role accepting that currency.</summary>
 public sealed record AnalysisReportTarget<TIdentity>
 {
-    public AnalysisReportTarget(AnalysisTargetRoleDescriptor role, TIdentity identity)
+    public AnalysisReportTarget(
+        AnalysisTargetRoleDescriptor<TIdentity> role,
+        TIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(role);
         ArgumentNullException.ThrowIfNull(identity);
@@ -251,7 +261,7 @@ public sealed record AnalysisReportTarget<TIdentity>
         Identity = identity;
     }
 
-    public AnalysisTargetRoleDescriptor Role { get; }
+    public AnalysisTargetRoleDescriptor<TIdentity> Role { get; }
 
     public TIdentity Identity { get; }
 }
@@ -263,10 +273,9 @@ public sealed class AnalysisReportSurface<TIdentity>
         AnalysisReportSurfaceKind kind,
         IReadOnlyList<AnalysisReportTarget<TIdentity>> targets)
     {
+        AnalysisRequestGuard.EnumDefined(kind, nameof(kind));
         ArgumentNullException.ThrowIfNull(targets);
         Targets = [.. targets];
-        if (Targets.IsEmpty)
-            throw new ArgumentException("A report surface requires at least one target.", nameof(targets));
         if (Targets.Any(static target => target is null))
             throw new ArgumentException("Null report targets are not permitted.", nameof(targets));
         Kind = kind;
@@ -278,57 +287,41 @@ public sealed class AnalysisReportSurface<TIdentity>
 }
 
 /// <summary>
-/// A finite or unbounded owner-issued universe description with opaque owner state.
+/// Planner-readable universe declarations. Concrete owners retain all other typed state.
 /// </summary>
-public sealed class AnalysisUniverseDescription<TBoundary, TProviderState>
+public abstract class AnalysisUniverseDescription
 {
-    public AnalysisUniverseDescription(
+    protected AnalysisUniverseDescription(
         AnalysisUniverseBoundKind boundKind,
-        TBoundary requestedBoundary,
-        TBoundary realizedBoundary,
-        IReadOnlyList<AnalysisUniverseCapabilityDescriptor> capabilities,
-        TProviderState providerState)
+        IReadOnlyList<AnalysisUniverseCapabilityDescriptor> capabilities)
     {
-        ArgumentNullException.ThrowIfNull(requestedBoundary);
-        ArgumentNullException.ThrowIfNull(realizedBoundary);
-        ArgumentNullException.ThrowIfNull(capabilities);
-        ArgumentNullException.ThrowIfNull(providerState);
-
-        Capabilities = [.. capabilities];
-        if (Capabilities.Any(static capability => capability is null))
-            throw new ArgumentException("Null capabilities are not permitted.", nameof(capabilities));
-        if (Capabilities.Distinct(ReferenceEqualityComparer.Instance).Count() != Capabilities.Length)
-            throw new ArgumentException("Duplicate capabilities are not permitted.", nameof(capabilities));
-
+        AnalysisRequestGuard.EnumDefined(boundKind, nameof(boundKind));
         BoundKind = boundKind;
-        RequestedBoundary = requestedBoundary;
-        RealizedBoundary = realizedBoundary;
-        ProviderState = providerState;
+        Capabilities = AnalysisRequestGuard.FreezeDefinitions(
+            capabilities,
+            nameof(capabilities));
     }
 
     public AnalysisUniverseBoundKind BoundKind { get; }
 
-    public TBoundary RequestedBoundary { get; }
-
-    public TBoundary RealizedBoundary { get; }
-
     public ImmutableArray<AnalysisUniverseCapabilityDescriptor> Capabilities { get; }
-
-    public TProviderState ProviderState { get; }
 }
 
-/// <summary>One five-field analysis request.</summary>
-public sealed class AnalysisRequest<TTargetIdentity, TUniverseBoundary, TUniverseState>
+/// <summary>One five-field analysis request retaining exact owner types.</summary>
+public sealed class AnalysisRequest<TAnalysis, TTargetIdentity, TUniverse>
+    where TAnalysis : AnalysisDescriptor
+    where TUniverse : AnalysisUniverseDescription
 {
     public AnalysisRequest(
-        AnalysisDescriptor analysis,
+        TAnalysis analysis,
         AnalysisReportSurface<TTargetIdentity> reportSurface,
-        AnalysisUniverseDescription<TUniverseBoundary, TUniverseState>? universe,
+        TUniverse? universe,
         AnalysisQuestionMode mode,
         AnalysisProjectionDescriptor projection)
     {
         ArgumentNullException.ThrowIfNull(analysis);
         ArgumentNullException.ThrowIfNull(reportSurface);
+        AnalysisRequestGuard.EnumDefined(mode, nameof(mode));
         ArgumentNullException.ThrowIfNull(projection);
         Analysis = analysis;
         ReportSurface = reportSurface;
@@ -337,11 +330,11 @@ public sealed class AnalysisRequest<TTargetIdentity, TUniverseBoundary, TUnivers
         Projection = projection;
     }
 
-    public AnalysisDescriptor Analysis { get; }
+    public TAnalysis Analysis { get; }
 
     public AnalysisReportSurface<TTargetIdentity> ReportSurface { get; }
 
-    public AnalysisUniverseDescription<TUniverseBoundary, TUniverseState>? Universe { get; }
+    public TUniverse? Universe { get; }
 
     public AnalysisQuestionMode Mode { get; }
 
@@ -349,12 +342,14 @@ public sealed class AnalysisRequest<TTargetIdentity, TUniverseBoundary, TUnivers
 }
 
 /// <summary>A request plan retaining exact owner-issued inputs and declarations.</summary>
-public sealed class AnalysisValidatedPlan<TTargetIdentity, TUniverseBoundary, TUniverseState>
+public sealed class AnalysisValidatedPlan<TAnalysis, TTargetIdentity, TUniverse>
+    where TAnalysis : AnalysisDescriptor
+    where TUniverse : AnalysisUniverseDescription
 {
     internal AnalysisValidatedPlan(
-        AnalysisDescriptor analysis,
+        TAnalysis analysis,
         AnalysisReportSurface<TTargetIdentity> reportSurface,
-        AnalysisUniverseDescription<TUniverseBoundary, TUniverseState> universe,
+        TUniverse universe,
         AnalysisQuestionMode mode,
         AnalysisProjectionDescriptor projection)
     {
@@ -368,11 +363,11 @@ public sealed class AnalysisValidatedPlan<TTargetIdentity, TUniverseBoundary, TU
         PreflightRequirements = analysis.PreflightRequirements;
     }
 
-    public AnalysisDescriptor Analysis { get; }
+    public TAnalysis Analysis { get; }
 
     public AnalysisReportSurface<TTargetIdentity> ReportSurface { get; }
 
-    public AnalysisUniverseDescription<TUniverseBoundary, TUniverseState> Universe { get; }
+    public TUniverse Universe { get; }
 
     public AnalysisQuestionMode Mode { get; }
 
@@ -394,88 +389,235 @@ public abstract record AnalysisRequestRejection
 
     public abstract string Guidance { get; }
 
-    public sealed record UnsupportedMode(AnalysisQuestionMode Mode) : AnalysisRequestRejection
+    public sealed record UnconfiguredAnalysis : AnalysisRequestRejection
     {
+        internal UnconfiguredAnalysis(AnalysisDescriptor analysis)
+        {
+            ArgumentNullException.ThrowIfNull(analysis);
+            Analysis = analysis;
+        }
+
+        public AnalysisDescriptor Analysis { get; }
+
+        public override string Guidance =>
+            $"Analysis '{Analysis.Name}' is not configured in this capability catalog.";
+    }
+
+    public sealed record InvalidReportSurface : AnalysisRequestRejection
+    {
+        internal InvalidReportSurface(
+            AnalysisReportSurfaceKind surfaceKind,
+            AnalysisReportSurfaceCardinalityViolation violation)
+        {
+            AnalysisRequestGuard.EnumDefined(surfaceKind, nameof(surfaceKind));
+            AnalysisRequestGuard.EnumDefined(violation, nameof(violation));
+            SurfaceKind = surfaceKind;
+            Violation = violation;
+        }
+
+        public AnalysisReportSurfaceKind SurfaceKind { get; }
+
+        public AnalysisReportSurfaceCardinalityViolation Violation { get; }
+
+        public override string Guidance => Violation switch
+        {
+            AnalysisReportSurfaceCardinalityViolation.MissingTarget =>
+                $"Report surface '{SurfaceKind}' requires at least one target.",
+            AnalysisReportSurfaceCardinalityViolation.WorkspaceRequiresSingleTarget =>
+                "A Workspace report surface requires exactly one workspace or operation target.",
+            _ => throw new UnreachableException(),
+        };
+    }
+
+    public sealed record UnsupportedMode : AnalysisRequestRejection
+    {
+        internal UnsupportedMode(AnalysisQuestionMode mode)
+        {
+            AnalysisRequestGuard.EnumDefined(mode, nameof(mode));
+            Mode = mode;
+        }
+
+        public AnalysisQuestionMode Mode { get; }
+
         public override string Guidance => $"Analysis does not support mode '{Mode}'.";
     }
 
-    public sealed record UnsupportedSurface(AnalysisReportSurfaceKind SurfaceKind)
-        : AnalysisRequestRejection
+    public sealed record UnsupportedSurface : AnalysisRequestRejection
     {
+        internal UnsupportedSurface(AnalysisReportSurfaceKind surfaceKind)
+        {
+            AnalysisRequestGuard.EnumDefined(surfaceKind, nameof(surfaceKind));
+            SurfaceKind = surfaceKind;
+        }
+
+        public AnalysisReportSurfaceKind SurfaceKind { get; }
+
         public override string Guidance =>
             $"Analysis does not support report surface '{SurfaceKind}'.";
     }
 
-    public sealed record UnsupportedTargetRole(AnalysisTargetRoleDescriptor Role)
-        : AnalysisRequestRejection
+    public sealed record UnsupportedTargetRole : AnalysisRequestRejection
     {
-        public override string Guidance => $"Analysis does not support target role '{Role.Name}'.";
+        internal UnsupportedTargetRole(AnalysisTargetRoleDescriptor role)
+        {
+            ArgumentNullException.ThrowIfNull(role);
+            Role = role;
+        }
+
+        public AnalysisTargetRoleDescriptor Role { get; }
+
+        public override string Guidance =>
+            $"Analysis does not support target role '{Role.Name}'.";
     }
 
-    public sealed record InvalidMode(
-        AnalysisQuestionMode Mode,
-        AnalysisModeViolation Violation) : AnalysisRequestRejection
+    public sealed record InvalidMode : AnalysisRequestRejection
     {
+        internal InvalidMode(
+            AnalysisQuestionMode mode,
+            AnalysisModeViolation violation)
+        {
+            AnalysisRequestGuard.EnumDefined(mode, nameof(mode));
+            AnalysisRequestGuard.EnumDefined(violation, nameof(violation));
+            bool compatible = (mode, violation) switch
+            {
+                (AnalysisQuestionMode.Targeted,
+                    AnalysisModeViolation.TargetedMissingPrivilegedAnchor) => true,
+                (AnalysisQuestionMode.Census,
+                    AnalysisModeViolation.CensusContainsPrivilegedAnchor) => true,
+                _ => false,
+            };
+            if (!compatible)
+            {
+                throw new ArgumentException(
+                    $"Mode '{mode}' is incompatible with violation '{violation}'.",
+                    nameof(violation));
+            }
+
+            Mode = mode;
+            Violation = violation;
+        }
+
+        public AnalysisQuestionMode Mode { get; }
+
+        public AnalysisModeViolation Violation { get; }
+
         public override string Guidance => Violation switch
         {
             AnalysisModeViolation.TargetedMissingPrivilegedAnchor =>
                 "Targeted mode requires at least one privileged anchor.",
             AnalysisModeViolation.CensusContainsPrivilegedAnchor =>
                 "Census mode cannot contain a privileged anchor.",
-            _ => throw new InvalidOperationException($"Unknown mode violation '{Violation}'."),
+            _ => throw new UnreachableException(),
         };
     }
 
     public sealed record MissingUniverse : AnalysisRequestRejection
     {
+        internal MissingUniverse()
+        {
+        }
+
         public override string Guidance => "Supply an owner-issued finite universe.";
     }
 
     public sealed record UnboundedUniverse : AnalysisRequestRejection
     {
+        internal UnboundedUniverse()
+        {
+        }
+
         public override string Guidance => "Supply a universe with an explicit finite bound.";
     }
 
-    public sealed record UnsatisfiedUniverse(
-        ImmutableArray<AnalysisUniverseRequirementDescriptor> Requirements)
-        : AnalysisRequestRejection
+    public sealed record UnsatisfiedUniverse : AnalysisRequestRejection
     {
+        internal UnsatisfiedUniverse(
+            ImmutableArray<AnalysisUniverseRequirementDescriptor> requirements)
+        {
+            if (requirements.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "At least one unsatisfied requirement is required.",
+                    nameof(requirements));
+            }
+
+            Requirements = requirements;
+        }
+
+        public ImmutableArray<AnalysisUniverseRequirementDescriptor> Requirements { get; }
+
         public override string Guidance =>
             $"Universe does not satisfy: {string.Join(", ", Requirements.Select(r => r.Name))}.";
     }
 
-    public sealed record MissingStructuralPrerequisites(
-        ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> Prerequisites)
-        : AnalysisRequestRejection
+    public sealed record MissingStructuralPrerequisites : AnalysisRequestRejection
     {
+        internal MissingStructuralPrerequisites(
+            ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> prerequisites)
+        {
+            if (prerequisites.IsDefaultOrEmpty)
+            {
+                throw new ArgumentException(
+                    "At least one missing prerequisite is required.",
+                    nameof(prerequisites));
+            }
+
+            Prerequisites = prerequisites;
+        }
+
+        public ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> Prerequisites { get; }
+
         public override string Guidance =>
             $"Missing structural prerequisites: {string.Join(", ", Prerequisites.Select(p => p.Name))}.";
     }
 
-    public sealed record UnsupportedProjection(AnalysisProjectionDescriptor Projection)
-        : AnalysisRequestRejection
+    public sealed record UnsupportedProjection : AnalysisRequestRejection
     {
+        internal UnsupportedProjection(AnalysisProjectionDescriptor projection)
+        {
+            ArgumentNullException.ThrowIfNull(projection);
+            Projection = projection;
+        }
+
+        public AnalysisProjectionDescriptor Projection { get; }
+
         public override string Guidance =>
             $"Analysis does not support projection '{Projection.Name}'.";
     }
 }
 
 /// <summary>A validated plan or one typed pre-execution rejection.</summary>
-public abstract record AnalysisRequestPlanningResult<
-    TTargetIdentity,
-    TUniverseBoundary,
-    TUniverseState>
+public abstract record AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
+    where TAnalysis : AnalysisDescriptor
+    where TUniverse : AnalysisUniverseDescription
 {
     private AnalysisRequestPlanningResult()
     {
     }
 
-    public sealed record Validated(
-        AnalysisValidatedPlan<TTargetIdentity, TUniverseBoundary, TUniverseState> Plan)
-        : AnalysisRequestPlanningResult<TTargetIdentity, TUniverseBoundary, TUniverseState>;
+    public sealed record Validated
+        : AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
+    {
+        internal Validated(AnalysisValidatedPlan<TAnalysis, TTargetIdentity, TUniverse> plan)
+        {
+            ArgumentNullException.ThrowIfNull(plan);
+            Plan = plan;
+        }
 
-    public sealed record Rejected(AnalysisRequestRejection Rejection)
-        : AnalysisRequestPlanningResult<TTargetIdentity, TUniverseBoundary, TUniverseState>;
+        public AnalysisValidatedPlan<TAnalysis, TTargetIdentity, TUniverse> Plan { get; }
+    }
+
+    public sealed record Rejected
+        : AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
+    {
+        internal Rejected(AnalysisRequestRejection rejection)
+        {
+            ArgumentNullException.ThrowIfNull(rejection);
+            Rejection = rejection;
+        }
+
+        public AnalysisRequestRejection Rejection { get; }
+    }
 }
 
 /// <summary>
@@ -493,12 +635,14 @@ public sealed class AnalysisRequestPlanner
     {
         ArgumentNullException.ThrowIfNull(descriptors);
         ArgumentNullException.ThrowIfNull(availableStructuralPrerequisites);
-        Descriptors = FreezeReferenceSet(descriptors, nameof(descriptors), requireNonEmpty: true);
+        Descriptors = AnalysisRequestGuard.FreezeDefinitions(
+            descriptors,
+            nameof(descriptors),
+            requireNonEmpty: true);
         ImmutableArray<AnalysisStructuralPrerequisiteDescriptor> prerequisites =
-            FreezeReferenceSet(
+            AnalysisRequestGuard.FreezeDefinitions(
                 availableStructuralPrerequisites,
-                nameof(availableStructuralPrerequisites),
-                requireNonEmpty: false);
+                nameof(availableStructuralPrerequisites));
         _descriptorSet = new(Descriptors, ReferenceEqualityComparer.Instance);
         _availableStructuralPrerequisites =
             new(prerequisites, ReferenceEqualityComparer.Instance);
@@ -508,28 +652,42 @@ public sealed class AnalysisRequestPlanner
     public ImmutableArray<AnalysisDescriptor> Descriptors { get; }
 
     /// <summary>Validates one complete request without executing a producer or query.</summary>
-    public AnalysisRequestPlanningResult<TTargetIdentity, TUniverseBoundary, TUniverseState> Plan<
+    public AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse> Plan<
+        TAnalysis,
         TTargetIdentity,
-        TUniverseBoundary,
-        TUniverseState>(
-        AnalysisRequest<TTargetIdentity, TUniverseBoundary, TUniverseState> request)
+        TUniverse>(
+        AnalysisRequest<TAnalysis, TTargetIdentity, TUniverse> request)
+        where TAnalysis : AnalysisDescriptor
+        where TUniverse : AnalysisUniverseDescription
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!_descriptorSet.Contains(request.Analysis))
+
+        AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse> Reject(
+            AnalysisRequestRejection rejection)
+            => new AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
+                .Rejected(rejection);
+
+        TAnalysis analysis = request.Analysis;
+        if (!_descriptorSet.Contains(analysis))
+            return Reject(new AnalysisRequestRejection.UnconfiguredAnalysis(analysis));
+
+        if (request.ReportSurface.Targets.IsEmpty)
         {
-            throw new ArgumentException(
-                "The analysis descriptor is not part of this structural capability catalog.",
-                nameof(request));
+            return Reject(
+                new AnalysisRequestRejection.InvalidReportSurface(
+                    request.ReportSurface.Kind,
+                    AnalysisReportSurfaceCardinalityViolation.MissingTarget));
         }
 
-        AnalysisRequestPlanningResult<TTargetIdentity, TUniverseBoundary, TUniverseState> Reject(
-            AnalysisRequestRejection rejection)
-            => new AnalysisRequestPlanningResult<
-                TTargetIdentity,
-                TUniverseBoundary,
-                TUniverseState>.Rejected(rejection);
+        if (request.ReportSurface.Kind == AnalysisReportSurfaceKind.Workspace
+            && request.ReportSurface.Targets.Length != 1)
+        {
+            return Reject(
+                new AnalysisRequestRejection.InvalidReportSurface(
+                    request.ReportSurface.Kind,
+                    AnalysisReportSurfaceCardinalityViolation.WorkspaceRequiresSingleTarget));
+        }
 
-        AnalysisDescriptor analysis = request.Analysis;
         if (!analysis.SupportedModes.Contains(request.Mode))
             return Reject(new AnalysisRequestRejection.UnsupportedMode(request.Mode));
 
@@ -563,15 +721,13 @@ public sealed class AnalysisRequestPlanner
                     AnalysisModeViolation.TargetedMissingPrivilegedAnchor));
         }
 
-        if (request.Mode == AnalysisQuestionMode.Census)
+        if (request.Mode == AnalysisQuestionMode.Census
+            && functions.Contains(AnalysisTargetFunction.PrivilegedAnchor))
         {
-            if (functions.Contains(AnalysisTargetFunction.PrivilegedAnchor))
-            {
-                return Reject(
-                    new AnalysisRequestRejection.InvalidMode(
-                        request.Mode,
-                        AnalysisModeViolation.CensusContainsPrivilegedAnchor));
-            }
+            return Reject(
+                new AnalysisRequestRejection.InvalidMode(
+                    request.Mode,
+                    AnalysisModeViolation.CensusContainsPrivilegedAnchor));
         }
 
         if (request.Universe is null)
@@ -610,27 +766,56 @@ public sealed class AnalysisRequestPlanner
                 new AnalysisRequestRejection.UnsupportedProjection(request.Projection));
         }
 
-        return new AnalysisRequestPlanningResult<
-            TTargetIdentity,
-            TUniverseBoundary,
-            TUniverseState>.Validated(
-                new AnalysisValidatedPlan<
-                    TTargetIdentity,
-                    TUniverseBoundary,
-                    TUniverseState>(
-                        analysis,
-                        request.ReportSurface,
-                        request.Universe,
-                        request.Mode,
-                        request.Projection));
+        return new AnalysisRequestPlanningResult<TAnalysis, TTargetIdentity, TUniverse>
+            .Validated(
+                new AnalysisValidatedPlan<TAnalysis, TTargetIdentity, TUniverse>(
+                    analysis,
+                    request.ReportSurface,
+                    request.Universe,
+                    request.Mode,
+                    request.Projection));
+    }
+}
+
+internal static class AnalysisRequestGuard
+{
+    public static void EnumDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+            throw new ArgumentOutOfRangeException(parameterName, value, "Undefined enum value.");
     }
 
-    private static ImmutableArray<T> FreezeReferenceSet<T>(
-        IReadOnlyList<T> values,
+    public static ImmutableArray<TEnum> FreezeEnums<TEnum>(
+        IReadOnlyList<TEnum> values,
         string parameterName,
         bool requireNonEmpty)
+        where TEnum : struct, Enum
+    {
+        ArgumentNullException.ThrowIfNull(values, parameterName);
+        ImmutableArray<TEnum> frozen = [.. values];
+        if (requireNonEmpty && frozen.IsEmpty)
+            throw new ArgumentException("At least one value is required.", parameterName);
+        foreach (TEnum value in frozen)
+            EnumDefined(value, parameterName);
+        if (frozen.Length != frozen.Distinct().Count())
+            throw new ArgumentException("Duplicate values are not permitted.", parameterName);
+        return frozen;
+    }
+
+    public static ImmutableArray<T> FreezeDefinitions<T>(
+        IReadOnlyList<T>? values,
+        string parameterName,
+        bool requireNonEmpty = false)
         where T : class
     {
+        if (values is null)
+        {
+            if (requireNonEmpty)
+                throw new ArgumentNullException(parameterName);
+            return [];
+        }
+
         ImmutableArray<T> frozen = [.. values];
         if (requireNonEmpty && frozen.IsEmpty)
             throw new ArgumentException("At least one declaration is required.", parameterName);

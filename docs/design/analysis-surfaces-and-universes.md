@@ -11,11 +11,13 @@ request plan. Producer execution, result semantics, and presentation remain
 with their existing owners.
 
 Tracking: [#4967](https://github.com/richlander/dotnet-inspect/issues/4967).
+Implementation: [#5014](https://github.com/richlander/dotnet-inspect/issues/5014).
 
 ## Status
 
-This is a target design. Runtime implementation and every property in
-[Verification](#verification) remain unverified until their named gates land.
+The host-neutral runtime contract is implemented by
+`AnalysisRequestPlanning.cs`. Its asserted properties are enforced by the
+named gates in [Verification](#verification).
 
 The word *analysis* is generic here: it means a producer-backed inspection
 question such as Integrations, calls, metadata, API shape, or body analysis.
@@ -117,7 +119,7 @@ The report surface identifies the domain the answer is about.
 | Type | One or more owner-issued Type targets |
 | Library | One or more acquired Library targets |
 | Root | One or more realized Root targets, such as Package |
-| Workspace | One owner-issued workspace or operation target |
+| Workspace | Exactly one owner-issued workspace or operation target |
 
 These kinds do not mint identities or define structural composition. They bind
 owner-issued identities to the analysis descriptor's accepted target roles and
@@ -224,12 +226,19 @@ does not derive them from Section names.
 
 The configured descriptor catalog is finite for one build. Observation
 instances remain open-ended within the bounded universe supplied to a request.
+Structural discovery projects each configured owner descriptor by the same
+definition identity; it does not replace the descriptor or erase its typed
+owner declarations. An owner retains that descriptor identity when it binds a
+request, so the validated plan retains the same typed catalog and requirement
+currency without deriving either from the generic catalog view.
 
 ### Request capability
 
 Request capability validates one complete request against its analysis
 descriptor before producer execution. It checks:
 
+- that the analysis descriptor is configured in the current catalog;
+- report-surface cardinality;
 - report-surface kind and typed target roles;
 - Targeted or Census mode invariants;
 - analysis-descriptor support for the requested mode;
@@ -241,10 +250,12 @@ Rejection is a typed planning outcome with guidance. It is not a producer
 inspection, a successful empty result, or a Finding state. Validation must not
 execute the producer merely to decide whether the producer is supported.
 
-The request owner declares a closed set of rejection reasons covering invalid
-mode, descriptor-unsupported mode, unsupported surface, unsupported target
-role, unsatisfied or unbounded universe, missing structural prerequisite, and
-unsupported projection. Every rejection is decided before producer execution.
+The request owner declares a closed set of rejection reasons covering an
+unconfigured analysis, invalid report-surface cardinality, invalid mode,
+descriptor-unsupported mode, unsupported surface, unsupported target role,
+missing, unsatisfied, or unbounded universe, missing structural prerequisite,
+and unsupported projection. Every rejection is decided before producer
+execution.
 User-gesture provenance, capability authorization, and cost enforcement remain
 host-preflight responsibilities under
 [Progressive disclosure](progressive-disclosure.md).
@@ -318,6 +329,8 @@ The request owner must distinguish:
 | Case | Request interpretation |
 | --- | --- |
 | Configured descriptor with no request | Structurally discoverable capability only |
+| Request names a descriptor outside the configured catalog | Typed capability rejection before execution |
+| Report surface has no target, or Workspace has other than one target | Typed capability rejection before execution |
 | Targeted mode with no target in a descriptor-declared privileged-anchor role | Invalid request |
 | Census mode with a target in a descriptor-declared privileged-anchor role | Invalid request |
 | Structurally valid mode unsupported by the descriptor | Typed capability rejection before execution |
@@ -371,8 +384,10 @@ The target implementation is unverified until these named gates land:
 - `AnalysisRequest_CensusRejectsPrivilegedContainedAnchor`
 - `AnalysisRequest_ModeValidationDerivesFromDeclaredTargetFunctions`
 - `AnalysisRequest_RejectsMissingOrUnboundedUniverseBeforeProducerExecution`
+- `AnalysisRequest_RejectsInvalidReportSurfaceCardinalityBeforeProducerExecution`
 - `AnalysisCapability_StructuralDiscoveryDoesNotResolveContentExecuteProducersOrProbeEffectiveness`
 - `AnalysisCapability_ListsConfiguredUnobservedIntegrationDescriptors`
+- `AnalysisCapability_RejectsUnconfiguredAnalysisBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedModeBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedSurfaceBeforeProducerExecution`
 - `AnalysisCapability_RejectsUnsupportedTargetRoleBeforeProducerExecution`
@@ -383,6 +398,7 @@ The target implementation is unverified until these named gates land:
 - `AnalysisCapability_RejectionDoesNotUseFindingInspectionState`
 - `AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements`
 - `AnalysisPlan_RetainsUniverseCompletenessAndFailureInputs`
+- `AnalysisPlanningResults_HavePlannerOwnedConstruction`
 - `AnalysisProjection_RowsAndGraphRetainOneAnalysisIdentity`
 - `AnalysisUniverseProviderKindDoesNotChangeRequestFieldSemantics`
 
