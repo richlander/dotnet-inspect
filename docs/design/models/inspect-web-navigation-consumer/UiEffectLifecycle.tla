@@ -13,6 +13,7 @@ CONSTANTS
   EnforceDestroyAbandon,
   EnforceInstallFirst,
   EnforcePersistentFocus,
+  EnforceDeferredFocus,
   EnforceReplacementAbandon
 
 ASSUME MaxIntents >= 2
@@ -22,6 +23,7 @@ ASSUME EnforceCompleteAcknowledge \in BOOLEAN
 ASSUME EnforceDestroyAbandon \in BOOLEAN
 ASSUME EnforceInstallFirst \in BOOLEAN
 ASSUME EnforcePersistentFocus \in BOOLEAN
+ASSUME EnforceDeferredFocus \in BOOLEAN
 ASSUME EnforceReplacementAbandon \in BOOLEAN
 
 Tokens == 1..MaxIntents
@@ -62,6 +64,7 @@ VARIABLES
   acknowledgeWitness,
   destructionWitness,
   orderingWitness,
+  deferredFocusWitness,
   replacementWitness
 
 vars ==
@@ -80,6 +83,7 @@ vars ==
      acknowledgeWitness,
      destructionWitness,
      orderingWitness,
+     deferredFocusWitness,
      replacementWitness >>
 
 Init ==
@@ -98,6 +102,7 @@ Init ==
   /\ acknowledgeWitness = TRUE
   /\ destructionWitness = TRUE
   /\ orderingWitness = TRUE
+  /\ deferredFocusWitness = TRUE
   /\ replacementWitness = TRUE
 
 CurrentAuthority(i) ==
@@ -127,6 +132,7 @@ BeginIntent ==
                   acknowledgeWitness,
                   destructionWitness,
                   orderingWitness,
+                  deferredFocusWitness,
                   replacementWitness >>
 
 ReturnResult(i, result) ==
@@ -147,6 +153,7 @@ ReturnResult(i, result) ==
                   acknowledgeWitness,
                   destructionWitness,
                   orderingWitness,
+                  deferredFocusWitness,
                   replacementWitness,
                   focusLocation,
                   focusSurface >>
@@ -173,6 +180,7 @@ DiscardSuperseded(i) ==
                   acknowledgeWitness,
                   destructionWitness,
                   orderingWitness,
+                  deferredFocusWitness,
                   replacementWitness >>
 
 RunEffect(i, effect, replaceSurface) ==
@@ -206,14 +214,14 @@ RunEffect(i, effect, replaceSurface) ==
        ELSE operationSurface
   /\ focusLocation' =
        CASE effect = "install" ->
-              IF EnforcePersistentFocus THEN "surface" ELSE "body"
+              IF EnforceDeferredFocus THEN focusLocation ELSE "surface"
          [] effect = "focus" -> "surface"
          [] OTHER -> focusLocation
   /\ focusSurface' =
        CASE effect = "install" ->
-              IF EnforcePersistentFocus
-              THEN IF replaceSurface THEN surfaceEpoch + 1 ELSE surfaceEpoch
-              ELSE 0
+              IF EnforceDeferredFocus
+              THEN focusSurface
+              ELSE IF replaceSurface THEN surfaceEpoch + 1 ELSE surfaceEpoch
          [] effect = "focus" -> surfaceEpoch
          [] OTHER -> focusSurface
   /\ effectWitness' =
@@ -226,6 +234,11 @@ RunEffect(i, effect, replaceSurface) ==
         /\ (effect = "install"
             \/ "install" \notin required[i]
             \/ "install" \in completed[i]))
+  /\ deferredFocusWitness' =
+       (deferredFocusWitness
+        /\ (effect = "focus"
+            \/ /\ focusLocation' = focusLocation
+               /\ focusSurface' = focusSurface))
   /\ replacementWitness' =
        (replacementWitness
         /\ (~replaceSurface
@@ -264,6 +277,7 @@ Acknowledge(i) ==
                   effectWitness,
                   destructionWitness,
                   orderingWitness,
+                  deferredFocusWitness,
                   replacementWitness >>
 
 AbandonStale(i) ==
@@ -285,6 +299,7 @@ AbandonStale(i) ==
                   acknowledgeWitness,
                   destructionWitness,
                   orderingWitness,
+                  deferredFocusWitness,
                   replacementWitness >>
 
 DestroySurface ==
@@ -315,6 +330,7 @@ DestroySurface ==
                   effectWitness,
                   acknowledgeWitness,
                   orderingWitness,
+                  deferredFocusWitness,
                   replacementWitness >>
 
 MountSurface ==
@@ -335,6 +351,7 @@ MountSurface ==
                   acknowledgeWitness,
                   destructionWitness,
                   orderingWitness,
+                  deferredFocusWitness,
                   replacementWitness >>
 
 Next ==
@@ -365,6 +382,7 @@ TypeOK ==
   /\ acknowledgeWitness \in BOOLEAN
   /\ destructionWitness \in BOOLEAN
   /\ orderingWitness \in BOOLEAN
+  /\ deferredFocusWitness \in BOOLEAN
   /\ replacementWitness \in BOOLEAN
 
 ReturnedShape ==
@@ -387,6 +405,8 @@ AcknowledgeOnlyAfterEffects == acknowledgeWitness
 DestroyAbandonsReturnedAuthority == destructionWitness
 
 SnapshotInstallsBeforeDependentEffects == orderingWitness
+
+DeferredFocusRunsOnlyInFocusEffect == deferredFocusWitness
 
 FocusRemainsOnMountedElement ==
   /\ focusLocation # "body"

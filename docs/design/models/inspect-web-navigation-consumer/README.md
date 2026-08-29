@@ -52,6 +52,7 @@ The model states these required properties:
 
 - every visible effect uses current authority for the current mounted surface;
 - focus and announcement never precede a required snapshot installation;
+- installation does not perform the separately deferred focus effect;
 - acknowledgement occurs only after all required effects complete;
 - surface destruction abandons every returned authority held by that surface;
 - renderer replacement abandons other outgoing-lifetime authority before
@@ -62,7 +63,7 @@ The model states these required properties:
   product supersession.
 
 The primary configuration exhaustively checks state shape and the two
-settlement properties while the required guards are enabled. The six mutation
+settlement properties while the required guards are enabled. The seven mutation
 configurations disable one safety guard at a time and retain an independent
 witness invariant, demonstrating that each safety rule is non-vacuous. These
 are model claims, not implementation-conformance claims. Required
@@ -111,7 +112,7 @@ The coverage figures use one worker so action counters are deterministic:
 
 ## Mutation probes
 
-Six configurations disable one required guard while retaining an independent
+Seven configurations disable one required guard while retaining an independent
 witness invariant:
 
 | Configuration | Disabled rule | Detected by |
@@ -120,7 +121,8 @@ witness invariant:
 | `EarlyAcknowledgeMutation.cfg` | completion before acknowledgement | `AcknowledgeOnlyAfterEffects` |
 | `DestroyWithoutAbandonMutation.cfg` | abandonment during destruction | `DestroyAbandonsReturnedAuthority` |
 | `FocusBeforeInstallMutation.cfg` | installation before dependent effects | `SnapshotInstallsBeforeDependentEffects` |
-| `DetachedFocusMutation.cfg` | persistent focus handoff during intent, installation, and destruction | `FocusRemainsOnMountedElement` |
+| `InstallMovesFocusMutation.cfg` | installation preserving the separately deferred focus effect | `DeferredFocusRunsOnlyInFocusEffect` |
+| `DetachedFocusMutation.cfg` | persistent focus handoff during intent, replacement, and destruction | `FocusRemainsOnMountedElement` |
 | `ReplaceWithoutAbandonMutation.cfg` | outgoing-lifetime abandonment during renderer replacement | `ReplacementAbandonsOutgoingAuthority` |
 
 TLC finds a counterexample for every mutation. Exact partial-state counts are

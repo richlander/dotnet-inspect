@@ -695,11 +695,16 @@ Browser history uses the same classification:
 - replace the current entry for committed filter changes and portable overload,
   body, or source-target refinements, plus maintenance or unavailable outcomes
   that install refreshed or reconciled state; and
+- adopt the browser-selected entry without calling `pushState` or
+  `replaceState` when initial shared-link activation, refresh, Back, or Forward
+  restores the exact requested state. If that restoration instead installs a
+  changed unavailable or reconciled snapshot, replace the selected entry with
+  the returned canonical state; and
 - do not mutate history for hover, focus, uncommitted listbox movement,
   disclosure animation, or incidental scroll position.
 
 A future packet projection does not decide its own history granularity. It
-inherits this UI-owned push or replace classification.
+inherits this UI-owned push, replace, or adopt classification.
 
 On browser refresh or shared-link activation, the UI submits the opaque packet
 to the product codec and renders its atomic success or typed failure. It does
@@ -744,17 +749,19 @@ Outcome names do not authorize the UI to infer whether state changed. The UI
 installs only the snapshot actually returned by the navigation session and
 never updates local subject or lens state ahead of that result. Installation is
 one atomic consumer effect: it commits the returned snapshot, its rendered
-content, and the UI-owned canonical URL and push-or-replace history
+content, and the UI-owned canonical URL and history-commit
 classification. Rejected and failed results do not mutate the URL or history,
 and superseded work never reaches the consumer. An aborted effect likewise
 retains the current snapshot, URL, and history because navigation never
 received the prerequisite input needed to produce a replacement.
 
-An applied result uses the initiating UI action's push-or-replace
-classification. An unavailable result that carries a changed snapshot replaces
-the current history entry because reconciliation or refreshed evidence, not the
-requested unavailable target, produced that state. It never pushes an entry
-for a subject or lens the user did not activate.
+An applied result uses the initiating explicit action's push-or-replace
+classification or a browser restoration's adopt classification. An unavailable
+result that carries a changed snapshot replaces the current history entry
+because reconciliation or refreshed evidence, not the requested unavailable
+target, produced that state. This replacement also supersedes an initiating
+adopt classification. It never pushes an entry for a subject or lens the user
+did not activate.
 
 Product-initiated maintenance snapshots use the same authority-validated
 installation and acknowledgement lifecycle. They replace the current history
@@ -813,8 +820,9 @@ intervene between every deferred effect. It includes prerequisite abort and
 product-side discard of superseded work. TLC exhaustively checked the model's
 state shape and eventual settlement at depth 16. Separate mutation
 configurations produced a counterexample when current-authority validation,
-install-before-focus ordering, complete-effect acknowledgement, destruction
-abandonment, or persistent focus safety was removed. The
+install-before-focus ordering, deferred-focus separation, complete-effect
+acknowledgement, destruction abandonment, persistent focus safety, or
+replacement abandonment was removed. The
 [model README](models/inspect-web-navigation-consumer/README.md) records the
 tool versions, bounds, action coverage, and mutation results. This proves the
 finite design model; the implementation gates below establish conformance in
@@ -1221,6 +1229,11 @@ these named Inspect Web tests:
   supersedes a result after installation and proves that its queued focus and
   announcement callbacks have no visible effect or history mutation.
 - `navigation-consumer.test.ts`:
+  `stale explicit authority cannot install returned state` returns an applied
+  explicit result, begins a newer intent before installation, and proves that
+  the stale result changes no rendered snapshot, canonical URL, history entry,
+  focus, or shell announcement before its authority is abandoned.
+- `navigation-consumer.test.ts`:
   `acknowledgement follows every required visible effect` proves that
   installation, focus, and announcement complete before acknowledgement.
 - `navigation-consumer.test.ts`:
@@ -1356,6 +1369,9 @@ outcomes:
     same surface kind and return another result for the destroyed lifetime.
 14. Confirm that destruction and the late return both abandon authority and
     that callbacks from the prior lifetime cannot affect the remounted surface.
+15. Return an applied explicit result, begin a newer intent before installation,
+    and confirm that the stale result changes no rendered snapshot, canonical
+    URL, history entry, focus, or shell announcement before abandonment.
 
 ### Workspace composition
 
@@ -1375,7 +1391,7 @@ outcomes:
 
 1. Supply a projectable outcome containing an opaque packet and package courtesy
    identity and confirm that the UI composes both query fields with the
-   transition's push or replace history classification.
+   transition's push, replace, or adopt history classification.
 2. Supply a projectable non-package outcome and confirm that the UI composes
    only `w` without placing a local coordinate in readable URL state.
 3. Starting from a projectable location, supply a non-projectable outcome and
@@ -1391,9 +1407,14 @@ outcomes:
 1. Activate a coordinate, navigate to a Type, and select Source.
 2. Change several result filters.
 3. Use Browser Back and confirm that it returns to the prior pushed subject or
-   lens state rather than stepping through each filter change.
+   lens state rather than stepping through each filter change. Confirm that the
+   restored snapshot adopts the browser-selected entry without a history write.
 4. Use Browser Forward and confirm that it restores the Source state with its
-   latest replaced refinements.
+   latest replaced refinements without adding or replacing an entry.
+5. Refresh that location and open it as a shared link. Confirm that exact
+   restoration adopts the current entry, while a changed unavailable or
+   reconciled restoration replaces that entry with its returned canonical
+   state.
 
 ### Package-source composition
 
