@@ -398,7 +398,13 @@ public static partial class CSharpBodyDiff
     /// compares spans pairwise by position rather than by full concatenation,
     /// so a multi-span pairing is not reliable evidence of a rewrite either
     /// way; this carve-out declines to guess in that case instead of risking
-    /// a false rewrite signal.
+    /// a false rewrite signal. Building that projection is not free -- it
+    /// demands every IL-medium node be exactly one contiguous span, a
+    /// narrower contract than <see cref="AnnotatedSourceNode"/> itself
+    /// enforces -- so it only runs once the cheap, projection-free presence
+    /// counts already show a declaration could plausibly be promoted; a
+    /// document with no such candidate must not pay, or risk failing, a
+    /// projection it will never use.
     /// </remarks>
     static void ClassifyUnprovenancedDeclarations(
         AnnotatedSourceDocument beforeDocument,
@@ -411,42 +417,13 @@ public static partial class CSharpBodyDiff
         ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedBefore,
         ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedAfter)
     {
-        var beforeProjection = CSharpAnnotatedSourceProjection.Create(beforeDocument);
-        var afterProjection = CSharpAnnotatedSourceProjection.Create(afterDocument);
-        var beforeProjectedById = beforeProjection.Document.Nodes.ToDictionary(static node => node.Id);
-        var afterProjectedById = afterProjection.Document.Nodes.ToDictionary(static node => node.Id);
-
-        // A genuine call-site rewrite: both sides are InvocationExpression
-        // nodes rendered as one contiguous projected span each (so the
-        // rewrite check has a single, unambiguous run of characters to
-        // compare) whose selected, IL-projected text actually differs. An
-        // unchanged call that merely happens to retain matching IL evidence
-        // does not count -- that is not evidence that anything was rewritten
-        // alongside it. Nor does an invocation that still spans multiple
-        // projected pieces on either side after removing IL lines: this
-        // carve-out declines to guess at such a call's true text equality
-        // rather than risk treating a merely differently-interleaved,
-        // unchanged multi-line call as a rewrite (SelectedTextEqual compares
-        // spans pairwise by position, not by full concatenation, so a
-        // multi-span pairing is not reliable evidence either way here).
-        bool callSiteRewriteMatched = matches.Any(match =>
-            beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
-            && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
-            && beforeProjectedById.TryGetValue(beforeProjectedId, out var beforeCallNode)
-            && afterProjectedById.TryGetValue(afterProjectedId, out var afterCallNode)
-            && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
-            && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
-            && beforeCallNode.Spans.Count == 1
-            && afterCallNode.Spans.Count == 1
-            && !SelectedTextEqual(
-                beforeProjection.Document,
-                beforeCallNode,
-                afterProjection.Document,
-                afterCallNode));
-
         // Total presence (any provenance) proves genuine absence from a
         // side; a copy that merely carries different IL provenance than its
-        // counterpart is still a copy, not an appear/disappear.
+        // counterpart is still a copy, not an appear/disappear. These counts
+        // need no document projection, so they run first and unconditionally:
+        // the overwhelming majority of documents have no null-provenance
+        // declaration candidate at all, and must not pay -- or risk failing --
+        // a projection they will never use.
         int beforeDeclarationTotal = beforeNodes.Count(static node =>
             string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
         int afterDeclarationTotal = afterNodes.Count(static node =>
@@ -469,6 +446,51 @@ public static partial class CSharpBodyDiff
             beforeDeclarationCandidates == 1
             && beforeDeclarationTotal == 1
             && afterDeclarationTotal == 0;
+
+        // The call-site rewrite check requires a document projection, which
+        // -- unlike the counts above -- is not free: it demands every IL-medium
+        // node be exactly one contiguous rendered span, a narrower contract
+        // than AnnotatedSourceNode itself enforces (a non-instruction
+        // IL-medium node, such as a structural "Block", may legitimately span
+        // several rendered lines). Build it only when a declaration could
+        // plausibly be promoted; a document with no such candidate must not
+        // newly fail to satisfy an invariant it never needed.
+        bool callSiteRewriteMatched = false;
+        if (declarationAdded || declarationRemoved)
+        {
+            var beforeProjection = CSharpAnnotatedSourceProjection.Create(beforeDocument);
+            var afterProjection = CSharpAnnotatedSourceProjection.Create(afterDocument);
+            var beforeProjectedById = beforeProjection.Document.Nodes.ToDictionary(static node => node.Id);
+            var afterProjectedById = afterProjection.Document.Nodes.ToDictionary(static node => node.Id);
+
+            // A genuine call-site rewrite: both sides are InvocationExpression
+            // nodes rendered as one contiguous projected span each (so the
+            // rewrite check has a single, unambiguous run of characters to
+            // compare) whose selected, IL-projected text actually differs. An
+            // unchanged call that merely happens to retain matching IL evidence
+            // does not count -- that is not evidence that anything was rewritten
+            // alongside it. Nor does an invocation that still spans multiple
+            // projected pieces on either side after removing IL lines: this
+            // carve-out declines to guess at such a call's true text equality
+            // rather than risk treating a merely differently-interleaved,
+            // unchanged multi-line call as a rewrite (SelectedTextEqual compares
+            // spans pairwise by position, not by full concatenation, so a
+            // multi-span pairing is not reliable evidence either way here).
+            callSiteRewriteMatched = matches.Any(match =>
+                beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
+                && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
+                && beforeProjectedById.TryGetValue(beforeProjectedId, out var beforeCallNode)
+                && afterProjectedById.TryGetValue(afterProjectedId, out var afterCallNode)
+                && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+                && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+                && beforeCallNode.Spans.Count == 1
+                && afterCallNode.Spans.Count == 1
+                && !SelectedTextEqual(
+                    beforeProjection.Document,
+                    beforeCallNode,
+                    afterProjection.Document,
+                    afterCallNode));
+        }
 
         foreach (var node in beforeNodes)
         {

@@ -1740,17 +1740,28 @@ public class CSharpStructuralComparisonTests
     public void IssueCorrespondence_DoesNotTreatDifferentlyInterleavedUnchangedCallAsRewrite()
     {
         // Close negative (round-1 review, reviewer B): a matched invocation
-        // is rendered on a single contiguous line in the after document, but
-        // split into two spans in the before document because a real
-        // interleaved IL line was woven between its two rendered C# pieces
-        // -- a permitted rendering (see CSharpAnnotatedSourceProjection), not
-        // a rewrite. Comparing raw spans (or even IL-projected spans, since
-        // an interleaved split still leaves distinct pieces once a genuine
-        // line break separates them) makes the differing span count alone
-        // look like a rewrite, which would wrongly license inferring an
-        // unrelated new declaration elsewhere in the document. The call-site
-        // check must decline to guess when either side's matched invocation
-        // still spans more than one projected piece.
+        // renders identically as C# on both sides -- "Log(" and "value);" on
+        // two consecutive lines -- but the before document has a real
+        // interleaved IL line woven between those two rendered pieces while
+        // the after document has none. Per the real producer's own
+        // convention (ResearchViews.cs), a C# span that continues onto a
+        // later line keeps its trailing line break as part of the span, so
+        // the before side's raw spans are (0,5)="Log(\n" and (18,7)="value);"
+        // -- two spans purely because of the interleaved IL -- while the
+        // after side, with nothing interleaved, is naturally already one
+        // span covering the identical text "Log(\nvalue);". Comparing raw
+        // spans makes the differing span *count* alone (2 vs. 1) look like a
+        // rewrite even though the reconstructed text is character-for-
+        // character identical, which would wrongly license inferring an
+        // unrelated new declaration elsewhere in the document. Only once the
+        // interleaved IL line is projected away does the before side's two
+        // pieces coalesce back into the same single span, at which point the
+        // projected text comparison correctly finds no difference. This is
+        // the genuine regression case for "compare projected, not raw,
+        // text" -- unlike a hand-built fixture that never lets the spans
+        // coalesce, this one only passes because the projected comparison
+        // itself reports equal text, not merely because of the multi-span
+        // guard.
         const string beforeCall1 = "Log(";
         const string beforeIl = "IL_0000: nop";
         const string beforeCall2 = "value);";
@@ -1767,7 +1778,11 @@ public class CSharpStructuralComparisonTests
                     "InvocationExpression",
                     SourceLineKind.CSharp,
                     [
-                        new AnnotatedSourceSpan(call1Start, beforeCall1.Length),
+                        // Includes the trailing '\n': the construct continues
+                        // onto "value);" on a later line, so the line break
+                        // is the construct's own text, per the real
+                        // producer's convention.
+                        new AnnotatedSourceSpan(call1Start, beforeCall1.Length + 1),
                         new AnnotatedSourceSpan(call2Start, beforeCall2.Length),
                     ],
                     Provenance: new AnnotatedSourceNodeProvenance([0x10])),
@@ -1783,13 +1798,16 @@ public class CSharpStructuralComparisonTests
             [],
             Source());
 
-        const string afterCall = "Log(value);";
+        const string afterCall = "Log(\nvalue);";
         string afterText = $"{afterCall}\n{declarationText}";
         int afterCallStart = afterText.IndexOf(afterCall, StringComparison.Ordinal);
         int afterDeclarationStart = afterText.IndexOf(declarationText, StringComparison.Ordinal);
         var after = new AnnotatedSourceDocument(
             afterText,
             [
+                // No interleaved IL splits this call on the after side, so
+                // it is naturally already one contiguous span covering the
+                // same two rendered lines as the before side.
                 new AnnotatedSourceNode(
                     0,
                     "InvocationExpression",
@@ -1815,6 +1833,53 @@ public class CSharpStructuralComparisonTests
         var declaration = Assert.Single(issued.UnmatchedAfter);
         Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
         Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotProjectWhenNoDeclarationCandidateExists()
+    {
+        // Close negative (round-1 review, reviewer B): CSharpAnnotatedSourceProjection.Create
+        // requires every IL-medium node to be exactly one contiguous rendered
+        // line, but AnnotatedSourceNode itself permits a structural
+        // (non-instruction) IL-medium node -- a "Block", say -- with several
+        // spans and no IlOffset. Before this fix, ClassifyUnprovenancedDeclarations
+        // built a projection of every document unconditionally, so
+        // IssueCorrespondence would throw on such a document even though it
+        // has no null-provenance declaration candidate that could ever be
+        // promoted. The declaration-count checks must run first, and the
+        // projection must stay unbuilt when they already rule out a
+        // promotion, so this document -- which has no LocalFunctionStatement
+        // node at all -- must not throw.
+        var before = TrustedDocument(
+            "A();",
+            new NodeSpec("InvocationExpression", "A()", [0x10]));
+        var beforeWithBlock = new AnnotatedSourceDocument(
+            before.Text,
+            [
+                .. before.Nodes,
+                new AnnotatedSourceNode(
+                    before.Nodes.Count,
+                    "Block",
+                    SourceLineKind.Il,
+                    [
+                        new AnnotatedSourceSpan(0, 1),
+                        new AnnotatedSourceSpan(2, 1),
+                    ],
+                    IlOffset: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+        var after = TrustedDocument(
+            "A();",
+            new NodeSpec("InvocationExpression", "A()", [0x10]));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(beforeWithBlock, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        Assert.Empty(issued.UnmatchedAfter);
     }
 
     [Fact]
