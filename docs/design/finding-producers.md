@@ -96,10 +96,10 @@ census. Human diagnostic messages are not occurrence identity.
 
 ### Admit body topology before native comparison
 
-**Status:** target producer-adoption contract for #4796; unimplemented until
-the Findings gates named in
-[Finding Nomenclature](finding-nomenclature.md#typed-inspection-topology) land.
-The adjacent producer obligations below are unverified pending focused
+**Status:** the shared Findings topology is implemented and verified by the
+gates named in
+[Finding Nomenclature](finding-nomenclature.md#typed-inspection-topology).
+The adjacent producer obligations below remain unverified pending focused
 migrations in each native owner.
 
 Body differs use the shared

@@ -74,10 +74,11 @@ public class AuthoredCorpusHarnessProcessTests
                 "raise: Break case body; changed from return;",
                 run.Output,
                 StringComparison.Ordinal);
-            Assert.Contains("| Change | Structure | Region | Fidelity |", run.Output, StringComparison.Ordinal);
+            Assert.Contains("| Change | Structure | Region | Detail | Fidelity |", run.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("Before spans", run.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("After spans", run.Output, StringComparison.Ordinal);
             Assert.Contains("Return -&gt; Break", run.Output, StringComparison.Ordinal);
+            Assert.Contains("return; -&gt; break;", run.Output, StringComparison.Ordinal);
             Assert.Contains("OpcodeDiff -&gt; Exact", run.Output, StringComparison.Ordinal);
         }
         finally

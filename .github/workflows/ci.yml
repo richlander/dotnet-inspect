@@ -486,6 +486,23 @@ jobs:
       - name: Run analysis tests (fast)
         run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
 
+      # The runtime-async compiler switch changes IL lowering without changing
+      # whether the fixture builds. Run the focused owner gates so CI proves
+      # both lowerings issue equal authenticated JSExport wire facts.
+      - name: Run JSExport runtime-async wire gates
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/jsexport-runtime-async-wire-tests.xml"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
+            -method '*RuntimeAsync*' \
+            -xml "$results"
+          if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
+            echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
+            exit 1
+          fi
+
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
 

@@ -25,10 +25,27 @@
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
     <ProjectReference Include="../../src/tsbindgen/tsbindgen.csproj" />
     <ProjectReference Include="../../src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+    <ProjectReference
+      Include="../../src/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
+      ReferenceOutputAssembly="false" />
     <ProjectReference Include="../ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
     <ProjectReference Include="../ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
     <ProjectReference Include="../ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
     <ProjectReference Include="../ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyRuntimeAsyncFixture" AfterTargets="Build">
+    <MSBuild
+      Projects="../../src/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
+      Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" ItemName="_RuntimeAsyncFixtureTargetPath" />
+    </MSBuild>
+    <Error
+      Condition="'@(_RuntimeAsyncFixtureTargetPath)' == ''"
+      Text="The runtime-async JSExport fixture target path was not resolved." />
+    <Copy
+      SourceFiles="@(_RuntimeAsyncFixtureTargetPath)"
+      DestinationFiles="$(TargetDir)ILInspector.JsExportSurface.RuntimeAsyncFixtures.dll" />
+  </Target>
 
 </Project>

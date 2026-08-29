@@ -41,6 +41,53 @@ public static partial class FixtureExports
             FixtureJsonContext.Default.StringArray);
 
     [JSExport]
+    public static async Task<string> GetWidgetOrRawAfterAwait(
+        bool raw)
+    {
+        await Task.Yield();
+        return raw
+            ? "{}"
+            : JsonSerializer.Serialize(
+                new WidgetDto("widget", 0, [], null),
+                FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
+    public static async Task<string> GetWidgetFromIncompleteFlowAfterAwait(
+        string? cached)
+    {
+        await Task.Yield();
+        string result;
+        if (cached is null)
+        {
+            result = JsonSerializer.Serialize(
+                new WidgetDto("widget", 0, [], null),
+                FixtureJsonContext.Default.WidgetDto);
+        }
+        else
+        {
+            result = cached;
+        }
+
+        return result;
+    }
+
+    [JSExport]
+    public static async Task<string> GetWidgetThroughLocalAsync()
+    {
+        await Task.Yield();
+        return await SerializeLocalAsync();
+
+        static async Task<string> SerializeLocalAsync()
+        {
+            await Task.Yield();
+            return JsonSerializer.Serialize(
+                new WidgetDto("widget", 0, [], null),
+                FixtureJsonContext.Default.WidgetDto);
+        }
+    }
+
+    [JSExport]
     public static byte[] EchoBytes(byte[] value) => value;
 
     [JSExport]
