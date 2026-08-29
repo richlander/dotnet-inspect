@@ -60,19 +60,28 @@ internal sealed class BrowserInspectionScope : IDisposable
 
     readonly InspectionWorkspace _workspace = new();
     readonly PackageAssemblyContextRealization _realization;
-    readonly BrowserWorkspaceRole _surface;
+    readonly BrowserWorkspaceRole? _surface;
     readonly BrowserWorkspaceRole? _implementation;
 
     public BrowserInspectionScope(IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {
         ArgumentNullException.ThrowIfNull(coordinates);
+        if (coordinates
+            .GroupBy(coordinate => coordinate.Key, StringComparer.Ordinal)
+            .Any(group => group.Skip(1).Any()))
+        {
+            throw new ArgumentException(
+                "A browser workspace cannot contain the same package coordinate twice.",
+                nameof(coordinates));
+        }
+
         Coordinates = [.. coordinates];
 
         PackageAssemblyContextRealization? realization = null;
         try
         {
             realization = _workspace.RealizePackageAssemblyContextRoles(
-                Coordinates.Select(coordinate => coordinate.AssemblyContext),
+                Coordinates.Select(coordinate => coordinate.Root),
                 new PackageAssemblyContextRealizationOptions
                 {
                     MaxAssembliesPerRole = MaxAssembliesPerRole,
@@ -81,15 +90,17 @@ internal sealed class BrowserInspectionScope : IDisposable
                     RequireDeclaredEntryLengths = true,
                 });
             _realization = realization;
-            _surface = new BrowserWorkspaceRole(
-                realization.SurfaceGroup,
-                realization.SurfaceParticipants,
-                Coordinates);
-            _implementation = realization.ImplementationGroup is null
-                ? null
-                : realization.SharesGroup
-                    ? _surface
-                    : new BrowserWorkspaceRole(
+                _surface = realization.HasAssemblyContexts
+                    ? new BrowserWorkspaceRole(
+                        realization.SurfaceGroup,
+                        realization.SurfaceParticipants,
+                        Coordinates)
+                    : null;
+                _implementation = realization.ImplementationGroup is null
+                    ? null
+                    : realization.SharesGroup
+                        ? Surface
+                        : new BrowserWorkspaceRole(
                         realization.ImplementationGroup,
                         realization.ImplementationParticipants,
                         Coordinates);
@@ -112,7 +123,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     public ImmutableArray<BrowserPackageCoordinate> Coordinates { get; }
 
     public ImmutableArray<BrowserWorkspaceParticipant> SurfaceParticipants =>
-        _surface.Participants;
+        _surface?.Participants ?? [];
 
     public ImmutableArray<BrowserWorkspaceParticipant> ImplementationParticipants =>
         _implementation?.Participants ?? [];
@@ -128,7 +139,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     /// authoritative API surface when the package ships them.
     /// </summary>
     public TResult UseSurface<TResult>(Func<AssemblyContextGroup, TResult> query) =>
-        _surface.Use(query);
+        Surface.Use(query);
 
     /// <summary>
     /// Hands one compile-asset participant to a participant-scoped product query.
@@ -136,7 +147,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     public TResult UseSurfaceParticipant<TResult>(
         BrowserWorkspaceParticipant participant,
         Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query) =>
-        _surface.UseParticipant(participant, query);
+        Surface.UseParticipant(participant, query);
 
     /// <summary>Hands the implementation group to a body-backed product query.</summary>
     public TResult UseImplementation<TResult>(Func<AssemblyContextGroup, TResult> query) =>
@@ -148,7 +159,7 @@ internal sealed class BrowserInspectionScope : IDisposable
     /// </summary>
     public TResult UseImplementationOrSurface<TResult>(
         Func<AssemblyContextGroup, TResult> query) =>
-        (_implementation ?? _surface).Use(query);
+        (_implementation ?? Surface).Use(query);
 
     /// <summary>
     /// Runs the product-owned Integration roll-up across the complete realized
@@ -170,7 +181,7 @@ internal sealed class BrowserInspectionScope : IDisposable
         if (_implementation?.Participants.Contains(participant) is true)
             return _implementation.UseParticipant(participant, query);
         if (ReferenceOnlySurfaceParticipants.Contains(participant))
-            return _surface.UseParticipant(participant, query);
+            return Surface.UseParticipant(participant, query);
 
         throw new ArgumentException(
             "The participant does not belong to a metadata workspace role.",
@@ -192,16 +203,27 @@ internal sealed class BrowserInspectionScope : IDisposable
     {
         ArgumentNullException.ThrowIfNull(requested);
         return Coordinates.FirstOrDefault(
-                candidate => candidate.Key.Equals(requested.Key, StringComparison.Ordinal))
+                candidate => candidate.HasExactContentAs(requested))
             ?? throw new InvalidOperationException(
-                $"{requested.PackageId} {requested.Version} is not part of this workspace.");
+                $"{requested.PackageId} {requested.Version} with its exact package content "
+                + "is not part of this workspace.");
+    }
+
+    public bool ContainsExactCoordinates(
+        IReadOnlyList<BrowserPackageCoordinate> requested)
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+        return requested.Count == Coordinates.Length
+            && requested.All(candidate =>
+                Coordinates.Any(retained =>
+                    retained.HasExactContentAs(candidate)));
     }
 
     /// <summary>The participant for one coordinate's assembly, or a visible failure.</summary>
     public BrowserWorkspaceParticipant SurfaceParticipant(
         BrowserPackageCoordinate coordinate,
         PackageCompileAsset asset)
-        => _surface.FindParticipant(coordinate, asset);
+        => Surface.FindParticipant(coordinate, asset);
 
     public BrowserWorkspaceParticipant ImplementationParticipant(
         BrowserPackageCoordinate coordinate,
@@ -242,9 +264,9 @@ internal sealed class BrowserInspectionScope : IDisposable
         }
 
         return SurfaceParticipants.SingleOrDefault(surface =>
-            surface.Coordinate.Key.Equals(
-                implementationParticipant.Coordinate.Key,
-                StringComparison.Ordinal)
+            ReferenceEquals(
+                surface.Coordinate.Root.Identity,
+                implementationParticipant.Coordinate.Root.Identity)
             && surface.Coordinate.Selection
                 .FindImplementationAsset(surface.Asset)
                 ?.Path.Equals(
@@ -302,6 +324,11 @@ internal sealed class BrowserInspectionScope : IDisposable
         ?? throw new InvalidOperationException(
             "The selected packages ship no managed implementation assembly for their selected "
             + "frameworks, so this operation has no method bodies to inspect.");
+
+    BrowserWorkspaceRole Surface => _surface
+        ?? throw new InvalidOperationException(
+            "The selected packages have no compile libraries, so this operation has no "
+            + "assembly surface to inspect.");
 }
 
 /// <summary>
@@ -327,7 +354,7 @@ internal sealed class BrowserWorkspaceRole
                 new BrowserWorkspaceParticipant(
                     coordinates.First(coordinate =>
                         ReferenceEquals(
-                            coordinate.AssemblyContext,
+                            coordinate.Root.Identity,
                             participant.Package)),
                     participant)),
         ];
@@ -364,7 +391,9 @@ internal sealed class BrowserWorkspaceRole
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(asset);
         return Participants.FirstOrDefault(candidate =>
-                candidate.Coordinate.Key.Equals(coordinate.Key, StringComparison.Ordinal)
+                ReferenceEquals(
+                    candidate.Coordinate.Root.Identity,
+                    coordinate.Root.Identity)
                 && candidate.Asset.Path.Equals(asset.Path, StringComparison.Ordinal))
             ?? throw new InvalidOperationException(
                 $"The requested participant is not part of the {coordinate.PackageId} "

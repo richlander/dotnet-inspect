@@ -724,6 +724,192 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void BuildFindingTransitions_CaseOnlyTypeChangePreservesBothIdentities()
+    {
+        var rows = DiffCommand.BuildFindingTransitions(
+            DiffSurface(DiffType("Sample", "Widget")),
+            DiffSurface(DiffType("Sample", "widget")),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions { TypeFilter = ["Sample.Widget"] });
+
+        Assert.Collection(
+            rows.OrderBy(row => row.Target, StringComparer.Ordinal),
+            row =>
+            {
+                Assert.Equal("Sample.Widget", row.Target);
+                Assert.Equal("PairFinding.Removed", row.Transition);
+            },
+            row =>
+            {
+                Assert.Equal("Sample.widget", row.Target);
+                Assert.Equal("PairFinding.Added", row.Transition);
+            });
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberFilterPreservesCaseOnlyTypeIdentities()
+    {
+        var rows = DiffCommand.BuildFindingTransitions(
+            DiffSurface(DiffType(
+                "Sample",
+                "Widget",
+                DiffMember("Run"))),
+            DiffSurface(DiffType(
+                "Sample",
+                "widget",
+                DiffMember("Run"))),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = MetadataFindings.MemberDescriptor.Id,
+                TypeFilter = ["Sample.Widget"],
+                MemberFilter = ["Run"],
+            });
+
+        Assert.Collection(
+            rows.OrderBy(row => row.Target, StringComparer.Ordinal),
+            row => Assert.Equal("PairFinding.Removed", row.Transition),
+            row => Assert.Equal("PairFinding.Added", row.Transition));
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberFilterPreservesFailureOwnedType()
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var partialSurface = new ApiSurface();
+        partialSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+
+        var rows = DiffCommand.BuildFindingTransitions(
+            partialSurface,
+            DiffSurface(DiffType(
+                "Sample",
+                "widget",
+                DiffMember("Run"))),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = MetadataFindings.MemberDescriptor.Id,
+                TypeFilter = ["Sample.Widget"],
+                MemberFilter = ["Run"],
+            });
+
+        Assert.Collection(
+            rows.OrderBy(row => row.Target, StringComparer.Ordinal),
+            row =>
+            {
+                Assert.Equal("Sample.Widget", row.Target);
+                Assert.Equal("FindingComparison.Failed", row.Transition);
+            },
+            row => Assert.Equal("PairFinding.Added", row.Transition));
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberFilterPrefersExactCase()
+    {
+        var surface = DiffSurface(
+            DiffType("Sample", "widget", DiffMember("Run")),
+            DiffType("Sample", "Widget"));
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildFindingTransitions(
+                surface,
+                surface,
+                "1.0.0",
+                "2.0.0",
+                new DiffOptions
+                {
+                    Finding = MetadataFindings.MemberDescriptor.Id,
+                    TypeFilter = ["Sample.Widget"],
+                    MemberFilter = ["Run"],
+                }));
+
+        Assert.Contains("No members matched selector 'Run'.", error.Message);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_ExactFailedTypePreventsCaseFallback()
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var oldSurface = DiffSurface(
+            DiffType("Sample", "widget", DiffMember("Run")));
+        oldSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The exact-case type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            DiffCommand.BuildFindingTransitions(
+                oldSurface,
+                new ApiSurface(),
+                "1.0.0",
+                "2.0.0",
+                new DiffOptions
+                {
+                    Finding = MetadataFindings.MemberDescriptor.Id,
+                    TypeFilter = ["Sample.Widget"],
+                    MemberFilter = ["Run"],
+                }));
+
+        Assert.Contains("did not resolve", error.Message);
+    }
+
+    [Theory]
+    [InlineData("Widget")]
+    [InlineData("sample.widget")]
+    [InlineData("*Widget")]
+    public void BuildFindingTransitions_PartialTypeCanonicalizesSelector(
+        string selector)
+    {
+        var owner = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Widget"])).Name;
+        var partialSurface = new ApiSurface();
+        partialSurface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x02000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "The type row could not be decoded.")
+            {
+                OwningTypeDefinition = owner,
+            });
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            partialSurface,
+            new ApiSurface(),
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions
+            {
+                Finding = MetadataFindings.MemberDescriptor.Id,
+                TypeFilter = [selector],
+            }));
+
+        Assert.Equal("Sample.Widget", row.Target);
+        Assert.Equal("FindingComparison.Failed", row.Transition);
+    }
+
+    [Fact]
     public void BuildFindingTransitions_TypeMissingAtBothEndpoints_HasNoPair()
     {
         var rows = DiffCommand.BuildFindingTransitions(
@@ -1027,36 +1213,74 @@ public class DiffCommandTests
             "DiffFixtureSample.BodyStateSample");
 
         Assert.NotEmpty(rows);
-        Assert.All(
-            rows,
-            row => Assert.Equal("PairFinding.Added", row.Transition));
+        Assert.All(rows, row =>
+        {
+            Assert.Equal("PairFinding.Added", row.Transition);
+            Assert.Equal("no-applicable-input", row.OldInspection);
+            Assert.Equal("complete", row.NewInspection);
+        });
     }
 
     [Fact]
-    public void RetainedComparisonRows_EmptyComparison_PreservesInspectionStates()
+    public void RetainedComparisonRows_EmptyComparison_PreservesNineCellTopology()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
             "member",
             "Sample.Widget.Empty");
-        var comparison = FindingComparison.Compare<CSharpCanonicalLine>(
-            new FindingInspection<CSharpCanonicalLine>.Complete([]),
-            new FindingInspection<CSharpCanonicalLine>.Absent("no body"));
-        var retained = new RetainedFindingComparison<CSharpCanonicalLine>(
-            subject,
-            CSharpFindings.LineDescriptor,
-            comparison);
+        FindingInspectionState[] states =
+            Enum.GetValues<FindingInspectionState>();
 
-        var row = Assert.Single(DiffCommand.RetainedComparisonRows(
-            retained,
-            "v1",
-            "v2",
-            emitEmptyComparison: true,
-            static (_, _, _, _) => throw new InvalidOperationException()));
+        foreach (FindingInspectionState oldState in states)
+        {
+            foreach (FindingInspectionState newState in states)
+            {
+                var retained =
+                    new RetainedFindingComparison<CSharpCanonicalLine>(
+                        subject,
+                        CSharpFindings.LineDescriptor,
+                        FindingComparison.Compare(
+                            Inspection(oldState),
+                            Inspection(newState)));
 
-        Assert.Equal("FindingComparison.Complete", row.Transition);
-        Assert.Equal("complete", row.Old);
-        Assert.Equal("absent", row.New);
+                var row = Assert.Single(DiffCommand.RetainedComparisonRows(
+                    retained,
+                    "v1",
+                    "v2",
+                    emitEmptyComparison: true,
+                    static (_, _, _, _) =>
+                        throw new InvalidOperationException()));
+
+                Assert.Equal("FindingComparison.Complete", row.Transition);
+                Assert.Equal(InspectionStateName(oldState), row.OldInspection);
+                Assert.Equal(InspectionStateName(newState), row.NewInspection);
+            }
+        }
+
+        static FindingInspection<CSharpCanonicalLine> Inspection(
+            FindingInspectionState state)
+            => state switch
+            {
+                FindingInspectionState.Complete =>
+                    new FindingInspection<CSharpCanonicalLine>.Complete([]),
+                FindingInspectionState.SubjectAbsent =>
+                    new FindingInspection<CSharpCanonicalLine>.Absent(
+                        FindingInspectionAbsenceKind.SubjectAbsent),
+                FindingInspectionState.NoApplicableInput =>
+                    new FindingInspection<CSharpCanonicalLine>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput),
+                _ => throw new ArgumentOutOfRangeException(nameof(state)),
+            };
+
+        static string InspectionStateName(FindingInspectionState state)
+            => state switch
+            {
+                FindingInspectionState.Complete => "complete",
+                FindingInspectionState.SubjectAbsent => "subject-absent",
+                FindingInspectionState.NoApplicableInput =>
+                    "no-applicable-input",
+                _ => throw new ArgumentOutOfRangeException(nameof(state)),
+            };
     }
 
     [Fact]
@@ -1089,7 +1313,76 @@ public class DiffCommandTests
         Assert.Equal("FindingComparison.Failed", row.Transition);
         Assert.Equal("failed", row.Old);
         Assert.Equal("complete", row.New);
+        Assert.Equal("failed", row.OldInspection);
+        Assert.Equal("complete", row.NewInspection);
         Assert.Contains("render failed", row.Detail);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_AttributeFailureRendersFailedTopology()
+    {
+        var oldSurface = DiffSurface(DiffType("Sample", "Widget"));
+        oldSurface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "enum attribute type index",
+            0x02000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "BadImageFormatException",
+            "malformed enum attribute"));
+
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            oldSurface,
+            DiffSurface(DiffType("Sample", "Widget")),
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = "api.attribute",
+                TypeFilter = ["Sample.Widget"],
+            }));
+
+        Assert.Equal("FindingComparison.Failed", row.Transition);
+        Assert.Equal("failed", row.OldInspection);
+        Assert.Equal("complete", row.NewInspection);
+        Assert.Contains("malformed enum attribute", row.Detail);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_MemberTopologyOnlyTransitionProducesRow()
+    {
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            new ApiSurface(),
+            DiffSurface(DiffType("Sample", "Widget")),
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = "api.member",
+                TypeFilter = ["Sample.Widget"],
+            }));
+
+        Assert.Equal("FindingComparison.Complete", row.Transition);
+        Assert.Equal("subject-absent", row.OldInspection);
+        Assert.Equal("complete", row.NewInspection);
+        Assert.Null(row.Detail);
+    }
+
+    [Fact]
+    public void BuildFindingTransitions_RemovedMemberRetainsEndpointTopology()
+    {
+        var row = Assert.Single(DiffCommand.BuildFindingTransitions(
+            DiffSurface(DiffMember("Run")),
+            new ApiSurface(),
+            "v1",
+            "v2",
+            new DiffOptions
+            {
+                Finding = "api.member",
+                TypeFilter = ["Sample.Widget"],
+            }));
+
+        Assert.Equal("PairFinding.Removed", row.Transition);
+        Assert.Equal("complete", row.OldInspection);
+        Assert.Equal("subject-absent", row.NewInspection);
     }
 
     [Fact]
@@ -1098,14 +1391,15 @@ public class DiffCommandTests
         var view = DiffOutputFormatter.BuildFindingTransitionsView(
             "Sample",
             [new FindingTransitionRow(
-                "PairFinding.Added",
-                "api.type",
-                "Sample.Widget",
-                "1.0.0",
-                "2.0.0",
-                "absent",
-                "present",
-                null)],
+                    "PairFinding.Added",
+                    "api.type",
+                    "Sample.Widget",
+                    "1.0.0",
+                    "2.0.0",
+                    "absent",
+                    "present",
+                    null)
+                .WithInspectionStates("subject-absent", "complete")],
             "1.0.0",
             "2.0.0");
 
@@ -1116,6 +1410,9 @@ public class DiffCommandTests
         Assert.Contains("Sample.Widget", markdown);
         Assert.Contains("1.0.0", markdown);
         Assert.Contains("2.0.0", markdown);
+        Assert.Contains("Old Inspection", markdown);
+        Assert.Contains("subject-absent", markdown);
+        Assert.Contains("complete", markdown);
     }
 
     [Fact]
@@ -1895,8 +2192,12 @@ public class DiffCommandTests
             [
                 new PdbSourceComparisonInput(
                     subject,
-                    new FindingInspection<string>.Absent("old PDB unavailable"),
-                    new FindingInspection<string>.Absent("new PDB unavailable"))
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "old PDB unavailable"),
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new PDB unavailable"))
             ]);
 
         var view = DiffOutputFormatter.BuildImplementationDiffView(
@@ -1931,7 +2232,9 @@ public class DiffCommandTests
                 new PdbSourceComparisonInput(
                     subject,
                     failure,
-                    new FindingInspection<string>.Absent("new source unavailable"))
+                    new FindingInspection<string>.Absent(
+                        FindingInspectionAbsenceKind.NoApplicableInput,
+                        "new source unavailable"))
             ]);
 
         var view = DiffOutputFormatter.BuildImplementationDiffView(
@@ -1944,6 +2247,75 @@ public class DiffCommandTests
         Assert.Equal("PDB Source", row.Mechanism);
         Assert.Equal("failed", row.Change);
         Assert.Contains("checksum mismatch", row.Evidence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PdbSourceIndexingFailure_RemainsFailedInsteadOfSubjectAbsent()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"pdb-source-unreadable-{Guid.NewGuid():N}.dll");
+        var subject = new ResearchSubjectKey(
+            ResearchSubjectKind.Member,
+            "M~1234567890",
+            "Sample.M()",
+            "Sample",
+            "M");
+        try
+        {
+            File.WriteAllText(path, "not a managed assembly");
+            using var httpClient = new HttpClient();
+
+            DiffCommand.PdbSourceInspectionBatch batch =
+                await DiffCommand.AcquirePdbSourceInspectionsAsync(
+                    [path],
+                    new Dictionary<string, ResearchSubjectKey>(StringComparer.Ordinal)
+                    {
+                        [subject.Id] = subject,
+                    },
+                    new DiffOptions(),
+                    oldSide: true,
+                    httpClient,
+                    new VerboseLogger(enabled: false));
+
+            var failed = Assert.IsType<FindingInspection<string>.Failed>(
+                DiffCommand.PdbSourceInspectionFor(
+                    batch,
+                    subject,
+                    oldSide: true).Value);
+            Assert.Contains("indexing failed for the old endpoint", failed.Error.Reason);
+            Assert.Contains(path, failed.Error.Reason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void PdbSourceDeclarationIndexFailure_RemainsFailedEvidence()
+    {
+        MethodIdentity declared = DiffMethod(
+            TypeRef.Definition("Sample", "Sample", "Visible"),
+            "Run");
+        var failures = DiffCommand.PdbSourceDeclarationIndexFailures(
+            "sample.dll",
+            [declared],
+            [
+                new AnalysisDiagnostic(
+                    declared.MetadataToken,
+                    declared.Name,
+                    "Body analysis failed after declaration indexing."),
+                new AnalysisDiagnostic(
+                    0x06000002,
+                    "Sample.Hidden()",
+                    "Method identity could not be decoded."),
+            ]);
+
+        string failure = Assert.Single(failures);
+        Assert.Contains("sample.dll", failure);
+        Assert.Contains("0x06000002", failure);
+        Assert.Contains("Method identity could not be decoded.", failure);
     }
 
     [Fact]
@@ -2524,6 +2896,12 @@ public class DiffCommandTests
         var transition = Assert.Single(
             document.RootElement.GetProperty("finding_transitions").EnumerateArray());
         Assert.Equal("PairFinding.Present", transition.GetProperty("transition").GetString());
+        Assert.Equal(
+            "complete",
+            transition.GetProperty("old_inspection").GetString());
+        Assert.Equal(
+            "complete",
+            transition.GetProperty("new_inspection").GetString());
     }
 
     [Fact]

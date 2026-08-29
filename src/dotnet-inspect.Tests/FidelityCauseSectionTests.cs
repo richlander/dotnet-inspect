@@ -65,7 +65,9 @@ public class FidelityCauseSectionTests
     [Fact]
     public void BuildRows_AbsentAndFailed_RemainDistinct()
     {
-        var absent = new FindingInspection<DecompilerFidelityCause>.Absent("no body");
+        var absent = new FindingInspection<DecompilerFidelityCause>.Absent(
+            FindingInspectionAbsenceKind.NoApplicableInput,
+            "no body");
         var failed = new FindingInspection<DecompilerFidelityCause>.Failed(
             new InspectionError(
                 Subject,

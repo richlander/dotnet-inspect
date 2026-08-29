@@ -78,6 +78,7 @@
     <Project Path="src/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
     <Project Path="src/ILInspector.Instructions/ILInspector.Instructions.csproj" />
     <Project Path="src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <Project Path="src/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj" />
     <Project Path="src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
     <Project Path="src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <Project Path="src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />

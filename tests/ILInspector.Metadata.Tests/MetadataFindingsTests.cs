@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -31,6 +32,29 @@ public class MetadataFindingsTests
         Assert.True(result.IsExact);
         Assert.All(Pairs(result.Types), pair => Assert.Equal(PairKind.Present, pair.Kind));
         Assert.All(Pairs(result.Members), pair => Assert.Equal(PairKind.Present, pair.Kind));
+    }
+
+    [Fact]
+    public void CompositeExactness_RejectsPairlessTopologyChange()
+    {
+        FindingComparison<ApiTypeHandle> types =
+            FindingComparison.Compare<ApiTypeHandle>(
+                new FindingInspection<ApiTypeHandle>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent),
+                new FindingInspection<ApiTypeHandle>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput));
+        FindingComparison<ApiMemberHandle> members =
+            FindingComparison.Compare<ApiMemberHandle>(
+                new FindingInspection<ApiMemberHandle>.Complete([]),
+                new FindingInspection<ApiMemberHandle>.Complete([]));
+
+        var comparison = new ApiFindingComparison(
+            types,
+            members,
+            new ApiDiff());
+
+        Assert.False(types.IsExact);
+        Assert.False(comparison.IsExact);
     }
 
     [Fact]
@@ -569,6 +593,106 @@ public class MetadataFindingsTests
         Assert.IsType<FindingInspection<ApiMemberHandle>.Absent>(missingMembers.Value);
         Assert.Empty(
             Assert.IsType<FindingInspection<ApiMemberHandle>.Complete>(emptyMembers.Value).Findings);
+    }
+
+    [Fact]
+    public void TypeScopedCensuses_NullSurfaceFailsWithoutClaimingAbsence()
+    {
+        var type = Assert.IsType<FindingInspection<ApiTypeHandle>.Failed>(
+            MetadataFindings.InspectApiType(
+                null,
+                Subject,
+                "TestNamespace.Widget").Value);
+        var members = Assert.IsType<FindingInspection<ApiMemberHandle>.Failed>(
+            MetadataFindings.InspectApiMembers(
+                null,
+                Subject,
+                "TestNamespace.Widget").Value);
+        var attributes = Assert.IsType<FindingInspection<ApiAttributeHandle>.Failed>(
+            MetadataFindings.InspectApiAttributes(
+                null,
+                Subject,
+                "TestNamespace.Widget").Value);
+
+        Assert.Contains("surface is unavailable", type.Error.Reason);
+        Assert.Contains("surface is unavailable", members.Error.Reason);
+        Assert.Contains("surface is unavailable", attributes.Error.Reason);
+    }
+
+    [Fact]
+    public void TypeScopedCensuses_PartialSurfaceFailsOnlyWhenTargetMayBeHidden()
+    {
+        var partial = Surface(Type("Other"));
+        partial.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "type row",
+            0x02000002,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The type row could not be decoded."));
+
+        Assert.IsType<FindingInspection<ApiTypeHandle>.Failed>(
+            MetadataFindings.InspectApiType(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiMemberHandle>.Failed>(
+            MetadataFindings.InspectApiMembers(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiAttributeHandle>.Failed>(
+            MetadataFindings.InspectApiAttributes(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+
+        var valid = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "TestNamespace",
+                ImmutableArray.Create("Broken")));
+        partial.InspectionFailures[0] = partial.InspectionFailures[0] with
+        {
+            OwningTypeDefinition = valid.Name,
+        };
+
+        Assert.IsType<FindingInspection<ApiTypeHandle>.Complete>(
+            MetadataFindings.InspectApiType(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiMemberHandle>.Absent>(
+            MetadataFindings.InspectApiMembers(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+        Assert.IsType<FindingInspection<ApiAttributeHandle>.Absent>(
+            MetadataFindings.InspectApiAttributes(
+                partial,
+                Subject,
+                "TestNamespace.Widget").Value);
+    }
+
+    [Fact]
+    public void TypeScopedAttributeCensus_IgnoresTypeForwarderFailure()
+    {
+        var surface = Surface(Type(
+            "Widget",
+            attributes: ["System.ObsoleteAttribute"]));
+        surface.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            ApiSurfaceInspectionFailure.TypeForwarderRowOperation,
+            0x27000001,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "The exported type row could not be decoded."));
+
+        var inspection = Assert.IsType<
+            FindingInspection<ApiAttributeHandle>.Complete>(
+                MetadataFindings.InspectApiAttributes(
+                    surface,
+                    Subject,
+                    "TestNamespace.Widget").Value);
+
+        Assert.Single(inspection.Findings);
     }
 
     [Fact]

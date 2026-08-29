@@ -265,7 +265,7 @@ public static class TimelineCommand
         foreach (var evaluation in evaluated.OrderBy(item => item.Address.Position))
         {
             var type = evaluation.Surface?.Types.FirstOrDefault(type =>
-                string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(type.FullName, typeFullName, StringComparison.Ordinal));
             if (type is null)
                 continue;
 
@@ -455,7 +455,13 @@ public static class TimelineCommand
         where T : notnull
     {
         if (evaluation.Endpoint is null)
-            return new FindingInspection<T>.Absent("The package cell has no acquired assembly set.");
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    "The package cell has no acquired assembly set."));
+        }
 
         return InspectAnalysisAssemblies<T>(
             evaluation.Endpoint.Paths,
@@ -500,17 +506,62 @@ public static class TimelineCommand
         FindingSubject subject,
         Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
         where T : notnull
+        => InspectAnalysisAssemblies(
+            [
+                .. assemblyPaths.Select(path => (
+                    Path: path,
+                    Surface: AssemblyReader.ExtractApiSurface(path, includeAll))),
+            ],
+            typeFullName,
+            memberName,
+            descriptor,
+            subject,
+            inspect);
+
+    internal static FindingInspection<T> InspectAnalysisAssemblies<T>(
+        IReadOnlyList<(string Path, ApiSurface? Surface)> assemblies,
+        string typeFullName,
+        string memberName,
+        FindingDescriptor descriptor,
+        FindingSubject subject,
+        Func<LibraryBodyIndex, int, FindingSubject, FindingInspection<T>> inspect)
+        where T : notnull
     {
         var selector = MemberTargetSelector.Parse(memberName);
         List<(string Path, ResolvedMemberTarget Target)> targets = [];
         bool typeFound = false;
-        foreach (string path in assemblyPaths)
+        foreach (var (path, surface) in assemblies)
         {
-            var surface = AssemblyReader.ExtractApiSurface(path, includeAll);
+            if (surface is null)
+            {
+                return new FindingInspection<T>.Failed(
+                    new InspectionError(
+                        subject,
+                        descriptor,
+                        $"The API surface in '{path}' could not be inspected."));
+            }
+
             var type = surface?.Types.FirstOrDefault(type =>
-                string.Equals(type.FullName, typeFullName, StringComparison.OrdinalIgnoreCase));
+                string.Equals(type.FullName, typeFullName, StringComparison.Ordinal));
             if (type is null)
+            {
+                var typeInspection = MetadataFindings.InspectApiType(
+                    surface,
+                    subject,
+                    typeFullName);
+                if (typeInspection.Value
+                    is FindingInspection<ApiTypeHandle>.Failed failure)
+                {
+                    return new FindingInspection<T>.Failed(
+                        new InspectionError(
+                            subject,
+                            descriptor,
+                            $"The API surface in '{path}' is incomplete for "
+                            + $"type '{typeFullName}': {failure.Error.Reason}"));
+                }
+
                 continue;
+            }
 
             typeFound = true;
             var resolution = MemberTargetResolver.Resolve(type, selector);
@@ -534,7 +585,9 @@ public static class TimelineCommand
             string detail = typeFound
                 ? $"Member '{memberName}' is absent."
                 : $"Type '{typeFullName}' is absent.";
-            return new FindingInspection<T>.Absent(detail);
+            return new FindingInspection<T>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                detail);
         }
         if (targets.Count > 1)
         {
@@ -553,23 +606,47 @@ public static class TimelineCommand
             or MemberTargetKind.ExplicitInterfaceImplementation
             or MemberTargetKind.ExtensionMethod))
         {
+            return new FindingInspection<T>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                $"Member '{memberName}' resolved to {target.Kind} and has no "
+                + $"method-body input for finding '{descriptor.Id}'.");
+        }
+        if (target.ApiMember.Member.HasMethodBody is false)
+        {
+            return new FindingInspection<T>.Absent(
+                FindingInspectionAbsenceKind.NoApplicableInput,
+                $"Member '{memberName}' has no method-body target.");
+        }
+        if (target.ApiMember.Member.HasMethodBody is null)
+        {
             return new FindingInspection<T>.Failed(
                 new InspectionError(
                     subject,
                     descriptor,
-                    $"Finding '{descriptor.Id}' requires a method-like target; "
-                    + $"'{memberName}' resolved to {target.Kind}."));
+                    $"Method-body presence is unavailable for member '{memberName}'."));
         }
         if (target.Body?.MetadataToken is not { } token)
         {
-            return new FindingInspection<T>.Absent(
-                $"Member '{memberName}' has no method-body target.");
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    $"Method-body identity is unavailable for member '{memberName}'."));
         }
 
         var session = OpenAnalysisSession(
             assemblyPath,
             descriptor,
             token);
+        if (session.BodyIndex.Diagnostics.FirstOrDefault() is { } analysisDiagnostic)
+        {
+            return new FindingInspection<T>.Failed(
+                new InspectionError(
+                    subject,
+                    descriptor,
+                    $"Method-body analysis failed for member '{memberName}': "
+                    + analysisDiagnostic.Message));
+        }
         return inspect(session.BodyIndex, token, subject);
     }
 
@@ -652,26 +729,28 @@ public static class TimelineCommand
     static TimelineEvaluationRow BuildCensusEvaluationRow<T>(
         VersionedFindingInspection<T> evaluation)
         where T : notnull
-        => evaluation.Inspection switch
+        => evaluation.Inspection.Value switch
         {
-            FindingInspection<T>.Complete => new TimelineEvaluationRow(
+            FindingInspection<T>.Complete complete => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
                 "Complete",
-                ((FindingInspection<T>.Complete)evaluation.Inspection.Value!).Findings.Length,
+                complete.Findings.Length,
                 null),
-            FindingInspection<T>.Absent => new TimelineEvaluationRow(
+            FindingInspection<T>.Absent absent => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
-                "SubjectAbsent",
+                InspectionStateName(absent.Kind),
                 0,
-                ((FindingInspection<T>.Absent)evaluation.Inspection.Value!).Detail),
-            FindingInspection<T>.Failed => new TimelineEvaluationRow(
+                absent.Detail),
+            FindingInspection<T>.Failed failed => new TimelineEvaluationRow(
                 evaluation.Version.Key,
                 evaluation.Version.Display,
                 "Failed",
                 null,
-                ((FindingInspection<T>.Failed)evaluation.Inspection.Value!).Error.Reason),
+                failed.Error.Reason),
+            _ => throw new InvalidOperationException(
+                "Finding inspection returned an unknown outcome."),
         };
 
     static TimelineEvaluationRow BuildIdentityEvaluationRow<T>(
@@ -697,6 +776,12 @@ public static class TimelineCommand
                 "SubjectAbsent",
                 0,
                 absent.Detail),
+            FindingCorrelationPoint<T>.NoApplicableInput absent => new TimelineEvaluationRow(
+                absent.Version.Key,
+                absent.Version.Display,
+                "NoApplicableInput",
+                0,
+                absent.Detail),
             FindingCorrelationPoint<T>.Failed failed => new TimelineEvaluationRow(
                 failed.Version.Key,
                 failed.Version.Display,
@@ -714,12 +799,13 @@ public static class TimelineCommand
             FindingCorrelationPoint<T>.Present present => present.Version,
             FindingCorrelationPoint<T>.Missing missing => missing.Version,
             FindingCorrelationPoint<T>.SubjectAbsent absent => absent.Version,
+            FindingCorrelationPoint<T>.NoApplicableInput absent => absent.Version,
             FindingCorrelationPoint<T>.Failed failed => failed.Version,
             _ => throw new InvalidOperationException(
                 "Finding correlation returned an unknown point."),
         };
 
-    static List<TimelineTransitionRow> BuildTransitionRows<T>(
+    internal static List<TimelineTransitionRow> BuildTransitionRows<T>(
         FindingCensusCorrelation<T> correlation,
         string descriptor,
         string typeFullName,
@@ -785,22 +871,24 @@ public static class TimelineCommand
                 ?? throw new InvalidOperationException(
                     $"Producer comparison for {descriptor} returned an unknown outcome at "
                     + $"{oldInspection.Version.Key}..{newInspection.Version.Key}.");
-            string? subjectTransition = (oldInspection.Inspection, newInspection.Inspection) switch
+            FindingInspectionTransition topology =
+                completeComparison.Transition;
+            string? topologyTransition = topology.IsSameTopology
+                ? null
+                : $"{InspectionStateName(topology.Old)}To"
+                    + InspectionStateName(topology.New);
+            if (topologyTransition is not null)
             {
-                (FindingInspection<T>.Absent, FindingInspection<T>.Complete) => "SubjectAvailable",
-                (FindingInspection<T>.Complete, FindingInspection<T>.Absent) => "SubjectUnavailable",
-                _ => null,
-            };
-            if (subjectTransition is not null)
-            {
-                string detail = subjectTransition == "SubjectAvailable"
-                    ? $"The focused {(memberName is null ? "type" : "member")} became available to this census."
-                    : $"The focused {(memberName is null ? "type" : "member")} ceased to be available to this census.";
+                string detail =
+                    $"The focused {(memberName is null ? "type" : "member")} "
+                    + $"inspection changed from "
+                    + $"{InspectionStateName(topology.Old)} to "
+                    + $"{InspectionStateName(topology.New)}.";
                 rows.Add(new TimelineTransitionRow(
                     oldInspection.Version.Key,
                     newInspection.Version.Key,
                     span,
-                    subjectTransition,
+                    topologyTransition,
                     descriptor,
                     focusTarget,
                     exact ? detail : AppendGapQualification(detail)));
@@ -813,7 +901,7 @@ public static class TimelineCommand
                     || ((pair.Old ?? pair.New) is Finding<T> finding
                         && Matches(identityKey, finding)))
                 .ToArray();
-            if (changes.Length == 0 && subjectTransition is null)
+            if (changes.Length == 0 && topologyTransition is null)
             {
                 rows.Add(new TimelineTransitionRow(
                     oldInspection.Version.Key,
@@ -838,6 +926,26 @@ public static class TimelineCommand
 
         return rows;
     }
+
+    static string InspectionStateName(FindingInspectionAbsenceKind kind)
+        => kind switch
+        {
+            FindingInspectionAbsenceKind.SubjectAbsent => "SubjectAbsent",
+            FindingInspectionAbsenceKind.NoApplicableInput =>
+                "NoApplicableInput",
+            _ => throw new InvalidOperationException(
+                $"Unsupported Finding inspection absence kind '{kind}'."),
+        };
+
+    static string InspectionStateName(FindingInspectionState state)
+        => state switch
+        {
+            FindingInspectionState.Complete => "Complete",
+            FindingInspectionState.SubjectAbsent => "SubjectAbsent",
+            FindingInspectionState.NoApplicableInput => "NoApplicableInput",
+            _ => throw new InvalidOperationException(
+                $"Unsupported Finding inspection state '{state}'."),
+        };
 
     static bool Matches<T>(FindingCorrelationKey key, Finding<T> finding)
         where T : notnull
@@ -943,17 +1051,27 @@ public static class TimelineCommand
         out string? typeFullName,
         out string? error)
     {
-        var types = evaluations
+        string[] typeNames = evaluations
             .Where(evaluation => evaluation.Surface is not null)
-            .SelectMany(evaluation => evaluation.Surface!.Types)
+            .SelectMany(evaluation =>
+                FindingTypeNames.EnumerateResolvable(evaluation.Surface!))
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
             .ToArray();
-        var exactMatches = types
-            .Where(type => string.Equals(
-                type.FullName,
+        string? ordinalMatch = typeNames.FirstOrDefault(typeName =>
+            string.Equals(typeName, requested, StringComparison.Ordinal));
+        if (ordinalMatch is not null)
+        {
+            typeFullName = ordinalMatch;
+            error = null;
+            return true;
+        }
+
+        string[] exactMatches = typeNames
+            .Where(typeName => string.Equals(
+                typeName,
                 requested,
                 StringComparison.OrdinalIgnoreCase))
-            .Select(type => type.FullName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (exactMatches.Length == 1)
         {
@@ -961,13 +1079,18 @@ public static class TimelineCommand
             error = null;
             return true;
         }
+        if (exactMatches.Length > 1)
+        {
+            typeFullName = null;
+            error =
+                $"Type selector '{requested}' is ambiguous: "
+                + $"{string.Join(", ", exactMatches)}.";
+            return false;
+        }
 
-        var matches = types
-            .Where(type =>
-                string.Equals(type.Name, requested, StringComparison.OrdinalIgnoreCase)
-                || type.FullName.EndsWith($".{requested}", StringComparison.OrdinalIgnoreCase))
-            .Select(type => type.FullName)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+        string[] matches = typeNames
+            .Where(typeName =>
+                TypeMatcher.MatchesTypeFilter(typeName, requested))
             .ToArray();
 
         if (matches.Length > 1)

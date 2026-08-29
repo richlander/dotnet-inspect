@@ -17,7 +17,7 @@ namespace DotnetInspector.Tests;
 public sealed class LayeringTests
 {
     [Fact]
-    public async Task LocalOnlyHost_InspectsCallerSuppliedLocalAssembly()
+    public async Task LocalOnlyHost_PreservesArtifactRegistrationThroughAssemblyInspection()
     {
         string assemblyPath = typeof(AssemblyOnlyInspector).Assembly.Location;
         string temporaryDirectory =
@@ -29,12 +29,17 @@ public sealed class LayeringTests
         File.Copy(assemblyPath, temporaryAssembly);
         try
         {
+            AssemblyOnlyInspectionResult result =
+                await AssemblyOnlyInspector
+                    .InspectAfterDeletingSourceAsync(
+                        temporaryAssembly,
+                        TestContext.Current.CancellationToken);
             Assert.Equal(
                 "DotnetInspector.AssemblyOnlyHost.Fixture",
-                await AssemblyOnlyInspector
-                    .ReadAssemblyNameAfterDeletingSourceAsync(
-                        temporaryAssembly,
-                        TestContext.Current.CancellationToken));
+                result.AssemblyName);
+            Assert.Same(
+                result.ArtifactRegistration,
+                result.AssemblyRegistration.ArtifactRegistration);
             Assert.False(File.Exists(temporaryAssembly));
         }
         finally
@@ -96,6 +101,9 @@ public sealed class LayeringTests
         Assert.Contains(
             closure,
             path => Path.GetFileNameWithoutExtension(path) == "ILInspector.MetadataPrimitives");
+        Assert.Contains(
+            closure,
+            path => Path.GetFileNameWithoutExtension(path) == "DotnetInspector.Artifacts");
         AssertNoForbiddenImplementations(root, closure, PackageOrStorageImplementationProjects);
     }
 

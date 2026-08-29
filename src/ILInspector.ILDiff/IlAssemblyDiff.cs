@@ -1,7 +1,9 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
@@ -468,6 +470,33 @@ sealed class SignatureIdentityContext
         => Failure ??= failure;
 }
 
+static class RejectedArrayShapeIdentity
+{
+    public static string Format(string elementType, ArrayShape shape)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Append(hash, shape.Rank);
+        Append(hash, shape.Sizes.Length);
+        foreach (int size in shape.Sizes)
+            Append(hash, size);
+        Append(hash, shape.LowerBounds.Length);
+        foreach (int lowerBound in shape.LowerBounds)
+            Append(hash, lowerBound);
+
+        Span<byte> digest = stackalloc byte[32];
+        if (!hash.TryGetHashAndReset(digest, out int written) || written != digest.Length)
+            throw new CryptographicException("Could not hash the rejected array shape.");
+        return $"{elementType}[<unsupported-array-shape:{Convert.ToHexString(digest)}>]";
+    }
+
+    static void Append(IncrementalHash hash, int value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
+        hash.AppendData(bytes);
+    }
+}
+
 sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, SignatureIdentityContext>
 {
     readonly SignatureIdentityContext _context;
@@ -538,7 +567,13 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, Signatur
     }
 
     public string GetSZArrayType(string elementType) => $"{elementType}[]";
-    public string GetArrayType(string elementType, ArrayShape shape) => ArrayShapeText.Format(elementType, shape.Rank);
+    public string GetArrayType(string elementType, ArrayShape shape)
+    {
+        if (ArrayShapeText.TryFormat(elementType, shape, out string text))
+            return text;
+
+        return RejectedArrayShapeIdentity.Format(elementType, shape);
+    }
     public string GetByReferenceType(string elementType) => $"{elementType}&";
     public string GetPointerType(string elementType) => $"{elementType}*";
     public string GetPinnedType(string elementType) => $"{elementType} pinned";
