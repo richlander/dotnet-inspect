@@ -378,7 +378,9 @@ from a stale preparation is consumed without feature publication; the returned
 start reason reflects `session-disposed` or `session-changed`, so feature code
 cannot publish the stale producer error into the newer view.
 
-The authority commit in step 9 completes before either later external callout.
+The authority commit in step 10 completes before all three later external
+callouts: feature publication, producer activation, and prior-operation
+cancellation.
 Cancellation-forwarded state is reserved before invoking its endpoint.
 The feature event publishes before producer activation, so feature-owned
 loading or replacement state exists before an immediate producer report.
