@@ -557,9 +557,9 @@ Acquisition follows this order:
 2. On Browser, Wasm, or another unsupported host, return
    `local.directory.platform-unsupported` before path, filesystem, or native
    access.
-3. Canonicalize the requested root, then repeatedly apply
-   `Path.TrimEndingDirectorySeparator` until no non-root trailing separator
-   remains.
+3. Repeatedly apply `Path.TrimEndingDirectorySeparator` to the requested root
+   until no non-root trailing separator remains, then canonicalize that
+   normalized path.
 4. Verify that the normalized root is an existing directory not observed as a
    link or reparse point.
 5. Enumerate top-level entries incrementally. Count every observed entry before
@@ -682,8 +682,9 @@ gates a relative Browser path, and
 supported-host allow list and its unknown-host result.
 `LocalDirectoryAcquisition_TrailingSeparatorRootLinkIsRejected` supplies a
 stable Unix directory symlink with at least three trailing separators and
-asserts that every non-root trailing separator is removed before the root-kind
-probe.
+asserts that every non-root trailing separator is removed before
+canonicalization and that the root-kind probe receives the resulting canonical
+link path.
 `LocalDirectoryAcquisition_StableNonRegularEntryRejectsBeforeOpen` gates this
 with a stable Unix FIFO under an outer process deadline and asserts typed
 rejection with no registered contribution.
