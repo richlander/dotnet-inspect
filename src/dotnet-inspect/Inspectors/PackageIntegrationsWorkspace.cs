@@ -195,6 +195,13 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                                     assembly.Path,
                                     provenance);
                     }
+                    catch (UnsupportedMetadataFormatException)
+                    {
+                        preflightFailures.Add(
+                            Path.GetFullPath(assembly.Path),
+                            "The selected image uses an unsupported metadata format.");
+                        continue;
+                    }
                     catch (Exception ex) when (
                         ex is BadImageFormatException
                             or ArgumentOutOfRangeException

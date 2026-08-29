@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -94,6 +95,41 @@ public sealed class SignatureSpellabilityTests
 
         Assert.False(result.CanSpell);
         Assert.Null(result.DecodeStatus);
+    }
+
+    [Fact]
+    public void InspectField_MalformedDependencyIsDegraded()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(VisibleReferenceType).Assembly.Location);
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(
+                    peReader.PEHeaders.MetadataStartOffset,
+                    sizeof(uint)),
+                0xDEADBEEF);
+        }
+
+        using var fixture = OpenFixture(
+            new DeferredImageResolver(image));
+
+        SignatureSpellabilityResult result =
+            fixture.Spellability.InspectField(
+                fixture.Reader,
+                GetField(
+                    fixture.Reader,
+                    fixture.Type,
+                    "VisibleField"),
+                GenericContext.ForType(
+                    fixture.Reader,
+                    fixture.Type));
+
+        Assert.False(result.CanSpell);
+        Assert.Equal(
+            SignatureDecodeStatus.Degraded,
+            result.DecodeStatus);
     }
 
     static Fixture OpenFixture(IAssemblyReferenceResolver? resolver = null)
@@ -259,6 +295,20 @@ public sealed class SignatureSpellabilityTests
                     _path,
                     AssemblyResolutionProvenance.Local("VersionRelaxing"))
                 : null;
+    }
+
+    sealed class DeferredImageResolver(byte[] image)
+        : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "deferred malformed image"));
     }
 
     sealed record Fixture(

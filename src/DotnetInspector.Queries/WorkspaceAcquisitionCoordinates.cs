@@ -258,6 +258,9 @@ public enum WorkspaceContextLoadFailureKind
 
     /// <summary>The host offers no capability an acquisition kind requires.</summary>
     HostCapabilityUnavailable,
+
+    /// <summary>A selected image uses Windows Metadata, which is unsupported.</summary>
+    UnsupportedMetadataFormat,
 }
 
 /// <summary>

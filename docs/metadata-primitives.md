@@ -181,6 +181,10 @@ text for unsupported Windows Metadata and
 constraint for a malformed-root result. Typed query owners catch and preserve
 those distinct mechanisms as unsupported-input and malformed-input results.
 They must not translate either to `null`, an empty projection, or partial rows.
+Workspace realization uses
+`WorkspaceContextLoadFailureKind.UnsupportedMetadataFormat` consistently for
+package, platform, and embedded members; grouped package preflight retains the
+same unsupported-format reason instead of treating the image as unreadable.
 
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to

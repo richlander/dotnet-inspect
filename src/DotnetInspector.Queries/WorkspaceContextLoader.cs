@@ -1680,6 +1680,14 @@ public static class WorkspaceContextLoader
                     assembliesByMember[member].Add(assembly);
                 }
             }
+            catch (UnsupportedMetadataFormatException)
+            {
+                return FailPlatformMembers(
+                    members,
+                    WorkspaceContextLoadFailureKind
+                        .UnsupportedMetadataFormat,
+                    "A selected assembly asset uses an unsupported metadata format.");
+            }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException
@@ -2085,6 +2093,15 @@ public static class WorkspaceContextLoader
                     assemblies.Add(assembly);
                 }
             }
+            catch (UnsupportedMetadataFormatException)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind
+                            .UnsupportedMetadataFormat,
+                        member,
+                        "A selected assembly asset uses an unsupported metadata format."));
+            }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException
@@ -2210,6 +2227,15 @@ public static class WorkspaceContextLoader
             assembly = ResolvedAssemblyReference.CreateFromStreamIfManaged(
                 () => new MemoryStream(bytes, writable: false),
                 provenance);
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .UnsupportedMetadataFormat,
+                    member,
+                    "Embedded content uses an unsupported metadata format."));
         }
         catch (Exception ex) when (
             ex is BadImageFormatException

@@ -1,7 +1,11 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -2458,6 +2462,74 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task UnsupportedPackageAsset_CreatesTypedFailure()
+    {
+        byte[] unsupported = CreateUnsupportedMetadataImage();
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(("lib/net10.0/Unsupported.dll", unsupported)));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task UnsupportedPlatformAsset_CreatesTypedFailure()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(
+                Archive(
+                    ("runtimes/linux-x64/lib/net10.0/Unsupported.dll",
+                        CreateUnsupportedMetadataImage()))),
+            TestContext.Current.CancellationToken);
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new PlatformListingHandler(RuntimePackVersion));
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Platform("runtime"),
+                        ],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task EmbeddedMemberWithoutAHostProvider_IsUnavailable()
     {
         byte[] embedded = File.ReadAllBytes(EmbeddedPath);
@@ -2595,6 +2667,40 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(
             WorkspaceContextLoadFailureKind.InvalidImage,
             Assert.Single(Failed(outcome).Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task UnsupportedEmbeddedContent_CreatesTypedFailure()
+    {
+        byte[] unsupported = CreateUnsupportedMetadataImage();
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Embedded(
+                                "bundle/unsupported.dll",
+                                Digest(unsupported),
+                                "Unsupported"),
+                        ],
+                    },
+                    Options(
+                        client,
+                        new InMemoryPackageStore(),
+                        new StubEmbeddedContent(unsupported)),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
         Assert.Equal(0, GroupCount(workspace));
     }
 
@@ -3755,6 +3861,53 @@ public sealed class WorkspaceContextLoaderTests
                 File.ReadAllBytes(CallerPath)),
             ($"runtimes/linux-x64/lib/{Framework}/{Path.GetFileName(TargetPath)}",
                 File.ReadAllBytes(TargetPath)));
+
+    static byte[] CreateUnsupportedMetadataImage()
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 12,
+                sizeof(int)),
+            fixedMetadataRootPrefixLength + versionLength);
+        return image;
+    }
 
     static Version? IdentityVersion(string assemblyPath) =>
         ResolvedAssemblyReference.CreateFromPath(

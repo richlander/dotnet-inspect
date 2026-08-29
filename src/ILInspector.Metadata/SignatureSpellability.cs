@@ -148,7 +148,11 @@ public sealed class SignatureSpellability
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        catch (Exception ex) when (
+            ex is not MalformedMetadataRootException
+                and (IOException
+                    or BadImageFormatException
+                    or UnauthorizedAccessException))
         {
             return new NonPublicTypeSet(null);
         }
