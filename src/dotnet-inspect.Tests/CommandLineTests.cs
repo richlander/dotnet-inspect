@@ -20,7 +20,6 @@ public class CommandLineTests
         var root = CommandLineBuilder.CreateRootCommand();
         CommandLineBuilder.ApplyParsedLineWindow(
             root.Parse(processed),
-            root,
             processed);
         return processed;
     }
@@ -785,14 +784,29 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void ParsedLineWindow_InvalidParseClearsPriorState()
+    {
+        PreprocessAndApplyLineWindow(["package", "Foo", "-n1"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        string[] invalid =
+            ["package", "Foo", "-n1", "--tail", "false", "--tail", "true"];
+        var root = CommandLineBuilder.CreateRootCommand();
+        CommandLineBuilder.ApplyParsedLineWindow(root.Parse(invalid), invalid);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
     public void PreprocessArgs_CommandLikeValuesDoNotChangeImplicitPackageContext()
     {
         PreprocessAndApplyLineWindow(
-            ["--source", "api", "Foo.nupkg", "--path", "-n1"]);
+            ["package", "--source", "api", "Foo.nupkg", "--path", "-n1"]);
         Assert.Equal(1, CommandLineBuilder.HeadLines);
 
         PreprocessAndApplyLineWindow(
-            ["Foo", "--path", "-n1", "-t", "project"]);
+            ["package", "Foo", "--path", "-n1", "-t", "project"]);
         Assert.Equal(1, CommandLineBuilder.HeadLines);
     }
 

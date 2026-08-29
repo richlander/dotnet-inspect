@@ -738,6 +738,13 @@ public class PackageCommand
             }
         }
 
+        if (options.ShowContent
+            && !ProjectionDestinationWriter.ValidateBeforeAcquisition(
+                PackagePayloadDestination(options)))
+        {
+            return 1;
+        }
+
         using var packageRequestScope = RequestTelemetry.Scope(
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
@@ -801,10 +808,6 @@ public class PackageCommand
             // Handle file content modes and exit early.
             if (options.ShowContent)
             {
-                var destination = PackagePayloadDestination(options);
-                if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(destination))
-                    return 1;
-
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
                 var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);

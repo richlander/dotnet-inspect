@@ -212,6 +212,9 @@ public static class ArgumentPreprocessor
         HeadLines = null;
         TailLines = null;
 
+        if (parseResult.Errors.Count > 0)
+            return;
+
         int? count = null;
         OptionResult? limit = FindOptionResult(parseResult, "-n");
         if (limit is

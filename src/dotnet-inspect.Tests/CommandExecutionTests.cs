@@ -6544,6 +6544,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task RepeatedTailValues_ReportBoundedParseError()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Foo",
+            "-n1",
+            "--tail",
+            "false",
+            "--tail",
+            "true",
+            "--help");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "expects a single argument but 2 were provided",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "InvalidOperationException",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "at DotnetInspector",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -7704,6 +7733,47 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Usage:", routed.Error);
         Assert.DoesNotContain("Options:", routed.Error);
         Assert.DoesNotContain("Commands:", routed.Error);
+    }
+
+    [Fact]
+    public async Task Router_LineWindowUsesRewrittenRequiredValueOwnership()
+    {
+        var direct = await RunAppAsync(
+            "member",
+            "System.String.ToString",
+            "--library",
+            "-n1",
+            "--help");
+        var routed = await RunAppAsync(
+            "System.String.ToString",
+            "--library",
+            "-n1",
+            "--help");
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal(direct.Output, routed.Output);
+        Assert.True(
+            routed.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length > 1);
+    }
+
+    [Fact]
+    public async Task Router_LineWindowUsesRewrittenActiveWindow()
+    {
+        var routed = await RunAppAsync(
+            "System.String.ToString",
+            "--focus",
+            "--rows",
+            "-n1",
+            "--help");
+
+        Assert.Equal(0, routed.Exit);
+        Assert.Single(
+            routed.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Theory]
@@ -29077,6 +29147,47 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageExactTransfer_LineWindowRejectsBeforePackageAcquisition()
+    {
+        string packageName =
+            $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{packageName}.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "--offline",
+                "package",
+                packageName,
+                "--content",
+                "--path",
+                "README.md",
+                "-n1",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "line limit",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "not available offline",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
         }
     }
 
