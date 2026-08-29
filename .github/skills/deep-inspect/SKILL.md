@@ -10,9 +10,11 @@ shipped end-user capability; it is not embedded in the dotnet-inspect binary.
 
 Use this skill when a change needs expensive evidence outside normal PR CI.
 Deep Inspect is opt-in for risky PRs. Its `test`, `platform-test`,
-decompiler-corpus, and `authored-corpus` jobs run daily to certify a commit for
-release, and can be dispatched on demand during the day. Publish consumes that
-evidence rather than rerunning the slow suites.
+and decompiler-corpus jobs run daily to certify a commit for release. Publish
+consumes that certification evidence rather than rerunning the slow suites.
+The `authored-corpus` ratchet also runs daily, but is a scheduled regression
+gate rather than release-certification or publish evidence. All four can be
+dispatched on demand during the day.
 
 ## Lanes
 
