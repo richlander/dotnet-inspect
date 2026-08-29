@@ -65,7 +65,7 @@ Package resolution and provenance
 A source client supplies operations rather than exposing its transport shape:
 
 ```csharp
-interface IPackageSourceClient
+public interface IPackageSourceClient : IDisposable
 {
     PackageSourceResultIdentity Source { get; }
     PackageSourceCapabilities Capabilities { get; }
@@ -738,21 +738,22 @@ Implementation is not complete until Release gates establish:
   bound result factory, permits Gallery and v3 clients to share one reference,
   keeps distinct references distinct, and has no implicit-token overload;
 - `CustomClientRegistrationReceivesBoundFactory` is a cross-assembly
-  compilation and runtime gate that pins the public accessibility of every
-  type, getter, and finite method crossing the custom-client boundary while
-  proving their constructors remain unavailable. For Gallery and NuGetV3
-  descriptors, it proves one callback receives exactly one owner-constructed
-  factory with the expected complete source identity and can construct every
-  permitted result and outcome through that retained factory. Null arguments,
-  a null client, and an internal LocalFolder descriptor fixture are rejected;
-  invalid and unsupported inputs invoke the callback zero times and expose no
-  factory. A disposal-counting external client proves source mismatch and a
-  throwing source getter dispose the rejected client exactly once, an accepted
-  client is not disposed before return and becomes caller-owned, and callback
-  failure does not claim ownership of unreturned resources. A two-failure
-  vector pins validation-first `AggregateException` ordering when rejection
-  disposal also fails. The external assembly cannot construct the factory,
-  issuer, identity-bearing values, or foreign generic outcomes directly;
+  compilation and runtime gate that pins the public disposable client
+  interface and the public accessibility of every type, getter, and finite
+  method crossing the custom-client boundary while proving their constructors
+  remain unavailable. For Gallery and NuGetV3 descriptors, it proves one
+  callback receives exactly one owner-constructed factory with the expected
+  complete source identity and can construct every permitted result and outcome
+  through that retained factory. Null arguments, a null client, and an internal
+  LocalFolder descriptor fixture are rejected; invalid and unsupported inputs
+  invoke the callback zero times and expose no factory. A disposal-counting
+  external client proves source mismatch and a throwing source getter dispose
+  the rejected client exactly once, an accepted client is not disposed before
+  return and becomes caller-owned, and callback failure does not claim ownership
+  of unreturned resources. A two-failure vector pins validation-first
+  `AggregateException` ordering when rejection disposal also fails. The
+  external assembly cannot construct the factory, issuer, identity-bearing
+  values, or foreign generic outcomes directly;
 - `SourceOperationFactoryMatchesClientOperations` derives the complete client
   operation and finite failure-factory surfaces and pins the mapping from
   search and prefix search, version enumeration, manifest, package, and symbol
@@ -1439,18 +1440,23 @@ The `NuGetFetch` `browser-wasm` build is the browser-target compilation gate.
 Candidate projection remains inside the same operation deadline as the metadata
 request.
 
-Source operations now return typed outcomes. Search and version results carry
-normalized package coordinates, complete `PackageSourceResultIdentity`,
-discovery contract, and source-relative listing state. Payload results carry
-the exact coordinate, complete result identity, payload kind, and caller-owned
-stream. Expected source failures before a payload stream is returned retain the
-complete result identity, capability, and exact coordinate when applicable,
-and distinguish unsupported capability, exact payload absence, authentication,
-timeout, malformed metadata, bounded-response rejection, and transport
-failure. Their retained messages are source-safe summaries rather than
-transport URLs or response text. Caller cancellation remains cancellation,
-deadline aborts are typed timeouts, and transport-originated cancellation with
-neither condition active is a typed transport failure.
+Source operations already return typed outcome shells, but current result
+shapes still carry the legacy `PackageSourceIdentity` and separate transport
+fields described by the migration order. After migration step 3, search and
+version results carry normalized package coordinates, complete
+`PackageSourceResultIdentity`, discovery contract, and source-relative listing
+state. Payload results carry the exact coordinate, complete result identity,
+payload kind, and caller-owned stream. Expected source failures before a
+payload stream is returned retain the complete result identity, capability,
+and exact coordinate when applicable, and distinguish unsupported capability,
+exact payload absence, authentication, timeout, malformed metadata,
+bounded-response rejection, and transport failure. Their retained messages
+are source-safe summaries rather than transport URLs or response text.
+
+This identity migration does not change operation classification: caller
+cancellation remains cancellation, deadline aborts are typed timeouts, and
+transport-originated cancellation with neither condition active is a typed
+transport failure.
 `V3SearchCallerCancellationRemainsCancellation`,
 `V3SearchUsesLibraryDeadline`, and
 `V3ServiceIndexTransportCancellationIsTypedTransport` gate that precedence.
