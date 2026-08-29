@@ -41,6 +41,7 @@ internal sealed class PluginConnection : IAsyncDisposable
     private readonly TimeSpan _requestTimeout;
     private readonly Action<string>? _log;
     private Task? _readLoop;
+    private long _pendingGateEntry;
     private bool _acceptingRequests = true;
     private bool _disposed;
 
@@ -244,6 +245,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
             lock (_pendingGate)
             {
+                long gateEntry = ++_pendingGateEntry;
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (!_acceptingRequests)
@@ -251,9 +253,9 @@ internal sealed class PluginConnection : IAsyncDisposable
                     throw new IOException("Credential plugin closed the connection.");
                 }
 
-                _testHooks?.RequestAdmissionAccepted?.Invoke();
+                _testHooks?.RequestAdmissionAccepted?.Invoke(gateEntry);
                 _pending[requestId] = pending;
-                _testHooks?.RequestRegistered?.Invoke(Monitor.IsEntered(_pendingGate));
+                _testHooks?.RequestRegistered?.Invoke(gateEntry);
             }
 
             await WriteAsync(
@@ -351,6 +353,7 @@ internal sealed class PluginConnection : IAsyncDisposable
 
         lock (_pendingGate)
         {
+            _pendingGateEntry++;
             _acceptingRequests = false;
             pending = [.. _pending.Values];
             _testHooks?.PendingSnapshotCaptured?.Invoke(Monitor.IsEntered(_pendingGate));
@@ -370,9 +373,9 @@ internal sealed class PluginConnection : IAsyncDisposable
     {
         public Action? RequestAdmissionAttempted { get; init; }
 
-        public Action? RequestAdmissionAccepted { get; init; }
+        public Action<long>? RequestAdmissionAccepted { get; init; }
 
-        public Action<bool>? RequestRegistered { get; init; }
+        public Action<long>? RequestRegistered { get; init; }
 
         public Action? TerminalSettlementAttempted { get; init; }
 

@@ -550,11 +550,11 @@ public sealed class PluginProtocolTests : IDisposable
     [Fact]
     public async Task AdmissionCannotRegisterDuringTheTerminalPendingSnapshot()
     {
-        var admissionAccepted = new TaskCompletionSource(
+        var admissionAccepted = new TaskCompletionSource<long>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseAdmission = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var requestRegistered = new TaskCompletionSource<bool>(
+        var requestRegistered = new TaskCompletionSource<long>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var settlementAttempted = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -563,11 +563,11 @@ public sealed class PluginProtocolTests : IDisposable
         using var hooksEnabled = new ManualResetEventSlim();
         var hooks = new PluginConnection.PluginConnectionTestHooks
         {
-            RequestAdmissionAccepted = () =>
+            RequestAdmissionAccepted = gateEntry =>
             {
                 if (hooksEnabled.IsSet)
                 {
-                    admissionAccepted.TrySetResult();
+                    admissionAccepted.TrySetResult(gateEntry);
                     releaseAdmission.Task
                         .WaitAsync(
                             TimeSpan.FromSeconds(5),
@@ -576,11 +576,11 @@ public sealed class PluginProtocolTests : IDisposable
                         .GetResult();
                 }
             },
-            RequestRegistered = gateHeld =>
+            RequestRegistered = gateEntry =>
             {
                 if (hooksEnabled.IsSet)
                 {
-                    requestRegistered.TrySetResult(gateHeld);
+                    requestRegistered.TrySetResult(gateEntry);
                 }
             },
             TerminalSettlementAttempted = () =>
@@ -626,7 +626,7 @@ public sealed class PluginProtocolTests : IDisposable
                         TestContext.Current.CancellationToken),
                     TestContext.Current.CancellationToken);
 
-                await admissionAccepted.Task.WaitAsync(
+                long acceptedGateEntry = await admissionAccepted.Task.WaitAsync(
                     TimeSpan.FromSeconds(1),
                     TestContext.Current.CancellationToken);
 
@@ -640,7 +640,7 @@ public sealed class PluginProtocolTests : IDisposable
 
                 releaseAdmission.TrySetResult();
 
-                bool registrationHeldGate = await requestRegistered.Task.WaitAsync(
+                long registeredGateEntry = await requestRegistered.Task.WaitAsync(
                     TimeSpan.FromSeconds(1),
                     TestContext.Current.CancellationToken);
                 bool snapshotHeldGate = await snapshotCaptured.Task.WaitAsync(
@@ -652,7 +652,7 @@ public sealed class PluginProtocolTests : IDisposable
                     TestContext.Current.CancellationToken);
 
                 Assert.Null(response);
-                Assert.True(registrationHeldGate);
+                Assert.Equal(acceptedGateEntry, registeredGateEntry);
                 Assert.True(snapshotHeldGate);
             }
             finally
