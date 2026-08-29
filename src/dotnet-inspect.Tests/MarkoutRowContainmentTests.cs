@@ -240,6 +240,7 @@ public class MarkoutRowContainmentTests
         "MemberIndexRow.Digest",
         "MemberIndexRow.Selector",
         "MemberIndexRow.Stable",
+        "MemberInfoSection.Type",
         "MemberRow.Description",
         "MemberRow.Digest",
         "MemberRow.Name",
@@ -361,11 +362,11 @@ public class MarkoutRowContainmentTests
     ];
 
     [Fact]
-    public void ResidualCensus_IsPinnedAt240MembersAcross54Types()
+    public void ResidualCensus_IsPinnedAt241MembersAcross55Types()
     {
-        Assert.Equal(240, NotSelfContaining.Length);
+        Assert.Equal(241, NotSelfContaining.Length);
         Assert.Equal(
-            54,
+            55,
             NotSelfContaining
                 .Select(entry => entry[..entry.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)

@@ -130,7 +130,7 @@ public class ApiCommand
 
         var memberPipelines = new[]
         {
-            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline(),
         };
@@ -502,7 +502,7 @@ public class ApiCommand
     {
         SectionPipeline<ApiType>[] pipelines =
         [
-            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline()
         ];
@@ -645,7 +645,7 @@ public class ApiCommand
     {
         SectionPipeline<ApiType>[] pipelines =
         [
-            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
             ApiMemberOverloadSectionDescriptors.CreatePipeline(),
             ApiMemberDetailSectionDescriptors.CreatePipeline()
         ];
@@ -2826,6 +2826,8 @@ public class ApiCommand
             // payload projection (--value/--print) does compose, and is handled above.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: true);
+            if (RejectUnsupportedMemberInfoDocumentJson(options))
+                return 1;
             WriteJsonTypeOutput(type, options);
             return 0;
         }
@@ -3659,7 +3661,11 @@ public class ApiCommand
     /// on table columns. Mirrors the equivalent set in <c>LibraryCommand</c>.
     /// </summary>
     private static readonly HashSet<string> TypeFieldLayoutSections =
-        new(StringComparer.OrdinalIgnoreCase) { SectionNames.TypeInfo };
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.TypeInfo,
+            SectionNames.MemberInfo,
+        };
 
     /// <summary>
     /// Where a type was acquired from. Not derivable from <see cref="ApiType"/>, so it has to be
@@ -4369,6 +4375,94 @@ public class ApiCommand
 
         return null;
     }
+
+    internal static bool RejectUnsupportedMemberInfoDocumentJson(
+        ApiOptions options)
+    {
+        if (!IsWholeDocumentJson(options)
+            || !HasUnsupportedMemberInfoDocumentJsonSelection(options))
+        {
+            return false;
+        }
+
+        CommandError.Write(
+            $"section '{SectionNames.MemberInfo}' cannot be represented by whole-document --json.",
+            "Use --jsonl, --tsv, or --table for the census rows.");
+        return true;
+    }
+
+    private static bool HasUnsupportedMemberInfoDocumentJsonSelection(
+        ApiOptions options)
+    {
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: false,
+                MemberSelectionDeferredToLookup: true
+            })
+        {
+            return false;
+        }
+
+        if (options is MemberOptions
+            {
+                MemberSectionsPreResolved: true,
+                IncludeSections: { } authoritativeSections
+            })
+        {
+            return authoritativeSections.Contains(SectionNames.MemberInfo);
+        }
+
+        if (options.IncludeSections is { } sections
+            && sections.Contains(SectionNames.MemberInfo))
+        {
+            return sections.Count == 1
+                   || HasExactMemberInfoSelector(options);
+        }
+
+        if (options.Select is not { Length: > 0 })
+            return false;
+        if (HasExactMemberInfoSelector(options))
+            return true;
+
+        var pipelines = new[]
+        {
+            ApiMemberSectionDescriptors.CreateBroadMemberPipeline(),
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            ApiMemberDetailSectionDescriptors.CreatePipeline(),
+        };
+        var knownSections = pipelines
+            .SelectMany(static pipeline => pipeline.SelectableSectionNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Dictionary<string, string[]> categories =
+            new(StringComparer.OrdinalIgnoreCase);
+        foreach (var pipeline in pipelines)
+        {
+            foreach (var (name, categorySections) in pipeline.GetCategoryMap())
+            {
+                categories[name] = categories.TryGetValue(name, out var existing)
+                    ? existing.Concat(categorySections)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray()
+                    : categorySections;
+            }
+        }
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            knownSections,
+            infoSections: [],
+            categories,
+            selectDefault: false);
+        return !result.HasError
+               && result.Sections is { Count: 1 } singleton
+               && singleton.Contains(SectionNames.MemberInfo);
+    }
+
+    private static bool HasExactMemberInfoSelector(ApiOptions options)
+        => options.Select?.Any(selector => selector.Equals(
+            SectionNames.MemberInfo,
+            StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

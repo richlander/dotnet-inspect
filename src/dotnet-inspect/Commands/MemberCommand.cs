@@ -39,6 +39,7 @@ public static class MemberCommand
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;
+        // Member Info is pipeline-dependent, so its document-JSON check must wait for lookup.
         if (options.RouterDeferredTypeOrMember
             && (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
                 || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)))
@@ -54,7 +55,8 @@ public static class MemberCommand
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
             if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
-                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)
+                || ApiCommand.RejectUnsupportedMemberInfoDocumentJson(options))
             {
                 return 1;
             }
@@ -272,7 +274,8 @@ public static class MemberCommand
                 return 1;
 
             if (ApiCommand.RejectUnsupportedCallerDocumentJson(options)
-                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options))
+                || ApiCommand.RejectUnsupportedAnnotatedSourceDocumentJson(options)
+                || ApiCommand.RejectUnsupportedMemberInfoDocumentJson(options))
             {
                 return 1;
             }
