@@ -366,13 +366,15 @@ public static partial class CSharpBodyDiff
     /// a narrow exception is honestly inferred, not evidence-backed: a
     /// declaration-shaped node (see <see cref="InferredDeclarationKind"/>)
     /// that is present as the <em>sole</em> such null-provenance declaration
-    /// on one side and entirely absent as a candidate on the other (a
-    /// genuine appear/disappear, not a declaration retained unchanged on both
-    /// sides), alongside a call-site rewrite: a matched
-    /// <c>InvocationExpression</c> pair whose selected text actually differs
-    /// between before and after, not merely an unrelated call whose IL
-    /// evidence happens to still match. All three conditions must hold, or
-    /// the node stays <c>Unsupported</c> like any other correspondence gap.
+    /// on one side and entirely absent -- with any or no provenance -- on
+    /// the other (a genuine appear/disappear, not a declaration retained
+    /// unchanged on both sides, nor one side's copy merely carrying IL
+    /// provenance the other side's copy lacks), alongside a call-site
+    /// rewrite: a matched <c>InvocationExpression</c> pair whose selected
+    /// C# text actually differs between before and after, not merely an
+    /// unrelated call whose IL evidence happens to still match. All three
+    /// conditions must hold, or the node stays <c>Unsupported</c> like any
+    /// other correspondence gap.
     /// </summary>
     /// <remarks>
     /// Every current document this comparison sees describes exactly one
@@ -387,6 +389,16 @@ public static partial class CSharpBodyDiff
     /// inherent to any evidence short of full IL provenance, and is why this
     /// carve-out stays scoped to the single declaration-shaped kind actually
     /// evidenced by #3902 and #4116, rather than generalizing further.
+    /// The call-site rewrite check compares projected (IL-lines-removed) C#
+    /// text, matching how every other structural-diff text comparison in
+    /// this file works, and only when both sides' matched invocation is one
+    /// contiguous projected span: interleaved IL rendering is free to split
+    /// an unchanged C# construct's spans differently on each side, and
+    /// <see cref="SelectedTextEqual(AnnotatedSourceDocument, AnnotatedSourceNode, AnnotatedSourceDocument, AnnotatedSourceNode)"/>
+    /// compares spans pairwise by position rather than by full concatenation,
+    /// so a multi-span pairing is not reliable evidence of a rewrite either
+    /// way; this carve-out declines to guess in that case instead of risking
+    /// a false rewrite signal.
     /// </remarks>
     static void ClassifyUnprovenancedDeclarations(
         AnnotatedSourceDocument beforeDocument,
@@ -399,20 +411,46 @@ public static partial class CSharpBodyDiff
         ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedBefore,
         ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedAfter)
     {
-        var beforeById = beforeNodes.ToDictionary(static node => node.Id);
-        var afterById = afterNodes.ToDictionary(static node => node.Id);
+        var beforeProjection = CSharpAnnotatedSourceProjection.Create(beforeDocument);
+        var afterProjection = CSharpAnnotatedSourceProjection.Create(afterDocument);
+        var beforeProjectedById = beforeProjection.Document.Nodes.ToDictionary(static node => node.Id);
+        var afterProjectedById = afterProjection.Document.Nodes.ToDictionary(static node => node.Id);
 
         // A genuine call-site rewrite: both sides are InvocationExpression
-        // nodes whose selected text actually differs. An unchanged call that
-        // merely happens to retain matching IL evidence does not count --
-        // that is not evidence that anything was rewritten alongside it.
+        // nodes rendered as one contiguous projected span each (so the
+        // rewrite check has a single, unambiguous run of characters to
+        // compare) whose selected, IL-projected text actually differs. An
+        // unchanged call that merely happens to retain matching IL evidence
+        // does not count -- that is not evidence that anything was rewritten
+        // alongside it. Nor does an invocation that still spans multiple
+        // projected pieces on either side after removing IL lines: this
+        // carve-out declines to guess at such a call's true text equality
+        // rather than risk treating a merely differently-interleaved,
+        // unchanged multi-line call as a rewrite (SelectedTextEqual compares
+        // spans pairwise by position, not by full concatenation, so a
+        // multi-span pairing is not reliable evidence either way here).
         bool callSiteRewriteMatched = matches.Any(match =>
-            beforeById.TryGetValue(match.Before.NodeId, out var beforeCallNode)
-            && afterById.TryGetValue(match.After.NodeId, out var afterCallNode)
+            beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
+            && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
+            && beforeProjectedById.TryGetValue(beforeProjectedId, out var beforeCallNode)
+            && afterProjectedById.TryGetValue(afterProjectedId, out var afterCallNode)
             && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
             && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
-            && !SelectedTextEqual(beforeDocument, beforeCallNode, afterDocument, afterCallNode));
+            && beforeCallNode.Spans.Count == 1
+            && afterCallNode.Spans.Count == 1
+            && !SelectedTextEqual(
+                beforeProjection.Document,
+                beforeCallNode,
+                afterProjection.Document,
+                afterCallNode));
 
+        // Total presence (any provenance) proves genuine absence from a
+        // side; a copy that merely carries different IL provenance than its
+        // counterpart is still a copy, not an appear/disappear.
+        int beforeDeclarationTotal = beforeNodes.Count(static node =>
+            string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
+        int afterDeclarationTotal = afterNodes.Count(static node =>
+            string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
         int beforeDeclarationCandidates = beforeNodes.Count(static node =>
             node.Provenance is null
             && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
@@ -423,8 +461,14 @@ public static partial class CSharpBodyDiff
         // A declaration retained unchanged on both sides has one candidate on
         // each side, and qualifies for neither direction below -- it must not
         // be reported as simultaneously Added and Removed.
-        bool declarationAdded = afterDeclarationCandidates == 1 && beforeDeclarationCandidates == 0;
-        bool declarationRemoved = beforeDeclarationCandidates == 1 && afterDeclarationCandidates == 0;
+        bool declarationAdded =
+            afterDeclarationCandidates == 1
+            && afterDeclarationTotal == 1
+            && beforeDeclarationTotal == 0;
+        bool declarationRemoved =
+            beforeDeclarationCandidates == 1
+            && beforeDeclarationTotal == 1
+            && afterDeclarationTotal == 0;
 
         foreach (var node in beforeNodes)
         {

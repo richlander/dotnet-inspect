@@ -1706,6 +1706,118 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationWhenRetainedCopyGainsProvenance()
+    {
+        // Close negative (round-1 review, reviewer A): the same declaration
+        // is present on both sides, but the before copy happens to carry IL
+        // provenance of its own (e.g. a single-expression body sharing a
+        // sequence point with its header) while the after copy does not.
+        // Before this fix, "the only null-provenance candidate on its own
+        // side" counted only null-provenance nodes, so the before copy
+        // (excluded by its provenance) made beforeDeclarationCandidates == 0
+        // while afterDeclarationCandidates == 1 -- looking asymmetric even
+        // though the declaration is genuinely retained. Presence must be
+        // judged by total declarations on a side (any provenance), not just
+        // null-provenance candidates, to prove genuine absence.
+        var before = TrustedDocument(
+            "__NoTypeParameter_g__Own_0_0(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", [0x20]));
+        var after = TrustedDocument(
+            "Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotTreatDifferentlyInterleavedUnchangedCallAsRewrite()
+    {
+        // Close negative (round-1 review, reviewer B): a matched invocation
+        // is rendered on a single contiguous line in the after document, but
+        // split into two spans in the before document because a real
+        // interleaved IL line was woven between its two rendered C# pieces
+        // -- a permitted rendering (see CSharpAnnotatedSourceProjection), not
+        // a rewrite. Comparing raw spans (or even IL-projected spans, since
+        // an interleaved split still leaves distinct pieces once a genuine
+        // line break separates them) makes the differing span count alone
+        // look like a rewrite, which would wrongly license inferring an
+        // unrelated new declaration elsewhere in the document. The call-site
+        // check must decline to guess when either side's matched invocation
+        // still spans more than one projected piece.
+        const string beforeCall1 = "Log(";
+        const string beforeIl = "IL_0000: nop";
+        const string beforeCall2 = "value);";
+        const string declarationText = "static void Unrelated()\n{\n}";
+        string beforeText = $"{beforeCall1}\n{beforeIl}\n{beforeCall2}";
+        int call1Start = beforeText.IndexOf(beforeCall1, StringComparison.Ordinal);
+        int ilStart = beforeText.IndexOf(beforeIl, StringComparison.Ordinal);
+        int call2Start = beforeText.IndexOf(beforeCall2, StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [
+                        new AnnotatedSourceSpan(call1Start, beforeCall1.Length),
+                        new AnnotatedSourceSpan(call2Start, beforeCall2.Length),
+                    ],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNode.InstructionKind,
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan(ilStart, beforeIl.Length)],
+                    IlOffset: 0),
+            ],
+            [],
+            [],
+            [],
+            Source());
+
+        const string afterCall = "Log(value);";
+        string afterText = $"{afterCall}\n{declarationText}";
+        int afterCallStart = afterText.IndexOf(afterCall, StringComparison.Ordinal);
+        int afterDeclarationStart = afterText.IndexOf(declarationText, StringComparison.Ordinal);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterCallStart, afterCall.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                new AnnotatedSourceNode(
+                    1,
+                    "LocalFunctionStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterDeclarationStart, declarationText.Length)],
+                    Provenance: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
     public void IssuedCorrespondence_RoundTripsDocumentNodeProvenanceAndUnmatchedNodes()
     {
         var before = TrustedDocument(
