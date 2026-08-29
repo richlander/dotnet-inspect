@@ -877,6 +877,8 @@ internal sealed class SignatureOccurrenceProvider
         _referenceProjections = [];
     readonly Dictionary<TypeDefinitionHandle, MetadataNamedTypeReference>
         _definitionProjections = [];
+    readonly Dictionary<EntityHandle, MetadataTypeReferenceScope>
+        _scopeProjections = [];
     MetadataReader? _projectionReader;
 
     public SignatureTypeOccurrences GetPrimitiveType(
@@ -933,7 +935,7 @@ internal sealed class SignatureOccurrenceProvider
             projection = new MetadataNamedTypeReference(
                 new MetadataTypeReferenceScope.CurrentAssembly(),
                 read.Name);
-            _definitionProjections.Add(handle, projection);
+            _definitionProjections[handle] = projection;
         }
 
         return One(projection);
@@ -978,25 +980,75 @@ internal sealed class SignatureOccurrenceProvider
         }
 
         _workBudget.ChargeMetadataWork(chainLength);
-        MetadataTypeReferenceScope scope = terminal.Kind switch
-        {
-            HandleKind.AssemblyReference =>
-                new MetadataTypeReferenceScope.AssemblyReference(
-                    AssemblyReferenceIdentity.From(
-                        reader,
-                        (AssemblyReferenceHandle)terminal)),
-            HandleKind.ModuleReference =>
-                ModuleScope(reader, (ModuleReferenceHandle)terminal),
-            HandleKind.ModuleDefinition =>
-                new MetadataTypeReferenceScope.CurrentAssembly(),
-            _ when terminal.IsNil =>
-                new MetadataTypeReferenceScope.CurrentAssembly(),
-            _ => throw new BadImageFormatException(
-                "The TypeRef has an unsupported resolution scope."),
-        };
-        var projection = new MetadataNamedTypeReference(scope, read.Name);
-        _referenceProjections.Add(handle, projection);
+        var projection = new MetadataNamedTypeReference(
+            ProjectScope(reader, terminal),
+            read.Name);
+        _referenceProjections[handle] = projection;
         return One(projection);
+    }
+
+    // Distinct TypeRefs commonly share one resolution-scope terminal, so
+    // projecting the terminal per TypeRef re-reads the same assembly name,
+    // culture, and public key -- and re-hashes the key -- once per reference.
+    // Cache the terminal projection and charge its storage before reading it.
+    MetadataTypeReferenceScope ProjectScope(
+        MetadataReader reader,
+        EntityHandle terminal)
+    {
+        if (_scopeProjections.TryGetValue(
+                terminal,
+                out MetadataTypeReferenceScope? cached))
+        {
+            return cached;
+        }
+
+        MetadataTypeReferenceScope scope;
+        switch (terminal.Kind)
+        {
+            case HandleKind.AssemblyReference:
+                var assembly = (AssemblyReferenceHandle)terminal;
+                System.Reflection.Metadata.AssemblyReference reference =
+                    reader.GetAssemblyReference(assembly);
+                ChargeStorage(reader, reference.Name);
+                ChargeStorage(reader, reference.Culture);
+                ChargeStorage(reader, reference.PublicKeyOrToken);
+                scope = new MetadataTypeReferenceScope.AssemblyReference(
+                    AssemblyReferenceIdentity.From(reader, assembly));
+                break;
+            case HandleKind.ModuleReference:
+                scope = ModuleScope(reader, (ModuleReferenceHandle)terminal);
+                break;
+            case HandleKind.ModuleDefinition:
+                scope = new MetadataTypeReferenceScope.CurrentAssembly();
+                break;
+            default:
+                scope = terminal.IsNil
+                    ? new MetadataTypeReferenceScope.CurrentAssembly()
+                    : throw new BadImageFormatException(
+                        "The TypeRef has an unsupported resolution scope.");
+                break;
+        }
+
+        _scopeProjections[terminal] = scope;
+        return scope;
+    }
+
+    void ChargeStorage(MetadataReader reader, StringHandle handle)
+    {
+        if (!handle.IsNil)
+        {
+            _workBudget.ChargeMetadataWork(
+                reader.GetBlobReader(handle).Length);
+        }
+    }
+
+    void ChargeStorage(MetadataReader reader, BlobHandle handle)
+    {
+        if (!handle.IsNil)
+        {
+            _workBudget.ChargeMetadataWork(
+                reader.GetBlobReader(handle).Length);
+        }
     }
 
     public SignatureTypeOccurrences GetTypeFromSpecification(
@@ -1176,6 +1228,7 @@ internal sealed class SignatureOccurrenceProvider
         _projectionReader = reader;
         _referenceProjections.Clear();
         _definitionProjections.Clear();
+        _scopeProjections.Clear();
     }
 
     void ChargeName(MetadataTypeDefinitionName name)
@@ -1268,12 +1321,13 @@ internal sealed class SignatureOccurrenceProvider
         }
     }
 
-    static MetadataTypeReferenceScope ModuleScope(
+    MetadataTypeReferenceScope ModuleScope(
         MetadataReader reader,
         ModuleReferenceHandle handle)
     {
-        string name =
-            reader.GetString(reader.GetModuleReference(handle).Name);
+        StringHandle nameHandle = reader.GetModuleReference(handle).Name;
+        ChargeStorage(reader, nameHandle);
+        string name = reader.GetString(nameHandle);
         return string.IsNullOrWhiteSpace(name)
             ? throw new BadImageFormatException(
                 "The module reference name is empty.")

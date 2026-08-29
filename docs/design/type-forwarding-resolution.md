@@ -1975,17 +1975,28 @@ decode the same child into exponentially growing work or arrays.
 
 Those budgets count callbacks and occurrence copies, which bounds how much work
 happens but not what each unit of work costs. Names, resolution-scope chains,
-and TypeSpec completeness scans each read a different amount of metadata, so
-the decode adds two further protections. It projects each `TypeRef` and
-`TypeDef` handle at most once per decode, so a shared child re-entered through a
-DAG is named once rather than once per occurrence; and it charges the metadata
-actually examined -- name characters, resolution-scope hops, and scanned
-TypeSpec bytes -- against a separate per-decode work ledger. The ledger is
-charged before the corresponding decode, so it bounds the cost of reaching a
-rejection rather than only reporting one afterwards. Handle projections are
-keyed to the reader that owns the signature and are dropped if a different
-reader appears; the ledger is never reset, so alternating readers cannot buy
-back budget.
+resolution-scope terminals, and TypeSpec completeness scans each read a
+different amount of metadata, so the decode adds two further protections.
+
+It projects each `TypeRef`, `TypeDef`, and resolution-scope terminal handle at
+most once per decode, so a shared child re-entered through a DAG is named once
+rather than once per occurrence, and an `AssemblyRef` shared by many distinct
+`TypeRef`s has its name, culture, and public key read and hashed once rather
+than once per reference. It also charges the metadata actually examined --
+name characters, resolution-scope hops, scanned TypeSpec bytes, and the storage
+length of every terminal string and blob -- against a separate per-decode work
+ledger. Terminal storage is measured with `GetBlobReader` and charged before it
+is materialized, so the ledger bounds the cost of reaching a rejection rather
+than only reporting one afterwards. Handle projections are keyed to the reader
+that owns the signature and are dropped if a different reader appears; the
+ledger is never reset, so alternating readers cannot buy back budget.
+
+Both protections depend on every call site remembering to charge, which review
+alone did not achieve: the shared-terminal projection was identified as a gap,
+believed closed by the `TypeRef` cache, and shipped uncharged. The rule is
+therefore structural. Inside `SignatureOccurrenceProvider`, metadata may be
+materialized only by a method that charges first, and
+`SignatureSpellabilityBudgetBoundaryTests` fails on any new uncharged read.
 
 The plan
 retains the source subject, the source candidate's authorized baseline
@@ -3199,8 +3210,16 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   cumulative occurrence-copy budget.
 - `SignatureSpellability_CachesRepeatedTypeReferenceProjection` proves that a
   shared leaf `TypeRef` re-entered once per occurrence is projected once per
-  handle. Without the cache the shared name is re-read on every occurrence and
-  the metadata work ledger rejects a signature the node budget admits.
+  handle. Cache inserts are tolerant, so removing the lookup re-projects the
+  shared name until the metadata work ledger rejects a signature every
+  count-based budget admits, rather than throwing on a duplicate key.
+- `SignatureSpellability_CachesSharedResolutionScopeProjection` covers the
+  distinct-`TypeRef`, shared-`AssemblyRef` shape. Thirty-two references to one
+  scope are admitted only because the terminal projection is cached; charging
+  its public key once per reference exceeds the ledger.
+- `SignatureSpellability_ChargesSharedResolutionScopeProjection` proves that a
+  single reference to an oversized public key is rejected, since projecting a
+  terminal copies and hashes the key and no count-based budget observes it.
 - `SignatureSpellability_BoundsDistinctNameMaterialization` covers the case the
   cache cannot serve. It accepts a signature naming eight maximum-length types
   and proves that ninety-six exceed the per-decode metadata work ledger.
@@ -3208,6 +3227,11 @@ provider-census gates named below live in `SignatureDecoderSafetyTests` and
   TypeSpec carrying a narrow array shape, then proves that a wide shape
   re-scanned once per occurrence exceeds the ledger, even though both shapes
   stay inside the recursion guard's cumulative byte limit.
+- `SignatureSpellabilityBudgetBoundaryTests` is the anti-ratchet closure proof
+  for the ledger. A Roslyn census requires every metadata materialization inside
+  `SignatureOccurrenceProvider` to occur in a method that charges first, and a
+  companion wiring gate requires each charging method to retain its charge, so a
+  newly added uncharged read fails rather than shipping.
 - `SignatureSpellability_RejectsAccessibilityKeyFromAnotherGeneration` proves
   that a context rejects an accessibility key issued by any generation other
   than its own, including a newer generation that is current for the catalog.

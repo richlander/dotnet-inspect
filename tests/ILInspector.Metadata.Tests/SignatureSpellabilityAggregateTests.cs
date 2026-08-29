@@ -1294,14 +1294,15 @@ public sealed class SignatureSpellabilityAggregateTests
     [Fact]
     public void SignatureSpellability_CachesRepeatedTypeReferenceProjection()
     {
-        // The DAG re-enters one shared leaf TypeRef once per occurrence.
-        // Re-projecting its name every time would charge 128 maximum-length
-        // names against the metadata work budget and reject a signature the
-        // node budget admits. Projecting once per handle keeps the cost
-        // proportional to the distinct metadata the signature names.
+        // The DAG re-enters one shared leaf TypeRef 128 times. Projecting its
+        // name on each re-entry would charge 128 maximum-length names against
+        // the metadata work ledger and reject a signature every count-based
+        // budget admits; projecting once per handle stays inside the ledger.
+        // Inserts are tolerant, so removing the cache lookup exercises the
+        // ledger rather than a duplicate-key dictionary throw.
         SyntheticAssembly source = BuildTypeSpecDagSource(
             "SharedLongName",
-            branchingLevels: 6,
+            branchingLevels: 7,
             leafName: new string(
                 'N',
                 MetadataSafetyPolicy.MaxTypeNameCharacters - 96));
@@ -1311,7 +1312,48 @@ public sealed class SignatureSpellabilityAggregateTests
             Descriptor(source.Image),
             source.Coordinates);
 
-        Assert.Equal(128, plan.Occurrences.Length);
+        Assert.Equal(256, plan.Occurrences.Length);
+    }
+
+    [Fact]
+    public void SignatureSpellability_CachesSharedResolutionScopeProjection()
+    {
+        // Thirty-two distinct TypeRefs share one AssemblyRef. Re-projecting
+        // that terminal per reference would charge its public key thirty-two
+        // times and exceed the ledger, so this signature is admitted only
+        // because the terminal projection is cached per handle.
+        SyntheticAssembly source = BuildSharedScopeSource(
+            "SharedScope",
+            references: 32,
+            publicKeyBytes: 16 * 1024);
+        using var catalog = new TypeResolutionCatalog();
+        SignatureSpellabilityPlan plan = Plan(
+            catalog,
+            Descriptor(source.Image),
+            source.Coordinates);
+
+        Assert.Equal(33, plan.Occurrences.Length);
+    }
+
+    [Fact]
+    public void SignatureSpellability_ChargesSharedResolutionScopeProjection()
+    {
+        // Projecting an AssemblyRef reads its name and culture and copies and
+        // hashes its public key. No count-based budget observes that work, so
+        // one reference to an oversized key must still be rejected.
+        SyntheticAssembly source = BuildSharedScopeSource(
+            "OversizedScope",
+            references: 1,
+            publicKeyBytes: 512 * 1024);
+        using var catalog = new TypeResolutionCatalog();
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(source.Image),
+                            source.Coordinates))).Failure);
     }
 
     [Fact]
@@ -1944,6 +1986,41 @@ public sealed class SignatureSpellabilityAggregateTests
         returnType.WriteCompressedInteger(
             CodedIndex.TypeDefOrRefOrSpec(spec));
         returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
+        MethodDefinitionHandle method = AddMethod(
+            metadata,
+            MethodSignature(returnType));
+        return Synthetic(metadata, mvid, declaring, method);
+    }
+
+    static SyntheticAssembly BuildSharedScopeSource(
+        string assemblyName,
+        int references,
+        int publicKeyBytes)
+    {
+        MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Ext"),
+            new Version(1, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[publicKeyBytes]),
+            AssemblyFlags.PublicKey,
+            default);
+        var returnType = new BlobBuilder();
+        for (int index = 0; index < references; index++)
+        {
+            TypeReferenceHandle reference = metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    "T" + index.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture)));
+            returnType.WriteByte(0x1f);             // ELEMENT_TYPE_CMOD_REQD
+            returnType.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(reference));
+        }
+
+        returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
+        TypeDefinitionHandle declaring = AddDeclaringType(metadata);
         MethodDefinitionHandle method = AddMethod(
             metadata,
             MethodSignature(returnType));
