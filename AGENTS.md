@@ -294,6 +294,7 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 | Output style | `docs/design/style-guide.md` |
 | Sections and selection | `docs/design/section-model.md` |
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
+| Custom-attribute value decoding and enum widths | `docs/design/custom-attribute-value-decoding.md` |
 | Type, member, or API identity | `docs/design/type-member-api-representation.md` |
 | PDB and source acquisition | `docs/pdb-acquisition.md` |
 | Source Finding producers | `docs/design/source-finding-producers.md` |
