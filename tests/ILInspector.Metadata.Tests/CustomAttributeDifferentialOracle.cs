@@ -145,46 +145,37 @@ static class CustomAttributeDifferentialOracle
     }
 
     /// <summary>Writes the inline element-type byte a boxed value carries before its data.</summary>
+    /// <remarks>
+    /// The byte is computed once, then both written and recorded. Recording it
+    /// from a second switch would let the two drift: a writer emitting some
+    /// other byte would still be recorded as this one, and the coverage gate
+    /// would claim a spelling that never appeared in any blob. The switch below
+    /// therefore handles only the trailing payload some spellings carry.
+    /// </remarks>
     static void WriteInlineElementType(BlobBuilder value, Shape shape, Context context)
     {
-        context.InlineElementTypes.Add(InlineElementTypeByte(shape, context));
+        byte elementType = InlineElementTypeByte(shape);
+        value.WriteByte(elementType);
+        context.InlineElementTypes.Add(elementType);
 
         switch (shape)
         {
-            case PrimitiveShape primitive:
-                value.WriteByte(ElementTypeByte(primitive.Code));
-                break;
-            case StringShape:
-                value.WriteByte(0x0e);
-                break;
-            case SystemTypeShape:
-                value.WriteByte(0x50);
-                break;
             case ArrayShape array:
-                value.WriteByte(0x1d);
                 WriteInlineElementType(value, array.Element, context);
                 break;
-            case BoxedShape:
-                // `object` *as a nested element type* is spelled
-                // ELEMENT_TYPE_BOXED. This is the one position where 0x51 is
-                // correct: it declares the element type, and each element then
-                // carries its own FieldOrPropType byte. A top-level `object`
-                // argument still writes its FieldOrPropType directly, with no
-                // 0x51 prefix — see BoxedShape.WriteValue.
-                value.WriteByte(0x51);
-                break;
             case EnumHandleShape:
-                value.WriteByte(0x55);
                 value.WriteSerializedString(context.EnumSerializedName);
                 break;
-            default:
-                throw new InvalidOperationException(
-                    $"{shape.GetType().Name} has no inline element-type spelling.");
         }
     }
 
-    /// <summary>The inline element-type byte <paramref name="shape"/> is spelled with.</summary>
-    static byte InlineElementTypeByte(Shape shape, Context context) => shape switch
+    /// <summary>
+    /// The single source for the inline element-type byte <paramref name="shape"/>
+    /// is spelled with. <c>0x51</c> is correct only here, where `object` appears
+    /// as a *nested* element type; a top-level `object` argument writes its
+    /// FieldOrPropType directly with no <c>0x51</c> prefix.
+    /// </summary>
+    static byte InlineElementTypeByte(Shape shape) => shape switch
     {
         PrimitiveShape primitive => ElementTypeByte(primitive.Code),
         StringShape => 0x0e,
