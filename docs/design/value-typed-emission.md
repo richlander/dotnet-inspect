@@ -513,12 +513,16 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    `BooleanSinkIdentityRecovery` makes that boundary explicit until semantic
    sink identity moves into product-owned testimony. The C2 deletion and the
    invariant extension follow once the residual census reaches the
-   printer-owned floor.
+   printer-owned floor. When a direct slot-copy component separates the
+   conditional producer from the boolean sink, the sink-end veto keeps the
+   whole component printer-owned through the existing atomic component gate.
    `MaterializesSingleStoreConditionalWithSingleRead` and
    `DefersIntegerTestimonyWhenConditionalFeedsBooleanLocal` gate both sides of
    the general boundary;
    `DefersIntegerTestimonyWhenConditionalFeedsBooleanProperty` gates property
-   setter identity recovery specifically.
+   setter identity recovery specifically; and
+   `DefersBooleanSinkIdentityAcrossDirectCopyComponent` gates composition with
+   copy-component closure.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender

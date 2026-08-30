@@ -76,6 +76,53 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
+    // The conditional producer and boolean sink can occupy different members
+    // of one direct-copy component. The sink-end veto must keep the whole
+    // component on the printer's boolean identity recovery.
+    [Fact]
+    public void DefersBooleanSinkIdentityAcrossDirectCopyComponent()
+    {
+        var body = new BlockContainer();
+        var first = new Block(0);
+        first.Add(new StoreStackSlot(0, new Conditional(
+            new Comparison(
+                ComparisonKind.NotEqual,
+                isUnsigned: false,
+                new LoadArgument(0, "x", Int32),
+                new Constant(0, Int32)),
+            new Constant(true, Boolean),
+            new Constant(false, Boolean))));
+        first.Add(new Branch(4));
+        var second = new Block(4);
+        second.Add(new StoreStackSlot(1, new LoadStackSlot(0, Boolean)));
+        second.Add(new Branch(8));
+        var third = new Block(8);
+        third.Add(new StoreLocal(0, Boolean, new LoadStackSlot(1, Int32)));
+        body.Add(first);
+        body.Add(second);
+        body.Add(third);
+        var function = Function([Boolean], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
+        Assert.Contains(decisions, decision => decision.Slot == 1
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.BooleanSinkIdentityRecovery)
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+        new CoercionInsertionPass().Run(function, PassContext.None);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Equal(2, function.Descendants.OfType<LoadStackSlot>().Count());
+        Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
+        Assert.Contains("bool S_0", output);
+        Assert.Contains("bool S_1", output);
+        Assert.DoesNotContain("int S_1", output);
+        Assert.Empty(CoercionInvariant.Check(function));
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void DefersWholeDirectCopyComponentWhenOneSlotIsUndecided()
     {

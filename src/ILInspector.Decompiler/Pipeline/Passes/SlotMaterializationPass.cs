@@ -178,9 +178,7 @@ public sealed class SlotMaterializationPass : IIrPass
             if (candidate.Type is not { } slotType)
                 continue;
 
-            if (candidate.Stores is [{ Value: Conditional conditional }]
-                && TypeFamilies.IsBoolean(conditional.ResultType)
-                && TypeFamilies.IsIntegerLike(slotType)
+            if (TypeFamilies.IsIntegerLike(slotType)
                 && candidate.Loads.Any(load =>
                     CoercionSinks.SemanticLoadSinkTargetType(
                         load,
