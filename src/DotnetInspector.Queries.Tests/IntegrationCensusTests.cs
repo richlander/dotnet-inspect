@@ -606,6 +606,74 @@ public sealed class IntegrationCensusTests
         Assert.Same(Ecosystem, correspondence.Policy);
     }
 
+    [Fact]
+    public void IntegrationCensus_CanonicalizesShuffledReceiptProducts()
+    {
+        IntegrationSourceParticipantIdentity first = Portable("first");
+        IntegrationSourceParticipantIdentity second = Portable("second");
+        var participants = new[] { first, second };
+        IntegrationCandidateIdentity firstCandidate = ObservedCandidate(
+            first,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+        IntegrationCandidateIdentity secondCandidate = OpportunityCandidate(
+            second,
+            IntegrationConceptCatalog.AI,
+            PolicyTargetPeer("Peer", TypeName("Peer", "Client")));
+        IContext firstContext = new Context();
+        IContext secondContext = new Context();
+        List<IntegrationProducerPolicyAttempt> producers = Producers(
+            participants,
+            Completed(first, Ecosystem, firstCandidate),
+            Completed(second, Opportunity, secondCandidate));
+        IntegrationCandidateAttempt[] candidateAttempts =
+        [
+            ClassifiedOut(secondCandidate, secondContext),
+            ClassifiedOut(firstCandidate, secondContext),
+            ClassifiedOut(secondCandidate, firstContext),
+            ClassifiedOut(firstCandidate, firstContext),
+        ];
+
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            participants,
+            sourceAttempts: participants.Reverse().Select(Available),
+            producerAttempts: producers.AsEnumerable().Reverse(),
+            contexts: [firstContext, secondContext],
+            candidateAttempts: candidateAttempts);
+
+        Assert.Equal(
+            participants,
+            snapshot.SourceAttempts.Select(attempt => attempt.Participant));
+        Assert.Equal(
+            participants.SelectMany(participant =>
+                new[] { Ecosystem, OpenTelemetry, Opportunity }.Select(
+                    policy =>
+                        new IntegrationProducerPolicyAttemptAddress(
+                            participant,
+                            policy))),
+            snapshot.ProducerPolicyAttempts.Select(
+                attempt => attempt.Address));
+        Assert.Equal(
+            [firstCandidate, secondCandidate],
+            snapshot.Candidates.Select(candidate => candidate.Identity));
+        Assert.Equal(
+            [
+                new IntegrationCandidateAttemptAddress(
+                    firstCandidate,
+                    firstContext),
+                new IntegrationCandidateAttemptAddress(
+                    firstCandidate,
+                    secondContext),
+                new IntegrationCandidateAttemptAddress(
+                    secondCandidate,
+                    firstContext),
+                new IntegrationCandidateAttemptAddress(
+                    secondCandidate,
+                    secondContext),
+            ],
+            snapshot.CandidateAttempts.Select(attempt => attempt.Address));
+    }
+
     // ---- Candidate attempt accounting -----------------------------------
 
     [Fact]
@@ -669,37 +737,77 @@ public sealed class IntegrationCensusTests
     }
 
     [Fact]
-    public void IntegrationCensus_LargeContextProductUsesHashBackedAddressing()
+    public void IntegrationCensus_SemanticContextProductUsesHashBackedAddressing()
     {
         IntegrationSourceParticipantIdentity participant = Portable();
         var participants = new[] { participant };
-        IntegrationCandidateIdentity candidate = ObservedCandidate(
+        IntegrationCandidateIdentity observed = ObservedCandidate(
             participant,
             IntegrationConceptCatalog.AI,
-            DefaultPeer);
+            AssemblyPeer(Assembly("Peer"), TypeName("Peer", "Client")),
+            new IntegrationCandidateSourceElement.Member(
+                TypeName("Adapters", "ClientAdapter"),
+                Anchor("Adapters.ClientAdapter")));
+        IntegrationCandidateIdentity opportunity = OpportunityCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            PolicyTargetPeer("Peer", TypeName("Peer", "Client")));
         CountingContext[] contexts =
         [
-            .. Enumerable.Range(0, 2_000).Select(
+            .. Enumerable.Range(0, 1_000).Select(
                 index => new CountingContext(index)),
         ];
-        IntegrationCandidateAttempt[] attempts =
-        [
-            .. contexts.Select(
-                context => ClassifiedOut(candidate, context)),
-        ];
+        var attempts = new List<IntegrationCandidateAttempt>();
+        for (int index = 0; index < contexts.Length; index++)
+        {
+            IntegrationCandidateIdentity observedCopy =
+                EquivalentCandidate(observed);
+            IntegrationCandidateIdentity opportunityCopy =
+                EquivalentCandidate(opportunity);
+            IIntegrationBindingContextIdentity observedContext =
+                new CountingContext(index);
+            IIntegrationBindingContextIdentity opportunityContext =
+                new CountingContext(index);
+            IntegrationCandidateAttemptAddress observedAddress =
+                new(observedCopy, observedContext);
+            attempts.Add(
+                new IntegrationCandidateAttempt.Suppressed(
+                    new IntegrationCandidateAttemptAddress(
+                        opportunityCopy,
+                        opportunityContext),
+                    observedAddress,
+                    new IntegrationOpportunityFulfillment(
+                        SourceType(opportunityCopy),
+                        Resolved(
+                            opportunityCopy,
+                            PeerTerminal(observedCopy)))));
+            attempts.Add(ClassifiedOut(observedCopy, observedContext));
+        }
+        attempts.Reverse();
 
         CountingContext.Reset();
         IntegrationCensusSnapshot snapshot = Snapshot(
             participants,
             producerAttempts: Producers(
                 participants,
-                Completed(participant, Ecosystem, candidate)),
+                Completed(
+                    participant,
+                    Ecosystem,
+                    observed,
+                    EquivalentCandidate(observed)),
+                Completed(
+                    participant,
+                    Opportunity,
+                    opportunity,
+                    EquivalentCandidate(opportunity))),
             contexts: contexts,
             candidateAttempts: attempts);
 
-        Assert.Equal(contexts.Length, snapshot.CandidateAttempts.Length);
+        Assert.Equal(2, snapshot.Candidates.Length);
+        Assert.Equal(contexts.Length * 2, snapshot.CandidateAttempts.Length);
+        Assert.Equal(contexts.Length, snapshot.SuppressedAttempts.Length);
         Assert.True(
-            CountingContext.EqualsCalls < 10_000,
+            CountingContext.EqualsCalls < 20_000,
             $"Expected hash-backed addressing, but observed {CountingContext.EqualsCalls} context equality calls.");
     }
 
@@ -1468,6 +1576,14 @@ public sealed class IntegrationCensusTests
             concept,
             new IntegrationCandidateSourceIdentity(participant, TypeElement()),
             peer);
+
+    static IntegrationCandidateIdentity EquivalentCandidate(
+        IntegrationCandidateIdentity candidate) =>
+        new(
+            candidate.Relationship,
+            candidate.Concept,
+            candidate.Source,
+            candidate.Peer);
 
     static IntegrationResolvedPeer Resolved(
         IntegrationCandidateIdentity candidate,
