@@ -18,11 +18,15 @@ publishing is a different owner; see
 
 ## Contract
 
-- **Registration is idempotent.** Re-registering an already-registered prefix
-  with the same current version is a no-op beyond re-scheduling its cleanup;
-  registering the same prefix with a *different* current version throws
-  `InvalidOperationException`. A process may not change a versioned category's
-  target version after registering it once.
+- **Registration is idempotent, keyed on the exact current-category string.**
+  Re-registering an already-registered prefix with a `current` value that is
+  a case-insensitive exact match of what's already registered is a no-op
+  beyond re-scheduling its cleanup; registering the same prefix with a
+  `current` value that parses to the *same* version but is spelled
+  differently (e.g. `prefix-v1` vs. `prefix-v01`), or that parses to a
+  *different* version, throws `InvalidOperationException`. A process may not
+  change a versioned category's target version -- nor its exact spelling --
+  after registering it once.
 - **Every registered category is scheduled at most once per generation.** A
   generation is identified by the cache root, the category's prefix, and its
   current version; CoreCache never runs two concurrent cleanup tasks for the
@@ -43,10 +47,14 @@ publishing is a different owner; see
   every read of the progress object during a transition. A
   cancellation-triggered restart always carries the drained result forward
   into the new generation. `Initialize` only carries it forward when the
-  cache root (app name and base path) is unchanged from the prior call; a
-  root change intentionally drops the outgoing root's drained progress,
-  since it describes deletions under a cache location the new generation no
-  longer owns.
+  cache root (app name and base path) compares equal to the prior call's,
+  using an ordinal case-insensitive path comparison; a root change
+  intentionally drops the outgoing root's drained progress, since it
+  describes deletions under a cache location the new generation no longer
+  owns. Because the comparison is case-insensitive, two base paths that
+  differ only in case are treated as the same root (carrying progress
+  forward) even on a case-sensitive file system where they would name
+  different directories.
 - **Cleanup is best-effort.** A directory that cannot be enumerated or
   deleted is silently skipped and left for a future generation to retry. A
   directory that cannot be *measured* is still deleted, credited as zero
@@ -98,7 +106,7 @@ reads the counters, every background task it triggered has already finished
 also only ever returns a byte count (never a directory count), so even a
 hypothetical tear would have no visible effect on its result.
 
-[`models/corecache-maintenance-progress/`](models/corecache-maintenance-progress/)
+[`../models/corecache-maintenance-progress/`](../models/corecache-maintenance-progress/)
 models this precisely and confirms it with TLC: the configuration matching
 today's implementation (`BrokenTornWriteAndRead.cfg`) finds the tear in seven
 states. The model also shows that fixing only one side (a lock-guarded writer

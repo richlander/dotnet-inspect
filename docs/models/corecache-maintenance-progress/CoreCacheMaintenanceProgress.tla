@@ -53,6 +53,12 @@ ASSUME
     /\ AllowTornWrite \in BOOLEAN
     /\ AllowTornRead \in BOOLEAN
 
+(* Every .cfg here uses MaxDeletions = 2. A model of the isolated *)
+(* single-deletion race (a read starting when no deletion anywhere has *)
+(* pending work) needs at least two deletions so one already-completed *)
+(* deletion can open the SomePendingReport guard while a second deletion's *)
+(* own write races the read's two sub-steps; see the comment on *)
+(* SomePendingReport below. *)
 Deletions == 1..MaxDeletions
 
 VARIABLES
@@ -122,22 +128,34 @@ WriteStep(d) ==
 (* holds s_maintenanceLock for its whole body, so two reads never overlap    *)
 (* each other -- only a background write can land inside one episode).      *)
 (*                                                                         *)
-(* SomePendingReport gates the *start* of an episode: production code only  *)
-(* calls TakeSnapshot when a caller actually invokes                        *)
-(* CancelAndWaitForMaintenance, so an episode that would report nothing new  *)
-(* has no real-world analogue and exists in this model only as an artifact  *)
-(* of making the reader always-enabled. Without this guard, weak fairness    *)
-(* forces such empty episodes to fire repeatedly, and the StateConstraint    *)
-(* needed to keep the state space finite (see below) can then be exhausted   *)
-(* by empty episodes before genuine progress happens -- silently pruning    *)
-(* unexplored fair behaviors rather than flagging them, since TLC treats a   *)
-(* constraint-excluded successor as a dead end, not a counterexample, when   *)
-(* CHECK_DEADLOCK is FALSE. With the guard, every episode that starts        *)
-(* strictly reduces the number of not-yet-attributed writer steps, so the    *)
-(* total number of episodes in ANY execution is bounded by 2*MaxDeletions    *)
-(* regardless of scheduling, making the StateConstraint below a true bound   *)
-(* rather than a lossy one.                                                  *)
+(* SomePendingReport gates the *start* of an episode. It is a genuine        *)
+(* restriction on which interleavings this model explores, not a claim that  *)
+(* a real TakeSnapshot call can only ever start when something is pending --  *)
+(* production really can call TakeSnapshot with nothing yet pending, and a    *)
+(* background write can still land between its two Interlocked.Exchange      *)
+(* calls. What the guard excludes is only the case where NO deletion         *)
+(* anywhere has pending work at episode-start; with MaxDeletions >= 2 (every  *)
+(* .cfg here uses 2), that exact single-deletion race is still fully          *)
+(* explored whenever a *different* deletion is already pending -- the        *)
+(* BrokenTornWriteAndRead.cfg counterexample is exactly this shape (deletion  *)
+(* 2's directory count is captured in one episode while its byte count is    *)
+(* captured in a later one, using deletion 1's already-done status to open    *)
+(* the episode). A model configured with MaxDeletions = 1 would not explore   *)
+(* the fully isolated case and should not be relied on for this property.    *)
+(* Without the guard, weak fairness forces empty (nothing-pending) episodes   *)
+(* to fire repeatedly forever (production never repeats an empty             *)
+(* TakeSnapshot call without bound the way an always-enabled TLA+ action     *)
+(* does), and the StateConstraint needed to keep the state space finite      *)
+(* (see below) can then be exhausted by those empty episodes before genuine  *)
+(* progress happens -- silently pruning unexplored fair behaviors rather      *)
+(* than flagging them, since TLC treats a constraint-excluded successor as    *)
+(* a dead end, not a counterexample, when CHECK_DEADLOCK is FALSE. With the   *)
+(* guard, every episode that starts strictly reduces the number of           *)
+(* not-yet-attributed writer steps, so the total number of episodes in ANY   *)
+(* execution is bounded by 2*MaxDeletions regardless of scheduling, making    *)
+(* the StateConstraint below a true bound rather than a lossy one.           *)
 (***************************************************************************)
+
 
 SomePendingReport ==
     \E d \in Deletions :
