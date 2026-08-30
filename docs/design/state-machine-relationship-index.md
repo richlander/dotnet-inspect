@@ -151,8 +151,11 @@ Malformed metadata encountered while classifying one custom-attribute
 constructor is isolated to that attribute's owning kickoff. The kickoff is
 rejected as `Malformed`, without fabricating a claim kind, state-machine
 identity, or claimed name that the damaged row did not establish; discovery
-continues for other kickoff methods in the module. Other malformed metadata
-that prevents module-wide construction remains a whole-module failure.
+continues for other kickoff methods in the module. This includes typed
+type-name-reader rejections returned for malformed and over-budget constructor
+type names, not only exceptions thrown while reading constructor rows. Other
+malformed metadata that prevents module-wide construction remains a
+whole-module failure.
 Each ambiguous claimed name is expanded into its matching type definitions once
 per image rather than once per kickoff, so rejection evidence stays complete
 while the work stays bounded by the `TypeDef` row count. The TypeDef index
@@ -224,6 +227,8 @@ type-definition candidate in the merged failure.
 `StateMachineRelationshipIndex_IsolatesMalformedConstructorRow` gates that one
 unreadable constructor row rejects only its owning kickoff while a valid
 relationship elsewhere in the module remains available.
+`StateMachineRelationshipIndex_IsolatesRejectedConstructorTypeName` gates the
+same containment for returned malformed-name and name-budget failures.
 
 ## Completeness
 
@@ -288,15 +293,18 @@ Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_Propagat
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsReportsGlobalFailure`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsKeepsSuccessfulEmptyDistinct`,
-`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MalformedMvidPreservesGlobalFailureForValidHandles`.
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_InvalidMvidPreservesGlobalFailureForValidHandles`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PortablePdbReturnsGlobalFailure`.
 
 The first two gates assert that one queried kickoff returns `Rejected` with
 kind `BudgetExceeded`. The collection gates distinguish a successful empty
 index from whole-module budget failure and require collection and keyed
 queries to expose the same immutable failure. The malformed-MVID gate exercises
+nil, ordinary out-of-range, and overflow-wrapping GUID handles, and exercises
 one valid MethodDef through both method-keyed paths and one valid TypeDef through
-the type-keyed path. Exhaustive valid-row coverage for the malformed
-whole-module path remains `unverified`.
+the type-keyed path. The Portable PDB gate proves failure recovery cannot throw
+again when no module table exists. Exhaustive valid-row coverage for the
+malformed whole-module path remains `unverified`.
 
 ### C3 — Whole-module failure rejects the whole module
 

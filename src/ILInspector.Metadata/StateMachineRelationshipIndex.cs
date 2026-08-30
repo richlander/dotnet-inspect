@@ -117,10 +117,7 @@ public sealed class StateMachineRelationshipIndex
                 "State-machine relationship discovery exceeded its TypeDef name budget.");
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentOutOfRangeException
-                or InvalidOperationException
-                or OverflowException)
+            IsRecoverableMetadataFailure(ex))
         {
             return Failed(
                 reader,
@@ -180,6 +177,28 @@ public sealed class StateMachineRelationshipIndex
             StateMachineRelationshipFailureKind.Malformed,
             detail);
 
+    static bool IsRecoverableMetadataFailure(Exception exception) =>
+        exception is BadImageFormatException
+            or ArgumentOutOfRangeException
+            or InvalidOperationException
+            or OverflowException;
+
+    static Guid ReadModuleVersionId(MetadataReader reader)
+    {
+        GuidHandle handle = reader.GetModuleDefinition().Mvid;
+        int index = MetadataTokens.GetHeapOffset(handle);
+        int heapSize = reader.GetHeapSize(HeapIndex.Guid);
+        if (handle.IsNil
+            || index <= 0
+            || (long)index * 16 > heapSize)
+        {
+            throw new BadImageFormatException(
+                "The module MVID does not reference a complete GUID heap entry.");
+        }
+
+        return reader.GetGuid(handle);
+    }
+
     static StateMachineRelationshipIndex Failed(
         MetadataReader reader,
         StateMachineRelationshipFailureKind kind,
@@ -190,12 +209,10 @@ public sealed class StateMachineRelationshipIndex
         int typeRows = 0;
         try
         {
-            moduleVersionId =
-                reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            moduleVersionId = ReadModuleVersionId(reader);
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentOutOfRangeException)
+            IsRecoverableMetadataFailure(ex))
         {
         }
         try
@@ -204,8 +221,7 @@ public sealed class StateMachineRelationshipIndex
                 reader.GetTableRowCount(TableIndex.MethodDef);
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentOutOfRangeException)
+            IsRecoverableMetadataFailure(ex))
         {
         }
         try
@@ -214,8 +230,7 @@ public sealed class StateMachineRelationshipIndex
                 reader.GetTableRowCount(TableIndex.TypeDef);
         }
         catch (Exception ex) when (
-            ex is BadImageFormatException
-                or ArgumentOutOfRangeException)
+            IsRecoverableMetadataFailure(ex))
         {
         }
 
@@ -288,8 +303,7 @@ public sealed class StateMachineRelationshipIndex
             _remainingNameWork = nameWorkBudget;
             _remainingSignatureWork = signatureWorkBudget;
             _rejectionWorkObserved = rejectionWorkObserved;
-            _moduleVersionId =
-                reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            _moduleVersionId = ReadModuleVersionId(reader);
             _typeDefinitions =
                 MetadataTypeDefinitionIndex.Create(
                     reader,
@@ -422,6 +436,12 @@ public sealed class StateMachineRelationshipIndex
                 if (classification.Status
                     == AttributeConstructorStatus.NotTrusted)
                 {
+                    continue;
+                }
+                if (classification.Status
+                    == AttributeConstructorStatus.Unreadable)
+                {
+                    unreadableConstructor = true;
                     continue;
                 }
 
@@ -1708,6 +1728,13 @@ public sealed class StateMachineRelationshipIndex
 
             SignatureType attributeType =
                 DecodeType(declaringType, ClassTypeCode);
+            if (attributeType.TypeNameFailure is { } typeNameFailure)
+            {
+                return new(
+                    StateMachineClaimKind.ClassicAsync,
+                    AttributeConstructorStatus.Unreadable,
+                    typeNameFailure);
+            }
             StateMachineClaimKind? kind =
                 attributeType.Type switch
                 {
@@ -2092,11 +2119,17 @@ public sealed class StateMachineRelationshipIndex
         static SignatureType ReadKnownType(
             MetadataTypeDefinitionNameReadResult result,
             byte rawTypeKind)
-            => result is MetadataTypeDefinitionNameReadResult.Read read
-                ? SignatureType.Known(
-                    KnownType(read.Name),
-                    ReferenceKind(rawTypeKind))
-                : SignatureType.Unknown;
+            => result switch
+            {
+                MetadataTypeDefinitionNameReadResult.Read read =>
+                    SignatureType.Known(
+                        KnownType(read.Name),
+                        ReferenceKind(rawTypeKind)),
+                MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                    SignatureType.Rejected(rejected.Failure),
+                _ => throw new InvalidOperationException(
+                    "Unknown metadata type-name read result."),
+            };
 
         static SignatureReferenceKind ReferenceKind(
             byte rawTypeKind)
@@ -2168,21 +2201,36 @@ public sealed class StateMachineRelationshipIndex
     readonly record struct SignatureType(
         KnownStateMachineType Type,
         SignatureReferenceKind ReferenceKind,
-        bool Modified)
+        bool Modified,
+        MetadataTypeNameFailure? TypeNameFailure)
     {
         internal static SignatureType Unknown =>
             new(
                 KnownStateMachineType.Unknown,
                 SignatureReferenceKind.Unknown,
-                Modified: false);
+                Modified: false,
+                TypeNameFailure: null);
 
         internal static SignatureType Known(
             KnownStateMachineType type,
             SignatureReferenceKind referenceKind) =>
-            new(type, referenceKind, Modified: false);
+            new(
+                type,
+                referenceKind,
+                Modified: false,
+                TypeNameFailure: null);
+
+        internal static SignatureType Rejected(
+            MetadataTypeNameFailure failure) =>
+            new(
+                KnownStateMachineType.Unknown,
+                SignatureReferenceKind.Unknown,
+                Modified: false,
+                failure);
 
         internal bool Is(KnownStateMachineType type)
-            => !Modified
+            => TypeNameFailure is null
+                && !Modified
                 && Type == type
                 && ReferenceKind == ExpectedReferenceKind(type);
 
@@ -2234,13 +2282,15 @@ public sealed class StateMachineRelationshipIndex
     enum AttributeConstructorStatus
     {
         NotTrusted,
+        Unreadable,
         Malformed,
         Valid,
     }
 
     readonly record struct AttributeConstructorClassification(
         StateMachineClaimKind Kind,
-        AttributeConstructorStatus Status);
+        AttributeConstructorStatus Status,
+        MetadataTypeNameFailure? TypeNameFailure = null);
 
     sealed record RoleSpec(
         StateMachineMethodRole Role,

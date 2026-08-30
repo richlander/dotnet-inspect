@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -250,15 +251,20 @@ public sealed class StateMachineRelationshipIndexTests
                 MetadataTokens.MethodDefinitionHandle(1)));
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(0)]
+    [InlineData(9999)]
+    [InlineData(0x10000001)]
     public void
-        StateMachineRelationshipIndex_MalformedMvidPreservesGlobalFailureForValidHandles()
+        StateMachineRelationshipIndex_InvalidMvidPreservesGlobalFailureForValidHandles(
+            int mvidIndex)
     {
         using var image = new LoadedImage(
             BuildClaimImage(
                 [],
                 includeStateMachineType: false,
-                malformedMvid: true));
+                moduleVersionId:
+                    MetadataTokens.GuidHandle(mvidIndex)));
 
         StateMachineRelationshipIndex index =
             StateMachineRelationshipIndex.Create(image.Reader);
@@ -286,6 +292,33 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Same(relationships.Failure, stateMachine.Failure);
     }
 
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_PortablePdbReturnsGlobalFailure()
+    {
+        var metadata = new MetadataBuilder();
+        var builder = new PortablePdbBuilder(
+            metadata,
+            ImmutableArray.Create(new int[64]),
+            default);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        using MetadataReaderProvider provider =
+            MetadataReaderProvider.FromPortablePdbImage(
+                image.ToImmutableArray());
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                provider.GetMetadataReader());
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Rejected>(
+                index.Relationships);
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            relationships.Failure.Kind);
+    }
+
     [Theory]
     [InlineData(StateMachineRelationshipFailureKind.Malformed)]
     [InlineData(StateMachineRelationshipFailureKind.BudgetExceeded)]
@@ -309,7 +342,8 @@ public sealed class StateMachineRelationshipIndexTests
                 ? BuildClaimImage(
                     [],
                     includeStateMachineType: false,
-                    malformedMvid: true)
+                    moduleVersionId:
+                        MetadataTokens.GuidHandle(9999))
                 : localBytes;
         using var localImage = new LoadedImage(localBytes);
         using var globalImage = new LoadedImage(globalBytes);
@@ -403,6 +437,47 @@ public sealed class StateMachineRelationshipIndexTests
             BuildClassicRelationshipImage(
                 ClassicRelationshipMutation.None,
                 addMalformedConstructorRow: true));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+        StateMachineRelationship relationship =
+            Assert.Single(relationships.Relationships);
+        var damaged =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(4)));
+
+        Assert.Equal(0x06000001, relationship.Kickoff.Token);
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            damaged.Failure.Kind);
+        Assert.Equal(
+            "A custom-attribute constructor could not be read.",
+            damaged.Failure.Detail);
+        Assert.Equal(
+            0x06000004,
+            Assert.Single(damaged.Failure.KickoffCandidates).Token);
+        Assert.Empty(damaged.Failure.StateMachineCandidates);
+        Assert.Empty(damaged.Failure.ClaimedTypes);
+    }
+
+    [Theory]
+    [InlineData(ConstructorTypeNameRejection.MissingName)]
+    [InlineData(ConstructorTypeNameRejection.NameBudget)]
+    public void
+        StateMachineRelationshipIndex_IsolatesRejectedConstructorTypeName(
+            ConstructorTypeNameRejection rejection)
+    {
+        using var image = new LoadedImage(
+            BuildClassicRelationshipImage(
+                ClassicRelationshipMutation.None,
+                rejectedConstructorTypeName: rejection));
 
         StateMachineRelationshipIndex index =
             StateMachineRelationshipIndex.Create(image.Reader);
@@ -1174,7 +1249,8 @@ public sealed class StateMachineRelationshipIndexTests
     /// a charge keyed only on decoded length accounts for nothing while the
     /// walk and the read still do work proportional to depth; distinct
     /// constructor rows sharing one deep chain leaf then drive that work once
-    /// each and end as a success-shaped `Absent`.
+    /// each. Readable unrelated names end as <c>Absent</c>; nil names retain
+    /// their typed malformed-name failure as a local rejection.
     ///
     /// This asserts the fixture's minimum admitting budget itself rather than
     /// picking a literal with margin. A tuned literal only has to sit
@@ -1213,8 +1289,22 @@ public sealed class StateMachineRelationshipIndexTests
         // The boundary is a real behavioral edge, not just a number: one unit
         // below it the image must fail visibly rather than report an empty
         // success, and at it the image must be admitted.
-        Assert.IsType<StateMachineRelationshipResult.Absent>(
-            RunWithNameWorkBudget(bytes, measured));
+        StateMachineRelationshipResult admitted =
+            RunWithNameWorkBudget(bytes, measured);
+        if (nodeName is null)
+        {
+            var malformed =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    admitted);
+            Assert.Equal(
+                StateMachineRelationshipFailureKind.Malformed,
+                malformed.Failure.Kind);
+        }
+        else
+        {
+            Assert.IsType<StateMachineRelationshipResult.Absent>(
+                admitted);
+        }
 
         var rejected =
             Assert.IsType<StateMachineRelationshipResult.Rejected>(
@@ -2143,15 +2233,14 @@ public sealed class StateMachineRelationshipIndexTests
         bool reuseClaimConstructors = false,
         byte[]? assemblyPublicKey = null,
         string? assemblyCulture = null,
-        bool malformedMvid = false)
+        GuidHandle? moduleVersionId = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
             metadata.GetOrAddString("StateMachineClaims.dll"),
-            malformedMvid
-                ? MetadataTokens.GuidHandle(9999)
-                : metadata.GetOrAddGuid(Guid.NewGuid()),
+            moduleVersionId
+                ?? metadata.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(
@@ -2391,7 +2480,9 @@ public sealed class StateMachineRelationshipIndexTests
     static byte[] BuildClassicRelationshipImage(
         ClassicRelationshipMutation mutation,
         bool addMalformedConstructorRow = false,
-        bool malformedConstructorOnRelationshipKickoff = false)
+        bool malformedConstructorOnRelationshipKickoff = false,
+        ConstructorTypeNameRejection rejectedConstructorTypeName =
+            ConstructorTypeNameRejection.None)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2562,7 +2653,9 @@ public sealed class StateMachineRelationshipIndexTests
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
         MethodDefinitionHandle damagedKickoff = default;
-        if (addMalformedConstructorRow
+        if ((addMalformedConstructorRow
+                || rejectedConstructorTypeName
+                    != ConstructorTypeNameRejection.None)
             && !malformedConstructorOnRelationshipKickoff)
         {
             damagedKickoff =
@@ -2613,6 +2706,40 @@ public sealed class StateMachineRelationshipIndexTests
             kickoff,
             constructor,
             metadata.GetOrAddBlob(value));
+        if (rejectedConstructorTypeName
+            != ConstructorTypeNameRejection.None)
+        {
+            StringHandle rejectedName =
+                rejectedConstructorTypeName switch
+                {
+                    ConstructorTypeNameRejection.MissingName =>
+                        default,
+                    ConstructorTypeNameRejection.NameBudget =>
+                        metadata.GetOrAddString(
+                            new string(
+                                'A',
+                                MetadataSafetyPolicy
+                                    .MaxTypeNameCharacters
+                                + 1)),
+                    _ => throw new InvalidOperationException(),
+                };
+            TypeReferenceHandle rejectedAttributeType =
+                metadata.AddTypeReference(
+                    coreReference,
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    rejectedName);
+            MemberReferenceHandle rejectedConstructor =
+                metadata.AddMemberReference(
+                    rejectedAttributeType,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(
+                        constructorSignature));
+            metadata.AddCustomAttribute(
+                damagedKickoff,
+                rejectedConstructor,
+                metadata.GetOrAddBlob(value));
+        }
         if (addMalformedConstructorRow)
         {
             metadata.AddCustomAttribute(
@@ -3033,6 +3160,13 @@ public sealed class StateMachineRelationshipIndexTests
         WrongArity,
         CrossConstruction,
         ModifiedArgument,
+    }
+
+    public enum ConstructorTypeNameRejection
+    {
+        None,
+        MissingName,
+        NameBudget,
     }
 
     sealed class LoadedImage(byte[] image) : IDisposable
