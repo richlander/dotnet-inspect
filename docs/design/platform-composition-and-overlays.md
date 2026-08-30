@@ -53,6 +53,9 @@ reference the desktop adapter and reports `UnsupportedHost` before path
 normalization or filesystem work. This approved desktop-only exception covers
 Windows, Linux, and macOS; reusable result and evidence contracts remain
 NativeAOT-compatible and never load inspected code.
+The adapter capability declares finite maximum member and byte bounds for the
+workspace owner's aggregate reservation; a request may narrow but not exceed
+those bounds.
 
 The requested root family and full canonical version text match ordinally and
 never roll forward. SemVer precedence equality does not collapse versions with
@@ -101,35 +104,37 @@ different canonical version text reject as ambiguous before reconciliation.
 This deterministic product rule replaces hostfxr's argument-order-dependent
 choice for that case.
 
-The result is independent of dependency, family, version-directory, library,
-and runtime-asset enumeration order. A changed effective reference invalidates
-the selected graph, which is rebuilt from the exact root while retaining the
-accumulated host-compatible constraints. Dependencies unique to a replaced
-selection do not survive. Cycles, duplicate same-configuration references,
-incompatible requirements, or missing dependencies fail atomically.
+The final selected graph and failure are independent of dependency, family,
+version-directory, library, and runtime-asset enumeration order. It contains
+only dependencies reachable under the final reconciled references; dependencies
+unique to a superseded selection do not survive. Cycles, duplicate
+same-configuration references, incompatible requirements, or missing
+dependencies fail atomically.
 
-Resolution terminates because effective references advance through a finite
-state: requested versions only increase, compatibility and `applyPatches` only
-narrow, highest-version behavior is only added, and canonical text cannot
-change at equal precedence. Inventories and manifest graphs are finite under
-positive limits. A resolution-work budget bounds reconciliation, rebuilds, and
-expansion.
+Resolution operates over finite bounded inventories and manifest graphs. It
+must produce one fixed result or typed failure within the resolution-work
+budget; this contract does not prescribe the fixed-point strategy.
 
 Each selected runtime member must be one contained regular file, classify as a
 supported ECMA-335 assembly rather than native content, a netmodule, Windows
 Metadata, or malformed metadata, and have assembly inspection's canonical
 `AssemblyReferenceIdentity`. Distinct coordinates with one canonical assembly
 identity reject the whole realization even when their bytes are equal.
+Repeated platform member coordinates are likewise incoherent rather than
+coalesced by discovery order.
 
 One bounded immutable source snapshot per coordinate is the sole basis for
-manifest evidence, member identity, and the later admission handoff. Manifest
+manifest evidence, member identity, and the admission handoff. Manifest
 and member digests are platform-owned source-attestation evidence, not artifact
 content identities. Each member retains artifact acquisition's source-specific
 content lease over that exact snapshot; the realization exposes no raw path,
 stream, opener, or mutable buffer. The platform owner never reopens or rehashes
 the mutable source.
+
 Local files may change freely between realizations; no source-stability claim
-crosses that boundary.
+crosses that boundary. The coherence claim assumes that the selected installed
+layout is not concurrently serviced or mutated during one realization. This
+contract neither detects nor proves an attempt-wide atomic filesystem view.
 
 ### Result contract
 
@@ -158,10 +163,16 @@ Frameworks are ordered dependency-first with ordinal family tie-breaking.
 Members are ordered by canonical assembly identity and owner-issued coordinate.
 Ordering is descriptive only and never resolves ambiguity.
 
-The workspace-realization owner in #5115 validates this proof and consumes the
-source-specific content leases through artifact admission. #5115 owns every
-subsequent artifact, projection, role, lifetime, replay, entitlement, and
-publication decision.
+The
+[explicit assembly-context owner](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context)
+validates this proof and consumes the source-specific content leases for
+workspace admission, platform-role assignment, replay control, and group
+publication. It composes, without redefining, artifact acquisition's identity
+and lifetime contract,
+[admission-scoped assembly projection](assembly-inspection-query.md#admission-scoped-artifact-projection),
+and the
+[core-library entitlement](untrusted-data-threat-model.md#core-library-identity-is-granted-by-acquisition-not-by-self-declaration)
+contract.
 
 ### Failure contract
 
@@ -210,11 +221,12 @@ that exact root framework and its own transitive dependencies.
 
 ### Evidence
 
-This contract adds no mutable generation, scheduling, retry, or concurrency
-protocol. Closure resolution is a terminating pure function over finite frozen
-reached-family inventories and immutable snapshots; source-specific lease
-lifetime is already owned and modeled by artifact acquisition. Later
-designated/platform arbitration remains covered by the
+This contract adds no independently mutable platform-generation, scheduling,
+retry, or concurrency protocol. Closure resolution is a terminating pure
+function over finite frozen reached-family inventories and immutable snapshots;
+source-specific lease and admission lifetime are already covered by the
+[artifact-session admission model](../models/artifact-session-admission/README.md).
+Later designated/platform arbitration remains covered by the
 [platform-overlay model](models/platform-overlay-resolution/README.md). A new
 TLA+ state model would duplicate those owners rather than test this local,
 deterministic closure function.
@@ -246,6 +258,7 @@ This design does not:
 - define reference-pack or remote implementation-pack membership;
 - define local artifact admission, workspace budgets, artifact generations,
   participant roles, group construction, or query authorization;
+- detect concurrent servicing or prove an attempt-wide filesystem snapshot;
 - grant core-library trust or define designated-over-platform precedence;
 - resolve types, members, or call targets; or
 - define CLI coordinates, sections, rendering, or exit status.
