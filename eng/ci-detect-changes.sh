@@ -474,6 +474,34 @@ while IFS= read -r -d '' file; do
     docs/design/models/*/*.tla|docs/design/models/*/*.cfg) TLA=true ;;
     docs/models/*/*.tla|docs/models/*/*.cfg) TLA=true ;;
   esac
+  # eng/run-tla-checks.sh's symlink rejection scans recursively under each
+  # model root (find "$root" -type l), not just one level deep, so a
+  # symlink nested inside a model directory -- not just directly under the
+  # root -- must also route here or that rejection never runs. A symlink
+  # is not distinguishable from a regular file by path alone, so approximate
+  # it as: any path under a model root whose basename has no extension.
+  # This is deliberately depth-unlimited (unlike the depth-1 catch-all
+  # below, which also allows an extensioned name) because a real,
+  # extensioned doc file (e.g. README.md) nested in a model directory is
+  # common and should stay on the cheap docs lane, while a real committed
+  # extensionless file under a model root is not (verified empty today via
+  # `git ls-files docs/design/models docs/models | grep -v '\.'`).
+  case "$file_lower" in
+    docs/design/models/*/*)
+      case "${file_lower##*/}" in
+        *.*) ;;
+        *) TLA=true ;;
+      esac
+      ;;
+  esac
+  case "$file_lower" in
+    docs/models/*/*)
+      case "${file_lower##*/}" in
+        *.*) ;;
+        *) TLA=true ;;
+      esac
+      ;;
+  esac
   # A path directly under a model root, with no further subpath, occupies
   # exactly the position eng/run-tla-checks.sh scans as a model directory
   # (find -mindepth 1 -maxdepth 1 -type d). find does not follow symlinks,

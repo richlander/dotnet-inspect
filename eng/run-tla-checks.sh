@@ -132,6 +132,32 @@ if [ -f "$MODULE_OVERRIDES_FILE" ]; then
       FAILURES=$((FAILURES + 1))
       continue
     fi
+    # override_module_for() below compares a key byte-for-byte against the
+    # exact path `find` produces during discovery (always a clean,
+    # single-slash-separated, repo-relative path with no '.'/'..'
+    # component). `dirname`/`[ -f ... ]` normalize redundant separators and
+    # '.'/'..' components transparently, so a key like
+    # "docs/models//foo.cfg" or "docs/models/./foo.cfg" would otherwise
+    # pass every check below yet never equal what override_module_for()
+    # is actually called with -- silently doing nothing while looking
+    # valid. Reject any non-canonical key outright.
+    key_is_canonical=true
+    case "$key" in
+      /*|*/) key_is_canonical=false ;;
+    esac
+    old_ifs="$IFS"
+    IFS=/
+    for key_component in $key; do
+      case "$key_component" in
+        ""|"."|"..") key_is_canonical=false ;;
+      esac
+    done
+    IFS="$old_ifs"
+    if [ "$key_is_canonical" != true ]; then
+      echo "::error::$MODULE_OVERRIDES_FILE:$line_no names '$key', which is not a canonical repo-relative path (no leading/trailing '/', no empty, '.', or '..' path component). Normalize it so it matches the path the runner actually discovers." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
     case "$value" in
       */*)
         echo "::error::$MODULE_OVERRIDES_FILE:$line_no names module '$value' for '$key', but a module name must be a bare name with no '/' -- it is always resolved beside its .cfg, never in another directory." >&2

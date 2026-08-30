@@ -170,6 +170,17 @@ jobs:
           curl -fLo ~/.local/share/tlaplus/tla2tools.jar \
             https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
 
+      # A cache key alone is not an integrity check: a substituted release
+      # asset served under the same tag, or a poisoned cache entry, would
+      # otherwise execute unverified bytecode via the "Run TLA+ checks"
+      # step below with no diagnostic. Verify on every run -- cache hits
+      # included -- not only right after a fresh download.
+      - name: Verify tla2tools.jar checksum
+        run: |
+          set -euo pipefail
+          echo "eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a  $HOME/.local/share/tlaplus/tla2tools.jar" \
+            | sha256sum -c -
+
       - name: Run TLA+ checks
         shell: bash
         run: |
