@@ -29,6 +29,208 @@ can establish it. A genuine, Microsoft-signed .NET 6 `System.Runtime.dll` is
 authentic and, sitting beside a .NET 10 library, wrong. Authenticity is not
 coherence.
 
+## Installed implementation-platform realization
+
+Issue [#5139](https://github.com/richlander/dotnet-inspect/issues/5139)
+defines the platform-owned contract for realizing one exact installed
+implementation-platform closure. It is the package-free installed counterpart
+to remotely acquired implementation packs. It does not construct a workspace,
+assign a platform role, or grant core-library trust. The implementation does
+not yet satisfy this contract.
+
+### Boundary
+
+`InstalledPlatformRealization` consumes one owner-issued
+`InstalledDotnetHiveIdentity`, one exact case-sensitive shared-framework
+family, one canonical package-neutral `InstalledPlatformVersion`, and the
+`SharedFrameworkImplementation` layout kind.
+
+The optional desktop adapter mints the hive identity from one host-selected
+dotnet root. Discovery and selection precede this contract; realization never
+searches another root or substitutes `DOTNET_ROOT`, PATH, the current runtime,
+or a priority rule for the owner-issued identity. Browser/Wasm does not
+reference the desktop adapter and reports `UnsupportedHost` before path
+normalization or filesystem work. This approved desktop-only exception covers
+Windows, Linux, and macOS; reusable result and evidence contracts remain
+NativeAOT-compatible and never load inspected code.
+
+The requested root family and full canonical version text match ordinally and
+never roll forward. SemVer precedence equality does not collapse versions with
+different build metadata. Dependency references may roll forward under the
+rules below. Reference packs, runtime packs, NuGet implementation packs, TPA
+lists, loose directories, and other hives are different acquisition contracts,
+not fallbacks.
+
+### Closure contract
+
+Two manifests in each selected framework directory are authoritative:
+
+- `<family>.runtimeconfig.json` defines direct shared-framework dependencies;
+- `<family>.deps.json` defines the exact managed runtime members under the
+  target named by `runtimeTarget.name`.
+
+Directory contents are not membership. Extra DLLs, native assets, resource
+satellites, unrelated runtime targets, servicing or shared stores, application
+probing, and hostpolicy arbitration do not enter this closure. A missing
+manifest-declared member fails the realization. This is a manifest-defined
+installed implementation closure, not launch-time effective TPA.
+
+Manifest and asset coordinates must remain contained beneath the selected
+framework directory. Manifest bytes are bounded before parsing;
+`HardenedJson` owns malformed-JSON and duplicate-property policy.
+
+Only reached framework families are inventoried. Each reached family's bounded
+candidate inventory is frozen for the attempt; unrelated families are never
+enumerated. Framework names compare ordinally and case-sensitively.
+`InstalledPlatformVersion` provides SemVer 2 comparison without a package-layer
+dependency. Invalid directory names are ignored, but two dependency candidates
+with equal winning precedence reject as ambiguous rather than inheriting
+enumeration order.
+
+The root selection is exact. Dependency selection and multi-reference
+reconciliation match the pinned
+[.NET framework-version-resolution
+contract](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/docs/design/features/framework-version-resolution.md),
+including `rollForward`, `applyPatches`, release/prerelease preference,
+compatibility-range narrowing, and propagation of highest-version behavior.
+Configuration defaults affect only references declared by that configuration;
+ordinary defaults are not inherited. Ambient command-line and environment
+overrides are not inputs, and roll-forward-to-prerelease retains its disabled
+host default.
+
+The result is independent of dependency, family, version-directory, library,
+and runtime-asset enumeration order. A changed effective reference invalidates
+the selected graph, which is rebuilt from the exact root while retaining the
+accumulated host-compatible constraints. Dependencies unique to a replaced
+selection do not survive. Cycles, duplicate same-configuration references,
+incompatible requirements, or missing dependencies fail atomically.
+
+Resolution terminates because effective references advance through a finite
+state: requested versions only increase, compatibility and `applyPatches` only
+narrow, and highest-version behavior is only added. Inventories and manifest
+graphs are finite under positive limits. A resolution-work budget bounds
+reconciliation, rebuilds, and expansion.
+
+Each selected runtime member must be one contained regular file, classify as a
+supported ECMA-335 assembly rather than native content, a netmodule, Windows
+Metadata, or malformed metadata, and have assembly inspection's canonical
+`AssemblyReferenceIdentity`. Distinct coordinates with one canonical assembly
+identity reject the whole realization even when their bytes are equal.
+
+One bounded immutable source snapshot per coordinate is the sole basis for
+manifest evidence, member identity, and the later admission handoff. Manifest
+and member digests are platform-owned source-attestation evidence, not artifact
+content identities. Each member retains artifact acquisition's source-specific
+content lease over that exact snapshot; the realization exposes no raw path,
+stream, opener, or mutable buffer. The platform owner never reopens or rehashes
+the mutable source.
+Local files may change freely between realizations; no source-stability claim
+crosses that boundary.
+
+### Result contract
+
+A successful realization is immutable, bound/non-portable, and not an
+interchange format. Its opaque `InstalledPlatformRealizationIdentity` binds:
+
+- the exact hive, request, reached-family inventories, and selected framework
+  graph;
+- each selected framework's manifest identities; and
+- each member's supplying framework, manifest coordinate, canonical assembly
+  identity, and source-attestation digest.
+
+The identity is the generation-scoped proof required by #5139. It is valid only
+with the same realization's live immutable content leases and grants no
+workspace or artifact authority. Absolute paths, handles, streams, openers, and
+mutable buffers do not cross this boundary.
+
+Frameworks are ordered dependency-first with ordinal family tie-breaking.
+Members are ordered by canonical assembly identity and owner-issued coordinate.
+Ordering is descriptive only and never resolves ambiguity.
+
+The workspace-realization owner in #5115 validates this proof and consumes the
+source-specific content leases through artifact admission. #5115 owns every
+subsequent artifact, projection, role, lifetime, replay, entitlement, and
+publication decision.
+
+### Failure contract
+
+| Classification | Conditions |
+| --- | --- |
+| `UnsupportedHost` | The desktop adapter is unavailable; no filesystem work occurs |
+| `Unavailable` | No `shared/` root; absent root family or exact root version; absent dependency family or compatible version |
+| `Rejected(InvalidRequest)` | Invalid family, version, layout, or positive limit |
+| `Rejected(InvalidManifest)` | Missing, malformed, duplicate-bearing, or unsupported runtime configuration or dependency manifest |
+| `Rejected(InvalidFrameworkGraph)` | Duplicate reference, cycle, incompatible requirements, or equal-precedence dependency ambiguity |
+| `Rejected(InvalidMember)` | Escaping or invalid coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
+| `Rejected(BudgetExceeded)` | Reached-family inventory, name, framework, resolution-work, manifest, member, or byte limit exceeded |
+| `Failed` | Reached-family enumeration or required manifest/member read failed |
+| `Realized` | The complete framework and member closure plus its evidence |
+
+Each arm carries a typed reason identifying the exact family, version,
+coordinate, limit, or read stage. Cancellation remains
+`OperationCanceledException`. Every non-success result publishes no partial
+realization, proof, or content lease.
+
+### Demo
+
+```text
+request
+  hive: H1
+  family: Microsoft.AspNetCore.App
+  version: 10.0.10
+  layout: SharedFrameworkImplementation
+
+realization
+  frameworks:
+    Microsoft.NETCore.App 10.0.12  dependency rolled to latest patch
+    Microsoft.AspNetCore.App 10.0.10  exact root
+  members:
+    union of both exact dependency-manifest runtime sets
+  proof:
+    bound to H1, both manifests, and every member digest
+```
+
+The important difference from scanning only the requested directory is that
+the ASP.NET Core result contains its required .NET runtime implementation
+closure, while the requested root remains exact even when a dependency rolls
+forward. A neighboring request for `Microsoft.NETCore.App` `10.0.10` contains
+that exact root framework and its own transitive dependencies.
+
+### Evidence
+
+This contract adds no mutable generation, scheduling, retry, or concurrency
+protocol. Closure resolution is a terminating pure function over finite frozen
+reached-family inventories and immutable snapshots; source-specific lease
+lifetime is already owned and modeled by artifact acquisition. Later
+designated/platform arbitration remains covered by the
+[platform-overlay model](models/platform-overlay-resolution/README.md). A new
+TLA+ state model would duplicate those owners rather than test this local,
+deterministic closure function.
+
+The required Release evidence is:
+
+| Claim | Named gate |
+| --- | --- |
+| Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure` |
+| Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
+| Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
+| Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
+| No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout` |
+| Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
+| Platform and dependency boundaries | `InstalledPlatformComposition_UsesDesktopAdaptersAndRejectsBrowserBeforeIo`, `BrowserPlatformComposition_DoesNotReferenceInstalledDesktopAdapter`, `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`, `InstalledPlatformAdapter_ExcludesHostFxrInterop` |
+
+### Non-claims
+
+This design does not:
+
+- discover or choose among dotnet hives for a host;
+- define reference-pack or remote implementation-pack membership;
+- define local artifact admission, workspace budgets, artifact generations,
+  participant roles, group construction, or query authorization;
+- grant core-library trust or define designated-over-platform precedence;
+- resolve types, members, or call targets; or
+- define CLI coordinates, sections, rendering, or exit status.
+
 ## Acquisition kinds
 
 Entitlement follows **how** an assembly was acquired, never anything the
