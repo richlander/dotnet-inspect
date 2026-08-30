@@ -614,6 +614,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var copiedFields = new HashSet<string>(StringComparer.Ordinal);
         var bindings = new List<ClassicAsyncParameterBinding>();
         TypeRef? builderType = null;
+        bool seenStart = false;
+        bool seenReturn = false;
 
         foreach (IrNode statement in block.Children)
         {
@@ -626,6 +628,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     Value: Call { Callee.Name: "Create" } create,
                 } builderStore
                     when builderTarget.Index == stateMachineLocal
+                    && builderCreates == 0
+                    && stateInitializations == 0
+                    && bindings.Count == 0
+                    && !seenStart
+                    && !seenReturn
                     && IsMachineField(
                         builderStore.Field,
                         stateMachineType)
@@ -646,6 +653,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     Value: Constant { Value: -1 },
                 } stateStore
                     when stateTarget.Index == stateMachineLocal
+                    && builderCreates == 1
+                    && stateInitializations == 0
+                    && !seenStart
+                    && !seenReturn
                     && IsMachineField(
                         stateStore.Field,
                         stateMachineType):
@@ -658,6 +669,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     Instance: LoadLocalAddress copyTarget,
                     Value: LoadArgument argument,
                 } when copyTarget.Index == stateMachineLocal
+                    && builderCreates == 1
+                    && !seenStart
+                    && !seenReturn
                     && IsMachineField(targetField, stateMachineType)
                     && TryCreateParameterBinding(
                         function,
@@ -687,6 +701,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     } start,
                 } when builderOwner.Index == stateMachineLocal
                     && machine.Index == stateMachineLocal
+                    && builderCreates == 1
+                    && stateInitializations == 1
+                    && starts == 0
+                    && !seenReturn
                     && builderField.Name == "<>t__builder"
                     && IsMachineField(builderField, stateMachineType)
                     && builderType is not null
@@ -701,6 +719,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         stateMachineType,
                         machine.Type):
                     starts++;
+                    seenStart = true;
                     break;
 
                 case Return
@@ -716,6 +735,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         IndexArguments.Count: 0,
                     } task,
                 } when builderOwner.Index == stateMachineLocal
+                    && seenStart
+                    && returns == 0
                     && builderField.Name == "<>t__builder"
                     && IsMachineField(builderField, stateMachineType)
                     && builderType is not null
@@ -729,13 +750,17 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         builderType,
                         function.Signature.ReturnType):
                     returns++;
+                    seenReturn = true;
                     break;
 
                 case Return { Value: null }
-                    when builderType is not null
+                    when seenStart
+                    && returns == 0
+                    && builderType is not null
                     && IsAsyncVoidBuilder(builderType)
                     && IsVoid(function.Signature.ReturnType):
                     returns++;
+                    seenReturn = true;
                     break;
 
                 default:
@@ -756,12 +781,17 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         return isNarrow;
     }
 
-    static bool TryAuthenticateBuilderStorage(
+    internal static bool TryAuthenticateBuilderStorage(
         TypeRef builderType,
         TypeRef declaredReturnType,
         out TypeRef authenticatedBuilder)
     {
         authenticatedBuilder = null!;
+        if (!HasNoCustomModifiers(builderType)
+            || !HasNoCustomModifiers(declaredReturnType))
+        {
+            return false;
+        }
         TypeRef definition = DefinitionType(builderType);
         if (definition.Assembly != TypeRef.CoreLibrary
             || definition.Namespace
@@ -809,6 +839,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         authenticatedBuilder = builderType;
         return true;
     }
+
+    static bool HasNoCustomModifiers(TypeRef type)
+        => type.CustomModifiers.IsEmpty
+            && (type.ElementType is null
+                || HasNoCustomModifiers(type.ElementType))
+            && type.TypeArguments.All(HasNoCustomModifiers);
 
     static bool IsTaskType(
         TypeRef type,
@@ -985,7 +1021,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             Name: "Void",
         };
 
-    static bool TryCreateParameterBinding(
+    internal static bool TryCreateParameterBinding(
         IrFunction function,
         TypeRef stateMachineType,
         FieldRef targetField,
@@ -1002,8 +1038,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             if (targetField.Name != "<>4__this"
                 || argument.Name != "this"
-                || !argument.Type.Equals(function.DeclaringType)
-                || !fieldType.Equals(function.DeclaringType))
+                || !SameExactType(
+                    argument.Type,
+                    function.DeclaringType)
+                || !SameExactType(
+                    fieldType,
+                    function.DeclaringType))
             {
                 binding = null!;
                 return false;
@@ -1031,8 +1071,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             function.Signature.Parameters[parameterIndex];
         if (targetField.Name != parameter.Name
             || argument.Name != parameter.Name
-            || !argument.Type.Equals(parameter.Type)
-            || !fieldType.Equals(parameter.Type)
+            || !SameExactType(
+                argument.Type,
+                parameter.Type)
+            || !SameExactType(
+                fieldType,
+                parameter.Type)
             || argument.IsDynamic != parameter.IsDynamic
             || argument.ArrayElementIsDynamic
                 != parameter.ArrayElementIsDynamic)
@@ -2253,6 +2297,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             => TryClaimExpectedBuilderCallbacks(
                 moveNext,
                 kickoff.StateMachineType,
+                kickoff.BuilderStorage.Type,
                 setResult,
                 getResults,
                 ownership);
@@ -3400,10 +3445,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return false;
         }
 
-        if (candidateStore.Value is not Call
-            {
-                Arguments: [var candidateOperand],
-            })
+        if (!IsExactAwaitProtocol(
+                moveNext,
+                container,
+                candidateStore,
+                awaiterAddress,
+                getResult,
+                suspensionCallback,
+                out IrExpression candidateOperand))
         {
             return false;
         }
@@ -3671,11 +3720,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     {
         if (store.Index != awaiterAddress.Index
             || !SameExactType(store.Type, awaiterAddress.Type)
-            || store.Value is not Call
-            {
-                Callee.Name: "GetAwaiter",
-                Arguments: [var operand],
-            })
+            || !TryGetExactAwaiterOperand(
+                store.Value,
+                awaiterAddress.Type,
+                out IrExpression operand))
         {
             return false;
         }
@@ -3712,10 +3760,230 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool IsSameAwaiterGetResult(
         Call call,
         int awaiterLocal)
-        => call.Callee.Name == "GetResult"
-            && call.Arguments is
-                [LoadLocalAddress { Index: var index }]
-            && index == awaiterLocal;
+        => TryGetExactAwaiterReceiver(
+                call,
+                "GetResult",
+                awaiterLocal,
+                out _);
+
+    static bool IsExactAwaitProtocol(
+        IrFunction moveNext,
+        BlockContainer container,
+        StoreLocal awaiterStore,
+        LoadLocalAddress awaiterAddress,
+        Call getResult,
+        Call suspensionCallback,
+        out IrExpression awaitedOperand)
+    {
+        awaitedOperand = null!;
+        if (!TryGetExactAwaiterOperand(
+                awaiterStore.Value,
+                awaiterAddress.Type,
+                out awaitedOperand)
+            || !TryGetExactAwaiterReceiver(
+                getResult,
+                "GetResult",
+                awaiterAddress.Index,
+                out TypeRef getResultAwaiter)
+            || !SameExactType(
+                getResultAwaiter,
+                awaiterAddress.Type)
+            || awaiterStore.Parent is not Block sourceBlock
+            || suspensionCallback.Parent?.Parent
+                is not Block suspensionBlock
+            || OwningBlock(getResult) is not { } useBlock)
+        {
+            return false;
+        }
+
+        ConditionalBranch[] completionBranches =
+        [
+            .. sourceBlock.Children
+                .SkipWhile(node =>
+                    !ReferenceEquals(node, awaiterStore))
+                .Skip(1)
+                .OfType<ConditionalBranch>()
+                .Where(branch => IsExactIsCompletedTest(
+                    branch.Condition,
+                    awaiterAddress)),
+        ];
+        if (completionBranches is not
+            [var completionBranch]
+            || !ReferenceEquals(
+                sourceBlock.Children[^1],
+                completionBranch))
+            return false;
+
+        int sourceIndex = IndexOfBlock(container, sourceBlock);
+        int suspensionIndex =
+            IndexOfBlock(container, suspensionBlock);
+        int useIndex = IndexOfBlock(container, useBlock);
+        if (sourceIndex < 0
+            || suspensionIndex < 0
+            || useIndex < 0)
+        {
+            return false;
+        }
+
+        IReadOnlyList<BlockEdges> edges =
+            Cfg.Build(container.Blocks);
+        return edges[sourceIndex].Successors.Contains(
+                suspensionIndex)
+            && edges[sourceIndex].Successors.Contains(useIndex);
+    }
+
+    static int IndexOfBlock(
+        BlockContainer container,
+        Block target)
+    {
+        for (var index = 0;
+            index < container.Blocks.Count;
+            index++)
+        {
+            if (ReferenceEquals(
+                    container.Blocks[index],
+                    target))
+            {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    static bool TryGetExactAwaiterOperand(
+        IrExpression expression,
+        TypeRef awaiterType,
+        out IrExpression operand)
+    {
+        operand = null!;
+        if (expression is not Call
+            {
+                Callee:
+                {
+                    Name: "GetAwaiter",
+                    HasThis: true,
+                    ParameterTypes.IsEmpty: true,
+                    TypeArguments.IsEmpty: true,
+                    DefinitionParameterTypes.IsEmpty: true,
+                    DefinitionReturnType: null,
+                } callee,
+                Arguments: [var receiver],
+            }
+            || !HasExternalMemberReferenceProvenance(callee)
+            || AwaitableReceiverType(receiver) is not
+                { } receiverType
+            || !SameExactType(
+                callee.DeclaringType,
+                receiverType)
+            || !SameExactType(
+                callee.ReturnType,
+                awaiterType)
+            || !HasNoCustomModifiers(callee.ReturnType))
+        {
+            return false;
+        }
+
+        operand = receiver;
+        return true;
+    }
+
+    static TypeRef? AwaitableReceiverType(
+        IrExpression receiver)
+        => receiver switch
+        {
+            LoadLocalAddress address => address.Type,
+            LoadArgumentAddress address => address.Type,
+            LoadFieldAddress address => address.Field.Type,
+            _ => receiver.ResultType,
+        };
+
+    static bool TryGetExactAwaiterReceiver(
+        Call call,
+        string memberName,
+        int awaiterLocal,
+        out TypeRef awaiterType)
+    {
+        awaiterType = null!;
+        if (call is not
+            {
+                IsVirtual: false,
+                Callee:
+                {
+                    HasThis: true,
+                    ParameterTypes.IsEmpty: true,
+                    TypeArguments.IsEmpty: true,
+                    DefinitionParameterTypes.IsEmpty: true,
+                    DefinitionReturnType: null,
+                } callee,
+                Arguments: [var receiver],
+            }
+            || callee.Name != memberName
+            || !HasExternalMemberReferenceProvenance(callee)
+            || !HasNoCustomModifiers(callee.ReturnType)
+            || receiver is not
+                LoadLocalAddress
+                {
+                    Index: var index,
+                    Type: var receiverType,
+                }
+            || index != awaiterLocal
+            || !SameExactType(
+                callee.DeclaringType,
+                receiverType))
+        {
+            return false;
+        }
+
+        awaiterType = receiverType;
+        return true;
+    }
+
+    static bool IsExactIsCompletedTest(
+        IrExpression condition,
+        LoadLocalAddress awaiterAddress)
+    {
+        IrExpression test = condition is LogicalNot not
+            ? not.Operand
+            : condition;
+        if (test is not LoadProperty
+            {
+                IsVirtual: false,
+                Accessor:
+                {
+                    Name: "get_IsCompleted",
+                    AccessorKind: AccessorKind.PropertyGet,
+                    HasThis: true,
+                    ParameterTypes.IsEmpty: true,
+                    TypeArguments.IsEmpty: true,
+                    DefinitionParameterTypes.IsEmpty: true,
+                    DefinitionReturnType: null,
+                } accessor,
+                Instance: var receiver,
+                IndexArguments.Count: 0,
+            }
+            || receiver is not
+                LoadLocalAddress
+                {
+                    Index: var index,
+                    Type: var receiverType,
+                }
+            || index != awaiterAddress.Index
+            || !SameExactType(
+                receiverType,
+                awaiterAddress.Type)
+            || !SameExactType(
+                accessor.DeclaringType,
+                awaiterAddress.Type)
+            || !SameExactType(
+                accessor.ReturnType,
+                TypeRef.CoreLib(
+                    "System",
+                    "Boolean")))
+        {
+            return false;
+        }
+        return HasExternalMemberReferenceProvenance(accessor);
+    }
 
     static Block? OwningBlock(IrNode node)
     {
@@ -3788,12 +4056,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool TryClaimExpectedBuilderCallbacks(
         IrFunction moveNext,
         TypeRef expectedStateMachineType,
+        TypeRef expectedBuilderType,
         Call selectedSetResult,
         IReadOnlyList<Call> getResults,
         RecipeOwnership ownership)
         => TryGetExpectedBuilderCallbackSlots(
                 moveNext,
                 expectedStateMachineType,
+                expectedBuilderType,
                 selectedSetResult,
                 getResults,
                 out IReadOnlyList<IrNode> callbacks)
@@ -3802,6 +4072,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     internal static bool TryGetExpectedBuilderCallbackSlots(
         IrFunction moveNext,
         TypeRef expectedStateMachineType,
+        TypeRef expectedBuilderType,
         Call selectedSetResult,
         IReadOnlyList<Call> getResults,
         out IReadOnlyList<IrNode> callbackSlots)
@@ -3839,7 +4110,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             || callbacks.Any(pair =>
                 !IsCompilerBuilderCallback(
                     moveNext,
-                    pair.Call)))
+                    pair.Call,
+                    expectedBuilderType,
+                    expectedStateMachineType)))
         {
             return false;
         }
@@ -3940,7 +4213,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool IsCompilerBuilderCallback(
         IrFunction moveNext,
-        Call call)
+        Call call,
+        TypeRef? expectedBuilderType = null,
+        TypeRef? expectedKickoffStateMachineType = null)
     {
         if (!IsBuilderCallbackName(call.Callee.Name)
             || call.Arguments.Count == 0
@@ -3955,16 +4230,21 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         TypeRef machine = DefinitionType(moveNext.DeclaringType);
+        TypeRef executionBuilderType = StateMachineFieldType(
+            field.Type,
+            moveNext.DeclaringType);
         return IsMachineField(field, machine)
-            && IsAsyncMethodBuilder(
-                StateMachineFieldType(
-                    field.Type,
-                    moveNext.DeclaringType))
+            && IsAsyncMethodBuilder(executionBuilderType)
+            && (expectedBuilderType is null
+                || expectedKickoffStateMachineType is not null
+                    && SameExactType(
+                        StateMachineFieldType(
+                            field.Type,
+                            expectedKickoffStateMachineType),
+                        expectedBuilderType))
             && SameExactType(
                 call.Callee.DeclaringType,
-                StateMachineFieldType(
-                    field.Type,
-                    moveNext.DeclaringType))
+                executionBuilderType)
             && HasExternalMemberReferenceProvenance(call.Callee)
             && IsExactBuilderCallbackSignature(
                 moveNext,
@@ -4049,8 +4329,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         awaiterAddress.Type,
                         awaiterType)
                     && SameExactType(
-                        DefinitionType(machineArgumentType),
-                        DefinitionType(machineType))
+                        machineArgumentType,
+                        machineType.Kind
+                                == TypeRefKind.GenericInstance
+                            && machineType.ElementType is
+                                { } machineDefinition
+                                ? machineDefinition
+                                : machineType)
                     && call.Callee.DefinitionParameterTypes is
                     [
                         var definitionAwaiter,
@@ -4285,21 +4570,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrExpression expression,
         IReadOnlyList<Call> getResults)
     {
-        var allowedCalls = getResults.ToHashSet(
+        var allowedCalls = new HashSet<Call>(
+            getResults,
             ReferenceEqualityComparer.Instance);
         if (expression.Descendants
                 .Prepend(expression)
-                .Any(node => node switch
-                {
-                    Call call => !allowedCalls.Contains(call),
-                    CallIndirect
-                        or NewObject
-                        or ObjectInitializerExpression
-                        or DelegateCreation
-                        or LocalFunctionInvocation
-                        or DynamicGetMember => true,
-                    _ => false,
-                }))
+                .Any(node =>
+                    !IsVerifiedPostAwaitExpressionNode(
+                        node,
+                        allowedCalls)))
         {
             return true;
         }
@@ -4338,6 +4617,51 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
         return false;
     }
+
+    static bool IsVerifiedPostAwaitExpressionNode(
+        IrNode node,
+        IReadOnlySet<Call> allowedCalls)
+        => node switch
+        {
+            Call call => allowedCalls.Contains(call),
+            Comparison
+                or LogicalBinary
+                or Coalesce
+                or NullConditional
+                or Conditional
+                or LogicalNot
+                or Unary
+                or Coerce
+                or Convert
+                or LoadArgument
+                or LoadLocal
+                or Constant
+                or Binary
+                or TupleExpression
+                or TupleBinaryExpression
+                or LoadField
+                or LoadStackSlot
+                or ArrayLength
+                or RangeExpression
+                or IndexFromEnd
+                or Box
+                or IsInstance
+                or IsPattern
+                or CastClass
+                or TypeOf
+                or LoadToken
+                or LoadLocalAddress
+                or LoadArgumentAddress
+                or LoadFieldAddress
+                or LoadElementAddress
+                or LoadIndirect
+                or LoadElement
+                or SizeOf
+                or DefaultValue
+                or Unbox
+                or UnboxAny => true,
+            _ => false,
+        };
 
     static bool IsVerifiedPostAwaitResultWrapper(IrNode node)
         => node is Comparison
@@ -4512,7 +4836,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             ArrayElementIsDynamic = binding.ArrayElementIsDynamic,
         };
 
-    static bool TryGetParameterBinding(
+    internal static bool TryGetParameterBinding(
         Kickoff kickoff,
         FieldRef field,
         out ClassicAsyncParameterBinding binding)
@@ -4525,7 +4849,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 // Receiver realization remains outside the accepted recipes.
                 if (candidate.FieldName != "<>4__this"
                     && candidate.FieldName == field.Name
-                    && candidate.FieldType.Equals(
+                    && SameExactType(
+                        candidate.FieldType,
                         StateMachineFieldType(
                             field.Type,
                             kickoff.StateMachineType)))

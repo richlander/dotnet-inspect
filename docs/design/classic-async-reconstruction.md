@@ -364,8 +364,19 @@ Missing, alternate, backedge-introduced, cross-container, unmodeled, or
 nested-function definitions also decline. This is container-local structural
 evidence for the supported compiler protocol, not a claim of generally sound
 CLR reaching-definition or exception-flow semantics. Tree traversal order is
-never reaching-definition evidence. The `Await source uniqueness` gate
-enforces these bounds.
+never reaching-definition evidence.
+
+The source store, completion test, suspension callback, and result call form
+one authenticated await protocol. `GetAwaiter` must be an instance member of
+the awaited operand's exact type and return the exact awaiter local type.
+`IsCompleted` must be the exact parameterless Boolean property getter over that
+local, and its conditional branch must have CFG successors to both the
+correlated suspension and result-use blocks. `GetResult` must be the exact
+parameterless instance member over the same local and awaiter type. All three
+members use supported external `MemberRef` provenance and exact signatures
+without custom modifiers. A compatible foreign helper, disconnected completion
+test, or name-only member declines. The `Await source uniqueness` gate enforces
+the dataflow and complete protocol bounds.
 
 The completion protocol is execution ownership, not preserved scaffolding.
 Every exact-machine `SetResult`, `SetException`, `AwaitOnCompleted`, and
@@ -374,6 +385,9 @@ claimed. The selected final result callback, one exception callback, and one
 suspension callback per accepted await point are the complete callback
 inventory. An extra callback declines; it cannot enter the preserved physical
 set because replacing the kickoff makes that physical execution unreachable.
+The execution-side `<>t__builder` field must normalize to the same canonical
+builder storage authenticated in the kickoff; an independently self-consistent
+Task/ValueTask builder protocol cannot substitute.
 Completion members obey the same external-core-library provenance and exact
 custom-modifier boundary as kickoff members. Each suspension callback's closed
 type arguments must equal its instantiated by-ref parameter element types; its
@@ -517,6 +531,17 @@ mapped to the same machine makes the kickoff non-narrow. The map records
 `<>4__this` for kickoff ownership, but the current recipes do not realize
 instance receivers and therefore still decline when execution requires it.
 
+The handoff order is part of ownership: canonical builder creation precedes
+state initialization and every parameter/receiver copy, `Start` follows all of
+them, and the Task/ValueTask or async-void return follows `Start`. This matters
+because `Start` may invoke `MoveNext` synchronously. A statement set with valid
+counts but a copy or state write after `Start` is non-narrow. Field, source
+argument, and declared parameter types are compared after state-machine generic
+normalization with exact definition provenance and recursive custom modifiers;
+display-equivalent types cannot establish a binding. State initialization and
+parameter copies are direct field stores and may retain either relative order;
+their required boundary is before `Start`.
+
 `Create`, `Start<TStateMachine>`, and the Task/ValueTask accessor are protocol
 members, not name-shaped calls. Their static/instance and virtual shape,
 declaring builder storage identity, return and parameter types, generic
@@ -530,8 +555,11 @@ value is declined: this component has no owner-issued expected member identity
 against which it could authenticate that definition, and same-module MVID/row
 resemblance is not a substitute. A foreign same-signature member likewise
 makes the handoff non-narrow; Decompiler neither resolves a replacement
-relationship nor broadens the supported builder set. The `Narrow ownership
-non-vacuity` gate enforces this conservative member boundary.
+relationship nor broadens the supported builder set. The storage type itself
+must be one canonical unmodified core-library builder shape before it can
+become the baseline for member comparisons; consistent custom modification of
+the storage and all members does not authenticate a new protocol. The `Narrow
+ownership non-vacuity` gate enforces this conservative member boundary.
 
 When the decline is about the handoff itself and the kickoff is proven narrow,
 application may replace it with one `UnsupportedNode` carrying
@@ -704,10 +732,10 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Plan-region partition | Accepted compiler fixtures plus injected extra-region, external-entry, duplicate-consumption, overlap, and unconsumed-use negatives | A physical kickoff/execution region is neither consumed nor preserved, appears in both sets, is consumed twice, has an unmodeled entry/use, or is rewritten while preserved |
 | User-region realization | `CheckedRegionHasOnePrimaryRealization`, `AwaitedOperandsHaveOnePrimaryRealization`, `PredicateRegionHasOnePrimaryRealization`, `GuardedEffectRegionHasOnePrimaryRealization`, and the `RegionLedgerRejects*` negatives | A modeled user region has no realization or more than one, its typed semantics or position changes, or preserved physical material supplies reconstructed semantics |
 | Decline honesty | Narrow and non-narrow classic kickoff fixtures for every decline category | A healthy decline lacks a marker/reason; a narrow handoff survives; a non-narrow statement changes or disappears; or a failure fabricates a marker-only success |
-| Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, `SwappedKickoffParameterCopiesDecline`, the foreign Create/Start/Task-accessor negatives, `SameExactTypeIncludesOrderedRecursiveCustomModifiers`, `CustomModifiedBuilderMemberMakesKickoffNonNarrow`, `ExactAddressedBuilderMemberMakesKickoffNonNarrow`, and `InconsistentBuilderMemberProvenanceMakesKickoffNonNarrow` | Shape resemblance, member names, custom-modifier loss, unauthenticated definition coordinates, inconsistent provenance, or a set of valid source arguments establishes ownership without exact builder protocol and field-to-argument identity |
-| Await source uniqueness | `SequentialAwaiterLocalReuseHasUniqueReachingSources`, `CompetingAwaiterDefinitionsDecline`, `AwaitSourceReachingDefinitionsRejectBackedgeAfterUse`, and `AwaitSourceRejectsDiamondWithTwoResumeDefinitions` | A `GetResult` selects a source by tree order, accepts a missing/alternate/backedge/cross-container definition or multiple resume definitions, fails to authenticate one resume spill, or rejects ordinary sequential reuse |
+| Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, `SwappedKickoffParameterCopiesDecline`, `NarrowKickoffRequiresProtocolOrder`, `ParameterBindingRequiresExactFieldType`, the foreign Create/Start/Task-accessor negatives, `BuilderStorageMustBeCanonical`, `SameExactTypeIncludesOrderedRecursiveCustomModifiers`, `CustomModifiedBuilderMemberMakesKickoffNonNarrow`, `ExactAddressedBuilderMemberMakesKickoffNonNarrow`, and `InconsistentBuilderMemberProvenanceMakesKickoffNonNarrow` | Shape resemblance, member names, reordered synchronous handoff, custom-modifier or provenance loss, unauthenticated definition coordinates, inconsistent provenance, or a set of valid source arguments establishes ownership without exact builder protocol and field-to-argument identity |
+| Await source uniqueness | `AuthenticatedAwaitProtocolIsAccepted`, `AwaitProtocolRequiresExactCorrelatedMembers`, `CompletionBranchMustDefineAwaitCfgEdges`, `SequentialAwaiterLocalReuseHasUniqueReachingSources`, `CompetingAwaiterDefinitionsDecline`, `AwaitSourceReachingDefinitionsRejectBackedgeAfterUse`, and `AwaitSourceRejectsDiamondWithTwoResumeDefinitions` | A `GetResult` selects a source by tree order, accepts a missing/alternate/backedge/cross-container definition or multiple resume definitions, fails to authenticate the exact correlated `GetAwaiter`/terminating `IsCompleted`/suspension/`GetResult` protocol and one resume spill, or rejects ordinary sequential reuse |
 | Result-use boundary | `PostAwaitResultReceiverCallDeclinesAtPartialFidelity`, `PostAwaitInvocationNodesAreUnverified`, `CompilerConstructorAfterAwaitDeclines`, and the direct/conversion cases in `FaithfulLegacyRecipeRemainsFullyReconstructed` | A post-await receiver or invocation/effect node is cloned without a region and realization, a call in the separately inventoried awaited operand is rejected, or a verified direct/conversion/operator result is rejected |
-| Completion callback ownership | `AcceptedRecipesOwnEveryCompletionCallback`, `ExtraExactMachineSetResultIsRejected`, `AwaitCallbackRequiresExactAwaitPointCorrelation`, and `CompletionCallbackRequiresExactExternalMemberIdentity` | An accepted recipe leaves a completion/suspension callback preserved, accepts an extra callback, loses custom-modifier/member provenance, mismatches an awaiter or machine argument/type, or derives the compiler-positive inventory from the same permissive matcher |
+| Completion callback ownership | `AcceptedRecipesOwnEveryCompletionCallback`, `ExtraExactMachineSetResultIsRejected`, `CallbackBuilderMustMatchKickoffBuilder`, `AwaitCallbackRequiresExactAwaitPointCorrelation`, and `CompletionCallbackRequiresExactExternalMemberIdentity` | An accepted recipe leaves a completion/suspension callback preserved, accepts an extra callback, loses custom-modifier/member provenance, substitutes an execution builder not authenticated by the kickoff, mismatches an awaiter or machine argument/type, or derives the compiler-positive inventory from the same permissive matcher |
 | Finally-state transition correlation | Compiler-produced `AwaitInTryFinally` positives plus `FinallyStateGuardRequiresExactMachineStateAndNoElse` | A guard accepts a foreign state field, else arm, user assignment, direct constant assignment, or uncoupled stack-slot transition |
 | Support preservation | Classic, runtime, iterator, custom-builder, and unrelated support-like methods | An Execution/Support host is not `NotApplicable`, broad builder-name recognition edits a method, or any support body/local changes |
 | Declaration disposition | Reconstructed, declined, not-applicable, owner/import/planner failure matrix | Reconstructed omits `IncludeAsync`, declined does not return `OmitAsync`, or a non-decision invents classic modifier policy |
