@@ -452,21 +452,27 @@ taxonomy. Expected cleanup failures are data in the report. The report becomes
 available only after all entries are terminal and is the same immutable
 instance returned by every close call.
 
-`InspectionWorkspace` targets `IAsyncDisposable`. `DisposeAsync` awaits the
-same close completion and exposes its report through the workspace rather than
-throwing expected cleanup failures that could replace a primary exception from
-an `await using` body. Callers that need to branch on cleanup use `CloseAsync`
-and inspect its returned report.
+Workspace construction selects its lifetime mode before any group admission.
+The existing public construction path creates a direct-compatibility workspace:
+it accepts only synchronous direct group creation and retains the current
+`IDisposable` contract. A retained or shared host uses an explicit asynchronous
+construction path. That workspace may admit direct and coordinated groups and
+targets `IAsyncDisposable`; it cannot later become synchronously disposable
+merely because its current registry happens to contain only direct groups.
 
-The synchronous `IDisposable` surface remains a compatibility path only for a
-workspace containing direct registrations and no in-flight admission whose
-cleanup requires awaited progress. It atomically closes admission and preserves
-the current immediate direct-release and failure behavior. If coordinated
-state or an in-flight admission is present, `Dispose()` throws
-`InvalidOperationException` before changing workspace state and directs the
-caller to asynchronous close. It never blocks a thread on a task, starts
-fire-and-forget cleanup, or leaves a half-closed workspace after rejecting the
-synchronous path.
+`DisposeAsync` awaits the same close completion and exposes its report through
+the workspace rather than throwing expected cleanup failures that could replace
+a primary exception from an `await using` body. Callers that need to branch on
+cleanup use `CloseAsync` and inspect its returned report.
+
+Lifetime-mode enforcement is fail-before-mutation. A direct-compatibility
+workspace rejects coordinated registration or an asynchronous construction
+admission before either begins. Calling synchronous `Dispose()` on an
+asynchronous workspace throws `InvalidOperationException` before changing
+workspace state and directs the caller to asynchronous close. The validity of
+`Dispose()` therefore never depends on a race with later registration.
+Synchronous disposal never blocks a thread on a task, starts fire-and-forget
+cleanup, or leaves a half-closed workspace after rejecting the path.
 
 The state transitions are short synchronous updates under the workspace gate.
 No gate is held across user or owner callbacks, group release, or an `await`.
@@ -507,7 +513,7 @@ The target is unverified until Release gates prove:
   callback/group quiescence, attempt-all cleanup, stable ordering, and complete
   typed failure retention;
 - `WorkspaceDispose_RejectsAsyncOwnedGroupsWithoutChangingState` proves the
-  synchronous compatibility boundary is fail-before-mutation; and
+  construction-time lifetime-mode boundary is fail-before-mutation; and
 - `WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking` proves
   the supported single-threaded host path reaches terminal close without a
   blocking wait or background-thread requirement.

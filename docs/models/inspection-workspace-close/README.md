@@ -38,6 +38,8 @@ The model does not cover:
 - `AssemblyContextGroup` image opening, resource ordering, or callback-local
   snapshots beyond the abstract busy state;
 - exception payloads, report serialization, or implementation conformance; or
+- the construction-time synchronous compatibility adapter, which has no
+  concurrent release protocol of its own; or
 - thread scheduling. The design separately requires awaited progress without
   a blocking wait or background-thread dependency.
 

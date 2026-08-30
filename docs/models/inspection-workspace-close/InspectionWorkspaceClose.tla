@@ -291,7 +291,7 @@ RequestDirectRelease(g) ==
         coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
         >>
 
-RequestCoordinatedRelease(g) ==
+OwnerRequestsCoordinatedRelease(g) ==
     /\ g \in CoordinatedGroups
     /\ workspaceState = "Closing"
     /\ groupState[g] \in {"Published", "ReleaseOnly"}
@@ -408,7 +408,7 @@ Next ==
     \/ \E g \in Groups : EndGroupWork(g)
     \/ CloseWorkspace
     \/ \E g \in Groups : RequestDirectRelease(g)
-    \/ \E g \in Groups : RequestCoordinatedRelease(g)
+    \/ \E g \in Groups : OwnerRequestsCoordinatedRelease(g)
     \/ \E g \in Groups : CompleteAnyRelease(g)
     \/ \E g \in Groups : RecordReport(g)
     \/ FinalizeWorkspace
@@ -419,7 +419,7 @@ Fairness ==
     /\ \A g \in Groups : WF_vars(ReturnLease(g))
     /\ \A g \in Groups : WF_vars(EndGroupWork(g))
     /\ \A g \in Groups : WF_vars(RequestDirectRelease(g))
-    /\ \A g \in Groups : WF_vars(RequestCoordinatedRelease(g))
+    /\ \A g \in Groups : WF_vars(OwnerRequestsCoordinatedRelease(g))
     /\ \A g \in Groups : WF_vars(CompleteAnyRelease(g))
     /\ \A g \in Groups : WF_vars(RecordReport(g))
     /\ WF_vars(FinalizeWorkspace)
