@@ -5,22 +5,27 @@
 Focused component design proposal for
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677).
 It defines the intended replacement for the semantic-selection portion of the
-existing umbrella design. The current product does not implement this contract,
-and the umbrella remains the integration target until the stacked composition
-successor adopts this component.
+existing umbrella design. The
+[composition map](item-and-line-limits.md#composition) adopts this component
+and retires the umbrella assignment. The current product does not implement
+this contract.
 
 All asserted behavior is unverified until the Release gates in
 [Required gates](#required-gates) land.
 
 Related designs:
 
-- [Item and line limits](item-and-line-limits.md) is the existing umbrella
-  target. A stacked successor will reduce it to a composition map and transfer
-  semantic-selection authority to this component.
+- [Item and line selection composition](item-and-line-limits.md) maps this
+  component's typed boundary to adjacent owners without redefining its
+  behavior.
 - [Inspection layers](inspection-layers.md) places the consumer-neutral
-  component below L2 so CLI and browser-facing section pipelines can share it.
-- [Row query and ordering](row-query-order.md) owns predicate evaluation,
-  effective order, ranking metadata, and schema validation.
+  component below L2 so CLI and browser-facing section pipelines can share it;
+  focused adoption of the composition handoff is tracked by
+  [#5163](https://github.com/richlander/dotnet-inspect/issues/5163).
+- [Row query and ordering](row-query-order.md) is the existing proposal for
+  predicate evaluation, effective order, ranking metadata, and schema
+  validation; its focused adoption is tracked by
+  [#5162](https://github.com/richlander/dotnet-inspect/issues/5162).
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
 - [Semantic row-selection interaction model](../models/semantic-row-selection/SemanticRowSelection.tla)
@@ -436,20 +441,12 @@ Finding identities, source provenance, or any stable row address carried as
 typed data. Selection position is never inferred from rendered text and is
 never promoted into identity.
 
-## Filters, baseline order, and ranking
+## Caller-supplied order and ranking
 
-Section selection, producer execution, command-owned filters, row predicates,
-and effective baseline order establish each input sequence before this plan
-runs:
-
-```text
-declared typed rows
--> predicates and command-owned filters
--> effective baseline order
--> ordered semantic selection stages
--> projection
--> presentation
-```
+The executor receives each complete input sequence in the caller-selected
+baseline order. This component does not decide how predicates, filters,
+reductions, field or payload projection, acquisition, or presentation compose
+around that invocation.
 
 A `Top` stage is the one selection stage that changes order itself. It ranks
 only its current input, then applies its lenient head count. A later stage sees
@@ -480,10 +477,10 @@ cannot satisfy any `Window` stage:
   required position, and available current-row count;
 - no selected sequence collection is returned.
 
-The L2 integration owner must complete this pure preflight before projection,
-rendering, per-row payload acquisition, or destination mutation. This avoids a
-presentation-dependent partial success in which one table honors a window while
-another silently clamps or disappears.
+The executor must complete this pure preflight before returning any selected
+sequence collection. The caller receives either all selected sequences or the
+structured failure; surrounding projection, acquisition, presentation, and
+destination effects remain outside this component.
 
 ## Failure model
 
