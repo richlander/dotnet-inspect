@@ -43,9 +43,19 @@ docs-only change.
   guarantee stays inside the hash bucket), but collision resistance is a
   claim about well-formed Unicode input, not every .NET string;
 - read, write, and background-maintenance operations whose *filesystem-access*
-  failures are swallowed. A read failure is observed as a miss (a `null`
-  result), and a maintenance failure is observed as no progress recorded for
-  that directory — but a write failure has no comparable observable outcome
+  failures are swallowed. A read failure is normally observed as a miss (a
+  `null` result) — though a `maxAge` read's own miss-telemetry call can
+  still propagate an exception after the swallowed filesystem failure,
+  since that telemetry call runs unguarded (see the maxAge miss-telemetry
+  note under
+  [Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)) —
+  and a maintenance measurement failure is normally observed as no progress
+  recorded for that directory, though a directory that fails to measure but
+  still deletes successfully is counted as one retired directory with zero
+  bytes rather than no progress at all (see the measurement-failure Gap
+  under
+  [Versioned category retirement](#versioned-category-retirement)) —
+  but a write failure has no comparable observable outcome
   at all: `Set`/`SetBytes` simply return, silently discarding the failure,
   and a subsequent read can still be a hit if an existing entry from a prior
   successful write is still in place (a failed write does not delete or
@@ -383,9 +393,14 @@ its own exception handling is mixed rather than absent: it returns an empty
 check reports `false` (ambiguous, as elsewhere, between "does not exist" and
 "error determining existence"); the size measurement it delegates to
 (`GetDirectorySize`) performs a *second*, independent `Directory.Exists`
-check with the same ambiguity and returns `0` rather than propagating; but
+check with the same ambiguity and returns `0` only for that second check —
+but once that second check passes, `GetDirectorySize`'s own recursive
+`EnumerateFiles(...).Sum(f => f.Length)` has no guard at all, so it can
+itself propagate an enumeration or length-read failure before file counting
+is ever reached; and
 the file-count enumeration, `Directory.GetFiles(targetPath, "*",
-SearchOption.AllDirectories)`, has no guard at all and propagates any
+SearchOption.AllDirectories)`, likewise has no guard at all and propagates
+any
 enumeration failure that occurs after both existence checks have already
 passed. So a category contract violation reaching
 it is also an out-of-root enumeration read, not just a write/delete
@@ -743,10 +758,19 @@ it from ever faulting). The key is only removed — and a fresh attempt
 scheduled — by a subsequent `Initialize` call (which replaces
 `s_maintenanceTasks` with a new, empty dictionary) or by
 `StartNewMaintenanceGenerationIfCanceled` replacing a canceled generation; a
-changed root (via a different `basePath`/`appName`, or the ambient-input
-change discussed above) also produces a different key and so schedules a
+changed `GetBasePath()` *string* (via a different `basePath`/`appName`)
+also produces a different key and so schedules a
 fresh attempt against that new root, but this is really "different key
-scheduled," not "same failed attempt retried."
+scheduled," not "same failed attempt retried." That key-based
+invalidation is itself sensitive to the relative-root exposure discussed
+above, though: `VersionedCacheCleanupKey` stores whatever unresolved string
+`GetBasePath()` returns, not a resolved absolute path, so changing only the
+*resolution* of an unchanged relative `basePath` (for example, a
+process-wide current-directory change) changes the physical root on disk
+without changing the key string — the existing task stays memoized under
+the old key, and the new physical root is never scheduled for cleanup at
+all, contrary to what "a changed root ... schedules a fresh attempt" would
+otherwise suggest.
 `Clear`'s own `Directory.Delete(targetPath, recursive: true)` (see
 [Clear and concurrent writers](#clear-and-concurrent-writers)) has the
 equivalent exposure in the opposite direction: it catches only
