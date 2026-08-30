@@ -658,11 +658,19 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             MetadataSafetyPolicy.MaxStructuralSignatureWorkChars;
         int leafUtf8Length = Encoding.UTF8.GetByteCount(
             name.Segments[^1]);
+        int typeNameDecodeFailures = 0;
         MetadataTypeNameFailure? rejected = null;
-        int nameDecodeFailures = 0;
         foreach (TypeDefinitionHandle candidate
             in reader.TypeDefinitions)
         {
+            remainingComparisonWork--;
+            if (remainingComparisonWork < 0)
+            {
+                throw new BadImageFormatException(
+                    "The exact TypeDef lookup exceeded its "
+                        + "structural-name work budget.");
+            }
+
             int candidateLeafUtf8Length;
             try
             {
@@ -673,17 +681,9 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             }
             catch (Exception ex) when (IsMalformedMetadata(ex))
             {
-                nameDecodeFailures++;
-                if (nameDecodeFailures
-                    >= MetadataSafetyPolicy
-                        .MaxClassificationIdentityDecodeFailures)
-                {
-                    throw new BadImageFormatException(
-                        "The exact TypeDef lookup exceeds the "
-                            + "type-name decode failure budget.",
-                        ex);
-                }
-
+                NoteTypeNameDecodeFailure(
+                    ref typeNameDecodeFailures,
+                    ex);
                 rejected ??=
                     MetadataTypeNameFailure.Malformed(
                         candidate,
@@ -692,7 +692,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             }
 
             remainingComparisonWork -=
-                Math.Max(candidateLeafUtf8Length, 1);
+                Math.Max(candidateLeafUtf8Length - 1, 0);
             if (remainingComparisonWork < 0)
             {
                 throw new BadImageFormatException(
@@ -721,16 +721,8 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             if (result
                 == MetadataTypeDefinitionNameMatchResult.Rejected)
             {
-                nameDecodeFailures++;
-                if (nameDecodeFailures
-                    >= MetadataSafetyPolicy
-                        .MaxClassificationIdentityDecodeFailures)
-                {
-                    throw new BadImageFormatException(
-                        "The exact TypeDef lookup exceeds the "
-                            + "type-name decode failure budget.");
-                }
-
+                NoteTypeNameDecodeFailure(
+                    ref typeNameDecodeFailures);
                 rejected ??= failure;
                 continue;
             }
@@ -800,6 +792,22 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             MetadataReader reader = image.GetMetadataReader();
             ValidateMethodOwnership(reader);
             return new ValidatedImage(reader);
+        }
+    }
+
+    static void NoteTypeNameDecodeFailure(
+        ref int typeNameDecodeFailures,
+        Exception? inner = null)
+    {
+        typeNameDecodeFailures++;
+        if (typeNameDecodeFailures
+            >= MetadataSafetyPolicy
+                .MaxClassificationIdentityDecodeFailures)
+        {
+            throw new BadImageFormatException(
+                "The exact TypeDef lookup exceeds the "
+                    + "type-name decode failure budget.",
+                inner);
         }
     }
 

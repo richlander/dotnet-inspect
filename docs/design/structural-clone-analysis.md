@@ -306,6 +306,7 @@ makes the guarantee independent of which projection path a caller takes; the
 pass costs 1.6 ms on `System.Private.CoreLib` (2,630 types, 38,508 methods).
 The
 `Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget`,
+`Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget`,
 `Execute_RejectedTypeSpecificationAttributeIsVisible`,
 `Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection`,
 `Execute_DuplicateProjectedMethodRowIsAVisibleRejection`,

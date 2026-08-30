@@ -886,16 +886,17 @@ whole-assembly scope is explicit, and Analysis method, result, and
 body-production limits remain the visible work controls. Exact selection still
 uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
 and custom-attribute work ceilings, so malformed metadata fails visibly before
-retrieval rather than multiplying per-row work. Type-name decode failures are
-charged against the decode-failure ceiling. Method projection is validated
-once per image rather than at each projection site: the query admits a reader
-only after confirming that the TypeDef method ranges cover the MethodDef table
-exactly once, and seed and population resolution accept only an image carrying
-that confirmation. A repeated or out-of-range row, a `MethodPtr` table that
-aliases one MethodDef row into two types, and a `MethodList` start past the
-table -- which SRM reports as an empty range rather than an error -- are all
-typed metadata failures in the participant role that read the image, instead
-of reaching Analysis as untyped argument errors, being reported as a member
+retrieval rather than multiplying per-row work. Each candidate type-name
+attempt consumes structural-name work, and decode failures also count against
+the decode-failure ceiling. Method projection is validated once per image
+rather than at each projection site: the query admits a reader only after
+confirming that the TypeDef method ranges cover the MethodDef table exactly
+once, and seed and population resolution accept only an image carrying that
+confirmation. A repeated or out-of-range row, a `MethodPtr` table that aliases
+one MethodDef row into two types, and a `MethodList` start past the table --
+which SRM reports as an empty range rather than an error -- are all typed
+metadata failures in the participant role that read the image, instead of
+reaching Analysis as untyped argument errors, being reported as a member
 ambiguity, or returning a success-shaped empty population. The check is a
 single pass over the image's own tables; it is not a claim that every
 malformed image is diagnosed before Analysis. It introduces no network,
@@ -906,14 +907,15 @@ exact-member, extension-member, and token selection, ambiguity, limit
 separation, unsupported bodies, seed-before-candidate failure precedence,
 malformed acquisition and metadata-neighbor isolation, and same-MVID
 independent-reader handling. Its virtual-token, repeated-long-leaf,
-repeated-long-unequal-leaf, near-limit-member-anchor,
+repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
 repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary. Its
 type-name decode-failure case gates the decode-failure ceiling, paired with a
-below-ceiling case that must still resolve. Seven cases gate whole-image
-method ownership across the type-scoped, whole-assembly same-image,
-whole-assembly cross-image, and member-seed paths, covering duplicate,
-out-of-range, cross-type aliased, and silently empty projections.
+below-ceiling case that proves isolated malformed neighbors remain tolerable.
+Seven cases gate whole-image method ownership across the type-scoped,
+whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
+covering duplicate, out-of-range, cross-type aliased, and silently empty
+projections.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

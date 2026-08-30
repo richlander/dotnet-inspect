@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -664,6 +665,52 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Contains(
             "structural-name work budget",
             failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildMalformedTypeNameAssembly(
+                    malformedTypes: 100_000));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(0x06000001),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Missing")))));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - allocatedBefore;
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+        Assert.Contains(
+            "type-name decode failure budget",
+            failed.Failure.Detail);
+        Assert.True(
+            allocated < 2 * 1024 * 1024,
+            $"Malformed TypeDef lookup allocated {allocated:N0} bytes.");
     }
 
     [Fact]
@@ -1833,7 +1880,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString("N"),
-                metadata.GetOrAddString($"Broken{i}"),
+                metadata.GetOrAddString("Broken"),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
@@ -1874,88 +1921,78 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         byte[] image,
         int malformedTypes)
     {
-        int typeDefs = LocateTypeDefinitionTable(image);
-        for (int i = 0; i < malformedTypes; i++)
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int tableOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef);
+        int rowSize = reader.GetTableRowSize(TableIndex.TypeDef);
+        int stringIndexSize =
+            reader.GetHeapSize(HeapIndex.String)
+                <= ushort.MaxValue
+                ? sizeof(ushort)
+                : sizeof(uint);
+
+        for (int index = 0; index < malformedTypes; index++)
         {
-            BitConverter
-                .GetBytes(OutOfRangeIndex)
-                .CopyTo(image, typeDefs + ((1 + i) * TypeDefRowSize) + 4);
+            int nameOffset =
+                tableOffset
+                + ((index + 1) * rowSize)
+                + sizeof(uint);
+            if (stringIndexSize == sizeof(ushort))
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    image.AsSpan(nameOffset, sizeof(ushort)),
+                    ushort.MaxValue);
+            }
+            else
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    image.AsSpan(nameOffset, sizeof(uint)),
+                    uint.MaxValue);
+            }
         }
     }
 
-    const int TypeDefRowSize = 4 + 2 + 2 + 2 + 2 + 2;
-    const int TypeDefMethodListOffset = 4 + 2 + 2 + 2 + 2;
-    const ushort OutOfRangeIndex = 0xFFF0;
+    /// <summary>
+    /// Returns the offset of the first TypeDef row and the row size,
+    /// using the reader's own table geometry rather than re-deriving the
+    /// metadata header layout.
+    /// </summary>
+    static (int Offset, int RowSize) LocateTypeDefinitionTable(
+        byte[] image)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        return (
+            peReader.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(TableIndex.TypeDef),
+            reader.GetTableRowSize(TableIndex.TypeDef));
+    }
 
     /// <summary>
-    /// Returns the offset of the first TypeDef row in a fixture image
-    /// whose heap and table indexes are all two bytes wide.
+    /// Overwrites a TypeDef row's MethodList start. MethodList is the
+    /// final TypeDef column, so it is addressed from the end of the row.
     /// </summary>
-    static int LocateTypeDefinitionTable(byte[] image)
+    static void WriteMethodListStart(
+        byte[] image,
+        int typeDefRow,
+        ushort start)
     {
-        const int moduleRowSize = 2 + 2 + 2 + 2 + 2;
-
-        using var peReader = new PEReader(
-            ImmutableCollectionsMarshal.AsImmutableArray(image));
-        int root = peReader.PEHeaders.MetadataStartOffset;
-        int cursor = root + 4 + 2 + 2 + 4;
-        cursor += 4 + BitConverter.ToInt32(image, cursor);
-        cursor += 2;
-        int streamCount = BitConverter.ToUInt16(image, cursor);
-        cursor += 2;
-        int tables = -1;
-        for (int i = 0; i < streamCount; i++)
-        {
-            int offset = BitConverter.ToInt32(image, cursor);
-            cursor += 8;
-            int start = cursor;
-            while (image[cursor] != 0)
-            {
-                cursor++;
-            }
-
-            string name = System.Text.Encoding.ASCII.GetString(
-                image,
-                start,
-                cursor - start);
-            cursor = start + (((cursor - start) / 4) + 1) * 4;
-            if (name is "#~" or "#-")
-            {
-                tables = root + offset;
-            }
-        }
-
-        Assert.NotEqual(-1, tables);
-
-        // The fixture is small enough that every heap and table index is
-        // two bytes wide, which the fixed row sizes above assume.
-        Assert.Equal(0, image[tables + 6]);
-
-        ulong valid = BitConverter.ToUInt64(image, tables + 8);
-        int rowCounts = tables + 24;
-        var rows = new Dictionary<int, int>();
-        for (int table = 0; table < 64; table++)
-        {
-            if ((valid & (1UL << table)) == 0)
-            {
-                continue;
-            }
-
-            rows[table] = BitConverter.ToInt32(image, rowCounts);
-            rowCounts += 4;
-        }
-
-        // Only Module and TypeRef can precede TypeDef, and this fixture
-        // never emits a TypeRef row.
-        Assert.False(rows.ContainsKey((int)TableIndex.TypeRef));
-        return rowCounts
-            + (rows[(int)TableIndex.Module] * moduleRowSize);
+        (int offset, int rowSize) = LocateTypeDefinitionTable(image);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(
+                offset + (typeDefRow * rowSize) + rowSize - sizeof(ushort),
+                sizeof(ushort)),
+            start);
     }
 
     /// <summary>
     /// Builds an assembly where <c>N.Fixture</c> and the TypeDef that
-    /// follows it both start far past the MethodDef table. Because the
-    /// two starts are equal, SRM reports <c>N.Fixture</c>'s range as
+    /// follows it declare the same out-of-range MethodList start. Because
+    /// the two starts are equal, SRM reports <c>N.Fixture</c>'s range as
     /// empty rather than failing, so the type silently projects no
     /// methods and nothing about the read itself looks wrong.
     /// </summary>
@@ -2000,18 +2037,8 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         byte[] bytes = image.ToArray();
-        int typeDefs = LocateTypeDefinitionTable(bytes);
-        foreach (int row in new[] { 1, 2 })
-        {
-            BitConverter
-                .GetBytes(OutOfRangeIndex)
-                .CopyTo(
-                    bytes,
-                    typeDefs
-                        + (row * TypeDefRowSize)
-                        + TypeDefMethodListOffset);
-        }
-
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 0xFFF0);
+        WriteMethodListStart(bytes, typeDefRow: 2, start: 0xFFF0);
         return bytes;
     }
 
@@ -2024,13 +2051,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     static byte[] BuildAliasedMethodPtrAssembly()
     {
         byte[] bytes = BuildMethodPtrAssembly(1, 1);
-        BitConverter
-            .GetBytes((ushort)2)
-            .CopyTo(
-                bytes,
-                LocateTypeDefinitionTable(bytes)
-                    + TypeDefRowSize
-                    + TypeDefMethodListOffset);
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 2);
         return bytes;
     }
 
@@ -2421,7 +2442,8 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         WriteInt32At(buffer, position + 4, (int)(value >> 32));
     }
 
-    static byte[] BuildRepeatedTypeNameAssembly(        string @namespace,
+    static byte[] BuildRepeatedTypeNameAssembly(
+        string @namespace,
         string name,
         int typeCount)
     {
