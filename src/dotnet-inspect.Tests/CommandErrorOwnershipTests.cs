@@ -168,10 +168,10 @@ public class CommandErrorOwnershipTests
 
             if (!EvaluatedProperty(project, "WarningsAsErrors")
                     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Contains(StderrRule, StringComparer.OrdinalIgnoreCase))
+                    .Contains(BannedApiRule, StringComparer.OrdinalIgnoreCase))
             {
                 uncovered.Add(
-                    $"{relative}: does not escalate {StderrRule} to an error, so a violation would be a warning "
+                    $"{relative}: does not escalate {BannedApiRule} to an error, so a violation would be a warning "
                     + "that scrolls past a green build.");
             }
 
@@ -180,10 +180,10 @@ public class CommandErrorOwnershipTests
             // rule that is escalated and silent.
             if (EvaluatedProperty(project, "NoWarn")
                     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Contains(StderrRule, StringComparer.OrdinalIgnoreCase))
+                    .Contains(BannedApiRule, StringComparer.OrdinalIgnoreCase))
             {
                 uncovered.Add(
-                    $"{relative}: suppresses {StderrRule} through NoWarn, which outranks the escalation above "
+                    $"{relative}: suppresses {BannedApiRule} through NoWarn, which outranks the escalation above "
                     + "and produces no diagnostic at all.");
             }
         }
@@ -195,6 +195,71 @@ public class CommandErrorOwnershipTests
                 + string.Join(Environment.NewLine, uncovered));
 
         Assert.Equal(ShippedProjectLibraries(), ClosureProjectNames());
+    }
+
+    /// <summary>
+    /// The test assembly's stdout-redirection rule is present in the analyzer
+    /// inputs that its Release build actually consumes.
+    /// </summary>
+    [Fact]
+    public void ConsoleCaptureProjectIsAnalyzedForStdoutRedirection()
+    {
+        string root = RepositoryRoot();
+        string projectDirectory = Path.Combine(root, "src", "dotnet-inspect.Tests");
+        string project = Path.Combine(
+            projectDirectory,
+            "dotnet-inspect.Tests.csproj");
+        string localRules = Path.Combine(
+            projectDirectory,
+            BannedSymbolsFile);
+        string repositoryRules = Path.Combine(
+            root,
+            "eng",
+            BannedSymbolsFile);
+
+        Assert.NotEqual(
+            "true",
+            EvaluatedProperty(project, "OwnsItsOwnStderr"));
+        Assert.Contains(
+            EvaluatedItems(project, "PackageReference"),
+            package =>
+                package.GetValueOrDefault("Identity") == AnalyzerPackage);
+
+        string[] additionalFiles =
+        [
+            .. EvaluatedItems(project, "AdditionalFiles")
+                .Select(item =>
+                    item.GetValueOrDefault("FullPath")
+                    ?? throw new InvalidOperationException(
+                        "Evaluated AdditionalFiles item did not include FullPath."))
+                .Select(Path.GetFullPath)
+        ];
+        Assert.Contains(Path.GetFullPath(localRules), additionalFiles);
+        Assert.Contains(Path.GetFullPath(repositoryRules), additionalFiles);
+
+        string[] warningsAsErrors = EvaluatedProperty(
+                project,
+                "WarningsAsErrors")
+            .Split(
+                ';',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries);
+        Assert.Contains(
+            BannedApiRule,
+            warningsAsErrors,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            BannedApiRule,
+            EvaluatedProperty(project, "NoWarn")
+                .Split(
+                    ';',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries),
+            StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains(
+            $"M:System.Console.{nameof(Console.SetOut)}(System.IO.TextWriter)",
+            BannedSymbolIds(localRules));
     }
 
     /// <summary>
@@ -262,17 +327,7 @@ public class CommandErrorOwnershipTests
     public void BannedSymbols_NamesEveryRouteToTheStream()
     {
         string path = Path.Combine(RepositoryRoot(), "eng", BannedSymbolsFile);
-        Assert.True(File.Exists(path), $"{path} is the rule; without it the analyzer has nothing to enforce.");
-
-        // Symbol ids only: `;` separates the id from the message, `;` cannot
-        // appear in an id, and a leading `;` marks a comment line.
-        string[] banned =
-        [
-            .. File.ReadLines(path)
-                .Select(line => line.Trim())
-                .Where(line => line.Length > 0 && !line.StartsWith(';'))
-                .Select(line => line.Split(';', 2)[0])
-        ];
+        string[] banned = BannedSymbolIds(path);
 
         // Spelled through nameof to tie the pin to members that exist, so a
         // rename cannot leave the rule naming a symbol that is no longer there.
@@ -465,7 +520,26 @@ public class CommandErrorOwnershipTests
     /// <summary>
     /// The analyzer diagnostic that carries the rule.
     /// </summary>
-    private const string StderrRule = "RS0030";
+    private const string BannedApiRule = "RS0030";
+
+    private static string[] BannedSymbolIds(string path)
+    {
+        Assert.True(
+            File.Exists(path),
+            $"{path} is the rule; without it the analyzer has nothing to enforce.");
+
+        // Symbol ids only: `;` separates the id from the message, `;` cannot
+        // appear in an id, and a leading `;` marks a comment line.
+        return
+        [
+            .. File.ReadLines(path)
+                .Select(line => line.Trim())
+                .Where(line =>
+                    line.Length > 0
+                    && !line.StartsWith(';'))
+                .Select(line => line.Split(';', 2)[0])
+        ];
+    }
 
     /// <summary>
     /// The Release assembly of every project in the CLI's closure.
