@@ -220,6 +220,26 @@ public class CommandErrorOwnershipTests
         Assert.NotEqual(
             "true",
             EvaluatedProperty(project, "OwnsItsOwnStderr"));
+
+        string runAnalyzers = EvaluatedProperty(
+            project,
+            "RunAnalyzers");
+        string runAnalyzersDuringBuild = EvaluatedProperty(
+            project,
+            "RunAnalyzersDuringBuild");
+        bool skipsAnalyzers =
+            runAnalyzers.Equals(
+                "false",
+                StringComparison.OrdinalIgnoreCase)
+            || (runAnalyzers.Length == 0
+                && runAnalyzersDuringBuild.Equals(
+                    "false",
+                    StringComparison.OrdinalIgnoreCase));
+        Assert.False(
+            skipsAnalyzers,
+            "The Release build disables compiler analyzers through "
+                + "RunAnalyzers or RunAnalyzersDuringBuild.");
+
         Assert.Contains(
             EvaluatedItems(project, "PackageReference"),
             package =>
@@ -1120,7 +1140,15 @@ public class CommandErrorOwnershipTests
     /// The properties this class asks for.
     /// </summary>
     private static readonly string[] Properties =
-        ["OwnsItsOwnStderr", "WarningsAsErrors", "NoWarn", "TargetPath", "ProjectAssetsFile"];
+    [
+        "OwnsItsOwnStderr",
+        "RunAnalyzers",
+        "RunAnalyzersDuringBuild",
+        "WarningsAsErrors",
+        "NoWarn",
+        "TargetPath",
+        "ProjectAssetsFile",
+    ];
 
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> PropertyEvaluations =
         new(StringComparer.Ordinal);
