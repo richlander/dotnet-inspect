@@ -21,12 +21,16 @@ sealed record TsDelegateMappingContext(
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         TsLocalTypeKind> LocalTypeKinds,
-    ApiAssemblyIdentity? ContainingAssembly);
+    ApiAssemblyIdentity? ContainingAssembly,
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        string>? LocalTypeNames = null);
 
 readonly record struct AuthenticatedMappingNames(
     string DisplayType,
     IReadOnlySet<string> RecordNames,
-    IReadOnlySet<string>? BlockedAliases);
+    IReadOnlySet<string>? BlockedAliases,
+    IReadOnlyDictionary<string, string>? MappedTypeNames);
 
 /// <summary>
 /// Rewrites C# signature-text type names into TypeScript type text. All target-language opinion
@@ -739,8 +743,9 @@ static class TsTypeMapper
                 MappingNamesForAuthenticatedType(
                     genericArguments[index],
                     delegateParameter.ParameterTypes[index],
-                    mappingContext.RecordNames,
-                    blockedAliases);
+                    mappingContext,
+                    blockedAliases,
+                    mappedTypeNames);
             parameters[index] =
                 $"arg{index}: {Map(
                     mappingNames.DisplayType,
@@ -748,7 +753,7 @@ static class TsTypeMapper
                     diagnostics,
                     location,
                     mappingNames.BlockedAliases,
-                    mappedTypeNames,
+                    mappingNames.MappedTypeNames,
                     TsTypeMappingContext.JsInterop)}";
         }
 
@@ -763,15 +768,16 @@ static class TsTypeMapper
                 MappingNamesForAuthenticatedType(
                     genericArguments[^1],
                     delegateParameter.ReturnType,
-                    mappingContext.RecordNames,
-                    blockedAliases);
+                    mappingContext,
+                    blockedAliases,
+                    mappedTypeNames);
             returnType = Map(
                 mappingNames.DisplayType,
                 mappingNames.RecordNames,
                 diagnostics,
                 location,
                 mappingNames.BlockedAliases,
-                mappedTypeNames,
+                mappingNames.MappedTypeNames,
                 TsTypeMappingContext.JsInterop);
         }
         string functionType =
@@ -782,50 +788,70 @@ static class TsTypeMapper
     static AuthenticatedMappingNames MappingNamesForAuthenticatedType(
         string displayType,
         TypeRef authenticatedType,
-        IReadOnlySet<string> recordNames,
-        IReadOnlySet<string>? blockedAliases)
+        TsDelegateMappingContext mappingContext,
+        IReadOnlySet<string>? blockedAliases,
+        IReadOnlyDictionary<string, string>? mappedTypeNames)
     {
-        var frameworkSpellings =
+        var authenticatedSpellings =
+            new HashSet<string>(StringComparer.Ordinal);
+        var allocatedLocalNames =
             new HashSet<string>(StringComparer.Ordinal);
         string normalizedDisplay =
-            NormalizeAuthenticatedFrameworkDisplay(
+            NormalizeAuthenticatedDisplay(
             displayType,
             authenticatedType,
-            frameworkSpellings);
-        if (frameworkSpellings.Count == 0)
+            mappingContext,
+            authenticatedSpellings,
+            allocatedLocalNames);
+        if (authenticatedSpellings.Count == 0)
         {
             return new AuthenticatedMappingNames(
                 normalizedDisplay,
-                recordNames,
-                blockedAliases);
+                mappingContext.RecordNames,
+                blockedAliases,
+                mappedTypeNames);
         }
 
         var filteredRecordNames = new HashSet<string>(
-            recordNames,
+            mappingContext.RecordNames,
             StringComparer.Ordinal);
-        filteredRecordNames.ExceptWith(frameworkSpellings);
-        if (blockedAliases is null)
+        filteredRecordNames.ExceptWith(authenticatedSpellings);
+        filteredRecordNames.UnionWith(allocatedLocalNames);
+
+        IReadOnlySet<string>? filteredBlockedAliases = null;
+        if (blockedAliases is not null)
         {
-            return new AuthenticatedMappingNames(
-                normalizedDisplay,
-                filteredRecordNames,
-                BlockedAliases: null);
+            var filtered = new HashSet<string>(
+                blockedAliases,
+                StringComparer.Ordinal);
+            filtered.ExceptWith(authenticatedSpellings);
+            filteredBlockedAliases = filtered;
         }
 
-        var filteredBlockedAliases = new HashSet<string>(
-            blockedAliases,
-            StringComparer.Ordinal);
-        filteredBlockedAliases.ExceptWith(frameworkSpellings);
+        IReadOnlyDictionary<string, string>? filteredMappedTypeNames = null;
+        if (mappedTypeNames is not null)
+        {
+            var filtered = new Dictionary<string, string>(
+                mappedTypeNames,
+                StringComparer.Ordinal);
+            foreach (string spelling in authenticatedSpellings)
+                filtered.Remove(spelling);
+            filteredMappedTypeNames = filtered;
+        }
+
         return new AuthenticatedMappingNames(
             normalizedDisplay,
             filteredRecordNames,
-            filteredBlockedAliases);
+            filteredBlockedAliases,
+            filteredMappedTypeNames);
     }
 
-    static string NormalizeAuthenticatedFrameworkDisplay(
+    static string NormalizeAuthenticatedDisplay(
         string displayType,
         TypeRef authenticatedType,
-        ISet<string> frameworkSpellings)
+        TsDelegateMappingContext mappingContext,
+        ISet<string> authenticatedSpellings,
+        ISet<string> allocatedLocalNames)
     {
         string trimmed = RemoveGlobalPrefix(displayType.Trim());
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
@@ -842,10 +868,12 @@ static class TsTypeMapper
                 "Nullable`1")
                 ? nullableArgument
                 : authenticatedType;
-            return $"{NormalizeAuthenticatedFrameworkDisplay(
+            return $"{NormalizeAuthenticatedDisplay(
                 trimmed[..^1],
                 nullableType,
-                frameworkSpellings)}?";
+                mappingContext,
+                authenticatedSpellings,
+                allocatedLocalNames)}?";
         }
 
         if (authenticatedType is
@@ -855,10 +883,12 @@ static class TsTypeMapper
             }
             && trimmed.EndsWith("[]", StringComparison.Ordinal))
         {
-            return $"{NormalizeAuthenticatedFrameworkDisplay(
+            return $"{NormalizeAuthenticatedDisplay(
                 trimmed[..^2],
                 arrayElement,
-                frameworkSpellings)}[]";
+                mappingContext,
+                authenticatedSpellings,
+                allocatedLocalNames)}[]";
         }
 
         if (authenticatedType is
@@ -880,10 +910,12 @@ static class TsTypeMapper
                 index++)
             {
                 normalizedArguments[index] =
-                    NormalizeAuthenticatedFrameworkDisplay(
+                    NormalizeAuthenticatedDisplay(
                     displayArguments[index],
                     authenticatedArguments[index],
-                    frameworkSpellings);
+                    mappingContext,
+                    authenticatedSpellings,
+                    allocatedLocalNames);
             }
             return $"{displayDefinition}<"
                 + $"{string.Join(", ", normalizedArguments)}>";
@@ -894,9 +926,28 @@ static class TsTypeMapper
         {
             string canonicalDisplay =
                 authenticatedType.ToQualifiedDisplayString();
-            frameworkSpellings.Add(trimmed);
-            frameworkSpellings.Add(canonicalDisplay);
+            authenticatedSpellings.Add(trimmed);
+            authenticatedSpellings.Add(canonicalDisplay);
             return canonicalDisplay;
+        }
+
+        if (TryGetLocalTypeKind(
+                authenticatedType,
+                mappingContext,
+                out _)
+            && authenticatedType.Resolution?.Type is
+                MetadataTypeDefinitionName definitionName
+            && mappingContext.LocalTypeNames?.TryGetValue(
+                definitionName,
+                out string? allocatedName) == true)
+        {
+            string canonicalDisplay =
+                authenticatedType.ToQualifiedDisplayString();
+            authenticatedSpellings.Add(trimmed);
+            authenticatedSpellings.Add(canonicalDisplay);
+            authenticatedSpellings.Add(allocatedName);
+            allocatedLocalNames.Add(allocatedName);
+            return allocatedName;
         }
 
         return trimmed;
@@ -1355,6 +1406,8 @@ static class TsTypeMapper
         ApiAssemblyIdentity? containingAssembly)
     {
         if (containingAssembly is null
+            || string.IsNullOrEmpty(containingAssembly.Name)
+            || containingAssembly.Version is null
             || type.Resolution?.Origin is not TypeReferenceOrigin origin)
         {
             return false;
@@ -1369,9 +1422,11 @@ static class TsTypeMapper
         {
             TypeReferenceOrigin.CurrentAssembly current =>
                 current.Assembly is not null
+                && current.Assembly.Version is not null
                 && current.Assembly.IsEquivalentTo(expected),
             TypeReferenceOrigin.AssemblyReference reference =>
-                reference.Assembly.IsEquivalentTo(expected),
+                reference.Assembly.Version is not null
+                && reference.Assembly.IsEquivalentTo(expected),
             _ => false,
         };
     }

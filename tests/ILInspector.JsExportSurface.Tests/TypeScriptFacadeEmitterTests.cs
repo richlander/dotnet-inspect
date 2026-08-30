@@ -164,6 +164,84 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_DoesNotRebindAuthenticatedDelegatePayloadThroughLocalAlias()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var localDateTime = new ApiType
+        {
+            Namespace = "System",
+            Name = "DateTime",
+            Kind = "class",
+        };
+        var function = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "Observe",
+            RuntimeDispatchKey = "Observe.-42",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Callback",
+                    Type = "System.Action<System.DateTime>",
+                    TypeReferences =
+                    [
+                        new ApiTypeReferenceIdentity(
+                            assembly,
+                            "System.DateTime"),
+                    ],
+                },
+            ],
+            DelegateParameters =
+            [
+                new JsExportDelegateParameter
+                {
+                    ParameterIndex = 0,
+                    Kind = JsExportDelegateKind.Action,
+                    ParameterTypes =
+                    [
+                        TypeRef.CoreLib("System", "DateTime"),
+                    ],
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Functions = [function],
+                Records = [localDateTime],
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule,
+            diagnostics);
+
+        Assert.Contains(
+            """
+            readonly "Observe.-42": (callback: (arg0: unknown) => undefined) => void;
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function observe("
+                + "callback: (arg0: unknown) => undefined): void",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Observe.Callback");
+    }
+
+    [Fact]
     public void Emit_ModelsTerminalSingleFlightInitializationAndSeparateEntryPoint()
     {
         string source = TypeScriptFacadeEmitter.Emit(

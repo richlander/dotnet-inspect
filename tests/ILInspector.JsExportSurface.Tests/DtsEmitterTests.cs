@@ -258,6 +258,42 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_RejectsDelegateRecordWithIncompleteAssemblyIdentity()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            version: null,
+            culture: null,
+            publicKeyToken: null);
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                    Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction(assembly),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void Emit_RejectsNullableDelegateValueTypeWithoutWrapper()
     {
         var diagnostics = new TsBindGenDiagnostics();

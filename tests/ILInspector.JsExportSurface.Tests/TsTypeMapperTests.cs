@@ -294,6 +294,60 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
+    public void MapParameterType_DoesNotRebindAuthenticatedFrameworkPayloadThroughAlias()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var mappedTypeNames = new Dictionary<string, string>(
+            StringComparer.Ordinal)
+        {
+            ["System.DateTime"] = "LocalDateTime",
+        };
+
+        Assert.Equal(
+            "(arg0: unknown) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<System.DateTime>",
+                new HashSet<string>(
+                    ["System.DateTime"],
+                    StringComparer.Ordinal),
+                diagnostics,
+                "Observe.callback",
+                mappedTypeNames: mappedTypeNames,
+                delegateParameter: ActionParameter(
+                    TypeRef.CoreLib("System", "DateTime"))));
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsIncompleteLocalAssemblyIdentity()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            version: null,
+            culture: null,
+            publicKeyToken: null);
+        var context = new TsDelegateMappingContext(
+            new HashSet<string>(["Mine.Payload"], StringComparer.Ordinal),
+            new Dictionary<
+                MetadataTypeDefinitionName,
+                TsLocalTypeKind>
+            {
+                [DefinitionName("Mine", "Payload")] =
+                    TsLocalTypeKind.Reference,
+            },
+            assembly);
+
+        AssertDelegateRejected(
+            "System.Action<Mine.Payload>",
+            ActionParameter(
+                ResolvedType(
+                    assembly,
+                    "Mine",
+                    "Payload")),
+            context);
+    }
+
+    [Fact]
     public void MapParameterType_RejectsDelegateFactsBeyondSdkArity()
     {
         TypeRef intType = TypeRef.CoreLib("System", "Int32");

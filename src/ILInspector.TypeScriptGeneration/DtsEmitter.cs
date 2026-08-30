@@ -321,7 +321,16 @@ static class DtsEmitter
         var delegateMappingContext = new TsDelegateMappingContext(
             knownTypeNames,
             localTypeKinds,
-            surface.AssemblyIdentity);
+            surface.AssemblyIdentity,
+            declarationTypes
+                .Where(type => type.DefinitionName is not null)
+                .ToDictionary(
+                    type => type.DefinitionName!,
+                    type => AllocatedTypeName(
+                        type,
+                        allocatedTypeNames),
+                    EqualityComparer<
+                        MetadataTypeDefinitionName>.Default));
         var aliases = new Dictionary<string, string>(
             StringComparer.Ordinal);
         foreach (IGrouping<string, ApiType> group in declarationTypes
