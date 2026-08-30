@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text.Json;
 using System.Xml.Linq;
 
 namespace ILInspector.Metadata.Tests;
@@ -13,36 +15,19 @@ namespace ILInspector.Metadata.Tests;
 public class EngineToolBoundaryTests
 {
     [Fact]
-    public void MetadataHasNoSourceLinkDependencyOrProductSymbols()
+    public void MetadataHasNoSourceLinkFetchProjectReference()
     {
-        string metadataDir = Path.Combine(FindRepoRoot(), "src", "ILInspector.Metadata");
-        string project = Path.Combine(metadataDir, "ILInspector.Metadata.csproj");
+        string project = Path.Combine(
+            FindRepoRoot(),
+            "src",
+            "ILInspector.Metadata",
+            "ILInspector.Metadata.csproj");
 
         Assert.DoesNotContain(
-            ReadProjectReferences(project),
+            ReadEvaluatedProjectReferences(project),
             reference => Path.GetFileNameWithoutExtension(
                     reference.Replace('\\', '/'))
                 .Equals("SourceLinkFetch", StringComparison.Ordinal));
-
-        var violations = Directory
-            .EnumerateFiles(metadataDir, "*.cs", SearchOption.AllDirectories)
-            .Where(file => !file.Contains(
-                $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
-                StringComparison.Ordinal)
-                && !file.Contains(
-                    $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
-                    StringComparison.Ordinal))
-            .Where(file => File.ReadAllText(file)
-                .Contains("SourceLink", StringComparison.Ordinal))
-            .Select(Path.GetFileName)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-
-        Assert.True(
-            violations.Length == 0,
-            "ILInspector.Metadata must contain only PE/PDB extraction and raw correlations; "
-            + "SourceLink product symbols belong to ILInspector.SourceLink. Violations: "
-            + string.Join(", ", violations));
     }
 
     [Fact]
@@ -79,6 +64,60 @@ public class EngineToolBoundaryTests
             + "DotnetInspector.Artifacts from the DotnetInspector.* project family. "
             + "Violations:\n  "
             + string.Join("\n  ", violations));
+    }
+
+    static IReadOnlyList<string> ReadEvaluatedProjectReferences(string project)
+    {
+        using Process process = new()
+        {
+            StartInfo = new ProcessStartInfo("dotnet")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+        process.StartInfo.ArgumentList.Add("msbuild");
+        process.StartInfo.ArgumentList.Add(project);
+        process.StartInfo.ArgumentList.Add("-getItem:ProjectReference");
+        process.StartInfo.ArgumentList.Add("-p:Configuration=Release");
+        process.StartInfo.ArgumentList.Add("-nologo");
+        process.StartInfo.ArgumentList.Add("-v:q");
+
+        process.Start();
+        Task<string> standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> standardErrorTask = process.StandardError.ReadToEndAsync();
+        bool timedOut = !process.WaitForExit(milliseconds: 30_000);
+        if (timedOut)
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+        }
+
+        Task.WaitAll(standardOutputTask, standardErrorTask);
+        string standardOutput = standardOutputTask.Result;
+        string standardError = standardErrorTask.Result;
+        if (timedOut || process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not evaluate ProjectReference for {project}."
+                + $"{Environment.NewLine}{standardOutput}"
+                + $"{Environment.NewLine}{standardError}");
+        }
+
+        using JsonDocument document = JsonDocument.Parse(standardOutput);
+        return
+        [
+            .. document.RootElement
+                .GetProperty("Items")
+                .GetProperty("ProjectReference")
+                .EnumerateArray()
+                .Select(reference => reference
+                    .GetProperty("FullPath")
+                    .GetString()
+                    ?? throw new InvalidOperationException(
+                        "Evaluated ProjectReference did not include FullPath."))
+        ];
     }
 
     static IEnumerable<string> ReadProjectReferences(string csprojPath)

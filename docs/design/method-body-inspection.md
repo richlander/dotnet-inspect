@@ -319,10 +319,16 @@ exception-type assembly projections, and constructs the immutable
 output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
 gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
-unsafe/generated attribute judgments, token/member/type/field/calli/value-type
-and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `LibraryBodyStableReceiverGetterClassifier` owns the narrow
-PE-backed readonly-field getter judgment and its acquisition-scoped cache;
+memory-safety opt-in and unsafe/generated attribute judgments,
+token/member/type/field/calli/value-type and delegate facts,
+async-state-machine caching, and the narrow resolver adapters. The assembly
+builder consumes its method identities, while the result accumulator publishes
+the same memory-safety judgment.
+`CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn` and
+`CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn` gate the legacy
+and updated-rule states. `LibraryBodyStableReceiverGetterClassifier` owns the
+narrow PE-backed readonly-field getter judgment and its acquisition-scoped
+cache;
 `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
 the optimization adapter shares one classification. The classifier does not
 own optimization policy or general method-body scheduling.
@@ -334,6 +340,14 @@ selection or opportunity policy.
 `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
 `OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
 judgments.
+`LibraryBodyGeneratedProvenanceClassifier` owns primary-image
+source-generated type/enclosing-type classification and its acquisition-scoped
+ancestry cache. It consumes the primary resolver's generated-code attribute
+judgment, while the assembly builder retains scheduling and the async-source
+resolver retains source mapping.
+`OptimizationOpportunities_SuppressesSourceGeneratedTypes` and
+`OptimizationOpportunities_SourceGeneratedAncestryIsClassifiedOncePerType`
+gate suppression and shared classification.
 `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work

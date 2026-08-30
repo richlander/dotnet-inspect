@@ -232,7 +232,6 @@ this population matches only that one interface.
 Each invariant below names the gate that enforces it, or is marked
 `unverified`, per
 [`Asserted properties name their gate`](../evidence-and-validation.md#asserted-properties-name-their-gate).
-References to #4835 describe proposed evidence, not gates on `main`.
 
 ### C1 — Totality
 
@@ -247,11 +246,16 @@ it answers for a machine that genuinely has no claim. Nothing *inside* the
 index separates those two cases. Totality is therefore only checkable against a
 population computed without the index, which is what C6 requires.
 
-Gate: `unverified` on `main`. #4835 proposes an own-build-output check that
-recomputes the population independently and requires `Structural == Resolved`
-with no rejections or absences. That would cover only corpora in which every
-machine is expected to resolve; it would not exercise the absent or rejected
-columns.
+Gate: `unverified` as stated.
+`StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralAsyncStateMachineIsAuthenticated`,
+`StateMachineCompletenessTests.Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated`,
+and
+`StateMachineCompletenessTests.CoreLibrary_EveryStructuralAsyncStateMachineIsAuthenticated`
+provide narrower implementation evidence. They independently recount
+structural machines in deterministic build outputs and require
+`Structural == Resolved` with no rejections or absences. They cover only
+populations in which every machine is expected to resolve; the absent and
+rejected columns remain unverified.
 
 ### C2 — Keyed failure queries are never success-shaped
 
@@ -293,11 +297,12 @@ can retain a claim while losing required role evidence, producing per-claim
 refusal rather than whole-module failure. Making that refusal total does not
 change which failure path produced it.
 
-Gate: `unverified`. #4835 proposes exactly that total per-claim fixture; it is
-useful negative evidence for a completeness sweep, not a C3 gate. C2's budget
-gates do reach the whole-module path, but each inspects one kickoff rather than
-the whole module. No current test asserts that a global failure rejects every
-machine.
+Gate: `unverified`.
+`StateMachineCompletenessTests.Sweep_RejectedStateMachine_FailsTheSweep`
+provides the total per-claim negative control; it is evidence for the sweep,
+not a C3 gate. C2's budget gates reach the whole-module path, but each inspects
+one kickoff rather than the whole module. No current test asserts that a global
+failure rejects every machine.
 
 ### C4 — `Failure.Kind` does not identify the cause
 
@@ -369,8 +374,14 @@ This is what keeps C1 from being self-certifying, and per C1 it is not optional
 garnish: a consumer that asked the index for both the population and the
 classification could not detect a lost row at all.
 
-Gate: `unverified` on `main`. #4835 proposes a raw-metadata population recount
-that shares no code with the index.
+Gate: partial.
+`StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralAsyncStateMachineIsAuthenticated`,
+`StateMachineCompletenessTests.Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated`,
+and
+`StateMachineCompletenessTests.CoreLibrary_EveryStructuralAsyncStateMachineIsAuthenticated`
+recount the population from raw metadata without index discovery. The recount
+recognizes `TypeReference` and `TypeDefinition` interface encodings;
+`TypeSpecification` remains `unverified`.
 
 ### Model
 

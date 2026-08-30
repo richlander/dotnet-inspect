@@ -194,6 +194,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
   interaction grammar, and visual composition rules.
+- [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
+  viewer-local disclosure, actions, selection, annotations, media, Escape, and
+  focus inside the embedded reader and modal viewer.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.
@@ -221,6 +224,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   normalized endpoint and path-redaction handoffs; package composition, cache
   authority, presentation, and post-return stream failures remain with their
   focused owners.
+- [NuGetFetch operation deadlines](design/browser-package-sources.md#timeout-ownership):
+  one reusable monotonic operation context, nested request deadlines, typed
+  timeout identity, and source-safe post-return stream failures. It consumes
+  source-result identity; source eligibility, failover policy, cache behavior,
+  and presentation remain with their focused owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

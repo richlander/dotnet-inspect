@@ -227,6 +227,9 @@ SKILLS=false
 DECOMPILER_SKIP_PROJECTS_READY=true
 DECOMPILER_SKIP_PROJECTS=()
 DECOMPILER_SKIP_PROJECTS_FILE=eng/decompiler-gate-skip-projects.txt
+WEB_PROJECTS_READY=true
+WEB_PROJECTS=()
+WEB_PROJECTS_FILE=eng/inspect-web-gate-projects.txt
 if [ ! -f "$DECOMPILER_SKIP_PROJECTS_FILE" ]; then
   DECOMPILER_SKIP_PROJECTS_READY=false
 else
@@ -248,12 +251,51 @@ fi
 if [ "$DECOMPILER_SKIP_PROJECTS_READY" != "true" ]; then
   echo "::warning title=Decompiler change filter fell back::Could not load $DECOMPILER_SKIP_PROJECTS_FILE; no source, test, or tool project will be exempted from decompiler gates."
 fi
+if [ ! -f "$WEB_PROJECTS_FILE" ]; then
+  WEB_PROJECTS_READY=false
+else
+  while IFS= read -r project || [ -n "$project" ]; do
+    case "$project" in
+      src/*) ;;
+      *) WEB_PROJECTS_READY=false; break ;;
+    esac
+    case "/$project/" in
+      *"//"*|*"/./"*|*"/../"*) WEB_PROJECTS_READY=false; break ;;
+    esac
+    if [ ! -d "$project" ]; then
+      WEB_PROJECTS_READY=false
+      break
+    fi
+    WEB_PROJECTS+=("$project/")
+  done < "$WEB_PROJECTS_FILE"
+  if [ "${#WEB_PROJECTS[@]}" -eq 0 ]; then
+    WEB_PROJECTS_READY=false
+  fi
+fi
+if [ "$WEB_PROJECTS_READY" != "true" ]; then
+  echo "::warning title=Inspect Web change filter fell back::Could not load $WEB_PROJECTS_FILE; every src change will run the Browser/Wasm lane."
+fi
 skips_decompiler_project() {
   if [ "$DECOMPILER_SKIP_PROJECTS_READY" != "true" ]; then
     return 1
   fi
   local project
   for project in "${DECOMPILER_SKIP_PROJECTS[@]}"; do
+    case "$1" in
+      "$project"*) return 0 ;;
+    esac
+  done
+  return 1
+}
+is_web_project_path() {
+  if [ "$WEB_PROJECTS_READY" != "true" ]; then
+    case "$1" in
+      src/*) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+  local project
+  for project in "${WEB_PROJECTS[@]}"; do
     case "$1" in
       "$project"*) return 0 ;;
     esac
@@ -274,14 +316,19 @@ while IFS= read -r -d '' file; do
     SKILLS=true
     continue
   fi
+  if is_web_project_path "$file"; then
+    CODE=true
+    WEB=true
+  fi
   case "$file" in
     # The browser engine is a real product consumer, so changes in its product dependency
     # graph must compile it as well as the solution. Test hosts, CLI-only projects, and
     # unrelated tools stay on the regular code lane.
-    src/UnionPolyfill.cs|src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
-    src/tsbindgen/*) CODE=true; WEB=true ;;
+    src/NetworkDestinationPolicy.cs|src/UnionPolyfill.cs) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
     tests/ILInspector.MetadataPrimitives.PlatformProbe/*) CODE=true; WEB=true ;;
+    tests/ILInspector.JsExportSurface.TypeScriptFixtures/*) CODE=true; WEB=true ;;
+    tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/*) CODE=true; WEB=true ;;
     tests/*) CODE=true ;;
     tools/DecompilerHarness/*.md|tools/DecompilerHarness/*.txt) ;;
     tools/DecompilerHarness/*) CODE=true ;;
@@ -289,6 +336,7 @@ while IFS= read -r -d '' file; do
     # classifier gate and its pinned prerequisites. Editing either must run
     # the product test lane as well as executing the gate here in `changes`.
     eng/test-ci-change-detection.cs) CODE=true ;;
+    eng/inspect-web-gate-projects.txt) CODE=true; WEB=true ;;
     eng/CiChangeDetection/PromotionWorkflowContract.cs) CODE=true; WEB=true ;;
     eng/CiChangeDetection/*) CODE=true ;;
     # Package fixture inputs are executable test evidence. The fast CLI test
@@ -323,6 +371,7 @@ while IFS= read -r -d '' file; do
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
     eng/run-method-semantics-platform-probe.sh) CODE=true; WEB=true ;;
+    eng/test-ts-jsexport-typescript.sh) WEB=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
     eng/generate-inspect-web-engine-dts.sh) WEB=true ;;

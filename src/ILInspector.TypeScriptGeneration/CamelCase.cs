@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace tsbindgen;
+namespace ILInspector.TypeScriptGeneration;
 
 /// <summary>
 /// Converts a PascalCase C# identifier to camelCase, matching the
