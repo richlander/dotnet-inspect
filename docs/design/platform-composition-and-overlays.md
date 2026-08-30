@@ -124,7 +124,7 @@ This deterministic product rule replaces hostfxr's argument-order-dependent
 choice for that case.
 
 The final selected graph and failure are independent of dependency, family,
-version-directory, library, and runtime-asset enumeration order. It contains
+version-directory, library, and participating-asset enumeration order. It contains
 only dependencies reachable under the final reconciled references; dependencies
 unique to a superseded selection do not survive. Cycles, duplicate
 same-configuration references, incompatible requirements, or missing
@@ -134,7 +134,7 @@ Resolution operates over finite bounded inventories and manifest graphs. It
 must produce one fixed result or typed failure within the resolution-work
 budget; this contract does not prescribe the fixed-point strategy.
 
-Each selected runtime member must be one contained regular file, classify as a
+Each selected platform member must be one contained regular file, classify as a
 supported ECMA-335 assembly rather than native content, a netmodule, Windows
 Metadata, or malformed metadata, and have assembly inspection's canonical
 `AssemblyReferenceIdentity`. Distinct coordinates with one canonical assembly
