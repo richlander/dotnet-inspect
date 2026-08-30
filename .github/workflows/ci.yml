@@ -209,6 +209,9 @@ jobs:
       - name: Check generated inspect-web-engine surface for drift
         run: eng/generate-inspect-web-engine-dts.sh --check
 
+      - name: Typecheck generated ts-jsexport facade
+        run: eng/test-ts-jsexport-typescript.sh
+
       - name: Publish browser app
         run: >
           dotnet publish
@@ -264,6 +267,16 @@ jobs:
           dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
           test -n "$dotnet_module"
           test -f "$site/_framework/$dotnet_module"
+          for host_only in \
+            ILInspector.JsExportSurface \
+            ILInspector.TypeScriptGeneration \
+            ts-jsexport; do
+            if find "$site/_framework" -maxdepth 1 -type f \
+              -iname "$host_only.*" -print -quit | grep -q .; then
+              echo "Host-only generator artifact reached the browser: $host_only" >&2
+              exit 1
+            fi
+          done
           import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
           module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
           test "$import_map_line" -lt "$module_line"
@@ -537,6 +550,44 @@ jobs:
           do
             if ! grep -Fq "method=\"$method\"" "$results"; then
               echo "::error::JSExport runtime-async wire gate '$method' did not run." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run ts-jsexport generator acceptance gates
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/ts-jsexport-generator-tests.xml"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
+            -xml "$results"
+          for class in \
+            ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
+            ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
+          do
+            if ! grep -Fq "type=\"$class\"" "$results"; then
+              echo "::error::ts-jsexport generator gate '$class' selected no tests." >&2
+              exit 1
+            fi
+          done
+          negative_results="$RUNNER_TEMP/ts-jsexport-negative-tests.xml"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            -method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
+            -method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
+            -method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
+            -xml "$negative_results"
+          for method in \
+            Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
+            Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling \
+            GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence
+          do
+            if ! grep -Fq "method=\"$method\"" "$negative_results"; then
+              echo "::error::ts-jsexport negative gate '$method' did not run." >&2
               exit 1
             fi
           done

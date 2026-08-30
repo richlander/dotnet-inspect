@@ -14,15 +14,15 @@ public sealed class JsonNamingPoliciesTests
     {
         Assert.Equal(
             JsonNamingPolicy.SnakeCaseLower.ConvertName(name),
-            tsbindgen.JsonNamingPolicies.SnakeCaseLower(name));
+            JsonNamingPolicies.SnakeCaseLower(name));
         Assert.Equal(
             JsonNamingPolicy.SnakeCaseUpper.ConvertName(name),
-            tsbindgen.JsonNamingPolicies.SnakeCaseUpper(name));
+            JsonNamingPolicies.SnakeCaseUpper(name));
         Assert.Equal(
             JsonNamingPolicy.KebabCaseLower.ConvertName(name),
-            tsbindgen.JsonNamingPolicies.KebabCaseLower(name));
+            JsonNamingPolicies.KebabCaseLower(name));
         Assert.Equal(
             JsonNamingPolicy.KebabCaseUpper.ConvertName(name),
-            tsbindgen.JsonNamingPolicies.KebabCaseUpper(name));
+            JsonNamingPolicies.KebabCaseUpper(name));
     }
 }

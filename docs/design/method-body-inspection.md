@@ -319,10 +319,16 @@ exception-type assembly projections, and constructs the immutable
 output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
 gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
-unsafe/generated attribute judgments, token/member/type/field/calli/value-type
-and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `LibraryBodyStableReceiverGetterClassifier` owns the narrow
-PE-backed readonly-field getter judgment and its acquisition-scoped cache;
+memory-safety opt-in and unsafe/generated attribute judgments,
+token/member/type/field/calli/value-type and delegate facts,
+async-state-machine caching, and the narrow resolver adapters. The assembly
+builder consumes its method identities, while the result accumulator publishes
+the same memory-safety judgment.
+`CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn` and
+`CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn` gate the legacy
+and updated-rule states. `LibraryBodyStableReceiverGetterClassifier` owns the
+narrow PE-backed readonly-field getter judgment and its acquisition-scoped
+cache;
 `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
 the optimization adapter shares one classification. The classifier does not
 own optimization policy or general method-body scheduling.

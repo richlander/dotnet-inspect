@@ -509,7 +509,7 @@ what the invariants *require* are normative regardless.
 A TLA+ model is not the right instrument here, and the repository's existing
 model is the useful contrast.
 [`docs/models/package-realization-admission/`](../models/package-realization-admission/README.md)
-models coordinate-keyed admission and lease-scoped lifetime: genuinely
+models exact-request-keyed admission and lease-scoped lifetime: genuinely
 stateful, concurrent, and full of interleavings a test cannot enumerate. That
 is what TLA+ is for.
 

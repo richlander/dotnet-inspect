@@ -241,7 +241,7 @@ internal static class EcosystemIntegrationProjection
     {
         foreach (var api in OrderApis(bucket.Apis))
             results.Add(new EcosystemIntegrationSignalInfo(
-                bucket.Integration,
+                bucket.Concept,
                 bucket.Apis[api],
                 api,
                 IntegrationSignalShape.Api)
@@ -256,7 +256,7 @@ internal static class EcosystemIntegrationProjection
 
         foreach (var type in OrderTypes(bucket.Types))
             results.Add(new EcosystemIntegrationSignalInfo(
-                bucket.Integration,
+                bucket.Concept,
                 bucket.Kinds.TryGetValue(type, out var kind) ? kind : bucket.ApiKind,
                 TypeResolver.FormatDisplayName(type))
             {
@@ -350,9 +350,11 @@ internal static class EcosystemIntegrationProjection
             _ => 10,
         };
 
-    private sealed class IntegrationBucket(string integration, string apiKind)
+    private sealed class IntegrationBucket(
+        IntegrationConceptDescriptor concept,
+        string apiKind)
     {
-        public string Integration { get; } = integration;
+        public IntegrationConceptDescriptor Concept { get; } = concept;
         public string ApiKind { get; } = apiKind;
         public Dictionary<string, string> Apis { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, List<EcosystemIntegrationApiEvidence>>
@@ -418,28 +420,28 @@ internal static class EcosystemIntegrationProjection
 
         public static IntegrationBuckets Create() => new()
         {
-            AspNetCore = new IntegrationBucket(EcosystemIntegrationNames.AspNetCore, "ASP.NET Core"),
-            Aspire = new IntegrationBucket(EcosystemIntegrationNames.Aspire, "Aspire"),
-            AIChat = new IntegrationBucket(EcosystemIntegrationNames.AI, "Chat"),
-            AIEmbeddings = new IntegrationBucket(EcosystemIntegrationNames.AI, "Embeddings"),
-            AIImages = new IntegrationBucket(EcosystemIntegrationNames.AI, "Images"),
-            AIRealtime = new IntegrationBucket(EcosystemIntegrationNames.AI, "Realtime"),
-            AIHosting = new IntegrationBucket(EcosystemIntegrationNames.AI, "Hosting"),
-            AISpeechToText = new IntegrationBucket(EcosystemIntegrationNames.AI, "Speech to Text"),
-            AITextToSpeech = new IntegrationBucket(EcosystemIntegrationNames.AI, "Text to Speech"),
-            AITools = new IntegrationBucket(EcosystemIntegrationNames.AI, "Tools"),
-            AIHostedFiles = new IntegrationBucket(EcosystemIntegrationNames.AI, "Hosted Files"),
-            AIBuilder = new IntegrationBucket(EcosystemIntegrationNames.AI, "Builder"),
-            AIConfiguration = new IntegrationBucket(EcosystemIntegrationNames.AI, "Configuration"),
-            Authentication = new IntegrationBucket(EcosystemIntegrationNames.Authentication, "Authentication"),
-            Configuration = new IntegrationBucket(EcosystemIntegrationNames.Configuration, "Configuration"),
-            DependencyInjection = new IntegrationBucket(EcosystemIntegrationNames.DependencyInjection, "Dependency Injection"),
-            Logging = new IntegrationBucket(EcosystemIntegrationNames.Logging, "Logging"),
-            OpenApi = new IntegrationBucket(EcosystemIntegrationNames.OpenAPI, "OpenAPI"),
-            Options = new IntegrationBucket(EcosystemIntegrationNames.Options, "Options"),
-            Hosting = new IntegrationBucket(EcosystemIntegrationNames.Hosting, "Hosting"),
-            HealthChecks = new IntegrationBucket(EcosystemIntegrationNames.HealthChecks, "Health Check"),
-            HttpClient = new IntegrationBucket(EcosystemIntegrationNames.HttpClient, "HTTP Client")
+            AspNetCore = new IntegrationBucket(IntegrationConceptCatalog.AspNetCore, "ASP.NET Core"),
+            Aspire = new IntegrationBucket(IntegrationConceptCatalog.Aspire, "Aspire"),
+            AIChat = new IntegrationBucket(IntegrationConceptCatalog.AI, "Chat"),
+            AIEmbeddings = new IntegrationBucket(IntegrationConceptCatalog.AI, "Embeddings"),
+            AIImages = new IntegrationBucket(IntegrationConceptCatalog.AI, "Images"),
+            AIRealtime = new IntegrationBucket(IntegrationConceptCatalog.AI, "Realtime"),
+            AIHosting = new IntegrationBucket(IntegrationConceptCatalog.AI, "Hosting"),
+            AISpeechToText = new IntegrationBucket(IntegrationConceptCatalog.AI, "Speech to Text"),
+            AITextToSpeech = new IntegrationBucket(IntegrationConceptCatalog.AI, "Text to Speech"),
+            AITools = new IntegrationBucket(IntegrationConceptCatalog.AI, "Tools"),
+            AIHostedFiles = new IntegrationBucket(IntegrationConceptCatalog.AI, "Hosted Files"),
+            AIBuilder = new IntegrationBucket(IntegrationConceptCatalog.AI, "Builder"),
+            AIConfiguration = new IntegrationBucket(IntegrationConceptCatalog.AI, "Configuration"),
+            Authentication = new IntegrationBucket(IntegrationConceptCatalog.Authentication, "Authentication"),
+            Configuration = new IntegrationBucket(IntegrationConceptCatalog.Configuration, "Configuration"),
+            DependencyInjection = new IntegrationBucket(IntegrationConceptCatalog.DependencyInjection, "Dependency Injection"),
+            Logging = new IntegrationBucket(IntegrationConceptCatalog.Logging, "Logging"),
+            OpenApi = new IntegrationBucket(IntegrationConceptCatalog.OpenAPI, "OpenAPI"),
+            Options = new IntegrationBucket(IntegrationConceptCatalog.Options, "Options"),
+            Hosting = new IntegrationBucket(IntegrationConceptCatalog.Hosting, "Hosting"),
+            HealthChecks = new IntegrationBucket(IntegrationConceptCatalog.HealthChecks, "Health Check"),
+            HttpClient = new IntegrationBucket(IntegrationConceptCatalog.HttpClient, "HTTP Client")
         };
     }
 

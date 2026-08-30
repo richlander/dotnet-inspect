@@ -34,13 +34,17 @@ public static class PackageSourceCoordinateResolver
     public static async Task<PackageSourceCoordinateResolution> ResolveAsync(
         IPackageSourceClient source,
         PackageCoordinate coordinate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(coordinate);
         if (PackageCoordinateResolver.Validate(coordinate) is { } invalid)
             return new PackageSourceCoordinateResolution.Invalid(invalid.Message);
 
+        cancellationToken = operationContext?.ResolveInvocationToken(
+            cancellationToken) ?? cancellationToken;
+        operationContext?.ThrowIfExpired();
         if (coordinate.Version is { } exactVersion)
         {
             return new PackageSourceCoordinateResolution.Resolved(
@@ -55,7 +59,8 @@ public static class PackageSourceCoordinateResolver
                 $"packageid:{coordinate.PackageId}",
                 take: 20,
                 prerelease: false,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
         if (search is PackageSourceOperationResult<PackageSearchResult>.Failed failed)
             return new PackageSourceCoordinateResolution.Failed(failed.Failure);
 

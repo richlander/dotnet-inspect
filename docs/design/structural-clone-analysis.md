@@ -285,6 +285,96 @@ errors, unsupported seeds, cross-image artifact-scoped identities, candidate
 metadata failure, same-MVID collision handling across separate readers, and the
 separation between ranking score and relationship.
 
+`AssemblyContextStructuralCloneRetrievalQuery` binds one exact seed and one
+explicit type or whole-assembly candidate population to workspace-retained
+content. Queries owns participant acquisition, exact metadata selection, and
+the lifetime of the same-image or independent cross-image readers. It calls
+one mutually exclusive `RetrieveSimilar` path and returns the complete product
+result unchanged beside the selected assembly subjects. The exactly-once call
+count is unverified beyond direct inspection. It does not add ranking,
+comparison, correspondence, semantic, provenance, or vulnerability
+conclusions. Query-owned exact selection uses Metadata safety ceilings for
+cumulative name, member-anchor, method-row, decode-failure, and attribute work;
+selection-budget exhaustion, rejected attribute-constructor type metadata,
+undecodable candidate type names beyond the decode-failure ceiling, and a
+TypeDef method range set that does not cover the MethodDef table exactly once
+are typed pre-retrieval metadata failures. Queries establishes that ownership
+invariant once per image, before any seed or population is resolved, so
+Analysis's own argument guards stay a backstop for programming errors rather
+than a reporting path for malformed input. Enforcing ownership once is what
+makes the guarantee independent of which projection path a caller takes; the
+pass costs 1.6 ms on `System.Private.CoreLib` (2,630 types, 38,508 methods).
+The
+`Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget`,
+`Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget`,
+`Execute_RejectedTypeSpecificationAttributeIsVisible`,
+`Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection`,
+`Execute_DuplicateProjectedMethodRowIsAVisibleRejection`,
+`Execute_WholeAssemblyDuplicateProjectionIsAVisibleRejection`,
+`Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection`,
+`Execute_OutOfRangeMethodProjectionIsAVisibleRejection`,
+`Execute_DuplicateProjectionSeedMemberIsAMetadataRejection`,
+`Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection`,
+`Execute_MalformedMethodRangeIsAVisibleRejection`,
+`Execute_UncoveredMethodPtrRowIsAVisibleRejection`,
+`Execute_TypeDeflessImageIsAVisibleRejection`, and
+`Execute_DescendingMethodListIsAVisibleRejection` gates cover those boundaries.
+Removing the ownership check fails seven of them; removing the `MethodPtr`
+row-count, TypeDef-presence, and `MethodList` ordering guards each fails one
+more.
+
+Covering the MethodDef table does not by itself prove the `MethodPtr` table is
+a permutation of it, because a row that no TypeDef range reaches is never
+projected and so is never checked. Such a row still changes what the reader
+reports for a reachable method, since declaring-type lookup scans `MethodPtr`
+for the first row naming a MethodDef and can land on the uncovered row.
+Requiring equal row counts closes that gap: with every projected row distinct,
+in range, and covering the MethodDef table, equal counts leave no `MethodPtr`
+row uncovered.
+
+Coverage is also blind to range *order*. SRM reports a descending range as
+empty rather than as an error, so a TypeDef whose `MethodList` start exceeds
+the following TypeDef's start contributes nothing to the projection while a
+later row still covers the table on its own. The column is therefore read
+directly and required to be non-decreasing and in range. SRM exposes no
+`MethodList` accessor, but the column is the final TypeDef field and its width
+follows SRM's own rule, so public table geometry locates it without parsing the
+metadata header. That check accepts all 41,085 sampled assemblies, 9 of which
+exercise the four-byte index width.
+
+Ordering is required, but a *null* start is not a violation of it. ECMA-335
+II.22.37 permits a null `MethodList`, and the reader projects such a run as
+empty, so the column may legally begin at zero. The ordering floor therefore
+starts at zero rather than one. A null that follows a populated run still
+fails, because it would leave the column unsorted for declaring-type lookup,
+and a null that actually drops methods still fails coverage.
+`Execute_NullMethodListIsNotRejected` gates that a legal null run is not
+reported as malformed metadata.
+
+Resolving the exact seed member has a matching obligation. A sibling MethodDef
+whose anchor cannot be decoded is not evidence that it names a different
+member, so a lone healthy match does not establish uniqueness and must not be
+reported as resolved. `Execute_RejectedSeedSiblingIsAVisibleRejection` gates
+that a rejected sibling surfaces as a metadata failure rather than a confident
+result that a successful decode might have made ambiguous.
+
+The structural-name work budget bounds candidate scanning. Charging only the
+names compared understates it: a candidate whose leaf matches goes on to walk
+its declaring chain and scan the walked prefix for cycles, which is quadratic
+in chain depth. Two images with the same candidate count and the same charge,
+differing by 8 KB of nesting metadata, measured 28 ms and 1,399 ms — a 50-fold
+amplification of a budget that claimed to bound the work. Matching a leaf
+therefore charges the traversal ceiling as well. Real assemblies have ample
+headroom: the most any sampled assembly repeats a single leaf name is 435,
+against roughly 16,000 permitted by the budget.
+`Execute_RepeatedLeafNameChargesChainTraversal` gates the charge, and pins its
+fixture's declaring depth: a shallow fixture exhausts the same budget without
+ever walking a chain, so it would gate the charge's existence while leaving the
+traversal it is sized for unexercised. The gate constrains the charge's
+magnitude, not its position — removing the traversal term fails it, whereas
+moving the charge after the comparison does not, because that reordering costs
+at most one additional traversal rather than reopening the amplification.
+
 ## Correspondence and automorphisms
 
 Joint block/local refinement narrows possible correspondence classes until it

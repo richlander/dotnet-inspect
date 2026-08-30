@@ -4,9 +4,18 @@ internal static class InspectWebProjectGraphPolicy
 {
     private const string Manifest =
         "eng/inspect-web-gate-projects.txt";
+    private const string BrowserEngineProject =
+        "prototypes/inspect-web/engine/InspectWeb.Engine.csproj";
+    private static readonly string[] HostOnlyGeneratorProjects =
+    [
+        "src/ILInspector.JsExportSurface",
+        "src/ILInspector.TypeScriptGeneration",
+        "src/ts-jsexport",
+    ];
     private static readonly string[] RootProjects =
     [
-        "prototypes/inspect-web/engine/InspectWeb.Engine.csproj",
+        BrowserEngineProject,
+        "src/ts-jsexport/ts-jsexport.csproj",
         "src/tsbindgen/tsbindgen.csproj",
         "tests/DotnetInspector.Artifacts.Local.PlatformProbe/LocalPathAdmissionBrowserProbe.csproj",
         "tests/ILInspector.MetadataPrimitives.PlatformProbe/MethodSemanticsBrowserProbe.csproj",
@@ -60,6 +69,19 @@ internal static class InspectWebProjectGraphPolicy
                 "An evaluated inspect-web CI project graph did not contain "
                 + "its root or src dependency closure. Missing roots: ["
                 + string.Join(", ", missingRoots)
+                + "].");
+        }
+
+        string[] forbiddenBrowserDependencies = graphs[0]
+            .Intersect(HostOnlyGeneratorProjects, StringComparer.Ordinal)
+            .Order()
+            .ToArray();
+        if (forbiddenBrowserDependencies.Length != 0)
+        {
+            throw new InvalidOperationException(
+                $"{BrowserEngineProject} must not reference host-only "
+                + "TypeScript generator projects. Found: ["
+                + string.Join(", ", forbiddenBrowserDependencies)
                 + "].");
         }
 
