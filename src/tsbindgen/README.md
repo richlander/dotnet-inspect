@@ -70,8 +70,15 @@ TypeScript `void`, so the public callback contract does not intentionally
 accept Promise-returning functions. Delegate-looking C# text without the
 corresponding body-authenticated `JsExportDelegateParameter` fact remains
 diagnosed `unknown`; TypeScript does not reconstruct publication authority from
-display text. `MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
+display text. Every display argument must also correlate structurally with its
+authenticated `TypeRef`; display text contributes nullable spelling only after
+that check, and cannot replace payload identity or hide an authenticated async
+return. `MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
 `MapParameterType_MapsAuthenticatedFuncInManagedOrder`,
+`MapParameterType_AcceptsCorrelatedQualifiedDelegateTypes`,
+`MapParameterType_RejectsAuthenticatedIdentityMismatch`,
+`MapParameterType_RejectsUnqualifiedRecordAliasMismatch`,
+`MapParameterType_RejectsPromiseReturningDelegate`,
 `MapParameterType_DoesNotTrustDelegateLookingText`, and
 `Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes` gate the
 projection. Promise-returning delegates remain unsupported by the SDK source

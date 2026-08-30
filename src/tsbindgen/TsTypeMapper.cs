@@ -1,3 +1,4 @@
+using ILInspector.Analysis;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
@@ -387,7 +388,8 @@ static class TsTypeMapper
         IReadOnlySet<string>? blockedAliases)
     {
         bool nullable = csharpType.EndsWith("?", StringComparison.Ordinal);
-        string delegateType = nullable ? csharpType[..^1] : csharpType;
+        string delegateType = RemoveGlobalPrefix(
+            nullable ? csharpType[..^1] : csharpType);
         IReadOnlyList<string> genericArguments = [];
         bool recognized = delegateParameter.Kind switch
         {
@@ -424,7 +426,34 @@ static class TsTypeMapper
         }
 
         if (delegateParameter.ReturnType is not null
-            && IsAsyncReturnType(genericArguments[^1]))
+            && IsAsyncManagedType(delegateParameter.ReturnType))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? csharpType,
+                csharpType);
+            return "unknown";
+        }
+
+        for (int index = 0;
+            index < delegateParameter.ParameterTypes.Count;
+            index++)
+        {
+            if (!MatchesAuthenticatedType(
+                    genericArguments[index],
+                    delegateParameter.ParameterTypes[index],
+                    recordNames))
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? csharpType,
+                    csharpType);
+                return "unknown";
+            }
+        }
+        if (delegateParameter.ReturnType is not null
+            && !MatchesAuthenticatedType(
+                genericArguments[^1],
+                delegateParameter.ReturnType,
+                recordNames))
         {
             diagnostics?.ReportUnmappedType(
                 location ?? csharpType,
@@ -457,6 +486,234 @@ static class TsTypeMapper
         string functionType =
             $"({string.Join(", ", parameters)}) => {returnType}";
         return nullable ? $"({functionType}) | null" : functionType;
+    }
+
+    static bool MatchesAuthenticatedType(
+        string displayType,
+        TypeRef authenticatedType,
+        IReadOnlySet<string> recordNames)
+    {
+        string trimmed = RemoveGlobalPrefix(displayType.Trim());
+        if (trimmed.EndsWith("?", StringComparison.Ordinal))
+        {
+            string inner = trimmed[..^1].TrimEnd();
+            if (authenticatedType is
+                {
+                    Kind: TypeRefKind.GenericInstance,
+                    ElementType: { } nullableDefinition,
+                    TypeArguments: [var nullableArgument],
+                }
+                && IsType(
+                    nullableDefinition,
+                    "System",
+                    "Nullable`1"))
+            {
+                return MatchesAuthenticatedType(
+                    inner,
+                    nullableArgument,
+                    recordNames);
+            }
+
+            if (IsKnownValueTypeDefinition(authenticatedType))
+                return false;
+
+            return MatchesAuthenticatedType(
+                inner,
+                authenticatedType,
+                recordNames);
+        }
+
+        if (authenticatedType is
+            {
+                Kind: TypeRefKind.SzArray,
+                ElementType: { } arrayElement,
+            })
+        {
+            return trimmed.EndsWith("[]", StringComparison.Ordinal)
+                && MatchesAuthenticatedType(
+                    trimmed[..^2],
+                    arrayElement,
+                    recordNames);
+        }
+
+        if (authenticatedType is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType: { } genericDefinition,
+                TypeArguments: var authenticatedArguments,
+            })
+        {
+            if (!TryParseGenericType(
+                    trimmed,
+                    out string? displayDefinition,
+                    out IReadOnlyList<string> displayArguments)
+                || !MatchesDefinitionName(
+                    displayDefinition!,
+                    genericDefinition)
+                || displayArguments.Count
+                    != authenticatedArguments.Length)
+            {
+                return false;
+            }
+
+            for (int index = 0;
+                index < authenticatedArguments.Length;
+                index++)
+            {
+                if (!MatchesAuthenticatedType(
+                        displayArguments[index],
+                        authenticatedArguments[index],
+                        recordNames))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        if (authenticatedType.Kind != TypeRefKind.Definition
+            || !MatchesDefinitionName(trimmed, authenticatedType))
+        {
+            return false;
+        }
+
+        string displayLastSegment = LastSegment(trimmed);
+        if (!recordNames.Contains(trimmed)
+            && !recordNames.Contains(displayLastSegment))
+        {
+            return true;
+        }
+
+        return recordNames.Contains(
+            authenticatedType.ToQualifiedDisplayString());
+    }
+
+    static bool IsAsyncManagedType(TypeRef type)
+    {
+        if (type.Kind == TypeRefKind.Definition)
+        {
+            return IsType(
+                type,
+                "System.Threading.Tasks",
+                "Task")
+                || IsType(
+                    type,
+                    "System.Threading.Tasks",
+                    "ValueTask");
+        }
+
+        return type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { } definition,
+        }
+        && (IsType(
+                definition,
+                "System.Threading.Tasks",
+                "Task`1")
+            || IsType(
+                definition,
+                "System.Threading.Tasks",
+                "ValueTask`1"));
+    }
+
+    static bool MatchesDefinitionName(
+        string displayName,
+        TypeRef authenticatedType)
+    {
+        displayName = RemoveGlobalPrefix(displayName.Trim());
+        if (authenticatedType.Assembly == TypeRef.CoreLibrary
+            && authenticatedType.Namespace == "System")
+        {
+            string? alias = authenticatedType.Name switch
+            {
+                "Void" => "void",
+                "String" => "string",
+                "Boolean" => "bool",
+                "Char" => "char",
+                "Byte" => "byte",
+                "SByte" => "sbyte",
+                "Int16" => "short",
+                "UInt16" => "ushort",
+                "Int32" => "int",
+                "UInt32" => "uint",
+                "Int64" => "long",
+                "UInt64" => "ulong",
+                "Single" => "float",
+                "Double" => "double",
+                "Decimal" => "decimal",
+                "Object" => "object",
+                _ => null,
+            };
+            if (displayName == alias)
+                return true;
+        }
+
+        string simpleName = authenticatedType.Name;
+        int arity = simpleName.IndexOf('`');
+        if (arity >= 0)
+            simpleName = simpleName[..arity];
+        return displayName == simpleName
+            || displayName
+                == $"{authenticatedType.Namespace}.{simpleName}"
+            || displayName == authenticatedType.ToDisplayString()
+            || displayName
+                == authenticatedType.ToQualifiedDisplayString();
+    }
+
+    static bool IsType(
+        TypeRef type,
+        string expectedNamespace,
+        string expectedName) =>
+        type.Kind == TypeRefKind.Definition
+        && type.Assembly == TypeRef.CoreLibrary
+        && type.TrustedFrameworkAssembly
+        && type.Namespace == expectedNamespace
+        && type.Name == expectedName;
+
+    static bool IsKnownValueTypeDefinition(TypeRef type) =>
+        type.Kind == TypeRefKind.Definition
+        && type.Assembly == TypeRef.CoreLibrary
+        && type.Namespace == "System"
+        && type.Name is
+            "Boolean"
+            or "Char"
+            or "Byte"
+            or "SByte"
+            or "Int16"
+            or "UInt16"
+            or "Int32"
+            or "UInt32"
+            or "Int64"
+            or "UInt64"
+            or "Single"
+            or "Double"
+            or "Decimal";
+
+    static string RemoveGlobalPrefix(string typeName) =>
+        typeName.StartsWith("global::", StringComparison.Ordinal)
+            ? typeName["global::".Length..]
+            : typeName;
+
+    static bool TryParseGenericType(
+        string typeName,
+        out string? definition,
+        out IReadOnlyList<string> arguments)
+    {
+        int genericStart = typeName.IndexOf('<');
+        if (genericStart <= 0
+            || !typeName.EndsWith(">", StringComparison.Ordinal))
+        {
+            definition = null;
+            arguments = [];
+            return false;
+        }
+
+        definition = typeName[..genericStart].Trim();
+        return TrySplitGenericArguments(
+            typeName[(genericStart + 1)..^1],
+            out arguments);
     }
 
     static bool TrySplitTopLevelGenericArguments(
@@ -512,10 +769,17 @@ static class TsTypeMapper
             return false;
         }
 
+        return TrySplitGenericArguments(argumentText!, out arguments);
+    }
+
+    static bool TrySplitGenericArguments(
+        string argumentText,
+        out IReadOnlyList<string> arguments)
+    {
         var result = new List<string>();
         int depth = 0;
         int start = 0;
-        for (int index = 0; index < argumentText!.Length; index++)
+        for (int index = 0; index < argumentText.Length; index++)
         {
             switch (argumentText[index])
             {

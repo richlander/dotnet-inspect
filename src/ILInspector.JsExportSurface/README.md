@@ -236,6 +236,9 @@ publishes:
 - `Build_PublishesAuthenticatedSynchronousDelegateSignatures` — the unmodified
   compiled `Action` and `Func` controls publish their exact managed parameter
   and return shapes.
+- `TryGetDelegateShape_RejectsDecodedFourArgumentAction` — decoded callback
+  metadata beyond the SDK's three-parameter limit is not authenticated even
+  when its generic definition is otherwise `Action`.
 - `Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` — the positive
   control, a real source-generated context whose user partial adds an unrelated
   static `JsonSerializerOptions`.
@@ -253,8 +256,9 @@ through a compatibility table; it is not a reimplementation of the runtime's
 — such as a custom delegate definition or an unsupported `[JSMarshalAs]`
 override — fails visibly rather than being published on weaker evidence. The
 SDK source generator itself rejects a Promise-returning
-`Func<..., Task<T>>` callback with method-scoped `SYSLIB1072`;
-`PromiseReturningDelegate_IsRejectedBySdkGenerator` gates that boundary.
+`Func<..., Task<T>>` callback and callbacks with more than three parameters
+with method-scoped `SYSLIB1072`;
+`UnsupportedDelegateShapes_AreRejectedBySdkGenerator` gates that boundary.
 
 `[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
 rejects for a different reason: the descriptor is real and the wrapper is

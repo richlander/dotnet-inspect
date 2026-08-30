@@ -14,4 +14,15 @@ public static partial class AsyncDelegateExports
         Func<int, Task<int>> callback)
     {
     }
+
+    [JSExport]
+    public static void RegisterTooManyArguments(
+        [JSMarshalAs<JSType.Function<
+            JSType.Number,
+            JSType.Number,
+            JSType.Number,
+            JSType.Number>>]
+        Action<int, int, int, int> callback)
+    {
+    }
 }

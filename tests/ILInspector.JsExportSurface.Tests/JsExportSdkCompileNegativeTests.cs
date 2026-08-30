@@ -5,7 +5,7 @@ namespace ILInspector.JsExportSurface.Tests;
 public sealed class JsExportSdkCompileNegativeTests
 {
     [Fact]
-    public async Task PromiseReturningDelegate_IsRejectedBySdkGenerator()
+    public async Task UnsupportedDelegateShapes_AreRejectedBySdkGenerator()
     {
         string projectPath = Path.GetFullPath(
             Path.Combine(
@@ -44,11 +44,25 @@ public sealed class JsExportSdkCompileNegativeTests
             "AsyncDelegateExports.cs",
             output,
             StringComparison.Ordinal);
-        Assert.Contains("error SYSLIB1072", output, StringComparison.Ordinal);
+        string[] lines = output.Split(Environment.NewLine);
         Assert.Contains(
-            "System.Func<int, System.Threading.Tasks.Task<int>>",
-            output,
-            StringComparison.Ordinal);
+            lines,
+            line =>
+                line.Contains(
+                    "error SYSLIB1072",
+                    StringComparison.Ordinal)
+                && line.Contains(
+                    "System.Func<int, System.Threading.Tasks.Task<int>>",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            lines,
+            line =>
+                line.Contains(
+                    "error SYSLIB1072",
+                    StringComparison.Ordinal)
+                && line.Contains(
+                    "System.Action<int, int, int, int>",
+                    StringComparison.Ordinal));
     }
 
     static string FindRepositoryRoot()

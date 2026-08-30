@@ -1408,7 +1408,7 @@ public static class JsExportSurfaceBuilder
                 managed.Name);
     }
 
-    static bool TryGetDelegateShape(
+    internal static bool TryGetDelegateShape(
         TypeRef managed,
         out JsExportDelegateKind kind,
         out ImmutableArray<TypeRef> parameterTypes,
@@ -1437,7 +1437,8 @@ public static class JsExportSurfaceBuilder
         if (IsCoreLibType(
                 definition,
                 "System",
-                $"Action`{arguments.Length}"))
+                $"Action`{arguments.Length}")
+            && arguments.Length <= 3)
         {
             kind = JsExportDelegateKind.Action;
             parameterTypes = arguments;
@@ -1447,7 +1448,8 @@ public static class JsExportSurfaceBuilder
         if (!IsCoreLibType(
                 definition,
                 "System",
-                $"Func`{arguments.Length}"))
+                $"Func`{arguments.Length}")
+            || arguments.Length - 1 > 3)
         {
             return false;
         }

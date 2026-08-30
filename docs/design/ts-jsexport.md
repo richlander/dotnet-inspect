@@ -761,14 +761,17 @@ The target remains unverified until all of these gates exist:
 - compiled synchronous `Action` and `Func` fixtures prove that the owner
   authenticates the exact generated `Action(...)` and `Function(...)`
   descriptors, every nested payload descriptor, managed parameter order,
-  signature hash, and wrapper target before publishing delegate facts;
+  supported callback arity, signature hash, and wrapper target before
+  publishing delegate facts;
 - TypeScript mapping tests prove that only those authenticated facts become
   synchronous function types, preserving callback parameter order,
-  nullability, primitive payload types, and return type while unauthenticated
-  delegate-looking text remains a diagnosed `unknown`;
+  nullability, primitive payload types, and return type after every display
+  type is correlated with its authenticated identity; unauthenticated,
+  mismatched, or async-disguising display text remains a diagnosed `unknown`;
 - an SDK compile-negative fixture requires method-scoped `SYSLIB1072` for a
-  Promise-returning `Func<..., Task<T>>` callback without assuming it is the
-  build's only cascading diagnostic;
+  Promise-returning `Func<..., Task<T>>` callback and a callback with more than
+  three parameters without assuming either is the build's only cascading
+  diagnostic;
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
   rejects an invalid use of the generic runtime API, and proves the

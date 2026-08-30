@@ -19,6 +19,11 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class JsExportSurfaceBuilderTests
 {
+    static void FourArgumentCallback(
+        Action<int, int, int, int> callback)
+    {
+    }
+
     private static ILInspector.JsExportSurface.JsExportSurface BuildFixtureSurface(bool includeAll = false)
     {
         using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
@@ -166,6 +171,26 @@ public sealed class JsExportSurfaceBuilderTests
             type => Assert.Equal("int", type.ToDisplayString()),
             type => Assert.Equal("string", type.ToDisplayString()));
         Assert.Equal("int", func.ReturnType?.ToDisplayString());
+    }
+
+    [Fact]
+    public void TryGetDelegateShape_RejectsDecodedFourArgumentAction()
+    {
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+            typeof(JsExportSurfaceBuilderTests).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity method = Assert.Single(
+            bodyIndex.DeclaredMethods,
+            candidate => candidate.Name
+                == nameof(FourArgumentCallback));
+        TypeRef callbackType = Assert.Single(method.ParameterTypes);
+
+        Assert.False(
+            JsExportSurfaceBuilder.TryGetDelegateShape(
+                callbackType,
+                out _,
+                out _,
+                out _));
     }
 
     [Theory]

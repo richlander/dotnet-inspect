@@ -157,6 +157,108 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
+    public void MapParameterType_AcceptsCorrelatedQualifiedDelegateTypes()
+    {
+        var signature = new JsExportDelegateParameter
+        {
+            ParameterIndex = 0,
+            Kind = JsExportDelegateKind.Func,
+            ParameterTypes =
+            [
+                TypeRef.SzArray(
+                    TypeRef.CoreLib("System", "Int32")),
+                TypeRef.GenericInstance(
+                    TypeRef.Definition(
+                        "System.Runtime",
+                        "System.Collections.Generic",
+                        "IReadOnlyDictionary`2"),
+                    [
+                        TypeRef.CoreLib("System", "String"),
+                        TypeRef.CoreLib("System", "String"),
+                    ]),
+            ],
+            ReturnType = TypeRef.GenericInstance(
+                TypeRef.CoreLib("System", "Nullable`1"),
+                [TypeRef.CoreLib("System", "Int32")]),
+        };
+
+        Assert.Equal(
+            "(arg0: number[], arg1: Record<string, string | null>) "
+                + "=> number | null",
+            TsTypeMapper.MapParameterType(
+                "global::System.Func<System.Int32[], "
+                    + "System.Collections.Generic."
+                    + "IReadOnlyDictionary<string, string?>, "
+                    + "System.Nullable<int>>",
+                RecordNames,
+                delegateParameter: signature));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsAuthenticatedIdentityMismatch()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var signature = new JsExportDelegateParameter
+        {
+            ParameterIndex = 0,
+            Kind = JsExportDelegateKind.Func,
+            ParameterTypes =
+            [
+                TypeRef.CoreLib("System", "Int32"),
+            ],
+            ReturnType = TypeRef.CoreLib("System", "Int32"),
+        };
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "System.Func<string, string>",
+                RecordNames,
+                diagnostics,
+                "TransformValue.callback",
+                delegateParameter: signature));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "TransformValue.callback"
+                && diagnostic.CSharpType
+                    == "System.Func<string, string>");
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsUnqualifiedRecordAliasMismatch()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var signature = new JsExportDelegateParameter
+        {
+            ParameterIndex = 0,
+            Kind = JsExportDelegateKind.Action,
+            ParameterTypes =
+            [
+                TypeRef.Definition(
+                    "Other",
+                    "Other",
+                    "WidgetDto"),
+            ],
+        };
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "System.Action<WidgetDto>",
+                RecordNames,
+                diagnostics,
+                "ReportWidget.callback",
+                delegateParameter: signature));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "ReportWidget.callback"
+                && diagnostic.CSharpType
+                    == "System.Action<WidgetDto>");
+    }
+
+    [Fact]
     public void MapParameterType_DoesNotTrustDelegateLookingText()
     {
         var diagnostics = new TsBindGenDiagnostics();
@@ -197,7 +299,7 @@ public sealed class TsTypeMapperTests
         Assert.Equal(
             "unknown",
             TsTypeMapper.MapParameterType(
-                "System.Func<int, Task<int>>",
+                "System.Func<int, int>",
                 RecordNames,
                 diagnostics,
                 "TransformAsync.callback",
@@ -207,7 +309,7 @@ public sealed class TsTypeMapperTests
             diagnostic =>
                 diagnostic.Location == "TransformAsync.callback"
                 && diagnostic.CSharpType
-                    == "System.Func<int, Task<int>>");
+                    == "System.Func<int, int>");
     }
 
     [Fact]
