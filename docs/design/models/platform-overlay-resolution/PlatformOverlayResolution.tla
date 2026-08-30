@@ -30,6 +30,8 @@ TraversalRequests == References \X Members
 CallerDesignated == "CallerDesignated"
 PlatformAuthorized == "PlatformAuthorized"
 WorkspaceRoles == {CallerDesignated, PlatformAuthorized}
+NonContradictoryRoleSets ==
+    (SUBSET WorkspaceRoles) \ {{CallerDesignated, PlatformAuthorized}}
 RoleEvidenceModes ==
     {"Pending", "Valid", "Missing", "Foreign", "Stale", "WrongGroup",
      "Incomplete", "Extra", "Altered", "Contradictory"}
@@ -101,13 +103,10 @@ ContradictoryRoleAssignments(witness) ==
         THEN {CallerDesignated, PlatformAuthorized}
         ELSE OwnerRoles(candidate)]
 
-AlteredRoleAssignments(witness) ==
+AlteredRoleAssignments(witness, replacement) ==
     [candidate \in Candidates |->
         IF candidate = witness
-        THEN
-            IF OwnerRoles(candidate) = {}
-            THEN {CallerDesignated}
-            ELSE {}
+        THEN replacement
         ELSE OwnerRoles(candidate)]
 
 RolesAt(domain, assignments, candidate) ==
@@ -407,12 +406,14 @@ FinishLoad ==
                 OwnerRoleProjection)
     \/ /\ RegisteredSet(registration) # {}
        /\ \E witness \in RegisteredSet(registration):
-            FinishLoadWith(
-                "Altered",
-                CurrentGroup,
-                CurrentGeneration,
-                RegisteredSet(registration),
-                AlteredRoleAssignments(witness))
+            \E replacement
+                \in NonContradictoryRoleSets \ {OwnerRoles(witness)}:
+                FinishLoadWith(
+                    "Altered",
+                    CurrentGroup,
+                    CurrentGeneration,
+                    RegisteredSet(registration),
+                    AlteredRoleAssignments(witness, replacement))
     \/ /\ RegisteredSet(registration) # {}
        /\ \E witness \in RegisteredSet(registration):
             FinishLoadWith(

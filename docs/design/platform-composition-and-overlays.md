@@ -562,26 +562,40 @@ Unrelated package, project, sibling, discovered, or other name-owning tiers and
 their typed failures remain outside this arbitration and cannot be bypassed by
 a role-bearing candidate.
 
-Every request origin must identify one registration in the captured delegate
-map. An unknown, foreign, or unmapped registration fails visibly as
-`InvalidBindingPolicyOrigin`; it cannot route through a default participant or
-another requester's delegated policy.
+Every source-relative request origin must identify one registration in the
+captured delegate map. `GlobalOrigin` and an unknown, foreign, or unmapped
+registration return the existing
+`AssemblyBindingSelection.Rejected(InvalidPolicyResult)` result without
+invoking a delegate or selecting a default participant. The platform policy
+may retain a more specific invalid-origin reason internally, but it does not
+expand Metadata's public failure currency.
 
-A selected or ambiguous result from the requesting participant's delegated
-policy joins designated/platform arbitration only when every returned candidate
-identifies a registration in the sealed group and carries one of those roles in
-the snapshot. Those in-group registrations are classified from the snapshot,
+The outer policy never reopens a delegated final
+`AssemblyBindingSelection.Selected` or `Ambiguous` result. Composable
+arbitration consumes the Metadata-owned handoff specified by #5213 instead.
+That atomic handoff carries its governing version and either:
+
+- an owner-issued complete identity-eligible descriptor domain together with
+  the adjacent policy's provisional outcome over exactly that domain; or
+- a terminal existing `AssemblyBindingSelection` that role arbitration returns
+  without reinterpretation.
+
+The platform policy cannot infer an omitted candidate, reinterpret a terminal
+selection as a complete domain, or promote shadow evidence from a final result.
+For a complete domain, a candidate joins designated/platform arbitration only
+when it identifies a registration in the sealed group and carries one of those
+roles in the snapshot. Those registrations are classified from the snapshot,
 never from provenance.
 
-When any returned candidate is outside the group or has no designated/platform
-role, role arbitration leaves the delegated result unchanged. It is not
-reclassified, added to the group, or recorded as an inactive shadow, and its
-selection or ambiguity is not bypassed by an in-group role candidate. The
-ordinary outer identity-policy validation still applies, so an outside-group
-selection can become the existing typed `IdentityPolicyRequired` result.
-Returning an outside-group candidate is not invalid role evidence because the
-adjacent policy owns that candidate. The delegated policy's existing
-`Unavailable` and `Rejected` outcomes likewise remain authoritative.
+When any complete-domain candidate is outside the group or has no
+designated/platform role, role arbitration leaves the owner-issued provisional
+outcome unchanged. It does not reclassify or add that candidate to the group.
+The ordinary outer identity-policy validation still applies, so the provisional
+outside-group selection can become the existing typed
+`IdentityPolicyRequired` result. Returning an outside-group candidate is not
+invalid role evidence because the adjacent policy owns that candidate.
+Delegated terminal `Unavailable` and `Rejected` outcomes likewise remain
+authoritative.
 
 The role-binding policy consumes the Metadata-owned typed no-candidate
 disposition established by
@@ -621,9 +635,10 @@ The policy snapshot also captures the exact delegated binding policy and its
 `AssemblyBindingPolicyVersion` for every requesting registration routed through
 the outer policy. The outer policy version is binding-consistent only while the
 group, role snapshot, delegated-policy map, and every captured delegate version
-remain unchanged. Each delegated answer arrives in #5213's atomic selection
-snapshot with the exact non-reusable version that governed it; an independent
-before/after read of `IAssemblyBindingPolicy.Version` is insufficient.
+remain unchanged. Each delegated handoff arrives in #5213's complete atomic
+snapshot or continuation with the exact non-reusable version that governs it;
+an independent before/after read of `IAssemblyBindingPolicy.Version` is
+insufficient.
 
 If the returned governing version differs from the captured version, the
 changed or stale answer is rejected and the request fails visibly as an invalid
@@ -641,11 +656,13 @@ evidence and cached answers cannot be rebound or mixed across versions.
 [#5210](https://github.com/richlander/dotnet-inspect/issues/5210) owns typed
 name ownership for Metadata binding misses.
 [#5213](https://github.com/richlander/dotnet-inspect/issues/5213) owns atomic
-answer-to-version association. Implementation of this policy must not expose
-`NoNameOwner` fallback until #5210 lands or accept a delegated answer as
-version-consistent until #5213 lands. The platform owner consumes those
-currencies; it does not recreate name ownership or version evidence from
-candidate lists, provenance, package state, or separate version reads.
+version association and the complete identity-eligible arbitration handoff.
+Implementation of this policy must not expose `NoNameOwner` fallback until
+#5210 lands, or compose a delegated answer until #5213 supplies its
+version-bound complete domain or terminal result. The platform owner consumes
+those currencies; it does not recreate name ownership, domain completeness, or
+version evidence from final selections, candidate lists, provenance, package
+state, or separate version reads.
 
 ### Migration boundary
 
@@ -683,38 +700,48 @@ authority-bearing field to it.
   absent-snapshot, foreign-generation, stale-generation, ended-generation,
   wrong-group, missing-registration, extra-registration, duplicate-input,
   missing-delegate, extra-delegate, foreign-delegate, duplicate-requester,
-  altered-delegate-policy, altered-delegate-version, altered-role-set, and
-  contradictory evidence cases and proves no policy version, selection,
-  shadow, group publication, or provenance fallback survives.
+  altered-delegate-policy, altered-delegate-version, every noncontradictory
+  role set unequal to the owner projection, and contradictory evidence cases.
+  It includes designated-to-platform, platform-to-designated, and both
+  no-authority-to-authority translations and proves no policy version,
+  selection, shadow, group publication, or provenance fallback survives.
 - `WorkspaceRoleBinding_PreparesBeforeExactGroupAdoption` proves the policy is
   complete before participant and group construction, exact group adoption is
   required before publication, and no placeholder or post-seal rebinding path
   exists.
 - `WorkspaceRoleBinding_DelegateMapIsExactAndHasNoDefault` proves the captured
-  requester domain is exactly the planned requester set and an unknown,
-  foreign, or unmapped origin fails without selecting a default delegate.
-- `WorkspaceRoleBinding_DelegatedOutcomesPreserveAdjacentPolicy` covers
-  selected and ambiguous results containing in-group role registrations,
-  outside-group registrations, and in-group registrations without an authority
-  role, plus the Metadata-owned `NoNameOwner` and `NameOwnedNoMatch`
-  dispositions from #5210 and today's undifferentiated `Missing`. Only an
-  all-role-bearing in-group result or owner-issued `NoNameOwner` permits role
-  arbitration; every other result remains outside
-  role arbitration and then receives the ordinary outer identity-policy
-  validation without group mutation, role translation, or inactive-shadow
-  promotion. Before #5210 is available, the same gate proves that
-  undifferentiated `Missing` cannot reach role arbitration.
+  requester domain is exactly the planned requester set. It covers
+  `GlobalOrigin` separately from unknown, foreign, and unmapped
+  requesting-assembly registrations and proves each returns
+  `Rejected(InvalidPolicyResult)` without invoking or selecting a default
+  delegate.
+- `WorkspaceRoleBinding_ConsumesOnlyCompleteDelegatedDomains` covers #5213
+  terminal selections and complete domains containing in-group role
+  registrations, outside-group registrations, and in-group registrations
+  without an authority role. A terminal `Selected` or `Ambiguous` result is
+  never reopened. Only an owner-issued complete domain can participate in role
+  arbitration; every non-authority complete domain retains its provisional
+  adjacent outcome and then receives the ordinary outer identity-policy
+  validation without group mutation, role translation, or shadow promotion
+  from a final result.
+- `WorkspaceRoleBinding_NameOwnershipControlsEmptyDomainFallback` covers the
+  Metadata-owned `NoNameOwner` and `NameOwnedNoMatch` dispositions from #5210
+  and today's undifferentiated `Missing`. Only owner-issued `NoNameOwner`
+  permits role arbitration from an empty delegated domain. Before #5210 is
+  available, the same gate proves that undifferentiated `Missing` cannot reach
+  role arbitration.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
   registration, role, delegated-policy, or delegate-version change requires a
   new outer version.
 - `WorkspaceRoleBinding_DelegateVersionChangeInvalidatesContextGeneration`
-  supplies #5213 selection snapshots governed by a version other than the
-  captured delegate version before selection and after warming a cached answer.
-  It proves the old generation returns no changed or stale selection or shadow
-  evidence, fails the request visibly as an invalid policy result, and requires
-  atomic realization of a new snapshot, participant set, and group before
-  continuing. #5213 owns the non-reusable-version and ABA mutation gates.
+  supplies #5213 arbitration handoffs governed by a version other than the
+  captured delegate version before composition and after warming a cached
+  answer. It proves the old generation returns no changed or stale selection or
+  shadow evidence, fails the request visibly as an invalid policy result, and
+  requires atomic realization of a new snapshot, participant set, and group
+  before continuing. #5213 owns the complete-domain,
+  non-reusable-version, and ABA mutation gates.
 - `WorkspaceRoleBinding_NameOwnerMissCannotFallThroughToRoles` covers package,
   sibling, and other adjacent name owners whose candidates fail identity
   matching and proves their #5210 `NameOwnedNoMatch` result cannot select an

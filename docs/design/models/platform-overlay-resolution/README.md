@@ -49,12 +49,14 @@ Candidates register in every possible order and loading may close after any
 subset. Loading then forms one immutable role snapshot in one of nine bounded
 conditions: valid, missing, foreign-generation, stale-generation, wrong-group,
 incomplete, extra, noncontradictory altered assignment, or contradictory
-assignment. The valid snapshot's group, generation, domain, and role sets
-exactly match the separate owner-issued projection. Every invalid condition
-must reject resolution as `InvalidRoleEvidence`; the role-translation and
-role-fallback mutations remove those protections and must fail. After snapshot
-formation, every transition preserves its group, generation, domain, and
-assignments unchanged.
+assignment. Altered evidence covers every noncontradictory role set unequal to
+the owner projection for its witness, including either authority role replacing
+the other and either authority role replacing no authority. The valid
+snapshot's group, generation, domain, and role sets exactly match the separate
+owner-issued projection. Every invalid condition must reject resolution as
+`InvalidRoleEvidence`; the role-translation and role-fallback mutations remove
+those protections and must fail. After snapshot formation, every transition
+preserves its group, generation, domain, and assignments unchanged.
 
 Source provenance is deliberately absent from the policy inputs. The model
 therefore has no operation by which provenance, path, or metadata identity can
@@ -106,15 +108,16 @@ identity, group disposal, source-lease lifetime, or admission's rejection of
 replayed platform-realization evidence before `PlatformAuthorized` is granted.
 Pre-publication policy preparation and exact group adoption, delegated-policy
 composition, the Metadata-owned typed name-owner disposition tracked by #5210,
-and the atomic answer-to-version association tracked by #5213 are
+and the complete version-bound arbitration handoff tracked by #5213 are
 implementation-boundary gates rather than additional model states. Before
 #5210 lands, undifferentiated delegated `Missing` is fail-closed as name-owned
 rather than modeled as no-owner evidence. This model neither defines nor
-checks either adjacent Metadata currency. An all-role-bearing in-group
-delegated result is represented by the modeled registrations, while a result
-containing any outside-group or non-authority candidate remains outside role
-arbitration; the ordinary outer identity-policy validation is also not modeled.
-TLC does not establish group construction, name ownership, or policy-version
+checks either adjacent Metadata currency. A complete #5213 domain containing
+only admitted authority-role registrations is represented by the modeled
+registrations. Terminal binding selections, domain completeness, a domain
+containing any outside-group or non-authority candidate, and the ordinary outer
+identity-policy validation are not modeled. TLC does not establish group
+construction, delegated-domain completeness, name ownership, or policy-version
 consistency.
 TLC results establish properties of this state machine under the stated
 assumptions and bounds, not properties of the shipped implementation. Formal
@@ -199,27 +202,28 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 2,996 | 2,996 | 8 | All 14 invariants passed. |
-| Liveness | 2,996 | 2,996 | 8 | `ResolutionConverges` passed. |
+| Safety | 3,584 | 3,584 | 8 | All 14 invariants passed. |
+| Liveness | 3,584 | 3,584 | 8 | `ResolutionConverges` passed. |
 
 The state graph contains all 65 registration prefixes. Every prefix forms valid,
 missing, foreign-generation, stale-generation, or wrong-group role evidence;
-non-empty prefixes also form every incomplete, altered-assignment, and
-contradictory witness, and non-full prefixes form every extra registration
-witness. Each formed snapshot reaches `Resolved` and `Traversed`. The positive
-checks therefore cover both successful role-based arbitration and atomic
-rejection of every modeled invalid evidence class.
+non-empty prefixes also form every incomplete witness, every noncontradictory
+role-set replacement unequal to the owner projection, and every contradictory
+witness; non-full prefixes form every extra registration witness. Each formed
+snapshot reaches `Resolved` and `Traversed`. The positive checks therefore
+cover both successful role-based arbitration and atomic rejection of every
+modeled invalid evidence class.
 
 Each mutation exited with TLC status 12 on its intended invariant:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
-| Broken order | 345 / 345 | 5 | Registration `<<DesignatedOne, DesignatedTwo>>` silently selected `DesignatedOne`, violating `SelectionIsOrderIndependent` instead of reporting the unruled tie. |
-| Broken version | 390 / 390 | 5 | With `DesignatedOne` and `Platform`, the exact reference selected `Platform` while the skewed reference selected `DesignatedOne`, violating `ReferenceVersionDoesNotChangeWinner`. |
-| Broken skew rejection | 1,038 / 1,038 | 6 | With `DesignatedOne` and `Platform`, skew caused an available member to return `CompatibilityFailure`, violating `AvailableTraversalSucceeds`. |
-| Broken silent failure | 1,038 / 1,038 | 6 | With `DesignatedOne` and `Platform`, an unavailable member under skew returned `Missing`, violating `UnavailableSkewIsAttributed`. |
-| Broken role translation | 134 / 134 | 4 | A snapshot changes one owner-issued role set and is accepted instead of returning `InvalidRoleEvidence`. |
-| Broken role fallback | 72 / 72 | 3 | A missing snapshot resolved as ordinary `NoMatch` instead of `InvalidRoleEvidence`; non-empty prefixes can additionally recover designated or platform selection from the legacy classes. |
+| Broken order | 383 / 383 | 5 | Registration `<<DesignatedOne, DesignatedTwo>>` silently selected `DesignatedOne`, violating `SelectionIsOrderIndependent` instead of reporting the unruled tie. |
+| Broken version | 436 / 436 | 5 | With `DesignatedOne` and `Platform`, the exact reference selected `Platform` while the skewed reference selected `DesignatedOne`, violating `ReferenceVersionDoesNotChangeWinner`. |
+| Broken skew rejection | 1,200 / 1,200 | 6 | With `DesignatedOne` and `Platform`, skew caused an available member to return `CompatibilityFailure`, violating `AvailableTraversalSucceeds`. |
+| Broken silent failure | 1,200 / 1,200 | 6 | With `DesignatedOne` and `Platform`, an unavailable member under skew returned `Missing`, violating `UnavailableSkewIsAttributed`. |
+| Broken role translation | 144 / 144 | 4 | A snapshot changes one owner-issued role set and is accepted instead of returning `InvalidRoleEvidence`. |
+| Broken role fallback | 76 / 76 | 3 | A missing snapshot resolved as ordinary `NoMatch` instead of `InvalidRoleEvidence`; non-empty prefixes can additionally recover designated or platform selection from the legacy classes. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
 `2026.08.21.155922` revision `9787e65`. The checked
