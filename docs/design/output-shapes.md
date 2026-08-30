@@ -48,8 +48,9 @@ collapses independent row sets into one request-wide scalar.
 
 - **Document → Table.** A Document is a sequence of sections. Selecting one
   section leaves a single Table (or other single-section payload).
-- **Table → Vector.** A Table is columns × rows. Projecting to one column
-  leaves a Vector — many rows of a single field.
+- **Table → Vector.** A Table is columns × rows. Cell-projecting it to one
+  column leaves a Vector — many rows of a single field. A field-set membership
+  projection instead changes which field-entry rows reach this ladder.
 - **Vector → Scalar.** Within one declared row set, collapsing a Vector (count
   it, or take one row) yields a Scalar. A Scalar is also the natural shape of a
   non-tabular payload: one count, a single field value, or a
@@ -110,8 +111,9 @@ them. `ProductionShapedEndpoints_RetainPackageOwnership`,
 Four families walk the shape ladder, and a fifth sits before it. A flag in one
 of the ladder families contributes in one of four ways:
 
-- **Shape selectors** narrow the requested shape (`-S`, `--fields`/`--columns`,
-  `--count`).
+- **Shape selectors** narrow the requested data or shape (`-S`,
+  schema-resolved `--fields`/`--columns`, `--count`). L2 resolves field/column
+  intent as membership or cell projection before a renderer sees it.
 - **Item/range selectors** narrow the rows without changing the shape rung
   (`--where`, `--order-by`, `-n`, `--top`, `--rows`).
 - **Presentation modifiers** change how a selected payload is rendered without
@@ -179,10 +181,12 @@ it with a chosen **formatter**. The shapes map onto Markout concepts directly:
 | Vector | a table projected to one column, or a single-column `WriteList` |
 | Scalar | a single cell, a `CodeSection` payload, or a row count |
 
-Two Markout knobs do the narrowing and the formatting:
+After L2 row shaping, two Markout knobs handle remaining cell narrowing and
+formatting:
 
-- **Projection** (`MarkoutWriterOptions.Projection`) selects which columns/fields
-  a section emits — the Table → Vector step.
+- **Projection** (`MarkoutWriterOptions.Projection`) applies an already-resolved
+  cell projection — the Table → Vector step. It does not implement field-set
+  membership projection.
 - **Table mode** (`MarkoutWriterOptions.TableMode`) picks how tables render:
   Markdown (default), `MarkoutTableMode.Tsv`, or `MarkoutTableMode.Jsonl`.
 
@@ -221,7 +225,7 @@ modifier changes how a selected payload is rendered.
 | --- | --- |
 | Document | default view; `-v:q`/`-v:m`/`-v:n`/`-v:d` (breadth presets); `-S a,b` (multiple sections) |
 | Table | `-S OneSection` (a single section) |
-| Vector | `--fields X` / `--columns X` (project to one column) |
+| Vector | `--fields X` / `--columns X` when resolved as a one-column cell projection |
 | Scalar or count Table | Count reduction: one declared row-set outcome becomes a Scalar; multiple outcomes become an ordered count Table |
 
 ### Count projection
@@ -231,11 +235,12 @@ Count is the terminal logical reduction defined by
 membership projection, filtering, effective baseline order, and every
 preceding semantic row-selection stage.
 
-- Projection applicability resolves across all selected row schemas. A name
-  resolving in any selected schema succeeds; a nonmatching set contributes no
-  Count entry, and a request resolving nowhere rejects. Within a participating
-  set, field-entry membership projection changes the count, while selecting
-  table columns does not create or remove rows.
+- With no projection intent, every selected row set participates with full
+  cells. A non-empty projection resolves across all selected row schemas: a
+  name resolving in any selected schema succeeds, a nonmatching set contributes
+  no Count entry, and a request resolving nowhere rejects. Within a
+  participating set, field-entry membership projection changes the count, while
+  selecting table columns does not create or remove rows.
 
 - One exact declared-row-set outcome produces a culture-invariant decimal
   scalar. The scalar is the complete payload in every format: JSON emits a JSON

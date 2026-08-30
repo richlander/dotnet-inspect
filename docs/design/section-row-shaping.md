@@ -134,13 +134,17 @@ results into original participating declared-row-set order.
 
 ## Projection kinds
 
-L2 resolves typed projection intent across all selected row schemas before it
-constructs an executable request. Projection is a request-wide allow list: it
-succeeds when at least one requested name resolves in at least one selected
-schema and fails with request-wide scope only when no requested name resolves
-anywhere.
+When a request carries no projection intent, every selected declared row set
+participates with its full cells.
 
-For each selected row set, resolution records one of three outcomes:
+For a non-empty projection request, L2 resolves typed intent across all selected
+row schemas before it constructs an executable request. Projection is a
+request-wide allow list: it succeeds when at least one requested name resolves
+in at least one selected schema and fails with request-wide scope only when no
+requested name resolves anywhere.
+
+For each selected row set under that non-empty request, resolution records one
+of three outcomes:
 
 - membership projection;
 - cell projection; or
@@ -185,9 +189,11 @@ Resolution is fail-fast in this total order:
 2. Bind every selected row set's declared identity, sequence key, schema, and
    shape capabilities in declaration order, diagnosing a duplicate at the
    later declaration.
-3. Resolve projection intent across those schemas in requested-name order and
-   selected-row-set order. If nothing resolves, return request-wide failure;
-   otherwise record each set's membership, cell, or no-contribution outcome.
+3. If no projection intent exists, mark every selected set as participating
+   with full cells. Otherwise resolve projection intent across those schemas in
+   requested-name order and selected-row-set order. If nothing resolves,
+   return request-wide failure; otherwise record each set's membership, cell,
+   or no-contribution outcome.
 4. Visit participating row sets in declaration order. For each set:
    1. identify its exact owner-issued schema identity and request-owned typed
       row-query/selection intent binding;
@@ -416,7 +422,7 @@ The implementation must add these named Release gates:
 | --- | --- |
 | `DeclaredRowSetIdentityIsTyped` | Equal owner-issued identities bind equal row sets; labels, headings, paths, and sequence positions do not affect identity or equality. |
 | `RowSequenceKeysRoundTripDeclaredIdentity` | Every declared row set receives one unique semantic key, every returned key resolves to the original identity, and duplicate or unknown identities/keys reject. |
-| `ProjectionApplicabilityIsRequestWide` | A projection name resolving in any selected schema succeeds; each nonmatching set contributes no shaping entry; a request whose names resolve nowhere returns one request-wide failure. |
+| `ProjectionApplicabilityIsRequestWide` | No projection intent preserves every selected set with full cells; a non-empty request resolving in any selected schema succeeds; each nonmatching set contributes no shaping entry; a request whose names resolve nowhere returns one request-wide failure. |
 | `MembershipProjectionPrecedesRowQuery` | Applicable field-entry membership selection changes the rows seen by predicates, baseline order, and semantic stages; a close negative table-column projection changes no membership. |
 | `CellProjectionFollowsSelectionAndPreservesCardinality` | Cell projection applies only to selected row results, may omit predicate/order fields, and never changes membership, order, or Count. |
 | `CountObservesPrecedingSemanticStages` | Empty, undersized, exact, and oversized `Head`, `Tail`, and `Top` plans reduce to the cardinality of their selected result, including `Head(N) -> Count = min(N, input count)`. |
