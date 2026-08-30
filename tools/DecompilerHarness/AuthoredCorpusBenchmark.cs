@@ -529,6 +529,27 @@ static class AuthoredCorpusBenchmark
             output.WriteLine($"    Valid                            : {oracleReport.FilesValid} / {oracleReport.FilesRegistered}");
             output.WriteLine($"    Correct                          : {oracleReport.FilesCorrect} / {oracleReport.FilesRegistered}");
             output.WriteLine($"    Printer exact                    : {oracleReport.PrinterExactPassing} / {oracleReport.PrinterExactRequired} required");
+            if (oracleReport.SyntaxInventoryVersion is null)
+            {
+                output.WriteLine("    Syntax inventory                 : NOT TRACKED (legacy manifest)");
+            }
+            else if (oracleReport.SyntaxInventoryEvaluated == false)
+            {
+                output.WriteLine(
+                    $"    Syntax inventory v{oracleReport.SyntaxInventoryVersion}"
+                    + "              : NOT EVALUATED (unsupported version)");
+            }
+            else
+            {
+                IReadOnlyList<string> observedFeatures =
+                    oracleReport.ObservedFeatures ?? [];
+                output.WriteLine(
+                    $"    Syntax inventory v{oracleReport.SyntaxInventoryVersion}"
+                    + $"              : {observedFeatures.Count} feature(s) "
+                    + $"across {oracleReport.FilesInventoryTracked} file(s)");
+                foreach (string line in SyntaxInventoryGroupLines(observedFeatures))
+                    output.WriteLine(line);
+            }
             foreach (string failure in oracleReport.Failures)
                 output.WriteLine($"    BLOCKER                          : {failure}");
         }
@@ -566,6 +587,24 @@ static class AuthoredCorpusBenchmark
             contract,
             frontierPartitionClosed,
             oracleReport?.Passed ?? true);
+    }
+
+    internal static IReadOnlyList<string> SyntaxInventoryGroupLines(
+        IReadOnlyList<string> features)
+    {
+        ArgumentNullException.ThrowIfNull(features);
+
+        return
+        [
+            .. features
+                .GroupBy(
+                    feature => feature[..feature.IndexOf('.')],
+                    StringComparer.Ordinal)
+                .Select(group =>
+                    $"      {group.Key,-30}: "
+                    + string.Join(", ", group.Select(feature =>
+                        feature[(feature.IndexOf('.') + 1)..]))),
+        ];
     }
 
     /// <summary>
