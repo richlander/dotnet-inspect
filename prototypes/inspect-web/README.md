@@ -662,6 +662,13 @@ and its ordering in the Vite bundle and SDK-published site. Other application
 routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
+Search also exposes a `Package query` action that opens the routed `/query`
+surface. It runs the product-issued nuspec-only facet catalog against
+nuget.org, streams rows and visible partial failures from Browser Wasm, and
+hands an exact result coordinate to the normal Workspace package-opening path.
+The route keeps request and result state in the current session rather than in
+the URL; a direct load starts with an empty prefix.
+
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
