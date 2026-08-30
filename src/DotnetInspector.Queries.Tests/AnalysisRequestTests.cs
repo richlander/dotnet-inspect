@@ -706,14 +706,16 @@ public sealed class AnalysisRequestTests
     {
         Type resultType = typeof(AnalysisRequestPlanResult);
         Type[] cases = resultType
-            .GetNestedTypes(BindingFlags.Public)
+            .GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(type => type.IsSubclassOf(resultType))
             .OrderBy(type => type.Name, StringComparer.Ordinal)
             .ToArray();
+        ConstructorInfo rootConstructor = Assert.Single(
+            resultType.GetConstructors(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance));
 
         Assert.True(resultType.IsAbstract);
-        Assert.All(
-            resultType.GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance),
-            constructor => Assert.True(constructor.IsPrivate));
+        Assert.True(rootConstructor.IsPrivate);
         Assert.Equal(
             [
                 typeof(AnalysisRequestPlanResult.Accepted),
