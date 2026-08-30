@@ -1249,13 +1249,15 @@ or marks the answer partial. A pinned payload operation may succeed from one
 authorized authority without proving every peer source readable.
 
 Complete listing-aware Gallery enumeration also depends on registration
-metadata. If registration cannot be read, raw enumeration may expose the
+metadata. If registration is missing, malformed, incomplete, or unavailable
+for a non-timeout transport reason, raw enumeration may expose the
 flat-container versions only as a typed partial result with listing status
 `unknown`; it does not report them as listed and does not populate a complete
-candidate cache. Auto-selecting wildcard or range operations that depend on
-complete enumeration fail closed when the missing listing evidence could change
-the selected coordinate. Search-backed latest selection remains available
-because Gallery search returns listed versions.
+candidate cache. A library-owned timeout remains a terminal source failure
+rather than a partial result. Auto-selecting wildcard or range operations that
+depend on complete enumeration fail closed when the missing listing evidence
+could change the selected coordinate. Search-backed latest selection remains
+available because Gallery search returns listed versions.
 
 The target listing contract is source-relative:
 
@@ -1362,21 +1364,116 @@ visible failure with exact-pin guidance and does not reset or escape the
 enclosing resolution policy. Explicit `Name@latest` continues to use the
 configured request deadline and operation ceiling.
 
-The current implementation separately caps several body reads at
-`min(configured timeout, 30 seconds)`, so increasing `--http-timeout` does not
-extend those reads today. The target request deadline deliberately replaces
-that one-way clamp with the validated configured value in either direction;
-the larger operation ceiling preserves a finite failover bound. Implementation
-must update the private-feed timeout guidance with that behavior change.
+Metadata body readers receive the request cancellation token. An explicitly
+configured stricter metadata-body timeout remains an additional nested bound,
+but there is no implicit 30-second body clamp when the validated request
+deadline is larger.
 
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
 answer. Cache fallback follows the explicit version-resolution policy and
 retains the timeout diagnostic.
 
-Required gates include stalled-header, stalled-metadata-body, stalled-payload,
-retry, authentication, multi-source, and redirect cases that terminate without
-JavaScript cooperation.
+### Operation-context handoff
+
+`NuGetOperationContext` is the owner-issued carrier for these bounds. One
+instance records the original caller token and one monotonic operation start.
+Its explicit configuration is limited to request and operation deadlines;
+metadata-body and byte/resource bounds remain source-client policy rather than
+context state.
+Passing it to another built-in `IPackageSourceClient` operation creates a new
+request deadline inside the remaining shared ceiling; it does not create
+another operation ceiling. Retries, authentication exchanges, and retry delays
+reuse that request's deadline adapter. Gallery pagination and manifest
+acquisition likewise reuse one adapter for their complete public source
+operation.
+
+A caller-supplied context is caller-owned and must outlive every payload stream
+returned through it. Disposing it cancels outstanding work. The invocation
+token is either default or the same original caller token; a different token
+is rejected rather than losing cancellation identity. When no context is
+supplied, each existing source-client call creates and owns one context, which
+preserves the standalone API behavior. `DotnetInspector.Packages` exposes the
+same context handoff at typed coordinate resolution and payload acquisition;
+multi-source policy and composition remain with that owner.
+
+An operation-ceiling failure is terminal. A request-deadline failure may be
+returned while the context still permits another authorized source.
+When concurrent requests produce multiple failures, the same precedence
+applies to the aggregate; a transport failure cannot hide a library-owned
+deadline failure.
+`PackageSourceTimeout` records `Request`, `MetadataBody`, or `Operation` plus
+the configured duration for a library-owned deadline. A transport-originated
+`TimeoutException`, including one carried by a transport
+`TaskCanceledException`, retains the existing timeout classification without
+falsely claiming one of those owner-issued bounds, so its typed timeout detail
+is null.
+An elapsed owner-issued deadline still outranks a concurrent or later
+transport failure, including an inner-stream `ObjectDisposedException`.
+Caller cancellation remains an exception carrying the original caller token.
+
+After payload transfer, `PackageSourceStreamException` retains the exact
+producer and transport kind, timeout-versus-transport classification, typed
+deadline detail when applicable, and whether payload cleanup failed. It does
+not retain the transport exception or its endpoint-bearing message. The same
+translation applies to synchronous and asynchronous reads and disposal.
+Caller disposal translates an already-started read released by that disposal
+as a source-safe transport failure; a read started after disposal retains the
+ordinary disposed-stream result.
+
+The implementation gates are:
+
+- `PackageSourceClientTests.SharedContext_RequestTimeoutCanContinueWithAnotherSource`;
+- `PackageSourceClientTests.SharedContext_MetadataBodyTimeoutUsesEffectiveRequestDeadline`;
+- `PackageSourceClientTests.SharedContext_ExpiredCeilingPreventsAnotherSource`;
+- `PackageSourceClientTests.SharedContext_ExpiredUnsupportedCapabilityIsTypedTimeout`;
+- `PackageSourceClientTests.SharedContext_CallerCancellationRetainsOriginalToken`;
+- `PackageSourceClientTests.SharedContext_RejectsDifferentInvocationToken`;
+- `PackageSourceClientTests.SharedContext_DisposalIsTypedOperationTimeout`;
+- `PackageSourceClientTests.PayloadTimeoutRetainsSourceAndConfiguredDuration`;
+- `PackageSourceClientTests.PayloadTimeoutRetainsCleanupFailureWithoutInnerException`;
+- `PackageSourceClientTests.DisposingSharedContextCancelsOutstandingPayloadRead`;
+- `PackageSourceClientTests.PayloadTransportFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadCanceledTransportTimeoutRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadCanceledTransportTimeoutDuringDisposalRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadTransportFailureOutranksRacingReadCancellation`;
+- `PackageSourceClientTests.PayloadCallerCancellationDoesNotRetainTransportFailure`;
+- `PackageSourceClientTests.PayloadDisposalFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesOutstandingRead`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalEofTranslatesOutstandingRead`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesSynchronousEof`;
+- `PackageSourceClientTests.PayloadObjectDisposedFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadObjectDisposedFailurePreservesRequestDeadline`;
+- `PackageSourceClientTests.PayloadInvalidDataFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadInvalidDataFailurePreservesRequestDeadline`;
+- `PackageSourceClientTests.PayloadReadAfterDisposalRemainsObjectDisposed`;
+  and
+- `PackageSourceClientTests.PayloadAsyncDisposalFailureRetainsSafeSourceIdentity`.
+
+`PackageSourceClientTests.GalleryConcurrentTransportFaultCannotHideTimeout`
+gates deadline precedence across concurrent Gallery page requests.
+`GalleryConcurrentTransportFaultCannotHideTransportTimeout` and
+`GalleryConcurrentTransportFaultCannotHideCanceledTransportTimeout` gate
+faulted and canceled transport-timeout tasks respectively.
+`GalleryLateProtocolFailureCannotBecomePartial` gates the lower-precedence
+protocol-failure case.
+`GalleryLateMetadataProtocolFailurePreservesBodyDeadline`,
+`GalleryLateInvalidDataPreservesRequestDeadline`, and
+`GalleryLateStreamingTimeoutPreservesDeadline` gate the same precedence at the
+remaining metadata-body, decode, and streaming-acquisition boundaries.
+`PackagePayloadAcquisitionTests.TypedAcquisition_PreservesPayloadStreamTimeout`
+is the non-vacuity gate for the `DotnetInspector.Packages` stream handoff.
+`PackagePayloadAcquisitionTests.TypedCacheHit_DoesNotEscapeExpiredOperationContext`
+and
+`PackageCoordinateResolverTests.TypedExactPin_DoesNotEscapeExpiredOperationContext`
+pin context enforcement on the local fast paths.
+
+The existing deadline suites additionally cover stalled headers and metadata
+bodies, retry, authentication, redirects, delayed timer callbacks, EOF, and
+synchronous and asynchronous abort/disposal races without JavaScript
+cooperation. The
+[`DeadlineStreamLifecycle`](models/nuget-deadline-stream/README.md)
+implementation-alignment table names those concurrency gates.
 
 ## Portable source bundles
 
@@ -1700,13 +1797,14 @@ cannot grow retained registration state. Inline and external leaf traversal
 checks cancellation and the monotonic operation deadline every 128 observations;
 on single-threaded Browser/Wasm it also yields at those checkpoints so pending
 timer and caller-cancellation work can run. A complete join reports authoritative
-`listed` and `unlisted` candidates. Missing, malformed, incomplete, unavailable,
-or over-budget registration data returns the flat-container candidates as a
-typed partial result with `unknown` state. Duplicate JSON properties are
-malformed rather than allowing one of several possible listing readings to
-become authoritative. Deadline expiry during traversal, coverage, or final
-authority projection also returns the partial result, while caller cancellation
-outranks a concurrent page failure.
+`listed` and `unlisted` candidates. Missing, malformed, incomplete,
+transport-unavailable, or over-budget registration data returns the
+flat-container candidates as a typed partial result with `unknown` state.
+Duplicate JSON properties are malformed rather than allowing one of several
+possible listing readings to become authoritative. Library-owned deadline
+expiry during traversal, coverage, or final authority projection remains a
+terminal source failure, while caller cancellation outranks a concurrent page
+failure.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their
@@ -1763,7 +1861,8 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3MalformedAdvertisedSearchIsTypedInvalidResponse`,
 `V3SearchWithoutAdvertisedResourceIsTypedUnsupported`,
 `V3SearchUsesLibraryDeadline`,
-`V3SearchTransportTimeoutIsTypedTimeout`,
+`V3SearchTransportTimeoutRemainsTypedTimeout`,
+`V3SearchCanceledTransportTimeoutRemainsTypedTimeout`,
 `V3SearchDoesNotFailOverAuthenticationRejection`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
 `GalleryEnumerationJoinsAuthoritativeListingState`,
@@ -1791,7 +1890,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
 `GalleryCallerCancellationDuringRegistrationRemainsCancellation`,
 `GalleryCallerCancellationOutranksConcurrentRegistrationFault`,
-`GalleryFinalListingProjectionExpiresToPartial`,
+`GalleryFinalListingProjectionPreservesOperationTimeout`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
 `V3InvalidVersionMetadataIsTypedFailure`,
@@ -1810,13 +1909,13 @@ The local-folder descriptor remains modeled without a runtime client.
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 `BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
 gates the Browser's listing-aware dependency range selection, and
-`BrowserEngineBoundaryTests.DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`
-gates that a partial result cannot select an unknown candidate.
-`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration`
+`BrowserEngineBoundaryTests.DependencyRangePreservesGalleryRegistrationTimeout`
+gates that a source timeout cannot become a listing-state fallback.
+`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForSourceTimeout`
 and
-`BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`
-gate the deadline margin that preserves partial version-picker enumeration when
-optional registration stalls.
+`BrowserEngineBoundaryTests.VersionPickerPreservesGalleryRegistrationTimeout`
+gate the deadline margin and terminal timeout behavior when optional
+registration stalls.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 

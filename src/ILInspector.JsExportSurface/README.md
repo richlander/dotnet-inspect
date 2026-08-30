@@ -60,7 +60,7 @@ applications do not need it in their runtime bundle.
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
-consumer such as the proposed
+consumer such as the
 [`ts-jsexport` TypeScript facade](../../docs/design/ts-jsexport.md).
 The single-argument `Build(surface)` overload is a declaration-only
 compatibility seam for metadata-focused tests and hand-composed surfaces. It
