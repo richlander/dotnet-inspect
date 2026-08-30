@@ -248,6 +248,23 @@ public sealed class TypeShellProducerTests
     }
 
     [Fact]
+    public void MemberShellProducer_DoesNotTreatNonSzArrayMarkerAsUnsafe()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: "Run",
+                Kind: CSharpShellMemberKind.Method,
+                IsStatic: false,
+                Parameters: [new CSharpShellParameter("value", "int[*]")],
+                ReturnType: "void",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.TargetBody,
+                Body: "return;"));
+
+        Assert.False(policy.Member.IsUnsafe);
+    }
+
+    [Fact]
     public void MemberShellProducer_ComposesExplicitInterfaceMethodDeclaration()
     {
         var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(

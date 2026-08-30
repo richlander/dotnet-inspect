@@ -9,6 +9,10 @@ import {
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import type { AnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleDocument as sampleDocumentFixture } from "../../annotated-source-viewer/src/sample-document.js";
+import {
+  csharpOnlyEmptyViewerCatalog,
+  sampleViewerCatalog,
+} from "./annotated-source-result-fixture.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 validateAnnotatedSourceDocument(sampleDocumentFixture);
@@ -136,6 +140,7 @@ function escapeHtml(value: unknown) {
 
 const result: AnnotatedSourceRenderResult = {
   document: sampleDocument,
+  viewerCatalog: sampleViewerCatalog,
   provenance: "decompiled from IL",
 };
 
@@ -285,6 +290,7 @@ test("source text is escaped as it is rendered into spans", () => {
         facts: [],
         targets: [],
       },
+      viewerCatalog: csharpOnlyEmptyViewerCatalog,
       provenance: "decompiled from IL",
       contextLimitation: null,
     },
