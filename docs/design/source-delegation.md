@@ -117,6 +117,18 @@ pages, and terminal tokens do and do not prove is exactly what
 [completion evidence](#completion-evidence) disciplines; that discipline is
 contract, gated, and applies to every adoption.
 
+A provider's computational honesty is not a third tier between those two. A
+service that cannot be trusted to implement its own protocol contract — one
+that claims ordering support and returns unordered values, or fabricates a
+count — cannot be trusted at all: the raw values it hands the natural path
+rest on the same enumeration it just misrepresented, so declining reverse
+delegation rescues nothing. Whether to use a source at all is an
+authorization decision made before this contract, and containment of its
+untrusted content stays owned by the threat model. Completion evidence
+therefore exists not to catch a dishonest provider but to stop an honest one
+from being misread: protocol-optional features, operational caps, and
+terminal signals that resemble proof.
+
 ## Authority and scope
 
 The L1 source delegation pattern is the authority for one source-owned
@@ -407,7 +419,10 @@ caller/source boundary. How the source satisfies its accepted plan —
 following next links, trusting `@odata.count`, checking capability
 annotations — is adoption-owned acquisition and proof construction, and the
 same rule holds at every depth: an operational bound anywhere in the chain
-never surfaces as semantic proof.
+never surfaces as semantic proof. Per the [trust model](#trust-model), a
+service that cannot be trusted to implement its own protocol contract is not
+rescued by keeping it on the natural path; whether to use it at all is the
+prior authorization decision.
 
 ## By construction, not by gate
 
