@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
@@ -459,6 +460,57 @@ public class ResearchFactRegistryTests
         Assert.Equal(
             expected,
             ResearchViews.RenderMixedStream(stream, AnnotationGestureSelector.SideOnly));
+    }
+
+    [Fact]
+    public void MixedRendererNeverSignalsACaretForAnIlOnlyAnchoredFact()
+    {
+        // A fact anchored only to an interleaved IL line always renders as a
+        // side comment (see MixedStreamKeepsIlFactsStructuredUntilRendering
+        // above) -- IL never gets caret geometry, no matter what gesture a
+        // focus promotes it to. FocusRenderedCaret has to agree: a --focus
+        // match against this fact must not claim a caret rendered when the
+        // fact never left the IL side-comment. Round-2 review flagged this as
+        // a remaining false-positive path in the whole-member fact check the
+        // round-1 fix used; the caretSignal is now read off the actual render
+        // instead, and this proves it comes back false for exactly this case.
+        var marker = new Annotation(
+            new AnnotationDescriptor("test.portable", AnnotationCategory.Cost, "portable marker"),
+            SourceOffset: 0,
+            Detail: "not-in-text");
+        BoundSourceLine[] stream =
+        [
+            new("return value;", 0, SourceLineKind.CSharp),
+            new("IL_0000: ldarg.0", 0, SourceLineKind.Il, [marker]),
+        ];
+        var gestures = AnnotationGestureSelector.Focus("test");
+        var caretSignal = new StrongBox<bool>(false);
+
+        string rendered = ResearchViews.RenderMixedStream(stream, gestures, caretSignal: caretSignal);
+
+        Assert.DoesNotContain("^^^^", rendered);
+        Assert.False(caretSignal.Value);
+    }
+
+    [Fact]
+    public void MixedRendererSignalsACaretWhenAFocusedFactPromotesOnACSharpLine()
+    {
+        // The positive counterpart to the IL-only case above: a fact that does
+        // anchor to a printed C# line, and is promoted by the focus, must set
+        // the signal so the CLI's legend note (issue #5022 item 8) can tell
+        // the two apart.
+        var marker = new Annotation(
+            new AnnotationDescriptor("test.portable", AnnotationCategory.Cost, "portable marker"),
+            SourceOffset: 0,
+            Detail: "not-in-text");
+        BoundSourceLine[] stream = [new("return value;", 0, SourceLineKind.CSharp, [marker])];
+        var gestures = AnnotationGestureSelector.Focus("test");
+        var caretSignal = new StrongBox<bool>(false);
+
+        string rendered = ResearchViews.RenderMixedStream(stream, gestures, caretSignal: caretSignal);
+
+        Assert.Contains("^^^^", rendered);
+        Assert.True(caretSignal.Value);
     }
 
     [Fact]

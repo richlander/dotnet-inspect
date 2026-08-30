@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -188,6 +189,9 @@ public static partial class ResearchViews
             }
 
             DecompilerResult? annotatedSource = null;
+            var annotatedSourceCaretSignal = new StrongBox<bool>(false);
+            var costCaretSignal = new StrongBox<bool>(false);
+            var semanticsCaretSignal = new StrongBox<bool>(false);
             if (request.AnnotatedSource)
             {
                 // Printing raises and rewrites the IR in place, so the annotated
@@ -211,7 +215,8 @@ public static partial class ResearchViews
                         request.PublicOnly,
                         request.MethodToken,
                         request.PrinterOptions,
-                        gestures),
+                        gestures,
+                        annotatedSourceCaretSignal),
                         emptyOutputIsFailure: false),
                     request.Source);
             }
@@ -239,7 +244,8 @@ public static partial class ResearchViews
                             costAnnotations,
                             request.Source,
                             OverlayPrinterOptions(request.PrinterOptions),
-                            gestures), emptyOutputIsFailure: false),
+                            gestures,
+                            costCaretSignal), emptyOutputIsFailure: false),
                         request.Source);
                     costOverlay = new CostOverlayResult(body, costHeaderFacts);
                 }
@@ -257,7 +263,8 @@ public static partial class ResearchViews
                         semanticsAnnotations,
                         request.Source,
                         OverlayPrinterOptions(request.PrinterOptions),
-                        gestures), emptyOutputIsFailure: false),
+                        gestures,
+                        semanticsCaretSignal), emptyOutputIsFailure: false),
                     request.Source);
             }
 
@@ -265,18 +272,19 @@ public static partial class ResearchViews
             if (request.FactRows)
                 factRows = BuildFactRows(request.Type, request.Method, imported, facts, headerFacts, request.Source);
 
-            // Each caret-capable section renders its own filtered fact subset
-            // (Cost/Semantics Overlay narrow to their own category before
-            // gestures are ever applied), so whether a caret actually rendered
-            // has to be checked per requested section against its own subset,
-            // not against the whole-member fact collection UnmatchedFocusAlternatives
-            // already checks.
+            // Whether a caret actually rendered has to be read off the render
+            // itself, not inferred from the pre-render fact collection: a fact
+            // may match focus yet never reach a caret because its section
+            // filtered it out (Cost/Semantics Overlay's own category narrowing),
+            // its owning statement never correlated onto a printed C# line, or
+            // it is anchored only to an interleaved IL line (Annotated Source
+            // always renders IL as a side comment, never a caret). Each render
+            // call above sets its own signal only when it actually emitted a
+            // caret underline for a promoted fact.
             bool focusRenderedCaret =
-                (request.AnnotatedSource && AnyCaretGesture(gestures, facts))
-                || (request.CostOverlay
-                    && AnyCaretGesture(gestures, facts.Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)))
-                || (request.SemanticsOverlay
-                    && AnyCaretGesture(gestures, facts.Where(fact => fact.Descriptor.Category == AnnotationCategory.Semantics)));
+                (request.AnnotatedSource && annotatedSourceCaretSignal.Value)
+                || (request.CostOverlay && costCaretSignal.Value)
+                || (request.SemanticsOverlay && semanticsCaretSignal.Value);
 
             return new MemberProjectionResult(
                 annotatedSource,
@@ -336,22 +344,6 @@ public static partial class ResearchViews
             families.Add(dot > 0 ? descriptor.Id[..dot] : descriptor.Id);
         }
         return [.. families];
-    }
-
-    /// <summary>
-    /// True when at least one of <paramref name="facts"/> is promoted to the
-    /// caret gesture by <paramref name="gestures"/>. Callers pass the exact
-    /// filtered subset a section renders from (e.g. Cost Overlay's own
-    /// category-narrowed facts), not the whole-member collection -- matching
-    /// against the full set would say a caret rendered even when the matching
-    /// fact was excluded from this particular section.
-    /// </summary>
-    static bool AnyCaretGesture(AnnotationGestureSelector gestures, IEnumerable<IAnnotation> facts)
-    {
-        foreach (var fact in facts)
-            if (gestures.For(fact) == AnnotationGesture.Caret)
-                return true;
-        return false;
     }
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
@@ -435,7 +427,8 @@ public static partial class ResearchViews
         bool publicOnly,
         int? methodToken = null,
         PrinterOptions? printerOptions = null,
-        AnnotationGestureSelector? gestures = null)
+        AnnotationGestureSelector? gestures = null,
+        StrongBox<bool>? caretSignal = null)
     {
 
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
@@ -471,7 +464,7 @@ public static partial class ResearchViews
         var stream = CorrelateMixedSource(imported, csText, printedRanges, annotations, annotatedInstrLines);
         var extents = AnnotationAnchor.ComputeCaretExtents(
             annotations, AnnotationAnchor.ComputeSpans(imported), printedRanges);
-        return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents) };
+        return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly, extents, caretSignal) };
     }
 
     static AnnotatedSourceDocument BuildAnnotatedSourceDocument(
@@ -1081,7 +1074,8 @@ public static partial class ResearchViews
     internal static string RenderMixedStream(
         IReadOnlyList<BoundSourceLine> stream,
         AnnotationGestureSelector gestures,
-        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
+        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null,
+        StrongBox<bool>? caretSignal = null)
     {
         var sb = new StringBuilder();
         string csIndent = "";
@@ -1094,7 +1088,9 @@ public static partial class ResearchViews
                 // This renderer's established IL gesture is a side comment.
                 // Keeping the facts structured until here lets a portable
                 // consumer choose differently without making this slice invent
-                // caret geometry for already-comment-framed IL.
+                // caret geometry for already-comment-framed IL. A fact anchored
+                // only to an IL line therefore never renders a caret, no matter
+                // what gesture it is promoted to.
                 sb.AppendLf($"{csIndent}    // {RenderSideAnnotations(line.Text, line.Annotations)}");
                 continue;
             }
@@ -1105,6 +1101,8 @@ public static partial class ResearchViews
             if (side.Count > 0)
                 text = $"{text}  // {string.Join("; ", side.Select(a => AnnotationText.Format(a)))}";
             sb.AppendLf(text);
+            if (caret.Count > 0 && caretSignal is not null)
+                caretSignal.Value = true;
             foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents))
                 sb.AppendLf(caretLine);
         }
@@ -1121,7 +1119,8 @@ public static partial class ResearchViews
         IReadOnlyList<IAnnotation> annotations,
         MetadataSource source,
         PrinterOptions? options,
-        AnnotationGestureSelector? gestures = null)
+        AnnotationGestureSelector? gestures = null,
+        StrongBox<bool>? caretSignal = null)
     {
         var result = CSharpPrinter.PrintRaised(
             imported,
@@ -1133,7 +1132,7 @@ public static partial class ResearchViews
             return result;
         var projected = annotations.Count == 0
             ? output
-            : AddTrailingComments(imported, output, printedRanges, annotations, gestures ?? AnnotationGestureSelector.SideOnly);
+            : AddTrailingComments(imported, output, printedRanges, annotations, gestures ?? AnnotationGestureSelector.SideOnly, caretSignal);
         return result with { Output = projected };
     }
 
@@ -1179,12 +1178,13 @@ public static partial class ResearchViews
         string output,
         PrintedRangeMap printedRanges,
         IReadOnlyList<IAnnotation> annotations,
-        AnnotationGestureSelector gestures)
+        AnnotationGestureSelector gestures,
+        StrongBox<bool>? caretSignal = null)
     {
         var stream = CorrelateOverlay(raised, output, printedRanges, annotations);
         var extents = AnnotationAnchor.ComputeCaretExtents(
             annotations, AnnotationAnchor.ComputeSpans(raised), printedRanges);
-        return RenderOverlayStream(output, stream, gestures, extents);
+        return RenderOverlayStream(output, stream, gestures, extents, caretSignal);
     }
 
     // The C#-only correlation: anchor each annotation group to its printed C# line
@@ -1241,7 +1241,8 @@ public static partial class ResearchViews
         string output,
         IReadOnlyList<BoundSourceLine> stream,
         AnnotationGestureSelector gestures,
-        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
+        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null,
+        StrongBox<bool>? caretSignal = null)
     {
         bool any = false;
         foreach (var line in stream)
@@ -1261,6 +1262,8 @@ public static partial class ResearchViews
             lines.Add(side.Count > 0
                 ? $"{line.Text.TrimEnd()}  // {AnnotationText.Format(side)}"
                 : line.Text);
+            if (caret.Count > 0 && caretSignal is not null)
+                caretSignal.Value = true;
             lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents));
         }
         return string.Join("\n", lines);
