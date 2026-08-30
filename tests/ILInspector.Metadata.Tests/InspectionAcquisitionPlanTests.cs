@@ -861,14 +861,18 @@ public class InspectionAcquisitionPlanTests
     {
         byte[] image = SelfBytes();
         AssemblyReferenceIdentity identity = ReadIdentity(image);
+        const int DescriptorCount = 6;
+        using var workersReady = new CountdownEvent(DescriptorCount);
+        using var startRegistrations = new ManualResetEventSlim();
         using var twoOpensEntered = new CountdownEvent(2);
+        using var unexpectedThirdOpen = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
         int entered = 0;
         int active = 0;
         int maximum = 0;
-        var descriptors = Enumerable.Range(0, 6)
+        var descriptors = Enumerable.Range(0, DescriptorCount)
             .Select(_ => Descriptor(
                 identity,
                 () =>
@@ -878,9 +882,11 @@ public class InspectionAcquisitionPlanTests
                     UpdateMaximum(ref maximum, current);
                     if (entrance <= 2)
                         twoOpensEntered.Signal();
+                    else
+                        unexpectedThirdOpen.Set();
                     try
                     {
-                        release.Wait(cancellationToken);
+                        release.Wait();
                         return image;
                     }
                     finally
@@ -897,25 +903,59 @@ public class InspectionAcquisitionPlanTests
 
         Task<CandidateRegistrationResult>[] tasks =
             [.. descriptors.Select(
-                descriptor => StartConcurrent(() => plan.Register(descriptor)))];
-        bool reachedLimit;
-        int observedMaximum;
+                descriptor => StartConcurrent(() =>
+                {
+                    workersReady.Signal();
+                    startRegistrations.Wait();
+                    return plan.Register(descriptor);
+                }))];
+        bool allWorkersReady = false;
+        bool reachedLimit = false;
+        bool admittedThird = false;
+        int observedMaximum = 0;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? cancellation =
+            null;
         try
         {
-            reachedLimit = twoOpensEntered.Wait(
+            allWorkersReady = workersReady.Wait(
                 TimeSpan.FromSeconds(5),
                 cancellationToken);
-            observedMaximum = Volatile.Read(ref maximum);
+            if (allWorkersReady)
+            {
+                startRegistrations.Set();
+                reachedLimit = twoOpensEntered.Wait(
+                    TimeSpan.FromSeconds(5),
+                    cancellationToken);
+                if (reachedLimit)
+                {
+                    // Every dedicated worker has started, so this window tests
+                    // gate admission rather than worker creation or injection.
+                    admittedThird = unexpectedThirdOpen.Wait(
+                        TimeSpan.FromSeconds(1),
+                        cancellationToken);
+                    observedMaximum = Volatile.Read(ref maximum);
+                }
+            }
+        }
+        catch (OperationCanceledException exception)
+        {
+            cancellation =
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(
+                    exception);
         }
         finally
         {
+            startRegistrations.Set();
             release.Set();
         }
 
         CandidateRegistrationResult[] results =
             await Task.WhenAll(tasks);
+        cancellation?.Throw();
 
+        Assert.True(allWorkersReady);
         Assert.True(reachedLimit);
+        Assert.False(admittedThird);
         Assert.Equal(2, observedMaximum);
         Assert.All(
             results,
