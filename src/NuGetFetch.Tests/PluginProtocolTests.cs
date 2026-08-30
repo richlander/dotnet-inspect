@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using NuGetFetch;
+using NuGetFetch.PluginFixture;
 using NuGetFetch.Plugins;
 
 namespace NuGetFetch.Tests;
@@ -10,10 +11,10 @@ namespace NuGetFetch.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The fake is a shell script rather than a mock object, so these tests cover the parts most
-/// likely to be wrong in a hand-written protocol client: process launch and argument shape,
-/// newline-delimited JSON framing, the symmetric handshake, and the exact property names and
-/// enum spellings. A mock would have agreed with whatever we wrote.
+/// The fake is a managed child process rather than a mock object, so these tests cover the parts
+/// most likely to be wrong in a hand-written protocol client: process launch and argument shape,
+/// newline-delimited JSON framing, the symmetric handshake, and the exact property names and enum
+/// spellings. A mock would have agreed with whatever we wrote.
 /// </para>
 /// <para>
 /// The contract is defined by NuGet/NuGet.Client, src/NuGet.Core/NuGet.Protocol/Plugins/.
@@ -457,7 +458,11 @@ public sealed class PluginProtocolTests : IDisposable
     [Fact]
     public async Task APluginThatWritesGarbageIsSkipped()
     {
-        FakePlugin plugin = CreateRawPlugin("garbage", "printf 'not json at all\\n'\nsleep 2\n");
+        FakePlugin plugin = CreatePlugin(
+            "garbage",
+            username: "unused",
+            password: "unused",
+            writeGarbageAndWait: true);
 
         await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
         PackageSourceCredential? credential = await provider.GetCredentialsAsync(
@@ -479,7 +484,8 @@ public sealed class PluginProtocolTests : IDisposable
             "mistyped",
             username: "u",
             password: "p",
-            preamble: """emit '{"RequestId":123,"Type":"Response","Method":"GetAuthenticationCredentials"}'""");
+            preambleMessage:
+                """{"RequestId":123,"Type":"Response","Method":"GetAuthenticationCredentials"}""");
 
         await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
         PackageSourceCredential? credential = await provider.GetCredentialsAsync(
@@ -615,8 +621,9 @@ public sealed class PluginProtocolTests : IDisposable
             $"malformed-inbound-log-{name}",
             username: "u",
             password: "p",
-            afterSetLogLevel:
-                $"emit '{{\"RequestId\":\"malformed-log\",\"Type\":\"Request\",\"Method\":\"Log\",\"Payload\":{payload}}}'");
+            inboundLogRequestId: "malformed-log",
+            inboundLogPayload: payload,
+            afterSetLogLevelBehavior: PluginAfterSetLogLevelBehavior.EmitLog);
 
         await using var provider = new PluginCredentialProvider(null, [plugin.Executable]);
         PackageSourceCredential? credential = await provider.GetCredentialsAsync(
@@ -641,8 +648,10 @@ public sealed class PluginProtocolTests : IDisposable
             "valid-inbound-log",
             username: "u",
             password: "p",
-            afterSetLogLevel:
-                """emit '{"RequestId":"valid-log","Type":"Request","Method":"Log","Payload":{"LogLevel":"Information","Message":"hello"}}'""");
+            inboundLogRequestId: "valid-log",
+            inboundLogPayload:
+                """{"LogLevel":"Information","Message":"hello"}""",
+            afterSetLogLevelBehavior: PluginAfterSetLogLevelBehavior.EmitLog);
 
         await using var provider = new PluginCredentialProvider(log.Add, [plugin.Executable]);
         PackageSourceCredential? credential = await provider.GetCredentialsAsync(
@@ -695,7 +704,7 @@ public sealed class PluginProtocolTests : IDisposable
             "closed-admission",
             username: "u",
             password: "p",
-            afterSetLogLevel: "exec 1>&-",
+            afterSetLogLevelBehavior: PluginAfterSetLogLevelBehavior.CloseOutput,
             exitOnCredentialRequest: true);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
@@ -817,8 +826,8 @@ public sealed class PluginProtocolTests : IDisposable
             "admission-during-terminal-snapshot",
             username: "u",
             password: "p",
-            afterSetLogLevel:
-                """while [ ! -f "$RECORD.close" ]; do sleep 0.01; done; exec 1>&-""",
+            afterSetLogLevelBehavior:
+                PluginAfterSetLogLevelBehavior.WaitForCloseMarkerThenCloseOutput,
             exitOnCredentialRequest: true);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
@@ -886,7 +895,7 @@ public sealed class PluginProtocolTests : IDisposable
             "canceled-after-receiver-loss",
             username: "u",
             password: "p",
-            afterSetLogLevel: "exec 1>&-");
+            afterSetLogLevelBehavior: PluginAfterSetLogLevelBehavior.CloseOutput);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
                 plugin.Executable,
@@ -952,8 +961,8 @@ public sealed class PluginProtocolTests : IDisposable
             "canceled-while-waiting-for-closed-admission",
             username: "u",
             password: "p",
-            afterSetLogLevel:
-                """while [ ! -f "$RECORD.close" ]; do sleep 0.01; done; exec 1>&-""",
+            afterSetLogLevelBehavior:
+                PluginAfterSetLogLevelBehavior.WaitForCloseMarkerThenCloseOutput,
             exitOnCredentialRequest: true);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
@@ -1015,7 +1024,7 @@ public sealed class PluginProtocolTests : IDisposable
             "stalled-writer-timeout",
             username: "u",
             password: "p",
-            afterSetLogLevel: "sleep 30");
+            afterSetLogLevelBehavior: PluginAfterSetLogLevelBehavior.Stall);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
                 plugin.Executable,
@@ -1081,7 +1090,7 @@ public sealed class PluginProtocolTests : IDisposable
             "stalled-writer-cancellation",
             username: "u",
             password: "p",
-            afterSetLogLevel: "sleep 30");
+            afterSetLogLevelBehavior: PluginAfterSetLogLevelBehavior.Stall);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
                 plugin.Executable,
@@ -1137,7 +1146,8 @@ public sealed class PluginProtocolTests : IDisposable
             "response-before-complete-write",
             username: "right",
             password: "token",
-            respondBeforeCredentialLineCompletes: true);
+            afterSetLogLevelBehavior:
+                PluginAfterSetLogLevelBehavior.RespondBeforeCredentialLineCompletes);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
                 plugin.Executable,
@@ -1297,7 +1307,7 @@ public sealed class PluginProtocolTests : IDisposable
             "quiesce-before-dispose",
             username: "u",
             password: "p",
-            afterSetLogLevel: "sleep 30");
+            afterSetLogLevelBehavior: PluginAfterSetLogLevelBehavior.Stall);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
                 plugin.Executable,
@@ -1380,12 +1390,11 @@ public sealed class PluginProtocolTests : IDisposable
             "quiesce-inbound-response",
             username: "u",
             password: "p",
-            afterSetLogLevel:
-                """
-                while [ ! -f "$RECORD.log" ]; do sleep 0.01; done
-                emit '{"RequestId":"quiesce-log","Type":"Request","Method":"Log","Payload":{"LogLevel":"Information","Message":"hello"}}'
-                sleep 30
-                """);
+            inboundLogRequestId: "quiesce-log",
+            inboundLogPayload:
+                """{"LogLevel":"Information","Message":"hello"}""",
+            afterSetLogLevelBehavior:
+                PluginAfterSetLogLevelBehavior.WaitForLogMarkerThenEmitLogAndStall);
         PluginConnection connection = Assert.IsType<PluginConnection>(
             await PluginConnection.StartAsync(
                 plugin.Executable,
@@ -1532,140 +1541,78 @@ public sealed class PluginProtocolTests : IDisposable
         string claims = "Authentication",
         string responseCode = "Success",
         string? authenticationTypes = null,
-        string? preamble = null,
+        string? preambleMessage = null,
         string? inboundHandshakePayload = null,
         string? outboundHandshakePayload = null,
-        string? afterSetLogLevel = null,
-        bool respondBeforeCredentialLineCompletes = false,
+        string? inboundLogRequestId = null,
+        string? inboundLogPayload = null,
+        bool writeGarbageAndWait = false,
+        PluginAfterSetLogLevelBehavior afterSetLogLevelBehavior =
+            PluginAfterSetLogLevelBehavior.Continue,
         bool closeOutputOnCredentialRequest = false,
         bool exitOnFirstCredentialRequest = false,
         bool exitOnCredentialRequest = false)
     {
-        // Values are embedded in a double-quoted bash string, so every JSON quote needs a
-        // backslash in the emitted script.
-        static string Quoted(string value) => "\\\"" + value + "\\\"";
-
-        string types = authenticationTypes is null ? "null" : "[" + Quoted(authenticationTypes) + "]";
-
-        string credentialPayload = responseCode == "Success"
-            ? "{" + Quoted("Username") + ":" + Quoted(username)
-                + "," + Quoted("Password") + ":" + Quoted(password)
-                + "," + Quoted("AuthenticationTypes") + ":" + types
-                + "," + Quoted("ResponseCode") + ":" + Quoted("Success") + "}"
-            : "{" + Quoted("ResponseCode") + ":" + Quoted(responseCode) + "}";
-        string credentialResponse = """
-            emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetAuthenticationCredentials\",\"Payload\":__CREDENTIAL__}"
-            """;
-        string credentialAction = closeOutputOnCredentialRequest
-            ? "exec 1>&-"
-            : exitOnFirstCredentialRequest
-                ? """
-                  starts_file="$RECORD.starts"
-                  starts=0
-                  [ -f "$starts_file" ] && starts=$(cat "$starts_file")
-                  starts=$((starts + 1))
-                  printf '%s' "$starts" > "$starts_file"
-                  if [ "$starts" -eq 1 ]; then
-                    exit 0
-                  fi
-                  __CREDENTIAL_RESPONSE__
-                  """
-            : exitOnCredentialRequest
-                ? "exit 0"
-                : credentialResponse;
-        string afterSetLogLevelAction = respondBeforeCredentialLineCompletes
-            ? """
-              IFS= read -r -n 256 prefix
-              id=$(field "$prefix" RequestId)
-              __CREDENTIAL_RESPONSE__
-              sleep 30
-              exit 0
-              """
-                .Replace("__CREDENTIAL_RESPONSE__", credentialResponse)
-                .Replace("__CREDENTIAL__", credentialPayload)
-            : afterSetLogLevel ?? string.Empty;
-
-        // A non-interpolated raw string with tokens: the script is dense with braces, and
-        // interpolation holes would be indistinguishable from JSON.
-        string body = """
-            __PREAMBLE__
-            # Open with our own handshake, as a real plugin does. The host must answer it.
-            emit '{"RequestId":"fake-handshake","Type":"Request","Method":"Handshake","Payload":__INBOUND_HANDSHAKE__}'
-
-            while IFS= read -r line; do
-              printf '%s\n' "$line" >> "$RECORD"
-              type=$(field "$line" Type)
-              [ "$type" = "Request" ] || continue
-              id=$(field "$line" RequestId)
-              method=$(field "$line" Method)
-              case "$method" in
-                Handshake)
-                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"Handshake\",\"Payload\":__OUTBOUND_HANDSHAKE__}" ;;
-                MonitorNuGetProcessExit|Initialize)
-                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"$method\",\"Payload\":{\"ResponseCode\":\"Success\"}}" ;;
-                SetLogLevel)
-                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"$method\",\"Payload\":{\"ResponseCode\":\"Success\"}}"
-                  __AFTER_SET_LOG_LEVEL__ ;;
-                GetOperationClaims)
-                  emit "{\"RequestId\":\"$id\",\"Type\":\"Response\",\"Method\":\"GetOperationClaims\",\"Payload\":{\"Claims\":[__CLAIMS__]}}" ;;
-                GetAuthenticationCredentials)
-                  __AUTH_ACTION__ ;;
-                Close)
-                  exit 0 ;;
-              esac
-            done
-            """
-            .Replace("__CLAIMS__", Quoted(claims))
-            .Replace("__AUTH_ACTION__", credentialAction)
-            .Replace("__CREDENTIAL_RESPONSE__", credentialResponse)
-            .Replace("__CREDENTIAL__", credentialPayload)
-            .Replace(
-                "__INBOUND_HANDSHAKE__",
-                inboundHandshakePayload
-                    ?? """{"ProtocolVersion":"2.0.0","MinimumProtocolVersion":"1.0.0"}""")
-            .Replace(
-                "__OUTBOUND_HANDSHAKE__",
-                (outboundHandshakePayload
-                    ?? """{"ResponseCode":"Success","ProtocolVersion":"2.0.0"}""")
-                    .Replace("\"", "\\\"", StringComparison.Ordinal))
-            .Replace("__AFTER_SET_LOG_LEVEL__", afterSetLogLevelAction)
-            .Replace("__PREAMBLE__", preamble ?? string.Empty);
-
-        return CreateRawPlugin(name, body);
-    }
-
-    private FakePlugin CreateRawPlugin(string name, string body)
-    {
-        Assert.SkipWhen(OperatingSystem.IsWindows(), "The fake plugin is a shell script; CI for this suite is Linux.");
-
         string directory = Path.Combine(_root, name);
         Directory.CreateDirectory(directory);
         string record = Path.Combine(directory, "received.ndjson");
-        string script = Path.Combine(directory, $"nuget-plugin-{name}");
-
-        string contents = $$"""
-            #!/usr/bin/env bash
-            set -u
-            RECORD="{{record}}"
-            : > "$RECORD"
-
-            emit() { printf '%s\n' "$1"; }
-
-            field() { printf '%s' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"; }
-
-            {{body}}
-            """;
-
-        File.WriteAllText(script, contents);
-
-        if (!OperatingSystem.IsWindows())
+        var configuration = new PluginFixtureConfiguration
         {
-            File.SetUnixFileMode(
-                script,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            RecordPath = record,
+            Username = username,
+            Password = password,
+            Claims = claims,
+            ResponseCode = responseCode,
+            AuthenticationType = authenticationTypes,
+            PreambleMessage = preambleMessage,
+            InboundHandshakePayload = inboundHandshakePayload
+                ?? """{"ProtocolVersion":"2.0.0","MinimumProtocolVersion":"1.0.0"}""",
+            OutboundHandshakePayload = outboundHandshakePayload
+                ?? """{"ResponseCode":"Success","ProtocolVersion":"2.0.0"}""",
+            InboundLogRequestId = inboundLogRequestId,
+            InboundLogPayload = inboundLogPayload,
+            WriteGarbageAndWait = writeGarbageAndWait,
+            CredentialBehavior = closeOutputOnCredentialRequest
+                ? PluginCredentialBehavior.CloseOutput
+                : exitOnFirstCredentialRequest
+                    ? PluginCredentialBehavior.ExitOnFirstRequest
+                    : exitOnCredentialRequest
+                        ? PluginCredentialBehavior.Exit
+                        : PluginCredentialBehavior.Respond,
+            AfterSetLogLevelBehavior = afterSetLogLevelBehavior,
+        };
+
+        string sourceBase = Path.Combine(
+            FindPluginFixtureDirectory(),
+            "NuGetFetch.PluginFixture");
+        string targetBase = Path.Combine(directory, $"nuget-plugin-{name}");
+        foreach (string suffix in new[] { ".dll", ".deps.json", ".runtimeconfig.json" })
+        {
+            string source = sourceBase + suffix;
+            Assert.True(File.Exists(source), $"Expected plugin fixture file '{source}'.");
+            File.Copy(source, targetBase + suffix);
         }
 
-        return new FakePlugin(new PluginExecutable(script, RequiresDotnetHost: false), record);
+        File.WriteAllText(
+            targetBase + ".json",
+            JsonSerializer.Serialize(configuration));
+
+        return new FakePlugin(
+            new PluginExecutable(targetBase + ".dll", RequiresDotnetHost: true),
+            record);
+    }
+
+    private static string FindPluginFixtureDirectory()
+    {
+        string testOutput = Path.TrimEndingDirectorySeparator(
+            AppContext.BaseDirectory);
+        string configuration = Path.GetFileName(testOutput);
+        string projectOutput = Directory.GetParent(testOutput)!.FullName;
+        string binDirectory = Directory.GetParent(projectOutput)!.FullName;
+        return Path.Combine(
+            binDirectory,
+            "NuGetFetch.PluginFixture",
+            configuration);
     }
 
     private sealed record FakePlugin(PluginExecutable Executable, string RecordPath)

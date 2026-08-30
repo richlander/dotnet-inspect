@@ -549,12 +549,6 @@ Unrelated package, project, sibling, discovered, or other name-owning tiers and
 their typed failures remain outside this arbitration and cannot be bypassed by
 a role-bearing candidate.
 
-Policy formation captures the exact mapping from each participant registration
-to its delegated policy and `AssemblyBindingPolicyVersion`. That mapping
-contributes to the outer `AssemblyBindingPolicyVersion`, so replacing a
-delegate, reassigning it to another participant, or changing its version
-requires a new outer version before any delegated answer can change.
-
 A selected or ambiguous result from the requesting participant's delegated
 policy joins designated/platform arbitration only when every returned candidate
 identifies a registration in the sealed group and carries one of those roles in
@@ -593,12 +587,22 @@ failure behavior is unchanged. Reversing either participant or role-projection
 enumeration cannot change the selected registration, shadows, ambiguity, or
 failure.
 
-The policy version is binding-consistent with exactly that group, role
-snapshot, and registration-to-delegate-version mapping. Repeated equal requests
-under the version return the same selection instance. A different group,
-context generation, registration set, role set, delegate assignment, or
-delegate version requires a different policy version; evidence cannot be
-rebound or mixed across versions.
+The policy snapshot also captures the exact delegated binding policy and its
+`AssemblyBindingPolicyVersion` for every requesting registration routed through
+the outer policy. The outer policy version is binding-consistent only while the
+group, role snapshot, delegated-policy map, and every captured delegate version
+remain unchanged. Its version observation and selection path revalidate those
+dependencies before returning either a cached or newly computed answer.
+
+If a delegate version differs before selection, or changes while its selection
+is in flight, the outer policy replaces its own version before the changed or
+stale answer can be accepted and the request fails visibly as an invalid policy
+result. Continuing requires a newly formed outer snapshot over the current
+delegate versions. Repeated equal requests under one unchanged outer version
+return the same selection instance. A different group, context generation,
+registration set, role set, delegated-policy map, or delegate version requires
+a different outer version; evidence and cached answers cannot be rebound or
+mixed across versions.
 
 ### Migration boundary
 
@@ -637,9 +641,6 @@ authority-bearing field to it.
   wrong-group, missing-registration, extra-registration, duplicate-input,
   altered-role-set, and contradictory evidence cases and proves no policy
   version, selection, shadow, group mutation, or provenance fallback survives.
-- `WorkspaceRoleBinding_DelegateVersionsAreCaptured` proves every delegated
-  policy assignment and version contributes to the outer policy version and
-  cannot change while that outer version remains active.
 - `WorkspaceRoleBinding_DelegatedOutcomesPreserveAdjacentPolicy` covers
   selected and ambiguous results containing in-group role registrations,
   outside-group registrations, and in-group registrations without an authority
@@ -649,8 +650,14 @@ authority-bearing field to it.
   promotion.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
-  registration, role, delegate-assignment, or delegate-version change requires
-  a new version.
+  registration, role, delegated-policy, or delegate-version change requires a
+  new outer version.
+- `WorkspaceRoleBinding_DelegateVersionChangeInvalidatesOuterPolicy` changes a
+  captured delegate version before selection, during delegated selection, and
+  after warming a cached answer. It proves the old outer version returns no
+  changed or stale selection or shadow evidence, fails the request visibly as
+  an invalid policy result, and requires a newly formed snapshot before
+  continuing.
 - `WorkspaceRoleBinding_LegacyAndRoleFixturesProduceEquivalentOutcomes`
   runs every #4593 precedence and failure fixture against the replacement
   policy, using the current implementation only as a test oracle.
