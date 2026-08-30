@@ -261,6 +261,43 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
+    public void PackageRootSelectionIdentity_SelectionSequencesAreImmutable()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("selection.immutable", "1.0.0");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(("lib/net11.0/Immutable.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+        PackageRootBinding binding =
+            PackageRootBinding.CreateFromSource(payload, Framework);
+
+        IList<PackageCompileAsset> assets =
+            Assert.IsAssignableFrom<IList<PackageCompileAsset>>(
+                binding.Root.AssetSelection.Assets);
+        IList<PackageCompileAsset> implementationAssets =
+            Assert.IsAssignableFrom<IList<PackageCompileAsset>>(
+                binding.Root.AssetSelection.ImplementationAssets);
+        IList<string> frameworks =
+            Assert.IsAssignableFrom<IList<string>>(
+                binding.Root.AssetSelection.AvailableTargetFrameworks);
+
+        Assert.True(assets.IsReadOnly);
+        Assert.True(implementationAssets.IsReadOnly);
+        Assert.True(frameworks.IsReadOnly);
+        Assert.Throws<NotSupportedException>(
+            () => assets.Add(assets[0]));
+        Assert.Throws<NotSupportedException>(
+            () => implementationAssets.Add(implementationAssets[0]));
+        Assert.Throws<NotSupportedException>(
+            () => frameworks.Add(frameworks[0]));
+    }
+
+    [Fact]
     public void RealizedPackageCoordinate_ReacquisitionContractIsCoherent()
     {
         PackageSourceCoordinate coordinate =
@@ -344,7 +381,7 @@ public sealed class PackageAssemblyContextRealizationTests
     }
 
     [Fact]
-    public void PackageRootBinding_UnrepresentableSelectionTargetUsesAnyAcquisitionFramework()
+    public void PackageRootBinding_UnrepresentableSelectionTargetUsesFrameworkNeutralCoordinate()
     {
         const string selectionTarget = ".NETFramework,Version=v4.8";
         PackageSourceCoordinate coordinate =
@@ -385,6 +422,7 @@ public sealed class PackageAssemblyContextRealizationTests
             new InMemoryPackageContent(
                 Archive(
                     ("lib/net10.0/Net10.dll", [0x01]),
+                    ("runtimes/linux-x64/lib/net10.0/Net10.dll", [0x03]),
                     ("lib/net11.0/Net11.dll", [0x02])),
                 fromCache: false,
                 producerKey: "tests"),
@@ -398,8 +436,52 @@ public sealed class PackageAssemblyContextRealizationTests
         Assert.Equal("linux-x64", binding.Coordinate.RuntimeIdentifier);
         Assert.Equal("net10.0", binding.Root.RequestedTargetFramework);
         Assert.Equal(
-            ["lib/net10.0/Net10.dll"],
+            ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
             binding.Root.AssetSelection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            ["runtimes/linux-x64/lib/net10.0/Net10.dll"],
+            binding.Root.AssetSelection.ImplementationAssets.Select(
+                asset => asset.Path));
+        Assert.Equal(
+            "linux-x64",
+            binding.Root.RequestedRuntimeIdentifier);
+    }
+
+    [Fact]
+    public void PackageRootBinding_SourceRuntimeRequiresFramework()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("runtime.sample", "1.0.0");
+        var payload = new AcquiredPackageSourcePayload(
+            coordinate,
+            new InMemoryPackageContent(
+                Archive(
+                    ("runtimes/linux-x64/lib/net11.0/Runtime.dll", [0x01])),
+                fromCache: false,
+                producerKey: "tests"),
+            "tests",
+            PackagePayloadOrigin.Download);
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(
+            () => PackageRootBinding.CreateFromSource(
+                payload,
+                selectionTargetFramework: null,
+                runtimeIdentifier: "linux-x64"));
+
+        Assert.Equal("selectionTargetFramework", failure.ParamName);
+    }
+
+    [Fact]
+    public void PackageRootBinding_AcquiredPayloadsAreConstructionControlled()
+    {
+        Assert.Empty(typeof(AcquiredPackagePayload).GetConstructors());
+        Assert.Empty(typeof(AcquiredPackageSourcePayload).GetConstructors());
+        Assert.All(
+            typeof(AcquiredPackagePayload).GetProperties(),
+            property => Assert.False(property.CanWrite));
+        Assert.All(
+            typeof(AcquiredPackageSourcePayload).GetProperties(),
+            property => Assert.False(property.CanWrite));
     }
 
     [Fact]

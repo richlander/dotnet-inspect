@@ -1235,7 +1235,7 @@ internal static class BrowserPackageWorkspace
                     cancellationToken).ConfigureAwait(false);
             }
 
-            var content = new InMemoryPackageContent(
+            var content = InMemoryPackageContent.CreateOwned(
                 bytes,
                 fromCache: false,
                 sourceKey);
@@ -1373,7 +1373,7 @@ internal sealed class BrowserPackage
         PackageId = packageId;
         Version = version;
         RetainedBytes = retainedBytes;
-        Content = new InMemoryPackageContent(
+        Content = InMemoryPackageContent.CreateOwned(
             retainedBytes,
             fromCache,
             producerKey);

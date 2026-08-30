@@ -373,6 +373,13 @@ public abstract record RealizedMemberCoordinate
                     "A realized runtime identifier is a canonical lowercase moniker.",
                     nameof(runtimeIdentifier));
             }
+            if (framework is null
+                && runtimeIdentifier is not null)
+            {
+                throw new ArgumentException(
+                    "A realized runtime identifier requires an acquisition framework.",
+                    nameof(runtimeIdentifier));
+            }
 
             PackageId = packageId;
             Version = version;
@@ -447,6 +454,9 @@ public abstract record RealizedMemberCoordinate
                             : runtimeIdentifier is not null
                                 && !IsCanonicalRuntimeIdentifier(runtimeIdentifier)
                                 ? "a realized runtime identifier must be a canonical lowercase moniker"
+                                : framework is null
+                                    && runtimeIdentifier is not null
+                                    ? "a realized runtime identifier requires an acquisition framework"
                                 : null;
             if (problem is not null)
                 return false;

@@ -69,7 +69,7 @@ public sealed class InMemoryPackageStore : IPackageStore
         await nupkg.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
         var bytes = buffer.ToArray();
 
-        var content = new InMemoryPackageContent(
+        var content = InMemoryPackageContent.CreateOwned(
             bytes,
             fromCache: true,
             sourceKey);

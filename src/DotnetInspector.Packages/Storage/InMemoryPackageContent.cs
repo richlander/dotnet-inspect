@@ -23,11 +23,24 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
         bool fromCache,
         string producerKey) :
         this(
-            nupkgBytes,
+            Copy(nupkgBytes),
             fromCache,
             producerKey,
             new PackageContentGenerationIdentity())
     {
+    }
+
+    internal static InMemoryPackageContent CreateOwned(
+        byte[] nupkgBytes,
+        bool fromCache,
+        string producerKey)
+    {
+        ArgumentNullException.ThrowIfNull(nupkgBytes);
+        return new InMemoryPackageContent(
+            nupkgBytes,
+            fromCache,
+            producerKey,
+            new PackageContentGenerationIdentity());
     }
 
     private InMemoryPackageContent(
@@ -46,14 +59,11 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
         ProducerKey = producerKey;
     }
 
-    /// <summary>The raw nupkg bytes backing this content.</summary>
-    public ReadOnlyMemory<byte> NupkgBytes => _nupkgBytes;
+    /// <summary>A snapshot of the raw nupkg bytes backing this content.</summary>
+    public ReadOnlyMemory<byte> NupkgBytes => _nupkgBytes.ToArray();
 
-    /// <summary>
-    /// Reports whether this content retains the supplied archive memory.
-    /// </summary>
-    public bool ReferencesArchive(ReadOnlyMemory<byte> nupkgBytes) =>
-        NupkgBytes.Equals(nupkgBytes);
+    internal bool ReferencesArchive(ReadOnlyMemory<byte> nupkgBytes) =>
+        new ReadOnlyMemory<byte>(_nupkgBytes).Equals(nupkgBytes);
 
     internal byte[] RetainedArchive => _nupkgBytes;
 
@@ -84,6 +94,12 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
                 fromCache: true,
                 ProducerKey,
                 _generationIdentity);
+
+    static byte[] Copy(byte[] nupkgBytes)
+    {
+        ArgumentNullException.ThrowIfNull(nupkgBytes);
+        return nupkgBytes.ToArray();
+    }
 
     /// <inheritdoc />
     /// <remarks>

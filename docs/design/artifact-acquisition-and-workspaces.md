@@ -1377,6 +1377,7 @@ selection succeeds. That host-neutral product result retains:
 - exact package id and version;
 - the requested target framework and the selector's selected framework, when
   either exists;
+- the requested runtime identifier, when one participates in selection;
 - the package content producer key and cache origin;
 - the complete typed `PackageCompileAssetSelection`, including
   `NoCompileAssets`, `NoMatchingTargetFramework`, `EmptyCompileGroup`, and
@@ -1444,11 +1445,20 @@ test-only package constructor remains unbound. This adoption is gated by
 `BrowserPackageRealization_ReceivesAcquisitionIssuedCoordinate`; generation
 replacement, selection difference, coordinate coherence, Root-only binding,
 and producer mismatch are gated by
+`PackageContentGenerationIdentity_ExternalBuffersCannotMutateGeneration`,
 `PackageRootGenerationIdentity_ReplacementChangesIdentity`,
 `PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`,
+`PackageRootSelectionIdentity_SelectionSequencesAreImmutable`,
 `RealizedPackageCoordinate_ReacquisitionContractIsCoherent`,
 `PackageRootBinding_RootOnlyOutcomeRemainsValid`, and
-`PackageRootBinding_RejectsProducerMismatch`.
+`PackageRootBinding_RejectsProducerMismatch`. Construction control,
+framework-neutral source binding, exclusion of package-controlled framework
+folders, and resolved framework/RID correspondence are gated by
+`PackageRootBinding_AcquiredPayloadsAreConstructionControlled`,
+`PackageRootBinding_UnrequestedFrameworkDoesNotUsePackageFolderAsCoordinate`,
+`PackageRootBinding_UnrepresentableSelectionTargetUsesFrameworkNeutralCoordinate`,
+`PackageRootBinding_ResolvedCoordinatePreservesAcquisitionTargetAndRuntime`,
+and `PackageRootBinding_SourceRuntimeRequiresFramework`.
 
 Compile-library availability is a capability of that Root, not a precondition
 for the Root to exist. The host workspace retains every requested Root.

@@ -16,11 +16,13 @@ public sealed class PackageRootIdentity
     internal PackageRootIdentity(
         string packageId,
         string packageVersion,
-        string? requestedTargetFramework)
+        string? requestedTargetFramework,
+        string? requestedRuntimeIdentifier)
     {
         PackageId = packageId;
         PackageVersion = packageVersion;
         RequestedTargetFramework = requestedTargetFramework;
+        RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
     }
 
     public string PackageId { get; }
@@ -28,6 +30,8 @@ public sealed class PackageRootIdentity
     public string PackageVersion { get; }
 
     public string? RequestedTargetFramework { get; }
+
+    public string? RequestedRuntimeIdentifier { get; }
 }
 
 /// <summary>
@@ -88,6 +92,15 @@ public sealed class PackageRootBinding
                 "A package Root runtime identifier must be a canonical lowercase moniker.",
                 nameof(runtimeIdentifier));
         }
+        string? acquisitionFramework =
+            SourceAcquisitionFramework(selectionTargetFramework);
+        if (runtimeIdentifier is not null
+            && acquisitionFramework is null)
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier requires a canonical acquisition framework.",
+                nameof(selectionTargetFramework));
+        }
 
         return Create(
             payload,
@@ -95,7 +108,7 @@ public sealed class PackageRootBinding
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
-            SourceAcquisitionFramework(selectionTargetFramework),
+            acquisitionFramework,
             selectionTargetFramework,
             runtimeIdentifier);
     }
@@ -140,7 +153,8 @@ public sealed class PackageRootBinding
             content,
             packageId,
             packageVersion,
-            targetFramework);
+            targetFramework,
+            runtimeIdentifier);
         string? effectiveFramework =
             (string.IsNullOrWhiteSpace(acquisitionFramework)
                 ? null
@@ -186,7 +200,8 @@ public sealed class PackageRootRealization
         IPackageContent content,
         string packageId,
         string packageVersion,
-        string? targetFramework = null)
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -196,15 +211,18 @@ public sealed class PackageRootRealization
         PackageId = packageId;
         PackageVersion = packageVersion;
         RequestedTargetFramework = targetFramework;
+        RequestedRuntimeIdentifier = runtimeIdentifier;
         Identity = new PackageRootIdentity(
             packageId,
             packageVersion,
-            targetFramework);
+            targetFramework,
+            runtimeIdentifier);
         AssetSelection = Freeze(
             PackageCompileAssetSelector.Select(
                 content,
                 packageId,
-                targetFramework));
+                targetFramework,
+                runtimeIdentifier));
     }
 
     public string PackageId { get; }
@@ -214,6 +232,8 @@ public sealed class PackageRootRealization
     public PackageRootIdentity Identity { get; }
 
     public string? RequestedTargetFramework { get; }
+
+    public string? RequestedRuntimeIdentifier { get; }
 
     public string ProducerKey => _content.ProducerKey;
 
