@@ -493,7 +493,7 @@ early termination.
 The
 [typed row-source execution design](row-source-execution.md) owns offer
 negotiation, source receipts, completion-evidence binding, and the non-vacuous
-optimized-execution gate. L2 accepts an optimized result only when it is
+optimized-execution gates. L2 accepts an optimized result only when it is
 observationally equivalent to the complete reference contracts in
 [Row query and ordering](row-query-order.md#logical-composition) and
 [Semantic row selection](semantic-row-selection.md#reference-semantics-and-optimized-execution).
@@ -510,15 +510,19 @@ The optimized result must also preserve:
 
 If an optimization cannot establish those properties, sufficient rows return
 to L2 for residual shaping. A fast incomplete number is not a Count result.
+An operation whose owner-domain failure cannot cross the current source
+outcome algebra remains on that reference or residual path before acceptance.
 
-This optimization property remains unverified until the focused source design
-adds the conditional Release gate
-`OptimizedCountMatchesSectionRowReference`. That gate is required only when an
-optimized-result acceptance path exists. It must prove that the optimized path
-was exercised, compare it with the complete reference contract over positive
-and sentinel-failure cases, and reject insufficient completion evidence. An
-implementation with no optimized-result acceptance path makes no optimization
-claim and does not satisfy the conditional gate vacuously.
+This optimization property remains unverified until an adoption implements the
+applicable conditional Release gates from the focused source design.
+`OptimizedCountMatchesSectionRowReference` covers exact Count, and
+`OptimizedRowHandoffMatchesSectionRowReference` covers row handoff after its
+named residual. Each gate is required only when its optimized acceptance path
+exists. It must prove that path was exercised, compare it with the complete
+reference contract over positive and sentinel cases, and reject insufficient
+completion evidence. An implementation with no optimized-result acceptance
+path makes no optimization claim and does not satisfy a conditional gate
+vacuously.
 
 ## Required gates
 

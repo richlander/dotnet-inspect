@@ -126,7 +126,8 @@ contains:
 7. one completion-requirement identity; and
 8. exactly one output contract:
    - **row handoff**, naming a caller-owned residual-request identity; or
-   - **exact Count**, naming the caller-owned Count terminal identity.
+   - **exact Count**, whose accepted offer identity selects the caller-owned
+     Count terminal contract.
 
 The caller owns whether such an offer is semantically legal. An operation with
 no owner-issued source-execution permit cannot appear inside an offer merely
@@ -142,8 +143,11 @@ identities must be unique within one request; member identities and permit
 identities must each be unique within one offer. Group, input, capability,
 completion-requirement, and residual identities may be reused when the caller
 intentionally references the same owner-issued instance. Unknown or
-scope-mismatched identities reject request construction rather than selecting
-an arbitrary binding.
+scope-mismatched caller-owned identities reject request construction rather
+than selecting an arbitrary binding. A structurally valid owner-issued
+capability or permit identity that the selected source does not publish or
+cannot honor is unsupported, not invalid; planning declines that offer rather
+than returning a contract-validation failure.
 
 ## Pure offer planning
 
@@ -152,7 +156,8 @@ offers in declaration order. It returns exactly one result:
 
 ```text
 RowSourcePlanResult =
-    Declined
+    ContractValidationFailure(typed failure)
+  | Declined
   | Accepted(request identity,
              offer identity,
              capability identity,
@@ -168,8 +173,10 @@ pagination, row-callback, comparer, or source-content work. A decline is a
 capability result, not a source failure. The caller may then use a later
 non-source strategy, including its complete reference path.
 
-An invalid request is not `Declined`. It returns a typed contract-validation
-failure and no offer is examined.
+Validation covers the complete request and every offer's structure, owner
+scope, uniqueness, and internal compatibility. It does not ask whether the
+selected source publishes or can honor a capability or permit. An invalid
+request returns `ContractValidationFailure`; no offer's support is probed.
 
 ## Acceptance is a point of no fallback
 
@@ -197,10 +204,9 @@ RowSourceExecutionOutcome =
     RowHandoff(acceptance receipt,
                ordered row-source member outcomes)
   | ExactCount(acceptance receipt,
-               ordered member exact counts,
-               ordered member completion evidence)
+               ordered exact-count member entries)
   | NotSatisfied(acceptance receipt,
-                 ordered member disposition and completion evidence)
+                 ordered not-satisfied member entries)
 ```
 
 A row-source member outcome is:
@@ -214,6 +220,16 @@ RowSourceMemberOutcome =
   | Unavailable(member identity,
                 owner-issued source disposition,
                 completion evidence)
+
+RowSourceExactCountMember =
+    ExactCountValue(member identity,
+                    non-negative exact count,
+                    completion evidence)
+
+RowSourceNotSatisfiedMember =
+    NotSatisfiedMember(member identity,
+                       owner-issued source disposition,
+                       completion evidence)
 ```
 
 All branches retain the exact request, offer, source input, group, and ordered
@@ -231,7 +247,9 @@ completion disposition attributable to one member uses that member's
 `ExactCount` is valid only for an exact-Count offer. It contains one
 non-negative exact count and matching completion evidence for every offered
 member. It cannot contain rows, omit a member, publish a partial count map, or
-invent a total across members.
+invent a total across members. Each entry carries its member identity directly;
+the source and caller never pair parallel count and evidence lists by
+position.
 
 `NotSatisfied` is valid for an exact-Count offer when any member is not exact.
 For a row-handoff offer, it is valid only for an offer-scoped expected failure
@@ -243,13 +261,17 @@ propagate according to their owning execution contract rather than being
 converted into an empty result.
 
 An offer-scoped failure retains that broader scope. Each affected member entry
-references the same scoped disposition and evidence so the ordered map remains
-complete, but the contract does not relabel the cause as a member-scoped
-failure. Because one offer binds exactly one execution group, a second
-group-level evidence scope would be redundant.
+references the same canonical scoped disposition and evidence value so the
+ordered map remains complete, but the contract does not relabel the cause as a
+member-scoped failure. Repeated references to that one immutable value are not
+duplicate evidence. Because one offer binds exactly one execution group, a
+second group-level evidence scope would be redundant.
 
 Physical execution may stream or buffer internally, but no logical success or
 partial top-level result is published before one complete outcome validates.
+An invalid returned receipt, branch, member map, evidence binding, or payload
+is a propagated typed contract violation. It never becomes `Declined`,
+`Unavailable`, `NotSatisfied`, or another publishable source outcome.
 
 ## Completion evidence
 
@@ -288,7 +310,9 @@ Stale evidence from another request, offer, receipt, input, group, scope,
 capability, or completion requirement rejects. Evidence cannot be transferred
 because two requests are structurally equal. The composite request/offer/receipt/input/group/scope/capability/requirement
 binding is the evidence key; two evidence values for the same key are
-duplicates even though evidence has no separate identity token.
+duplicates even though evidence has no separate identity token. Multiple
+member entries may reference one canonical offer-scoped evidence value; a
+duplicate means two distinct evidence values claim the same composite key.
 
 ## Rows usability and Count sufficiency
 
@@ -307,7 +331,10 @@ not thereby sufficient for Count.
 An exact Count requires evidence accepted by the offer's completion
 requirement for every member. One insufficient, failed, absent, or missing
 member forces `NotSatisfied`; successful-looking counts for the other members
-do not escape.
+do not escape. Evidence is member-scoped by default. A completion requirement
+may instead accept one offer-scoped basis only when that basis proves every
+member's exact count; a group aggregate that cannot establish the individual
+member values is insufficient.
 
 ## `Head(N) -> Count` as the canonical witness
 
@@ -342,6 +369,14 @@ delegable. In particular:
 - an exact value cannot compensate for different failure or callback
   observations.
 
+This version transports source dispositions and completion evidence, not an
+owner-domain row-query or semantic failure. An operation that may return a
+typed semantic failure or invoke an owner callback, comparer, or resolver is
+therefore a permit barrier and remains in the caller's reference or residual
+path. In particular, strict `Window` evaluation is not delegable through this
+version. Adding opaque owner-failure transport is a separate focused extension
+to this outcome algebra, not an implementer choice.
+
 If the caller cannot form a permitted offer that preserves those observations,
 planning declines and the reference path remains authoritative.
 
@@ -352,15 +387,16 @@ The logical transition order is:
 1. validate request identity and the complete ordered offer list;
 2. validate every offer's identities, member map, permit set, completion
    requirement, and output contract;
-3. visit offers in declaration order and accept the first exactly supported
-   offer, or decline all;
+3. probe complete-offer support in declaration order and accept the first
+   exactly supported offer, or decline all;
 4. when accepted, bind one immutable acceptance receipt;
 5. execute that receipt at most once;
 6. validate the returned receipt, branch, member order, evidence, and payload
    invariants; and
 7. publish one complete outcome.
 
-The first validation failure wins. No later offer is examined after acceptance,
+The first validation failure wins. Validation examines every offer before
+support probing begins. After acceptance, no later offer's support is probed
 and no alternative is tried after accepted execution fails.
 
 ## Security and platform boundary
@@ -387,25 +423,29 @@ named Release gates:
 | Gate | Contract |
 | --- | --- |
 | `RowSourceIdentitiesAreOwnerIssued` | Request, offer, input, group, member, capability, permit, completion-requirement, residual, and receipt identities use owner-issued token equality; display and structurally equal plans do not bind. |
-| `RowSourceRequestValidationIsAtomic` | Duplicate offer identities, duplicate members or permits within one offer, and unknown, missing, empty, scope-mismatched, or incompatible identities, member maps, requirements, residuals, or output contracts return the deterministic first typed validation failure and examine no offer; intentional reuse of the same input, group, capability, requirement, or residual identity across offers remains valid. |
+| `RowSourceRequestValidationIsAtomic` | Duplicate offer identities, duplicate members or permits within one offer, and unknown, missing, empty, scope-mismatched, or incompatible caller-owned identities, member maps, requirements, residuals, or output contracts return the deterministic first `ContractValidationFailure` and probe no offer support; intentional reuse of the same input, group, capability, requirement, or residual identity across offers remains valid. A well-formed capability or permit that the source does not publish or cannot honor remains an unsupported offer. |
 | `RowSourcePlanningIsPure` | Planning inspects only immutable capability declarations and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
-| `RowSourceSelectsFirstSupportedOffer` | Offers are considered in declaration order; the first offer whose exact capability and permit set is supported is accepted, no later offer is inspected, and an all-declined request performs no execution. |
+| `RowSourceSelectsFirstSupportedOffer` | After complete structural validation, offers are support-probed in declaration order; the first offer whose complete output contract, capability, permit set, completion requirement, input, and member shape are supported is accepted, no later offer's support is probed, and an all-declined request performs no execution. |
 | `RowSourceDeclineAllowsReferenceFallback` | A pure all-offers decline permits the caller's retained reference strategy and is never reported as a source failure. |
 | `RowSourceAcceptanceIsSingleUse` | One acceptance receipt binds the exact request and offer, executes at most once, and rejects replay or a receipt from any other negotiation. |
 | `RowSourceResidualIsCallerOwned` | A row handoff resolves only to the residual identity retained for its accepted offer; the source cannot return operations, replace the residual, or select a different caller plan. |
-| `RowSourceOutcomeMembershipIsExact` | Every outcome preserves offer member order, contains every member exactly once, rejects unknown or duplicate members, and never reconstructs identity from position or source labels. |
+| `RowSourceOutcomeMembershipIsExact` | Every outcome preserves offer member order, contains every member exactly once with an explicit member identity, rejects unknown or duplicate members, and never reconstructs identity from position, parallel-list position, or source labels. |
 | `RowSourceRowHandoffMatchesOffer` | `RowHandoff` occurs only for a row-handoff offer; every `RowValues` entry is usable for that complete offer and residual, every `Unavailable` entry carries no rows, and all entries retain their exact disposition and completion evidence. |
 | `RowSourceExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count offer, contains one non-negative exact value and accepted completion evidence per member, carries no rows, preserves order and identity, and publishes no partial map or invented total. |
-| `RowSourceNotSatisfiedCarriesEvidence` | An inexact accepted Count or an offer-scoped row-handoff failure that prevents a complete member map returns one disposition-and-evidence entry per member with no rows or Count payload; the broader failure retains offer scope across affected entries, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
+| `RowSourceNotSatisfiedCarriesEvidence` | An inexact accepted Count or an offer-scoped row-handoff failure that prevents a complete member map returns one explicit-identity disposition-and-evidence entry per member with no rows or Count payload; the broader failure retains offer scope through repeated references to one canonical evidence value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
 | `RowSourceAcceptedFailureNeverFallsBack` | Removing capability after acceptance, reaching an incomplete stop, or returning an accepted member- or offer-scoped source failure never tries a later offer or reference execution; the exact outcome is `Unavailable` within a complete row handoff or offer-wide `NotSatisfied` under the scope rules above. |
-| `RowSourceCompletionEvidenceIsBound` | Evidence matches the exact request, offer, receipt, source input, group, typed offer/member scope, capability, and completion-requirement identities; stale, transferred, missing, duplicate, or incompatible evidence rejects. |
+| `RowSourceCompletionEvidenceIsBound` | Evidence matches the exact request, offer, receipt, source input, group, typed offer/member scope, capability, and completion-requirement identities; stale, transferred, missing, incompatible, or distinct duplicate-key evidence rejects, while repeated references to one canonical offer-scoped value remain valid. Exact Count uses member-scoped evidence unless its completion requirement explicitly accepts one offer-scoped basis that proves every member value. |
 | `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete even when their numeric value equals a requested semantic bound or returned row count. |
 | `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff offer may return Rows-usable values with incomplete-stop evidence, while the corresponding exact-Count offer returns `NotSatisfied` and no cardinality. |
-| `DelegatedObservationsMatchPermits` | Every supported offer exercises all callback, ordering, exception-identity, failure-precedence, and atomic-publication obligations named by its exact permit set; removing any permit rejects planning rather than weakening an observation. |
+| `DelegatedObservationsMatchPermits` | Every supported offer preserves all ordering and atomic-publication obligations named by its exact permit set; removing any permit makes the offer unsupported rather than weakening an observation. A well-formed unsupported permit declines rather than failing contract validation. |
+| `OwnerFailuresRemainReferenceBarriers` | Offers that would delegate strict `Window`, any owner callback, comparer, or resolver invocation, or another owner-domain row-query or semantic failure path are unsupported; sentinel cases prove planning declines before execution and the caller's reference path retains exact failure identity, scope, all-or-failure behavior, and precedence. |
+| `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after its named residual, matches the complete section-row reference result for surviving values, order, member identity, unavailable-member composition, and source evidence. Predicate, ordering, lenient-selection, and sentinel barrier cases cover every operation kind an adoption supports. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
 | `RowSourceOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete validated outcome. |
+| `RowSourceReturnedContractViolationsPropagate` | A stale receipt, wrong branch, missing or reordered member, invalid evidence binding, or incompatible payload returns no logical source outcome and propagates as the deterministic typed contract violation rather than `Declined`, `Unavailable`, or `NotSatisfied`. |
 | `RowSourceContractIsPresentationFree` | Requests, offers, receipts, outcomes, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label. |
 | `RowSourceContractHasOnlyFrameworkDependencies` | The shared contract's evaluated Release compile/runtime/native assets contain only framework references and the contract component. |
+| `RowSourceContractForbidsHostApis` | A static product-closure gate rejects reflection, inspected-assembly loading, filesystem, network, console, process, native-interop, parallel-loop, and dedicated-thread APIs even when they are framework APIs. |
 | `RowSourceContractRunsOnNativeAotAndBrowser` | The request, planning, accepted execution, row-handoff, exact-Count, and not-satisfied reference matrix runs in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
 
 ## Non-claims

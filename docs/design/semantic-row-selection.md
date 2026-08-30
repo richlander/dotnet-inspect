@@ -92,7 +92,8 @@ The reference executor evaluates a complete logical input sequence. A source
 optimizer may avoid acquiring that complete sequence only when it can prove the
 same selected values, order, and strict-window outcome. The
 [typed row-source execution](row-source-execution.md) design owns how that
-proof is represented and obtained.
+proof is represented, bound, and accepted. Each adopting source owns how it
+obtains and constructs the proof.
 
 The evaluated Release compile/runtime closure contains only framework
 references and this component. The project has no product `PackageReference`,
@@ -521,8 +522,10 @@ those choices are observationally equivalent only when they preserve:
 
 Comparer call count and pair order are not equivalence dimensions for a valid
 deterministic comparer. The
-[typed row-source execution](row-source-execution.md) contract rejects an
-offer that cannot preserve the remaining callback contract.
+[typed row-source execution](row-source-execution.md) contract currently
+treats strict semantic failure and owner callback, resolver, or comparer
+invocation as permit barriers. A later failure-transport extension must still
+preserve this complete callback contract.
 
 This distinction matters when a later lenient stage would keep fewer rows than
 an earlier strict stage validates:
@@ -654,6 +657,10 @@ The implementation must add these named Release gates:
 The
 [typed row-source execution](row-source-execution.md) contract owns the
 required equivalence gate comparing every optimized offer it supports with this
-complete-sequence reference executor, including strict windows before and
+complete-sequence reference executor. Its current outcome algebra does not
+transport owner-domain semantic or callback failures, so strict windows and
+potentially throwing callbacks, comparers, or resolvers are permit barriers.
+The gate proves those offers decline before execution. Any later extension
+that transports those failures must also compare strict windows before and
 after lenient stages, reached-stage resolver cardinality, and callback/failure
 precedence.

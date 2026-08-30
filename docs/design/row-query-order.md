@@ -233,7 +233,9 @@ This reference order defines observable row-query meaning. A source owner may
 execute predicates, ordering, or semantic selection elsewhere only through the
 [typed row-source execution](row-source-execution.md) contract's permitted
 offer, exact-equivalence, and honest-completion rules. This design does not
-define that optimization or its evidence.
+define that optimization or its evidence. The current source contract keeps
+callback-, comparer-, and owner-failure-bearing operations on the reference or
+residual path.
 
 Membership projection is outside this owner and supplies the rows entering this
 sequence. Cell projection, Count, and payload operations are also outside this
