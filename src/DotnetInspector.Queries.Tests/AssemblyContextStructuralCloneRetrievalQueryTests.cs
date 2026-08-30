@@ -1369,6 +1369,87 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_DescendingMethodListIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDescendingMethodListAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // The descending range reads as empty, so the later type covers
+        // both rows on its own and coverage alone accepts a MethodList
+        // column that is not a partition.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_RepeatedLeafNameChargesChainTraversal()
+    {
+        // Every candidate clears the leaf comparison and reaches the
+        // declaring-chain walk. Charged only for the names involved,
+        // 17,000 candidates spend well under the budget while doing far
+        // more work than the budget claims to bound.
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildRepeatedLeafNameAssembly(17_000));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("C")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "structural-name work budget",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
     public void Execute_TypeDeflessImageIsAVisibleRejection()
     {
         ImmutableArray<byte> image =
@@ -2952,6 +3033,63 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     /// the MethodDef table, so a row no TypeDef range covers escapes
     /// projection while the projected rows still cover MethodDef.
     /// </summary>
+    /// <summary>
+    /// Builds an assembly whose module TypeDef starts after the type
+    /// that follows it, so its range descends and SRM reports it as
+    /// empty while the later type still covers every MethodDef row.
+    /// </summary>
+    static byte[] BuildDescendingMethodListAssembly()
+    {
+        byte[] bytes = BuildMethodPtrAssembly(1, 2);
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds an assembly whose types repeat one short leaf name, so
+    /// every candidate passes the cheap leaf comparison and reaches the
+    /// declaring-chain walk.
+    /// </summary>
+    static byte[] BuildRepeatedLeafNameAssembly(int leaves)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "RepeatedLeafName",
+            new Guid("0C7A1E93-5B26-4D8F-A410-2F6B93E7C051"));
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        MethodDefinitionHandle seed =
+            AddSyntheticMethod(metadata, encoder, "Seed");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: seed);
+        StringHandle leaf = metadata.GetOrAddString("C");
+        for (int i = 0; i < leaves; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                leaf,
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: seed);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     static byte[] BuildUncoveredMethodPtrAssembly() =>
         BuildMethodPtrAssembly([1, 2, 1, 2]);
 
