@@ -1558,6 +1558,17 @@ public class CSharpStructuralComparisonTests
         var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
         Assert.Contains(display, row =>
             row.Change == "Added" && row.Detail == "+ static int Own(int input) => input + 1;");
+
+        // Matching #4952's corpus mockup for this exact PR shape: the added
+        // declaration now gets its own caret in the rendered After body,
+        // instead of appearing with no annotation at all.
+        string renderedAfter = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison, CSharpStructuralSide.After);
+        Assert.Contains(
+            "static int Own(int input) => input + 1;\n"
+            + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+            + "raise: LocalFunctionStatement",
+            renderedAfter);
     }
 
     [Fact]
@@ -1586,6 +1597,17 @@ public class CSharpStructuralComparisonTests
         Assert.Equal(2, comparison.Rows.Length);
         var removed = Assert.Single(comparison.Rows, row => row.Change == CSharpStructuralChangeKind.Removed);
         Assert.Equal("LocalFunctionStatement", removed.BeforeKind);
+
+        // Symmetric to the Added case: the removed declaration gets its own
+        // caret in the rendered Before body, instead of falling through with
+        // no annotation at all.
+        string renderedBefore = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison, CSharpStructuralSide.Before);
+        Assert.Contains(
+            "static void F()\n"
+            + "^^^^^^^^^^^^^^^\n"
+            + "raise: LocalFunctionStatement",
+            renderedBefore);
     }
 
     [Fact]
