@@ -359,6 +359,43 @@ public sealed class LocalArtifactSourceTests
             LocalPathAdmission.ClassifyWindowsPathSyntax(
                 @"\\?\C:\foo\..\bar.dll"));
         Assert.Equal(
+            @"\\?\C:\root\target.dll",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\C:\root\links\..\target.dll"));
+        Assert.Equal(
+            @"\\?\UNC\server\share\target.dll",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\UNC\server\share\links\..\target.dll"));
+        Assert.Equal(
+            @"\\?\Volume{12345678-1234-1234-1234-123456789abc}\target.dll",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\Volume{12345678-1234-1234-1234-123456789abc}\" +
+                @"links\..\target.dll"));
+        Assert.Equal(
+            @"\\?\C:\target.dll",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\C:\..\..\target.dll"));
+        Assert.Equal(
+            @"\\?\C:\root\target.dll",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\C:\root\.\target.dll"));
+        Assert.Equal(
+            @"\\?\C:\root\",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\C:\root\links\..\"));
+        Assert.Equal(
+            @"\\?\C:\",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\C:\root\.."));
+        Assert.Equal(
+            @"\\?\UNC\server\share\target.dll",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"\\?\UNC\server\share\..\..\target.dll"));
+        Assert.Equal(
+            @"C:\root\target.dll",
+            LocalPathAdmission.NormalizeRelativeResolvedWindowsLinkTarget(
+                @"C:\root\target.dll"));
+        Assert.Equal(
             WindowsPathSyntaxDisposition.Supported,
             LocalPathAdmission.ClassifyResolvedWindowsPathSyntax(
                 @"\\?\Volume{12345678-1234-1234-1234-123456789abc}\"));
@@ -422,6 +459,53 @@ public sealed class LocalArtifactSourceTests
         Assert.Equal(
             WindowsReparseDisposition.Unsupported,
             LocalPathAdmission.ClassifyWindowsReparseTag(0xDEADBEEF));
+    }
+
+    [Fact]
+    public async Task
+        LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Extended relative-link coverage requires Windows.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string links = Path.Combine(root, "links");
+        string target = Path.Combine(root, "target.dll");
+        string link = Path.Combine(links, "input.dll");
+        try
+        {
+            Directory.CreateDirectory(links);
+            await File.WriteAllBytesAsync(target, [1], cancellationToken);
+            File.CreateSymbolicLink(link, @"..\target.dll");
+            string extendedLink = @"\\?\" + link;
+            await using LocalFileAdmission admission =
+                LocalPathAdmission.AdmitRegularFile(
+                    extendedLink,
+                    cancellationToken);
+            var acquired =
+                Assert.IsType<ArtifactAcquisitionOutcome.Acquired>(
+                    await AcquireAsync(extendedLink, cancellationToken));
+
+            Assert.Equal(
+                LocalPathOutcome.Classified,
+                admission.Classification.Outcome);
+            Assert.Equal(
+                LocalPathKind.RegularFile,
+                admission.Classification.Kind);
+            Assert.Equal(
+                extendedLink,
+                admission.Classification.CanonicalPath);
+            Assert.Equal(1, admission.Stream!.ReadByte());
+            Assert.Equal(-1, admission.Stream.ReadByte());
+            Assert.Single(acquired.Artifacts);
+            await acquired.Lease.DisposeAsync();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

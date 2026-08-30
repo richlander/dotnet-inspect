@@ -674,8 +674,10 @@ internal static partial class LocalPathAdmission
                         ? new DirectoryInfo(inspectedPath)
                         : new FileInfo(inspectedPath);
                 FileSystemInfo? target;
+                string? storedTarget;
                 try
                 {
+                    storedTarget = entry.LinkTarget;
                     target = entry.ResolveLinkTarget(
                         returnFinalTarget: false);
                 }
@@ -697,8 +699,17 @@ internal static partial class LocalPathAdmission
                         canonicalPath);
                 }
 
+                string targetPath = target.FullName;
+                if (storedTarget is not null
+                    && !Path.IsPathFullyQualified(storedTarget))
+                {
+                    targetPath =
+                        NormalizeRelativeResolvedWindowsLinkTarget(
+                            targetPath);
+                }
+
                 if (string.Equals(
-                    target.FullName,
+                    targetPath,
                     inspectedPath,
                     StringComparison.OrdinalIgnoreCase))
                 {
@@ -711,7 +722,7 @@ internal static partial class LocalPathAdmission
                 return ClassifyWindowsTarget(
                     requestedPath,
                     canonicalPath,
-                    target.FullName,
+                    targetPath,
                     isCoordinate: false,
                     remainingLinkDepth - 1,
                     cancellationToken);
@@ -883,6 +894,84 @@ internal static partial class LocalPathAdmission
         }
 
         return false;
+    }
+
+    internal static string NormalizeRelativeResolvedWindowsLinkTarget(
+        string path)
+    {
+        int contentStart;
+        if (path.StartsWith(
+            @"\\?\Volume{",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            int volumeEnd = path.IndexOf(@"}\", StringComparison.Ordinal);
+            if (volumeEnd <= 11)
+                return path;
+
+            contentStart = volumeEnd + 2;
+        }
+        else if (path.StartsWith(
+            @"\\?\UNC\",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryGetUncContentStart(path, 8, out contentStart))
+                return path;
+        }
+        else if (path.Length >= 7
+            && path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
+            && char.IsAsciiLetter(path[4])
+            && path[5] == ':'
+            && IsWindowsDirectorySeparator(path[6]))
+        {
+            contentStart = 7;
+        }
+        else if (path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            if (!TryGetUncContentStart(path, 2, out contentStart))
+                return path;
+        }
+        else if (path.Length >= 3
+            && char.IsAsciiLetter(path[0])
+            && path[1] == ':'
+            && IsWindowsDirectorySeparator(path[2]))
+        {
+            contentStart = 3;
+        }
+        else
+        {
+            return path;
+        }
+
+        if (!ContainsDotSegment(path, contentStart))
+            return path;
+
+        var components = new List<string>();
+        foreach (string component in EnumerateWindowsComponents(
+            path,
+            contentStart))
+        {
+            if (component == ".")
+                continue;
+
+            if (component == "..")
+            {
+                if (components.Count != 0)
+                    components.RemoveAt(components.Count - 1);
+                continue;
+            }
+
+            components.Add(component);
+        }
+
+        string normalized =
+            path[..contentStart] + string.Join('\\', components);
+        if (components.Count != 0
+            && IsWindowsDirectorySeparator(path[^1]))
+        {
+            normalized += '\\';
+        }
+
+        return normalized;
     }
 
     private static bool ContainsReservedDosName(string path, int start)

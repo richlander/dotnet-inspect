@@ -980,9 +980,15 @@ but it does not resolve links, normalize case, or mint physical file identity.
 Windows treats extended `\\?\` paths as already normalized and leaves their
 segments unchanged. An extended disk or UNC coordinate is therefore admitted
 only when it is fully qualified and contains no `.` or `..` segment; otherwise
-it is rejected as invalid. Any other non-empty path that cannot be normalized
-is also rejected rather than escaping as a platform exception. Invalid-path
-results carry the requested path and no canonical path.
+it is rejected as invalid. That coordinate rule does not reject a valid
+extended link merely because its stored target is relative: the target is
+resolved against the link's parent and normalized before final-target
+classification, with parent traversal bounded by the drive, share, or volume
+root and without rewriting the canonical requested coordinate. Absolute
+extended targets remain subject to the final-target syntax rules without this
+relative-target normalization. Any other non-empty path that cannot be
+normalized is also rejected rather than escaping as a platform exception.
+Invalid-path results carry the requested path and no canonical path.
 
 All local coordinates follow symbolic links and supported link-like reparse
 points to their final target. The same policy preserves existing explicit-file
@@ -1132,9 +1138,10 @@ The implementation is complete when focused gates prove:
 
 - canonicalization, including extended-path segment rejection, expected-kind
   mismatches, requested-path retention when canonicalization fails,
-  final-target link following, dangling links, name-surrogate handling, special
-  and unknown reparse rejection, audited data-bearing reparse treatment, and
-  hard-link non-deduplication have the same semantics for every consuming local
+  final-target link following, relative targets from valid extended links,
+  dangling links, name-surrogate handling, special and unknown reparse
+  rejection, audited data-bearing reparse treatment, and hard-link
+  non-deduplication have the same semantics for every consuming local
   coordinate;
 - stable FIFOs, sockets, devices, and their link aliases are rejected before a
   blocking content open, while an empty regular file remains admissible;
@@ -1154,8 +1161,10 @@ These properties are represented by
 `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
 `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
 `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
-`LocalPathAdmission_PlatformClassifiersRemainPortable`. Those gates enforce the
-shared classifier and explicit-file admission contract. The bounded-directory
+`LocalPathAdmission_PlatformClassifiersRemainPortable`. The Windows-specific
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized` gate runs in
+Deep Inspect's `platform-test` lane. Together these gates enforce the shared
+classifier and explicit-file admission contract. The bounded-directory
 implementation must exercise the same contract through its public root and
 selected-entry outcomes rather than adding another classifier.
 
@@ -1927,7 +1936,9 @@ stable non-regular entries, once-opened generation identity, mutation and
 deletion resistance, and cancellation remaining cancellation. The executable
 NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports
 and the platform-specific missing, not-directory, and link-loop outcome
-mappings.
+mappings. Deep Inspect's Windows `platform-test` execution of
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized` enforces
+extended-coordinate admission through a parent-relative symbolic-link target.
 The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
 they require bounded deterministic top-level selection, source-neutral
 exclusions, atomic empty and failure outcomes, directory provenance, immutable
