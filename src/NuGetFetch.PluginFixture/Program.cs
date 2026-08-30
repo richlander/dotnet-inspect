@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 
 namespace NuGetFetch.PluginFixture;
 
@@ -36,7 +37,7 @@ internal static class Program
             Console.OpenStandardInput(),
             Utf8NoBom,
             detectEncodingFromByteOrderMarks: false);
-        StreamWriter? output = new(Console.OpenStandardOutput(), Utf8NoBom)
+        StreamWriter? output = new(OpenOwnedStandardOutput(), Utf8NoBom)
         {
             AutoFlush = true,
         };
@@ -310,27 +311,17 @@ internal static class Program
     private static async Task CloseOutputAsync(StreamWriter output)
     {
         await output.FlushAsync();
+        output.Dispose();
+    }
 
-        int error;
-        if (OperatingSystem.IsWindows())
-        {
-            nint handle = GetStdHandle(-11);
-            error = CloseHandle(handle) ? 0 : Marshal.GetLastPInvokeError();
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            error = CloseMacOS(1) == 0 ? 0 : Marshal.GetLastPInvokeError();
-        }
-        else
-        {
-            error = CloseUnix(1) == 0 ? 0 : Marshal.GetLastPInvokeError();
-        }
-
-        if (error != 0)
-        {
-            throw new IOException(
-                $"Could not close the plugin fixture output pipe (error {error}).");
-        }
+    private static FileStream OpenOwnedStandardOutput()
+    {
+        nint handle = OperatingSystem.IsWindows()
+            ? GetStdHandle(-11)
+            : 1;
+        return new FileStream(
+            new SafeFileHandle(handle, ownsHandle: true),
+            FileAccess.Write);
     }
 
     private static async Task DrainInputAsync(
@@ -371,16 +362,6 @@ internal static class Program
         Exit,
     }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CloseHandle(nint handle);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll")]
     private static extern nint GetStdHandle(int standardHandle);
-
-    [DllImport("libc", EntryPoint = "close", SetLastError = true)]
-    private static extern int CloseUnix(int fileDescriptor);
-
-    [DllImport("libSystem.B.dylib", EntryPoint = "close", SetLastError = true)]
-    private static extern int CloseMacOS(int fileDescriptor);
 }
