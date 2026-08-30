@@ -863,6 +863,61 @@ public class SourceOracleCandidateLedgerTests
     }
 
     [Theory]
+    [InlineData("evaluated")]
+    [InlineData("correct")]
+    [InlineData("printer-exact")]
+    public void Baseline_RejectsMoreEnrolledFilesThanRowEvidence(string evidence)
+    {
+        var report = Baseline();
+        var manifest = report.SourceOracleManifest! with
+        {
+            FilesRegistered = 2,
+            FilesValid = 2,
+            FilesCorrect = 2,
+            PrinterExactRequired = 2,
+            PrinterExactPassing = 2,
+            FilesInventoryTracked = 2,
+            FileInventory =
+            [
+                .. report.SourceOracleManifest!.FileInventory!,
+                new AuthoredSourceOracleManifest.FileInventoryEntry(
+                    FileB,
+                    PrinterExact: true,
+                    Features: ["statement.return"]),
+            ],
+        };
+        report = report with
+        {
+            CorpusRows = 2,
+            TargetsEvaluated = 2,
+            Correct = 2,
+            PrinterExact = 2,
+            SourceOracleManifest = manifest,
+            Rows = [.. report.Rows, .. report.Rows],
+        };
+        report = evidence switch
+        {
+            "evaluated" => report with
+            {
+                CorpusRows = 1,
+                TargetsEvaluated = 1,
+                Rows = [report.Rows[0]],
+            },
+            "correct" => report with { Correct = 1 },
+            "printer-exact" => report with { PrinterExact = 1 },
+            _ => throw new InvalidOperationException(),
+        };
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(
+                SerializeBaseline(report),
+                "digest",
+                out _,
+                out string? error));
+        Assert.Contains("row evidence", error!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("empty")]
     [InlineData("blank")]
     [InlineData("duplicate")]

@@ -821,6 +821,14 @@ static class SourceOracleCandidateLedger
                 + "Valid, Correct, or Printer-exact file counts.";
             return false;
         }
+        if (manifest.FilesRegistered > report.TargetsEvaluated
+            || manifest.FilesRegistered > report.Correct
+            || manifest.FilesRegistered > report.PrinterExact)
+        {
+            error = "Baseline source-oracle report claims more enrolled files than "
+                + "its evaluated, Correct, or Printer-exact row evidence can support.";
+            return false;
+        }
 
         if (manifest.SyntaxInventoryEvaluated != true)
         {
