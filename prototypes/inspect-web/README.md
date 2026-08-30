@@ -876,6 +876,44 @@ fail.
 
 CSS is not linted. Adopting Stylelint is tracked separately.
 
+### Protections the linters cannot provide
+
+Everything above reads source text at build time. One property matters here that
+no amount of reading source text can establish: what a browser is allowed to do
+with the page once it ships.
+
+`staticwebapp.config.json` sets four response headers globally —
+`X-Content-Type-Options: nosniff`, which stops content-type guessing on the JSON,
+TSV and wasm this site serves, plus `Referrer-Policy`, `X-Frame-Options` and
+`Strict-Transport-Security`. Azure Static Web Apps returns the union of
+`globalHeaders` and a matching route's `headers`, with the route winning per key,
+so a route that names one of these keys replaces the global value for its own
+paths and the file still reads as though the protection is global. A toolchain
+test pins the header set and requires the route keys to stay disjoint from it,
+compared case-insensitively because HTTP header names are — a route spelling
+`x-frame-options` overrides a global `X-Frame-Options` on the wire. It also
+rejects any route using `redirect`: Azure omits `globalHeaders` entirely on
+redirect responses ([Azure/static-web-apps#739][swa-739], open since 2022), so
+such a route names none of the four keys and still answers without them.
+Together those two properties are what make "every static response" true rather
+than merely intended. CI re-checks the headers in the published artifact,
+because the site is deployed from that copy rather than from the source file.
+
+[swa-739]: https://github.com/Azure/static-web-apps/issues/739
+
+The word "static" there is a real boundary, not hedging. Azure Static Web Apps
+does not apply `globalHeaders` to responses produced by the managed functions
+under `/api/*`, which carry whatever headers the function sets for itself. The
+MSDL proxy is such a function, so these four headers do not cover its responses.
+Giving the proxy its own headers is tracked in #5119.
+
+Two neighbouring protections are tracked separately rather than bundled here.
+`require-sri` enforces that a cross-origin subresource *carries* a digest, but
+whether that digest still describes what the CDN serves is a network fact no
+linter can reach; checking it is its own change. A Content-Security-Policy is
+also still outstanding, because the generated `<script type="importmap">` needs
+a per-build hash before `script-src` can be strict.
+
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
 `knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
