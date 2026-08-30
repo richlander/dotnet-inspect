@@ -92,13 +92,26 @@ substrates, and inspection producers that will extend that space.
   [UI design](design/inspect-web-ui.md) owns the website's shared presentation
   and interaction language while individual components retain rendering,
   binding, and state-transition responsibilities.
-- `tools/DecompilerHarness/` owns ReturnToSender closure discovery and type-cluster planning. RTS specifies the required Metadata/CSharp request shape; `ILInspector.CSharp` owns rendering it.
+- `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
+  type-cluster planning, compile-back reference selection and closure, and
+  generated-artifact admission and receipt-gated verdict composition. RTS
+  specifies the required Metadata/CSharp request shape and consumes
+  owner-issued artifact, fragment, and correspondence evidence;
+  `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
+  retain ownership of producing that evidence.
 - [`docs/design/ts-jsexport.md`](design/ts-jsexport.md) owns the `ts-jsexport`
   TypeScript facade projected at build time from an
   `ILInspector.JsExportSurface`. The host-side tool consumes that evidence
   without entering the inspected application's browser dependency closure,
   emits one opinionated TypeScript module, and leaves compilation and
   publication to the consumer.
+- [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
+  owns the safety contract for decoding custom-attribute values
+  from untrusted metadata: the alignment, bounding, and guard-work invariants
+  relating `CustomAttributeValueGuard` to SRM's decode, the two
+  width-resolution paths and the distinct mechanism each uses to stay in
+  agreement, and the bound, charging, and refusal semantics.
+  `SignatureBlobGuard` retains its structural signature bounds.
 
 ## Engineering guidance
 
@@ -115,8 +128,14 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
-- [Architecture](architecture.md): command and metadata architecture.
+- [Architecture](architecture.md): host-neutral composition,
+  logical layers, project regions, currencies, and code-navigation map.
+- [CLI host architecture](cli-architecture.md): command-host responsibilities,
+  request lifetime, selection, and presentation composition.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
+- [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
+  L1/L2 binding from one immutable typed-query domain to reusable compiled
+  section lenses and caller-owned execution contexts.
 - [Analysis surfaces and universes](design/analysis-surfaces-and-universes.md):
   host-neutral request topology separating report surface, finite evidence
   universe, targeted/census mode, capability introspection, and result
@@ -147,19 +166,25 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Inspect-web TypeScript semantic facts](design/inspect-web-typescript-semantic-facts.md):
   one pinned TypeScript project snapshot exposed through repository-owned
   semantic handles, queries, and explicit failure results.
+- [Inspect-web operation authority](design/inspect-web-operation-authority.md):
+  page-wide operation identity plus per-view logical outcome, cancellation,
+  publication authority, disposal, and producer quiescence.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
   discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
-- [Item and line limits](design/item-and-line-limits.md): target `-n`,
-  range-only `--rows`, ranked `--top`, line windows, and multi-item printable
-  payload behavior.
+- [Item and line selection composition](design/item-and-line-limits.md):
+  cross-component sequencing and typed handoffs for focused semantic
+  selection, L2, source-execution, CLI, payload, and presentation designs.
 - [Semantic row selection](design/semantic-row-selection.md): dependency-free
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
+- [View Facet Registry](design/view-facet-registry.md): stable product-owned
+  inspection-facet identities, labels, order, structural applicability,
+  discovery, and typed resolution outcomes.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral root, Library, Type, and Member descriptors, availability,
   initial recommendations, transitions, reconciliation, and model-checked
@@ -187,6 +212,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, local stores, source-bound caches, selection, and enrichment.
+- [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
+  credential-free producer provenance, caller association, transport evidence,
+  factory-bound result propagation, and safe retained failures. It consumes
+  normalized endpoint and path-redaction handoffs; package composition, cache
+  authority, presentation, and post-return stream failures remain with their
+  focused owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

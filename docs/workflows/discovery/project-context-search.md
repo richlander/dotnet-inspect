@@ -143,7 +143,7 @@ Create an existing project without restoring it:
 
 ```setup
 rm -rf "$PROJECT_WORKFLOW/Missing"
-dotnet new console --no-restore -f net10.0 -n Missing \
+dotnet new console --no-restore -n Missing \
   -o "$PROJECT_WORKFLOW/Missing" > /dev/null
 ```
 

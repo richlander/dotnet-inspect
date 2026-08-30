@@ -307,7 +307,9 @@ Existing gates prove narrower pieces:
 - `Session_ParsesTheBytesCopiedBeforeSourceMutation`;
 - `RootAndStrictRegistration_ShareOneImmutableImage`;
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`;
-- `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`.
+- `ArtifactDescriptor_PreservesRegistrationAndBindsNonEmptyMvid`;
+- `ArtifactDescriptor_RejectsSameIdentityFromDifferentModuleGeneration`;
+- `LocalOnlyHost_PreservesArtifactRegistrationThroughAssemblyInspection`.
 
 The complete contract remains unverified until equivalent gates exist for:
 

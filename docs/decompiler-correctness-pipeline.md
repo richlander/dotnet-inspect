@@ -46,16 +46,31 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
-ReturnToSender authored-body controls therefore operate on the exact frozen
-compilation unit produced for the decompiled body. The product renderer selects
-the target body while rendering and returns an immutable source artifact with a
-typed replacement range and operation. The harness supplies the independently
-acquired authored body, invokes that product operation, and compiles the result.
-It must not rediscover the target by member name, overload count, syntax-tree
-search, or textual heuristics, and it must not recompose the shell from mutable
-planning state. This keeps assembly identity, modifiers, primary-constructor
-shape, closure membership, references, and every non-target source byte fixed
-between the experiment and its control.
+ReturnToSender authored-body controls therefore create a separate
+comparison-only `RoundTripRequest` with the independently acquired body as its
+typed replacement. After
+[#4931](https://github.com/richlander/dotnet-inspect/issues/4931) lands, it
+consumes the CSharp owner's derived replacement artifact, which binds the frozen
+source template digest, typed body range, preserved rendering policy and
+non-target bytes, and distinct result digest. The control artifact cannot
+inherit the template artifact's closure, participant coverage, admission, or
+receipt evidence. It preserves the source artifact and module identity, target
+set, scope and body policy, compiler policy, and frozen reference selection,
+but it cannot issue a compile-context receipt or `Exact`.
+
+The harness must not rediscover the target by member name, overload count,
+syntax-tree search, or textual heuristics, and it must not recompose the shell
+from mutable planning state. A mismatch in the preserved request identity or
+policy, any changed non-target byte, or any reused artifact receipt makes the
+control unavailable rather than comparable. This target wiring is **unverified**
+until
+`AuthoredBodyControlPreservesProductRenderedShell` runs in the Release harness
+suite. The existing string-returning `CSharpSourceArtifact.ReplaceBody`
+primitive and its
+`SourceArtifactReplacesTheSelectedNestedMethodBlockOnly` and
+`SourceArtifactReplacementPreservesConstructorInitializer` tests prove byte
+replacement but not owner-issued derivation, so they cannot enable causal
+control attribution by themselves.
 
 ReturnToSender's earlier source-corpus lookup is a different, non-authoritative
 operation. It may use `CSharpText.MemberSignatureShape` to discriminate
@@ -593,14 +608,23 @@ both:
   `FidelityUnavailable`, `RecompileFail`, `ContextFail`, `NotFull`,
   `not-sampled`.
 
-The compile-back fidelity contract defines `Exact` as a full product-owned IL
-body comparison match. It compares opcode families, immediate values, symbolic
-member/type/string identities, and branch topology while tolerating
-local/argument macro and slot-layout changes. `OpcodeDiff` means opcode names
-differ; `OperandDiff` means the opcode names match but the body comparison
-differs; `FidelityUnavailable` means the comparison could not return a verdict.
-The contract is explicitly EH-blind and is not a semantic-equivalence claim.
-Its version is independent from the corpus snapshot schema version.
+The shipping compile-back fidelity contract currently defines `Exact` as a full
+product-owned IL body comparison match. The body comparison covers opcode
+families, immediate values, symbolic member/type/string identities, and branch
+topology while tolerating local/argument macro and slot-layout changes.
+`OpcodeDiff` means opcode names differ; `OperandDiff` means the opcode names
+match but the body comparison differs; `FidelityUnavailable` means the
+comparison could not return a verdict. The contract is explicitly EH-blind and
+is not a semantic-equivalence claim. Its version is independent from the corpus
+snapshot schema version.
+
+Issue #4810's target contract strengthens `Exact` to require a complete
+compile-context receipt for the exact artifact and member. Under that contract,
+missing, mismatched, or incomplete reference-closure, artifact-coverage, or
+rebuilt-binding evidence produces `FidelityUnavailable` even when the body
+comparison is exact. This safety property is **unverified** until the planned
+`ExactRequiresNonVacuousCompileContextReceipts` and
+`EveryExactProducerRequiresMatchingContextReceipt` gates run in Release.
 
 When reporting deltas, spell out `currentValidity`, `currentDecompilerFidelity`,
 and `currentFidelityCheck` rather than mixing axes.
@@ -874,13 +898,19 @@ Report changed-method runs in three bands:
    escalation — typically a Roslyn-class internal cross-assembly graph). Do not
    count them as passing.
 
-The operational order is **escalate, do not cluster-first**: run the cheap
-whole-module grouped compile, then escalate only the rows it could not check to
-the (per-method, iterative) closure path, and treat a closure bail as
-`not-safely-capturable`. A whole-module `Exact` is already trustworthy and a
-closure cannot make it worse (it falls back), so escalation reaches the same
-checkable population as attempting the closure on every row, far more cheaply,
-while the three bands fall out of the capture provenance for free.
+The shipping operational order remains **escalate, do not cluster-first**: run
+the cheap whole-module grouped compile, then escalate only rows it could not
+check to the per-method iterative closure path. Existing `Exact` corpus labels
+record the current comparison contract; they are not compile-context receipts.
+
+Under issue #4810's target contract, a whole-module body comparison is reusable
+as `Exact` only when its artifact and member compile-context receipt is complete;
+comparison equality alone is not trustworthy. Rows without that receipt
+escalate to the closure path. A closure bail is `not-safely-capturable`, and a
+post-attempt stalled/root-budget/iteration-budget result remains a typed failure
+rather than borrowing whole-module success. Once receipt production is
+implemented, this ordering can still avoid unnecessary per-method attempts
+because complete whole-module receipts need no escalation.
 
 When repeated skeleton/context fixes only trade compiler diagnostics without
 growing the checkable population, stop the incremental burndown and say the
@@ -890,9 +920,10 @@ measured under #1412: the failures are not predominantly unrelated-sibling
 poison but types genuinely inside the target's (often large) reconstruction
 closure. The harness ships an opt-in **reconstruction-closure (cluster) emitter**
 (`CB_CLUSTER=1`) that reconstructs only the target's transitive closure instead
-of the whole module and falls back to the whole-module skeleton on bail, so it
-never regresses, emitting the safely-capturable bands above. The gain is
-library-shaped, not universal — see
+of the whole module. The current harness falls back to the whole-module skeleton
+on bail; under issue #4810's target compile-context receipt contract, that
+fallback is a separately labelled control and cannot replace the failed cluster
+attempt or inherit its fidelity claim. The gain is library-shaped, not universal — see
 [decompiler-quality.md](decompiler-quality.md#reconstruction-closures-and-the-safely-capturable-population)
 for the framing and the extension/inherited-member follow-ups.
 
@@ -956,7 +987,7 @@ review are complete, post a PR comment that clearly says `Ready to merge`. If
 extra tests or review continue after that point, mark them as non-blocking
 follow-up work so the PR state remains unambiguous. Keep the `ready-to-merge`
 and `carry-forward` PR labels synchronized with
-[repository guidance](../AGENTS.md#keep-pr-readiness-labels-current).
+[repository guidance](../AGENTS.md#keep-the-review-clean-label-current).
 
 ## Naming the harnesses by role
 

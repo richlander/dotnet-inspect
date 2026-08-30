@@ -321,7 +321,20 @@ gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
 unsafe/generated attribute judgments, token/member/type/field/calli/value-type
 and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
+adapters. `LibraryBodyStableReceiverGetterClassifier` owns the narrow
+PE-backed readonly-field getter judgment and its acquisition-scoped cache;
+`OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
+the optimization adapter shares one classification. The classifier does not
+own optimization policy or general method-body scheduling.
+`LibraryBodyGenericConstraintClassifier` owns generic-constraint presence for
+reader-relative async-sibling analysis and primary-image generic-parameter
+value-type eligibility for optimization analysis. It does not own sibling
+selection or opportunity policy.
+`OptimizationOpportunities_GenericObjectEqualsBox_IsReported`,
+`OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
+`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
+judgments.
+`LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
 budgets. The primary resolver adapters and
@@ -354,6 +367,19 @@ attribute authentication, and scoped evidence expansion. It consumes primary
 metadata identity and generated-code judgments plus the builder-owned local
 type-definition index; full builds prewarm its snapshots before parallel
 method analysis.
+For value-flow consumers, `AsyncBodyAttribution` projects the exact
+Analysis-authenticated source method together with an explicit `Runtime` or
+`StateMachine` lowering. Runtime-async evidence retains the source as its own
+physical method; state-machine evidence retains a distinct physical execution
+method and kickoff source. This keeps lowering independent of identity-equality
+sentinels and display names. `SourceMethod` uses the same exact
+`MethodIdentity` currency as the attributed sink caller, so consumers can
+require identity equality without reconstructing correspondence.
+`ResultSinks_PublishRuntimeAsyncBodyAttribution`,
+`ResultSinks_PublishStateMachineAsyncBodyAttribution`, and
+`ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync` gate the typed
+projection, mixed runtime/state-machine assembly behavior, and the close
+negative.
 `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
 `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
 `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and

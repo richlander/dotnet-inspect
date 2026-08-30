@@ -607,33 +607,6 @@ public class IlToolsActivationTests
         Assert.Equal(["/orig1"], result.PathEntries);
     }
 
-    /// <summary>
-    /// Keeps the documentation pointing at the tested artifact. The defect
-    /// class these tests close was a hand-written PATH incantation in a doc
-    /// snippet, so the gate rejects any runnable snippet that invokes the
-    /// producer directly -- `PATH="$(eng/restore-iltools.sh):$PATH"` never
-    /// mentions `export` and would otherwise sail through.
-    /// </summary>
-    [Fact]
-    public void AgentsMarkdown_DelegatesIlToolsPathAssemblyToTheScript()
-    {
-        var agents = File.ReadAllText(Path.Combine(RepoRoot, "AGENTS.md"));
-
-        Assert.Contains("source eng/activate-iltools.sh", agents);
-
-        foreach (var block in FencedBashBlocks(agents).Where(b => b.Contains("iltools")))
-        {
-            Assert.False(
-                block.Contains("restore-iltools.sh"),
-                $"AGENTS.md tells the reader to run the producer directly instead of sourcing\n" +
-                $"eng/activate-iltools.sh, which puts the PATH assembly back outside the gate:\n{block}");
-
-            Assert.False(
-                block.Contains("PATH="),
-                $"AGENTS.md assembles PATH by hand instead of sourcing eng/activate-iltools.sh:\n{block}");
-        }
-    }
-
     [Fact]
     public void SlowWorkflows_FailAfterOracleRestoreFailure()
     {
@@ -1116,23 +1089,6 @@ public class IlToolsActivationTests
         Assert.Contains(
             "[ \"$resolved_sha\" != \"$expected_sha\" ]",
             evidenceScript);
-    }
-
-    static IEnumerable<string> FencedBashBlocks(string markdown)
-    {
-        var lines = markdown.Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-        {
-            if (lines[i].TrimEnd() is not "```bash" && lines[i].TrimEnd() is not "```sh")
-                continue;
-
-            int end = i + 1;
-            while (end < lines.Length && lines[end].TrimEnd() != "```")
-                end++;
-
-            yield return string.Join('\n', lines[(i + 1)..Math.Min(end, lines.Length)]);
-            i = end;
-        }
     }
 
     // --- harness ---

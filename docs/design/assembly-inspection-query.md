@@ -204,6 +204,363 @@ original value-equal record to a registration-backed, non-equatable descriptor:
 > authorization lease; a descriptor path is not read authority. Do not add
 > another source variant to Metadata as the target integration seam.
 
+The current artifact bridge is
+`ResolvedAssemblyReference.CreateFromArtifactIfManaged`. It consumes the exact
+artifact acquisition registration and a guarded stream callback supplied by
+the artifact owner, decodes the assembly identity, and binds the registration
+to the image's non-empty MVID. Artifact-backed opens revalidate both assembly
+identity and MVID. `AssemblyImage`, retained snapshots, metadata-only
+`PdbContext` assembly-image opens, and the remaining descriptor-based Metadata
+readers all use that same check. Compatibility path and stream factories remain
+available while their callers migrate; they do not manufacture an artifact
+registration.
+
+This bridge does not consume workspace roles or source-specific provenance.
+Those remain owner-issued evidence for workspace admission and trust policy.
+PDB artifact acquisition, symbol stores, and SourceLink policy are separate
+contracts; only validation of the assembly PE opened by an existing
+descriptor-based PDB entry point belongs here.
+
+#### Admission-scoped artifact projection
+
+Issue [#5143](https://github.com/richlander/dotnet-inspect/issues/5143)
+defines the target replacement for using
+`ResolvedAssemblyReference.CreateFromArtifactIfManaged` while a workspace is
+constructing an assembly context. This is an assembly-inspection-query
+contract. Artifact acquisition still owns admission and query authorization,
+retained bytes, source provenance, and publication. Metadata still owns PE
+classification, assembly identity, and MVID decoding.
+
+The target operation has two distinct phases:
+
+1. During admission, the artifact owner validates the current admission
+   authority, derives an owner-attested view from the exact selected
+   acquisition registration, and invokes the assembly projector with only that
+   view and callback-scoped immutable bytes. The full acquisition registration
+   does not cross the boundary. The projector classifies those bytes and
+   returns content-free assembly facts.
+2. During a later query, the artifact owner validates the current query
+   authority and lends the retained immutable bytes for one operation. The
+   assembly consumer validates those bytes against the published facts before
+   inspection. Validation never rebinds or replaces the published facts.
+
+The artifact owner performs lease and generation checks before invoking either
+callback. The assembly projector does not receive an admission or query lease,
+does not retain the callback input, and does not mint artifact authority. This
+is the immediate typed boundary the assembly query consumes:
+
+```csharp
+public readonly ref struct ArtifactAssemblyAdmissionView
+{
+    internal ArtifactAssemblyAdmissionView(
+        ArtifactGenerationIdentity generation,
+        ArtifactIdentity artifact,
+        ReadOnlySpan<byte> content)
+    {
+        Generation = generation;
+        Artifact = artifact;
+        Content = content;
+    }
+
+    public ArtifactGenerationIdentity Generation { get; }
+    public ArtifactIdentity Artifact { get; }
+    public ReadOnlySpan<byte> Content { get; }
+}
+
+public readonly ref struct ArtifactAssemblyQueryView
+{
+    internal ArtifactAssemblyQueryView(
+        ArtifactGenerationIdentity generation,
+        ArtifactIdentity artifact,
+        ReadOnlySpan<byte> content)
+    {
+        Generation = generation;
+        Artifact = artifact;
+        Content = content;
+    }
+
+    public ArtifactGenerationIdentity Generation { get; }
+    public ArtifactIdentity Artifact { get; }
+    public ReadOnlySpan<byte> Content { get; }
+}
+
+public abstract record ArtifactAssemblyProjectionOutcome
+{
+    public sealed record Projected(
+        ArtifactAssemblyProjection Value)
+        : ArtifactAssemblyProjectionOutcome;
+
+    public sealed record NotAssembly(
+        ArtifactNonAssemblyKind Kind)
+        : ArtifactAssemblyProjectionOutcome;
+
+    public sealed record Rejected(
+        ArtifactAssemblyProjectionFailure Failure)
+        : ArtifactAssemblyProjectionOutcome;
+}
+
+public sealed record ArtifactAssemblyProjection(
+    AssemblyProjectionRegistration Registration,
+    AssemblyReferenceIdentity Identity);
+
+public sealed record AssemblyProjectionRegistration(
+    ArtifactGenerationIdentity Generation,
+    ArtifactIdentity Artifact,
+    Guid ModuleVersionId);
+
+public enum ArtifactNonAssemblyKind
+{
+    NativeImage,
+    ManagedModule,
+}
+
+public sealed record ArtifactAssemblyProjectionFailure(
+    ArtifactAssemblyProjectionFailureKind Kind);
+
+public enum ArtifactAssemblyProjectionFailureKind
+{
+    AdmissionUnauthorized,
+    UnsupportedWindowsMetadata,
+    MalformedMetadata,
+    EmptyModuleVersionId,
+}
+
+public abstract record ArtifactAssemblyQueryOutcome<TResult>
+{
+    public sealed record Validated(TResult Value)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+
+    public sealed record NotAssembly(ArtifactNonAssemblyKind Kind)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+
+    public sealed record Rejected(ArtifactAssemblyQueryFailure Failure)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+}
+
+public sealed record ArtifactAssemblyQueryFailure(
+    ArtifactAssemblyQueryFailureKind Kind);
+
+public enum ArtifactAssemblyQueryFailureKind
+{
+    QueryUnauthorized,
+    GenerationMismatch,
+    ArtifactIdentityMismatch,
+    UnsupportedWindowsMetadata,
+    MalformedMetadata,
+    EmptyModuleVersionId,
+    AssemblyIdentityMismatch,
+    ModuleVersionIdMismatch,
+}
+```
+
+These declarations describe the value shape and typed outcomes; they do not
+assign the artifact owner's callback API or authorization implementation to
+Metadata. The implementation may use a closed hierarchy instead of records or
+enums, but it must preserve the distinctions above. The two `ref struct` views
+illustrate the required phase distinction and non-retention boundary; the
+artifact owner owns their construction and may expose an equivalent scoped
+callback shape.
+
+`ArtifactAssemblyProjection` is immutable, content-free, and bound to one
+in-process artifact generation. It is not a durable or serializable identity.
+`Registration.Generation` must be the same owner-issued object exposed by
+`Registration.Artifact.Generation`. `Registration.Artifact` must be the exact
+`ArtifactIdentity` from the selected
+`ArtifactAcquisitionRegistration.Artifact`, compared by reference identity.
+The artifact owner retains the complete acquisition registration and its
+provenance; neither crosses this boundary.
+
+`AssemblyProjectionRegistration` is the content-free assembly registration for
+this path. Its non-empty MVID is bound when the admission outcome is returned.
+The existing `AssemblyAcquisitionRegistration`, including its public
+`ArtifactRegistration` compatibility property and mutable internal bind
+operation, does not appear inside the projection. Later query validation
+compares identity and MVID; it does not mutate or replace the projection
+registration.
+
+The successful output exposes none of the following, directly or through a
+nested public value:
+
+- a filesystem path;
+- `Stream`, `Func<Stream>`, or another content opener;
+- immutable or mutable content bytes;
+- `ArtifactContentReference` or retained-content handle;
+- `ArtifactAcquisitionRegistration` or source provenance;
+- `ArtifactAdmissionLease` or `ArtifactQueryLease`; or
+- an operation that can reacquire, reopen, or reconstruct any of those values.
+
+The exact artifact identity is correspondence evidence minted with the full
+artifact acquisition registration, not a source interpretation performed by
+Metadata. Consumers may retain that opaque identity and generation to join
+owner-issued workspace facts, but only the artifact owner retains the mapping
+to acquisition provenance or can turn current authorization into another
+content callback.
+
+##### Admission classification
+
+The admission callback must observe one immutable byte sequence. Metadata
+first applies the MetadataPrimitives-owned
+`MetadataImageFormatClassifier`. Unsupported Windows Metadata is rejected
+before constructing a `MetadataReader` or performing other managed metadata
+work. Supported input is then classified without loading the inspected
+assembly:
+
+| Input | Outcome | Participant consequence |
+| --- | --- | --- |
+| Managed assembly with a non-empty MVID | `Projected` | The context realizer may use the returned facts when forming its atomic publication. |
+| Native PE image with no managed metadata | `NotAssembly(NativeImage)` | No assembly registration or participant is manufactured. |
+| Managed netmodule | `NotAssembly(ManagedModule)` | No assembly registration or participant is manufactured. |
+| Windows Metadata (`WindowsMetadata` or `ManagedWindowsMetadata`) | `Rejected(UnsupportedWindowsMetadata)` | Required context admission fails visibly before managed metadata work. |
+| Malformed PE or metadata | `Rejected(MalformedMetadata)` | Required context admission fails visibly. |
+| Managed assembly with an empty MVID | `Rejected(EmptyModuleVersionId)` | Required context admission fails visibly. |
+| Foreign, revoked, disposed, or ended admission authority | `Rejected(AdmissionUnauthorized)` | The callback is not invoked and no assembly facts are minted. |
+
+`NotAssembly` is a positive classification, not successful assembly
+projection. Whether a non-assembly artifact is allowed to remain in a broader
+artifact catalog belongs to that catalog's owner. It cannot enter an
+`AssemblyContextGroup` through this contract.
+
+The projector receives an artifact-owner-attested admission view. The
+`Artifact` value is the exact identity carried by the selected acquisition
+registration; it is not caller-reconstructed from ordinal, generation, path,
+provenance, or display data. The context realizer owns the frozen map from
+selected artifact identities to successful projections and the atomic decision
+to publish a complete group; this component neither assigns workspace roles
+nor constructs the group.
+
+##### Query-time revalidation
+
+The later query path starts from a published
+`ArtifactAssemblyProjection`. Under current query authorization, the artifact
+owner locates the exact retained acquisition registration and supplies an
+owner-attested `ArtifactAssemblyQueryView` for one operation. Registration and
+generation are not decoded from PE bytes: they come from this scoped owner
+view. Before any producer observes assembly evidence, the assembly query
+validates all of:
+
+1. the view's generation is the projection registration's exact generation;
+2. its artifact identity is the projection registration's exact artifact;
+3. `MetadataImageFormatClassifier` still classifies the retained image as
+   supported ECMA-335 before any `MetadataReader` construction or managed
+   metadata work;
+4. the retained image is still a managed assembly;
+5. its assembly identity equals the projected identity; and
+6. its non-empty MVID equals the projection registration's MVID.
+
+Because an `ArtifactIdentity` is scoped to its owner-issued generation, exact
+artifact identity already entails generation equality. The explicit generation
+comparison runs first to classify a foreign-generation owner view as
+`GenerationMismatch`; it is not a second way to authenticate the artifact.
+
+A generation, artifact identity, assembly identity, or MVID mismatch is a
+typed `Rejected` outcome. Native and module replacements produce the query
+outcome's typed `NotAssembly` arm; unsupported Windows Metadata, malformed
+metadata, and empty-MVID replacements use their dedicated query failure kinds.
+None is retried through a path, source adapter, descriptor opener, or new
+acquisition.
+
+The `Validated<TResult>` value is produced inside the query view's callback.
+The assembly query opens an internal `AssemblyImage` or
+`AssemblyInspectionSession`, invokes the selected producer, and disposes all
+image-local state before returning `TResult` to the artifact owner. A validated
+marker cannot escape first and authorize a later unguarded open.
+
+The artifact owner remains responsible for rejecting a missing, foreign,
+revoked, disposed, or ended query authorization before lending content. The
+outer query operation maps that rejection to `QueryUnauthorized`. The assembly
+query consumes the owner-attested generation and artifact identity and performs
+the content-derived checks; it does not infer owner state from PE bytes,
+ordinal equality, or display values.
+
+The interaction model treats current admission and query authority as external
+inputs. It proves that projection or validation cannot proceed after
+revocation, but it does not model the artifact owner's outer
+`AdmissionUnauthorized` or `QueryUnauthorized` result mapping. The named
+Release gates below own those exact mappings and prove that the callback and
+producer are not invoked.
+
+##### Relationship to compatibility descriptors
+
+`ResolvedAssemblyReference` remains a compatibility descriptor for current
+path- and stream-based consumers. Implementing this design must not put an
+admission callback, query callback, retained-content handle, or lease into that
+descriptor. The existing artifact-backed
+`AssemblyAcquisitionRegistration.ArtifactRegistration` property also remains a
+compatibility path and is intentionally absent from
+`AssemblyProjectionRegistration`. A query may adapt currently authorized bytes
+to an internal `AssemblyImage` or `AssemblyInspectionSession` for the duration
+of one operation, but the adapter cannot escape the artifact callback or
+recreate a parameterless opener.
+
+General removal of `ResolvedAssemblyReference.Path` and
+`ResolvedAssemblyReference.OpenRead` waits for their existing consumers to
+migrate. This slice adds the content-free route required by context
+publication; it does not silently change compatibility behavior.
+
+##### Interaction model
+
+The
+[admission assembly projection model](models/admission-assembly-projection/README.md)
+checks the bounded interaction among current admission authority, projection,
+publication, authority expiry, and later query revalidation. It verifies that
+successful projection requires current admission authority, published facts
+retain the exact opaque artifact identity but no content authority or
+provenance, and query validation requires current query authority plus exact
+generation, artifact identity, assembly identity, and MVID agreement. Mutation
+configurations independently show that stale admission, leaked authority,
+dropped artifact identity, relaxed artifact, assembly-identity, MVID, or
+revoked-query checks violate those properties. Separate mutations show that
+unsupported Windows Metadata cannot project or validate as supported
+ECMA-335. The positive model separately requires a foreign-generation view to
+produce `GenerationMismatch`. The model does not establish implementation
+conformance or the outer authorization-result mapping.
+
+##### Required gates
+
+Implementation is complete only when Release tests equivalent to these exist:
+
+- `AdmissionProjection_BindsExactArtifactIdentityAssemblyRegistrationIdentityAndMvid`
+- `AdmissionProjection_MapsUnauthorizedAuthorityWithoutInvokingCallback`
+- `AdmissionProjection_PublicSurfaceCarriesNoProvenanceContentOrLeaseCapability`
+- `AdmissionProjection_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`
+- `AdmissionProjection_ClassifiesNativeModuleMalformedAndEmptyMvid`
+- `QueryValidation_MapsUnauthorizedAuthorityWithoutInvokingCallback`
+- `QueryValidation_ConsumesOwnerAttestedArtifactIdentityAndGeneration`
+- `QueryValidation_AcceptsExactRetainedImageInsideCallbackWithoutRebinding`
+- `QueryValidation_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`
+- `QueryValidation_ClassifiesNativeModuleMalformedAndEmptyMvid`
+- `QueryValidation_RejectsArtifactGenerationAssemblyIdentityAndMvidMismatch`
+- `AdmissionProjection_ExactArtifactIdentityIsNonVacuous`
+
+The first gate uses the existing artifact-backed fixture from #4954/#4957 and
+requires the same `ArtifactAcquisitionRegistration.Artifact` object, assembly
+identity, and non-empty MVID while proving the full acquisition registration
+remains artifact-owner-private.
+The public-surface gate recursively inspects nested public types for paths,
+source provenance, content, openers, content references, and leases. The
+non-vacuity gate substitutes a different owner-issued artifact identity from
+the same generation in an otherwise valid query view and must fail before
+producer execution. The two authorization-mapping gates cover every listed
+missing, foreign, revoked, disposed, and ended state, require the exact typed
+failure, and prove that no callback or producer runs. The two unsupported-input
+gates use both Windows Metadata kinds and require the
+MetadataPrimitives-owned classifier to reject before `MetadataReader`
+construction or other managed metadata work; `MDP017` continues to own the
+classifier's format detection and bounded-work guarantees.
+
+##### Non-goals
+
+This contract does not:
+
+- acquire artifacts or define local-path and installed-platform membership;
+- assign workspace roles or construct and publish an
+  `AssemblyContextGroup`;
+- define binding precedence, member or call-target correspondence, CLI
+  sections, or rendering;
+- acquire PDBs or source;
+- make assembly projection portable across processes; or
+- remove compatibility descriptor APIs before their consumers migrate.
+
 ```csharp
 public abstract record AssemblyResolutionProvenance
 {
@@ -546,6 +903,30 @@ ownership, its contract forbids retention after the call, and it avoids a produc
 remains the public
 body-local Metadata capability, and high-level Metadata facets own drill projection. These paths
 remove target reopens without exposing the raw reader to the CLI.
+
+Every image-backed `LibraryBodyIndex` publishes one immutable
+`LibraryBodyModuleIdentity` derived from the same `MetadataReader` before
+feature selection or method filtering. It retains the exact assembly-definition
+identity and non-empty MVID; a standalone managed module has no assembly
+identity. The caller-supplied `Path` remains a display/acquisition input and
+method rows remain body evidence, so neither can substitute for module
+identity. `CatalogCallGraphScope` validates and keys participants with the
+issued identity even when an index has no declared methods. The internal
+`FromEvidence` test seam is not image-backed: non-empty synthetic method
+evidence is validated against its synthetic identity, and an empty synthetic
+index must receive identity explicitly rather than acquiring a success-shaped
+default. `ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes`,
+`ModuleIdentity_MethodlessPrefetchedImageRetainsExactIdentity`,
+`ModuleIdentity_DistinguishesAssemblyAndModuleGeneration`,
+`ModuleIdentity_StandaloneModuleHasNoAssemblyIdentity`,
+`ModuleIdentity_RejectsEmptyModuleVersionIdentifier`, and
+`EmptyIndexCatalogBindingUsesIssuedModuleIdentity` gate the image-backed and
+catalog properties.
+`SyntheticModuleIdentity_EmptyEvidenceRequiresExplicitIdentity`,
+`SyntheticModuleIdentity_ValidatesMethodsAgainstExplicitIdentity`, and
+`SyntheticModuleIdentity_NonEmptyEvidenceDerivesFixtureIdentity` gate the
+synthetic seam.
+
 The broader model still has a prerequisite. `MetadataSource` owns a separate reader, and
 `ResolvedAssemblyReference` carries only an `OpenRead` opener. Completing the session across
 member/decompiler and descriptor-based paths requires a **low-level PE-owner primitive** opened

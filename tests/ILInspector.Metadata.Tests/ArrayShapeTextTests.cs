@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 
@@ -15,7 +16,7 @@ public class ArrayShapeTextTests
     [InlineData(4, "int32[,,,]")]
     public void RendersLoadableRanksFaithfully(int rank, string expected)
     {
-        string rendered = ArrayShapeText.Format("int32", rank);
+        string rendered = ArrayShapeText.Format("int32", new ArrayShape(rank, [], []));
 
         Assert.Equal(expected, rendered);
         Assert.DoesNotContain("invalid rank", rendered, StringComparison.Ordinal);
@@ -30,7 +31,7 @@ public class ArrayShapeTextTests
     [Fact]
     public void DistinguishesARankOneMdArrayFromAVector()
     {
-        Assert.Equal("int32[...]", ArrayShapeText.Format("int32", 1));
+        Assert.Equal("int32[...]", ArrayShapeText.Format("int32", new ArrayShape(1, [], [])));
     }
 
     /// <summary>
@@ -40,7 +41,195 @@ public class ArrayShapeTextTests
     [Fact]
     public void MarksARankNoArrayCouldDeclare()
     {
-        Assert.Equal("int32[/* invalid rank 0 */]", ArrayShapeText.Format("int32", 0));
+        Assert.Equal(
+            "int32[/* invalid rank 0 */ invalid]",
+            ArrayShapeText.Format("int32", new ArrayShape(0, [], [])));
+    }
+
+    [Fact]
+    public void RendersSizesAndLowerBoundsInILAsmSyntax()
+    {
+        Assert.Equal(
+            "int32[0...,0...]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [], [0, 0])));
+        Assert.Equal(
+            "int32[6,-2...3]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [6, 6], [0, -2])));
+        Assert.Equal(
+            "int32[6,,]",
+            ArrayShapeText.Format("int32", new ArrayShape(3, [6], [0])));
+        Assert.Equal(
+            "int32[0]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [0], [0])));
+        Assert.Equal(
+            "int32[-2...,,]",
+            ArrayShapeText.Format("int32", new ArrayShape(3, [], [-2])));
+        Assert.Equal(
+            "int32[0...,]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [], [0])));
+    }
+
+    [Fact]
+    public void SignatureDecoderKeepsCSharpArraySpellingRankOnly()
+    {
+        Assert.Equal(
+            "int[,]",
+            new SignatureDecoder().GetArrayType(
+                "int",
+                new ArrayShape(2, [], [0, 0])));
+    }
+
+    [Fact]
+    public void RendersAZeroSizePrefixAsAnUnboundedDimension()
+    {
+        Assert.Equal(
+            "int32[-2...,6]",
+            ArrayShapeText.Format("int32", new ArrayShape(2, [0, 6], [-2, 0])));
+    }
+
+    [Fact]
+    public void MarksShapesWhoseSizesHaveNoCorrespondingLowerBounds()
+    {
+        string sizeSix = ArrayShapeText.Format("int32", new ArrayShape(1, [6], []));
+        string sizeSeven = ArrayShapeText.Format("int32", new ArrayShape(1, [7], []));
+
+        Assert.Equal(
+            "int32[/* unrepresentable shape: 1 sizes, 0 lower bounds; "
+                + "rank=1, sizes=[6], lower bounds=[] */ invalid]",
+            sizeSix);
+        Assert.Equal(
+            "int32[/* unrepresentable shape: 1 sizes, 0 lower bounds; "
+                + "rank=1, sizes=[7], lower bounds=[] */ invalid]",
+            sizeSeven);
+        Assert.NotEqual(sizeSix, sizeSeven);
+
+        string rankTwo = ArrayShapeText.Format("int32", new ArrayShape(2, [6], []));
+        Assert.Contains("rank=2", rankTwo, StringComparison.Ordinal);
+        Assert.NotEqual(sizeSix, rankTwo);
+    }
+
+    [Fact]
+    public void MarksATerminalZeroSizeWithANonzeroLowerBound()
+    {
+        Assert.Equal(
+            "int32[/* unrepresentable zero size with lower bound 1 at dimension 0; "
+                + "rank=1, sizes=[0], lower bounds=[1] */ invalid]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [0], [1])));
+    }
+
+    [Fact]
+    public void TryFormatReportsWhetherTheShapeHasFaithfulILAsmSyntax()
+    {
+        Assert.True(
+            ArrayShapeText.TryFormat(
+                "int32",
+                new ArrayShape(2, [6, 6], [0, -2]),
+                out string rendered));
+        Assert.Equal("int32[6,-2...3]", rendered);
+
+        Assert.False(
+            ArrayShapeText.TryFormat(
+                "int32",
+                new ArrayShape(1, [6], []),
+                out string rejected));
+        Assert.Contains("invalid", rejected, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0x20000000)]
+    public void MarksSizesOutsideTheCompressedIntegerRange(int size)
+    {
+        Assert.Contains(
+            $"invalid size {size} at dimension 0",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [size], [0])),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-0x10000001)]
+    [InlineData(0x10000000)]
+    public void MarksLowerBoundsOutsideTheCompressedSignedIntegerRange(int lowerBound)
+    {
+        Assert.Contains(
+            $"invalid lower bound {lowerBound} at dimension 0",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [], [lowerBound])),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RendersCompressedIntegerBoundaryValues()
+    {
+        Assert.Equal(
+            "int32[-268435456...268435454]",
+            ArrayShapeText.Format(
+                "int32",
+                new ArrayShape(1, [0x1fffffff], [-0x10000000])));
+        Assert.Equal(
+            "int32[268435455...]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [], [0x0fffffff])));
+    }
+
+    [Fact]
+    public void RendersNumericTokensWithInvariantCulture()
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fi-FI");
+
+            Assert.Equal(
+                "int32[6,-2...3]",
+                ArrayShapeText.Format("int32", new ArrayShape(2, [6, 6], [0, -2])));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
+
+    [Fact]
+    public void RendersTheLargestLoadableShapeFaithfully()
+    {
+        var sizes = ImmutableArray.CreateRange(Enumerable.Repeat(1, ArrayShapeText.MaxRenderableRank));
+        var lowerBounds = ImmutableArray.CreateRange(Enumerable.Repeat(0, ArrayShapeText.MaxRenderableRank));
+        string rendered = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, sizes, lowerBounds));
+
+        Assert.Equal($"int32[{string.Join(',', sizes)}]", rendered);
+    }
+
+    [Fact]
+    public void MarksDimensionCountsNoLoadableShapeCouldHave()
+    {
+        var excess = ImmutableArray.CreateRange(
+            Enumerable.Repeat(0, ArrayShapeText.MaxRenderableRank + 1));
+
+        string sizes = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, excess, []));
+        string lowerBounds = ArrayShapeText.Format(
+            "int32",
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, [], excess));
+
+        Assert.Equal(
+            "int32[/* invalid size count 33 for rank 32 */ invalid]",
+            sizes);
+        Assert.Equal(
+            "int32[/* invalid lower-bound count 33 for rank 32 */ invalid]",
+            lowerBounds);
+        Assert.True(sizes.Length < 128);
+        Assert.True(lowerBounds.Length < 128);
+    }
+
+    [Fact]
+    public void MarksANegativeSize()
+    {
+        Assert.Equal(
+            "int32[/* invalid size -1 at dimension 0; rank=1, sizes=[-1], "
+                + "lower bounds=[0] */ invalid]",
+            ArrayShapeText.Format("int32", new ArrayShape(1, [-1], [0])));
     }
 
     [Theory]
@@ -89,7 +278,7 @@ public class ArrayShapeTextTests
     {
         string rendered = ArrayShapeText.Format(
             "int32",
-            ArrayShapeText.MaxRenderableRank);
+            new ArrayShape(ArrayShapeText.MaxRenderableRank, [], []));
 
         Assert.Equal(
             $"int32[{new string(',', ArrayShapeText.MaxRenderableRank - 1)}]",
@@ -103,9 +292,9 @@ public class ArrayShapeTextTests
     [InlineData(-1)]
     public void MarksRanksNoArrayCouldHave(int rank)
     {
-        string rendered = ArrayShapeText.Format("int32", rank);
+        string rendered = ArrayShapeText.Format("int32", new ArrayShape(rank, [], []));
 
-        Assert.Equal($"int32[/* invalid rank {rank} */]", rendered);
+        Assert.Equal($"int32[/* invalid rank {rank} */ invalid]", rendered);
 
         // The point of the marker: the spelling stays proportional to the text, not to the
         // declared rank. Faithfully rendering 536,870,911 dimensions is a ~536MB string.

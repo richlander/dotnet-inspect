@@ -33,21 +33,35 @@ namespace ILInspector.JsExportSurface;
 /// </para>
 /// <para>
 /// A return DTO is resolved only when Analysis proves complete envelope coverage: every
-/// synchronous physical <c>ret</c>, or every authentic async
-/// <c>AsyncTaskMethodBuilder&lt;T&gt;.SetResult</c> sink, is fed exclusively by an exact,
-/// authenticated <c>Serialize&lt;T&gt;</c> call for one structural DTO identity. Discarded,
-/// raw, non-serializer, and unresolved sources therefore leave the wire type unset. A body with
-/// more than one distinct proven return DTO (e.g. different DTOs serialized on different branches)
+/// synchronous physical <c>ret</c>, runtime-async export <c>ret</c>, or compiler-async
+/// <c>AsyncTaskMethodBuilder&lt;T&gt;.SetResult</c> sink is fed exclusively by an exact,
+/// authenticated <c>Serialize&lt;T&gt;</c> call for one structural DTO identity. Runtime-async
+/// returns require Analysis's explicit <see cref="AsyncLoweringKind.Runtime"/> attribution on the
+/// exact exported physical method plus its trusted <c>Task&lt;string&gt;</c> declaration; this
+/// layer never infers lowering from matching method names or tokens. Discarded, raw,
+/// non-serializer, and unresolved sources therefore leave the wire type unset. A body with more
+/// than one distinct proven return DTO (e.g. different DTOs serialized on different branches)
 /// remains ambiguous: <see cref="Attach"/> leaves
 /// <see cref="JsExportFunction.ReturnWireType"/> unset rather than guessing. "Distinct" is judged
 /// by assembly-scoped structural identity, preventing an external type from aliasing an unrelated
 /// discovered local DTO that shares its qualified name.
+/// When compiler lowering hoists a serialized local across a suspension, Analysis does not yet
+/// carry that call provenance through the state-machine field; issue #5025 owns that prerequisite.
+/// This resolver leaves the compiler form unresolved rather than reconstructing field flow or
+/// weakening the runtime form.
 /// </para>
 /// <para>
-/// An async sink is authentic only when Analysis's declared-body mapping proves that its physical
-/// <c>MoveNext</c> body belongs to this export; a builder used by an ordinary method does not
-/// qualify. Serializer evidence likewise requires complete argument provenance to a registered
-/// context property's getter.
+/// A compiler-async sink is authentic only when Analysis's declared-body mapping proves that its
+/// physical <c>MoveNext</c> body belongs to this export; a builder used by an ordinary method does
+/// not qualify. Runtime-async evidence must remain on the export itself, so a serializer return
+/// from a lifted local function or another method cannot be borrowed. Serializer evidence likewise
+/// requires complete argument provenance to a registered context property's getter.
+/// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>,
+/// <c>JsonWireContractResolverTests.RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata</c>,
+/// <c>JsonWireContractResolverTests.Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns</c>,
+/// <c>JsonWireContractResolverTests.Build_RuntimeAsyncRejectsIncompleteReturnCoverage</c>, and
+/// <c>JsonWireContractResolverTests.Build_RuntimeAsyncRejectsAnotherMethodsSerializerEvidence</c>
+/// gate the runtime-async equivalence and close negatives.
 /// <c>JsonWireContractResolverTests.Build_RejectsUnrelatedAsyncBuilderResultSink</c> and
 /// <c>JsonWireContractResolverTests.Build_RequiresRegisteredContextPropertyArgumentProvenance</c>,
 /// plus
@@ -160,9 +174,14 @@ public static class JsonWireContractResolver
 
             if (sink.Kind == MethodResultSinkKind.MethodReturn)
             {
-                if (sink.EvidenceMethod.MetadataToken == metadataToken
-                    && IsTrustedSystemString(
-                        sink.EvidenceMethod.ReturnType))
+                if (IsAuthenticSynchronousResultSink(
+                        bodyIndex,
+                        sink,
+                        metadataToken)
+                    || IsAuthenticRuntimeAsyncResultSink(
+                        bodyIndex,
+                        sink,
+                        metadataToken))
                 {
                     sinks.Add(sink);
                 }
@@ -178,7 +197,7 @@ public static class JsonWireContractResolver
                 sink.ILOffset);
             if (consumer is not null
                 && IsTrustedAsyncResultSink(consumer.Callee)
-                && IsAuthenticAsyncResultSink(
+                && IsAuthenticStateMachineResultSink(
                     bodyIndex,
                     sink,
                     metadataToken))
@@ -233,15 +252,46 @@ public static class JsonWireContractResolver
         return dto;
     }
 
-    static bool IsAuthenticAsyncResultSink(
+    static bool IsAuthenticSynchronousResultSink(
+        LibraryBodyIndex bodyIndex,
+        MethodResultSink sink,
+        int exportMetadataToken)
+        => sink.Caller.MetadataToken == exportMetadataToken
+            && sink.Caller == sink.EvidenceMethod
+            && sink.AsyncBody is null
+            && bodyIndex.DeclaredMethods.Contains(
+                sink.EvidenceMethod)
+            && IsTrustedSystemString(
+                sink.EvidenceMethod.ReturnType);
+
+    internal static bool IsAuthenticRuntimeAsyncResultSink(
+        LibraryBodyIndex bodyIndex,
+        MethodResultSink sink,
+        int exportMetadataToken)
+        => sink.Caller.MetadataToken == exportMetadataToken
+            && sink.Caller == sink.EvidenceMethod
+            && sink.AsyncBody is
+            {
+                Lowering: AsyncLoweringKind.Runtime,
+            } asyncBody
+            && asyncBody.SourceMethod == sink.Caller
+            && bodyIndex.DeclaredMethods.Contains(
+                sink.EvidenceMethod)
+            && IsTrustedTaskOfString(
+                sink.EvidenceMethod.ReturnType);
+
+    static bool IsAuthenticStateMachineResultSink(
         LibraryBodyIndex bodyIndex,
         MethodResultSink sink,
         int exportMetadataToken)
         => sink.Caller.MetadataToken == exportMetadataToken
             && sink.Caller != sink.EvidenceMethod
             && sink.EvidenceMethod.Name == "MoveNext"
-            && sink.AsyncStateMachineSource?.MetadataToken
-                == exportMetadataToken
+            && sink.AsyncBody is
+            {
+                Lowering: AsyncLoweringKind.StateMachine,
+            } asyncBody
+            && asyncBody.SourceMethod == sink.Caller
             && bodyIndex.ResolveDeclaredMethod(
                 sink.EvidenceMethod)
                 == sink.Caller;
@@ -386,6 +436,18 @@ public static class JsonWireContractResolver
                 identity.Name,
                 "System.Runtime");
     }
+
+    static bool IsTrustedTaskOfString(TypeRef type)
+        => type.Kind == TypeRefKind.GenericInstance
+            && type.ElementType is { } identity
+            && IsTrustedFrameworkType(
+                identity,
+                "System.Threading.Tasks",
+                "Task`1",
+                "System.Runtime")
+            && type.TypeArguments.Length == 1
+            && IsTrustedSystemString(
+                type.TypeArguments[0]);
 
     static DirectCall? CallAt(
         LibraryBodyIndex bodyIndex,

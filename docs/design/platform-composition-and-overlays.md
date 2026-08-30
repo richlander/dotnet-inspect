@@ -9,10 +9,10 @@ This document owns three questions that are easy to conflate and must not be:
 | --- | --- | --- | --- |
 | **Entitlement** — may this acquisition speak for the core library? | one acquisition | at open | [untrusted-data-threat-model.md](untrusted-data-threat-model.md#core-library-identity-is-granted-by-acquisition-not-by-self-declaration) |
 | **Precedence** — two entitled candidates define the same type; which wins? | a pair | at resolution | this document |
-| **Coherence** — do these two actually fit together? | a pair | at traversal | this document |
+| **Compatibility** — can this platform base satisfy this overlay request? | overlay, base, request | risk at load; outcome at traversal | this document |
 
 The entitlement **rule** is settled and enforced, though its carrier has a known
-gap ([#4606](#known-gap-a-path-is-not-a-designation)). Precedence and coherence
+gap ([#4606](#known-gap-a-path-is-not-a-designation)). Precedence and compatibility
 are specified here but **not yet implemented**; each names its tracking issue.
 Where this document describes intent rather than current behaviour, it says so
 at that point.
@@ -154,37 +154,45 @@ Together, the rules construct one intentional graph: the base supplies a
 closure built as a unit, the designated artifact forms a participant, and
 binding policy selects that participant in place of the platform-backed one.
 That substitution grants no authority to nearby artifacts. Constraining
-composition this way reduces the incoherence surface when acquisition systems
-combine; it does not prove that the replacement still *fits*. That is the
-separate coherence question below.
+composition this way reduces the compatibility-risk surface when acquisition
+systems combine; it does not prove that the replacement still *fits*. That is
+the separate compatibility question below.
 
-## Coherence is a property of the pair
+## Overlay compatibility is a property of the pair and request
 
 An overlay built against a newer framework than the base can reference platform
 members the base does not contain. Both sides are individually legitimate — the
 platform is a genuine coherent closure, and the overlay is a genuine file the
-user named. The **combination** is not.
+user named. The platform remains internally coherent; the overlay and base have
+a version-skew risk. Whether one traversal can succeed also depends on the
+member requested.
 
-This is why coherence cannot be folded into entitlement. Entitlement is computed
-per acquisition, at open, and both sides pass. Only the pair fails, and the pair
-only exists once traversal crosses from one into the other.
+This is why compatibility cannot be folded into entitlement. Entitlement is
+computed per acquisition, at open, and both sides pass. Compatibility concerns
+the pair and a concrete traversal request. No hostile actor is required: the
+correctness risk is that a legitimate assembly asks a legitimate but older
+platform for metadata that the platform does not contain.
 
-**Detect at load, attribute at traverse** (**#4592**):
+**Detect risk at load, attribute failure at traverse** (**#4592**):
 
 - **At load**, compute the skew and surface it as a warning. Do not block. An
   assembly built for a newer framework still renders its own surface correctly,
   which is most of what the user opened it for; refusing at open would reject a
   session that mostly works.
-- **At traversal into a platform assembly**, report it with attribution — *"this
-  assembly targets net15.0; the loaded platform is net10.0, so this member may
-  not resolve."*
+- **At traversal into the platform**, attempt the requested lookup. If the
+  loaded platform contains the member, return it; the skew warning remains
+  useful context but does not invalidate the result. If the member is
+  unavailable and the requesting overlay is known to target a newer platform,
+  return an attributed typed compatibility failure naming the request, overlay
+  target, and loaded platform. Without known skew, preserve the ordinary
+  missing or unresolved result.
 
 The failure mode this replaces is the one `AGENTS.md` forbids under *keep
-failure visible*: today an incoherent pair surfaces as a missing type, which is
-indistinguishable from the type not existing. A success-shaped empty result is
-the worst available answer.
+failure visible*: today an unavailable member under known skew surfaces as an
+unattributed missing type or member. A blanket refusal would be wrong in the
+other direction because many requests remain satisfiable.
 
-Expect a degree of incoherence to remain even when everything is reported.
+Expect a degree of incompatibility to remain even when everything is reported.
 Decompiled output on the far side of a reference into a skewed assembly may be
 wrong, and a type whose base declaration is unavailable will render
 incompletely. That is **inherent** to overlaying: the missing information does
@@ -201,11 +209,46 @@ both can satisfy the same reference.
 The precedence rule for this case is simple: **when resolving a reference that
 can bind to both, the binding policy selects the participant backed by the
 designated artifact over the participant backed by the platform artifact**.
+For a designated participant in this arbitration, assembly version is
+descriptive rather than an eligibility barrier, including when no matching
+platform participant is present. Platform participants retain the resolver's
+existing version policy, and an enabled installed-platform fallback
+participates under that policy. The existing assembly-name, culture, and
+public-key-token constraints remain binding, including their existing omitted
+value semantics; identity comes from metadata rather than the designated
+file's name. This exception is limited to the designated/platform name-owning
+domain; it does not weaken identity matching or promote package, project,
+sibling, discovered, or other non-designated candidates.
+
+The selection answer retains every other eligible entitled candidate as typed
+shadow evidence, so consumers can explain the composition without reconstructing
+policy from enumeration order. A shadowed candidate is evidence, not an active
+participant.
 That gives every acquisition system the same well-defined graph to compose
 with; it does not require specifying the current resolver's case-by-case
 accidents. Any other tie between entitled candidates needs its own stated rule
-or a diagnostic rather than a silent pick. The current resolver does not yet
-enforce this contract; tracked as **#4593**.
+or a diagnostic rather than a silent pick. Multiple eligible designated
+candidates remain ambiguous rather than being chosen by registration order.
+
+The designated-precedence cases in `AssemblyDependencyResolverTests` gate
+version and registration-order independence, identity constraints, typed
+ambiguity and shadow evidence, same-path provenance, and preservation of
+unrelated name-owning tiers. The
+`SharedCatalog_ReusesBindingManifestAndShadowsAcrossGenerations` and
+`BindingFailure_PreservesShadowsWithoutOpeningThem` tests gate shadow
+propagation without activating the shadow descriptor.
+
+### Executable interaction model
+
+The
+[platform overlay resolution model](models/platform-overlay-resolution/README.md)
+explores candidate registration order, designated/platform arbitration,
+unruled ties, shadow evidence, incidental version equality, and attributed
+compatibility failure at traversal. Its assumptions, bounds, checked properties,
+and mutation controls are recorded beside the executable specification.
+
+TLC results are evidence about the model, not the implementation. Formal
+model-to-implementation correspondence remains unverified.
 
 ## Related
 

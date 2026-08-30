@@ -1,7 +1,7 @@
 # TLA+ methodology
 
 TLA+ is used per
-[`AGENTS.md`](../AGENTS.md#keep-specifications-readable-model-interactions) to
+[`docs/design-scope.md`](design-scope.md#keep-specifications-readable-model-interactions) to
 check stateful or concurrent interactions that are hard to reason about in
 prose alone.
 
@@ -48,6 +48,22 @@ The model demonstrates single-flight admission, incompatible-generation
 exclusion, voluntary and disposal-forced draining, late-result suppression,
 guard witnesses, and weak-fairness progress.
 
+## Inspection subject navigation
+
+[`NavigationSession.tla`](design/models/inspection-subject-navigation/NavigationSession.tla),
+[`AtomicRestoration.tla`](design/models/inspection-subject-navigation/AtomicRestoration.tla),
+and
+[`SnapshotAuthority.tla`](design/models/inspection-subject-navigation/SnapshotAuthority.tla)
+are accompanied by matching configurations and a shared model
+[`README.md`](design/models/inspection-subject-navigation/README.md).
+
+The three independent models divide one design into retained-session ordering
+and effect authority, atomic subject-and-lens restoration, and retained versus
+stateless snapshot custody. They demonstrate choosing separate finite models
+for orthogonal mechanisms, naming the token or operation whose progress a
+liveness property claims, independently retaining requested payloads, and
+pairing action coverage with targeted mutation probes.
+
 ## AssemblyContextGroupLifecycle
 
 [`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)
@@ -59,6 +75,20 @@ result-publication, finalization, disposal, and quiescent-release lifecycle for
 [Inspection space](inspection-space.md). It demonstrates same-participant
 contention, ordinary versus one-shot release, exceptional retry, resource
 ordering, and independent counterexample mutations.
+
+## PlatformOverlayResolution
+
+[`PlatformOverlayResolution.tla`](design/models/platform-overlay-resolution/PlatformOverlayResolution.tla)
+is accompanied by safety, liveness, and broken-policy configurations and a
+model
+[`README.md`](design/models/platform-overlay-resolution/README.md).
+
+It models arbitration among already-classified designated, platform, and
+unentitled candidates across every registration order. It demonstrates proving
+policy precedence independent of incidental order and version equality,
+retaining shadowed candidates as evidence, making unruled ties visible, and
+using committed negative controls to prevent a known coherence failure from
+becoming a success-shaped missing result.
 
 ## ZfsHoldTight
 
