@@ -96,6 +96,32 @@ public class EcosystemIntegrationScannerTests
     }
 
     [Fact]
+    public void OpportunityScan_UsesExactDescriptorIdentityIndependentlyOfSetComparer()
+    {
+        using var stream = BuildCloudClientAssembly();
+        using var peReader = new PEReader(stream);
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations =
+            new HashSet<IntegrationConceptDescriptor>(
+                AllConceptsEqualComparer.Instance)
+            {
+                IntegrationConceptCatalog.AI,
+            };
+
+        List<IntegrationOpportunityInfo> opportunities =
+            IntegrationOpportunityScanner.Scan(peReader, existingIntegrations);
+
+        Assert.Contains(
+            opportunities,
+            opportunity =>
+                opportunity.GetConcept()
+                == IntegrationConceptCatalog.DependencyInjection);
+        Assert.Contains(
+            opportunities,
+            opportunity =>
+                opportunity.GetConcept() == IntegrationConceptCatalog.Aspire);
+    }
+
+    [Fact]
     public void SummarizePresence_PreservesUnknownCompatibilityLabelCount()
     {
         using var stream = BuildDependencyInjectionExtensionAssembly();
@@ -301,6 +327,18 @@ public class EcosystemIntegrationScannerTests
         assemblyBuilder.Save(stream);
         stream.Position = 0;
         return stream;
+    }
+
+    private sealed class AllConceptsEqualComparer
+        : IEqualityComparer<IntegrationConceptDescriptor>
+    {
+        public static AllConceptsEqualComparer Instance { get; } = new();
+
+        public bool Equals(
+            IntegrationConceptDescriptor? x,
+            IntegrationConceptDescriptor? y) => true;
+
+        public int GetHashCode(IntegrationConceptDescriptor obj) => 0;
     }
 
     private static byte[] BuildAnchorOverBudgetExtensionAssembly()

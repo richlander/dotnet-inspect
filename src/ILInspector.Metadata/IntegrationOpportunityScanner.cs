@@ -127,6 +127,9 @@ public static class IntegrationOpportunityScanner
         if (!peReader.HasMetadata)
             return [];
 
+        HashSet<IntegrationConceptDescriptor> exactExistingIntegrations = new(
+            existingIntegrations,
+            ReferenceEqualityComparer.Instance);
         var reader = peReader.GetMetadataReader();
         Dictionary<string, IntegrationOpportunityInfo> gaps = new(StringComparer.Ordinal);
 
@@ -146,31 +149,31 @@ public static class IntegrationOpportunityScanner
 
             AddAuthDomainGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddCloudClientGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddConfigurationGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddDatabaseGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddAiClientGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
