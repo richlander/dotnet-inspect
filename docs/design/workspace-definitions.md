@@ -14,7 +14,8 @@ This is a design proposal. Implementation has begun: the `package`,
 selected context into exactly one `AssemblyContextGroup` now exist in product
 code. Product code also selects and realizes exact already-acquired package
 content into coordinated surface and implementation roles for Browser package
-workspaces.
+workspaces. Schema version 2, packet format 2, complete view binding, and the
+restoration coordinator defined here are not yet implemented.
 The definition-record loader, registry, scenario resolution, product home
 demos, and role realization listed under
 [What exists today](#what-exists-today) are gated. Every other property asserted
@@ -45,6 +46,37 @@ workspace definition plus one loader is still a net reduction in duplication,
 but it must reuse those acquisition models rather than assume none exists; the
 wasm site rebuild is sequenced behind it.
 
+## Ownership and boundaries
+
+**Workspace Definitions** is the sole owner of the portable committed-view
+shape, definition and packet version boundaries, legacy lowering, projection
+classification, and complete-restoration coordination defined here. Its
+immediate inputs are product-issued acquisition coordinates, structural
+subject selectors, View Facet Registry IDs, query presets and their portable
+payload codecs, and owner-issued body or source-target identities carried by
+those query payloads. Its output is a canonical definition composition or
+packet, a typed projection refusal, or one complete restoration result.
+
+Adjacent owners remain independent:
+
+- [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
+  descriptors, applicability, availability, and execution bindings.
+- [Inspection Subject Navigation](inspection-subject-navigation.md) prepares
+  one exact subject-plus-facet participant and owns its recommendation,
+  reconciliation, retained snapshot, and effect authority.
+- Query owners define each query ID, payload shape, selector requirements, and
+  portable payload codec.
+- [Inspect Web UI](inspect-web-ui.md) renders owner-issued state and owns focus,
+  presentation, and browser-history push, replace, or adopt effects.
+
+This owner composes those contracts without redefining them. In particular, a
+portable packet does not make a browser label canonical, a restoration
+relation does not choose a browser-history write, and coordinator ordering
+does not replace Navigation's retained-session authority. The coordinator
+issues no independent epoch or effect authority: it uses the one intent token
+issued by the retained Navigation session and carries only that session's
+resulting authority.
+
 ## Decisions
 
 1. **The canonical format is a family of declarative JSON definition
@@ -68,6 +100,15 @@ wasm site rebuild is sequenced behind it.
    composition**, produced and consumed by the browser's transposition layer.
    The visible query is a human-readable courtesy label; the peer definition
    records are always canonical.
+6. **Complete committed views begin at definition schema version 2 and packet
+   format 2.** Version 1 remains an immutable legacy contract. Version 2 uses
+   one canonical View Facet Registry ID field, one retained view state per
+   open coordinate, and no browser lens, member-section, label, or CLI alias.
+7. **Restoration is one coordinated prepare-and-commit operation.** Every
+   required participant prepares against one immutable canonical request;
+   failure, supersession, or a non-projectable composed candidate publishes no
+   partial state. Only one completely prepared and canonically projectable
+   snapshot may commit.
 
 ## The definition schema
 
@@ -255,10 +296,13 @@ Field semantics:
   grammar below) — and `members`, additional inline coordinates overlaid on
   the subscription. A context must have at least one of `subscribe` and
   `members`; a workspace must have at least one context.
-- `query` records — named query presets. This note pins only the record and
-  reference slots; the query-plan owner defines each payload shape and must
-  itself sit at or below the dependency boundary.
-- `view` records — named view presets whose shape this note pins (`lens`,
+- `query` records — named query presets. Schema version 1 carries only an
+  optional product query ID. Version 2 additionally permits the query owner's
+  closed portable payload. This note pins the record and reference slots; the
+  query-plan owner defines each payload shape, canonical codec, and validation,
+  and must itself sit at or below the dependency boundary.
+- schema-version-1 `view` records — named view presets whose shape this note
+  pins (`lens`,
   `type`, `memberAnchor` or `memberSignature`, `section`, and library scope —
   each field individually optional; member selectors require `type`, and
   `memberAnchor` and `memberSignature` are mutually exclusive). The singular
@@ -286,39 +330,196 @@ Field semantics:
   presentation state and never doubles as binding precedence.
 - `scenario` records — named compositions with optional `workspace`, `input`,
   `query`, `view`, and `navigation` references plus `context` when the
-  referenced workspace has several contexts. Omitting `workspace` is a genuine
-  workspace-free scenario: `input` names a bundle-registered embedded input,
-  typed acquisition location, or domain input slot required by its source- or
-  artifact-scoped query, and no assembly context group is created. A platform
-  scenario is not workspace-free; it references a workspace whose context
-  subscribes `:Platform`.
+  referenced workspace has several contexts. In schema version 1, `query` is
+  the scenario's one query preset. A coordinate-backed version-2 scenario
+  carries queries through each committed view state and forbids the
+  scenario-level `query` field; it references both `view` and `navigation`, or
+  neither. A workspace-free version-2 scenario may instead reference one
+  scenario-level query and no view or navigation. Omitting `workspace` is a
+  genuine workspace-free scenario: `input` names a bundle-registered embedded
+  input, typed acquisition location, or domain input slot required by its
+  source- or artifact-scoped query, and no assembly context group is created.
+  A platform scenario is not workspace-free; it references a workspace whose
+  context subscribes `:Platform`.
 
 The selected query descriptor declares the context, library, type, and member
 inputs it requires. Activating a scenario resolves that descriptor and
 validates the supplied selectors against its contract. Missing, ambiguous, or
 incompatible inputs are typed failures; a consumer never invents an undeclared
-selector or silently broadens the query. View-facet values resolve against the
-product registry when #4787 designates their portable fields and combinations.
-A section is not intrinsically member-scoped: its owning execution descriptor
-may operate at package, library, type, or member scope.
+selector or silently broadens the query.
 
-Those designated values are **registry identities, not display labels or CLI
-spellings**: canonical IDs from the product-owned
-[View Facet Registry](view-facet-registry.md). The registry owns stable
-human-writable spelling, title, summary, structural applicability, and order;
-this owner consumes those IDs without minting another identity space. CLI
-commands and browser lenses remain projections that may rename their own
-surfaces.
+### Complete committed views
+
+Definition schema version 2 replaces the flat version-1 view with one
+committed state for every entry in the scenario's navigation record. This is
+the long-form shape:
+
+```json
+{
+  "schemaVersion": 2,
+  "kind": "view",
+  "id": "serializer-views",
+  "states": [
+    {
+      "navigation": "platform"
+    },
+    {
+      "navigation": "stj",
+      "subject": {
+        "kind": "member",
+        "library": "System.Text.Json",
+        "type": "System.Text.Json.JsonSerializer",
+        "memberAnchor": "74b6b4b321"
+      },
+      "facet": "member.call-graph",
+      "queries": ["member-callers"]
+    }
+  ]
+}
+```
+
+A version-2 query record has the common closed envelope
+`schemaVersion`, `kind`, `id`, required `queryId`, and required `payload`.
+`payload` is one JSON object whose complete nested shape belongs to the
+registered query owner. Workspace Definitions dispatches by exact `queryId`
+to that owner's version-2 parser and canonical writer; an unknown ID or
+missing codec fails before any payload field is interpreted. An empty object
+is valid only when that query owner explicitly defines it. This keeps record
+composition and packet transposition common while preventing a generic
+property bag from bypassing query-owned validation. Dispatch is one static
+product registry over inert IDs; packet text never becomes a reflection name,
+dependency-injection key, path, URI, or dynamic provider lookup.
+
+`states` has exactly one entry for every tab ID in the composed version-2
+navigation record. Entries use navigation order, and `navigation` must equal
+the corresponding tab ID; a missing, duplicated, reordered, unknown, or
+foreign tab reference is an invalid definition set. The active coordinate is
+still `navigation.focus`. It receives no second active flag in the view.
+Inactive entries remain committed state rather than being collapsed into the
+active entry.
+
+The table retains requested portable state, not one retained Navigation
+session per coordinate. Only `navigation.focus` has an installed Navigation
+snapshot and current effect authority. Inactive states are resolved
+statelessly during complete restoration and retained as dormant exact inputs.
+Activating one later submits that coordinate's retained state as a new
+canonical-restoration intent through the one retained Navigation session.
+
+Each state has these fields:
+
+- `navigation` is the exact record-local tab ID whose coordinate owns the
+  state.
+- `subject` is optional. Absence asks Inspection Subject Navigation for its
+  initial-subject recommendation after that coordinate is realized. Presence
+  requests one exact portable structural subject.
+- `facet` is an optional exact View Facet Registry ID. It is valid only with a
+  present subject. Absence requests Navigation's recommendation for that exact
+  subject, or accompanies absent `subject` so initial subject and facet are
+  both recommended. Presence records an exact-request basis even when the same
+  facet would currently be recommended.
+- `queries` is an optional array of peer query-record IDs in ascending ordinal
+  order. It is valid only with a present exact `facet`; recommendation cannot
+  carry query state for a facet that may change. Query records carry every
+  result-affecting filter and every owner-issued body or source-target
+  refinement. A query owner supplies the closed payload, canonical
+  serializer, and exact selector validation; Workspace Definitions does not
+  reinterpret its fields.
+- `libraries` is an optional unique, ascending-ordinal list of exact acquired
+  Library identities used as query scope. It is not the active Library subject
+  and does not select one. It is valid only when the selected facet's execution
+  binding or one referenced query descriptor declares multi-Library scope.
+
+Every result-affecting committed value is therefore either structural state
+spelled here or typed query state. Presentation-only disclosure, focus, hover,
+scroll, transient loading, diagnostics expansion, and responsive layout are
+not portable. An overload is never an ordinal: the exact Member subject uses a
+`memberAnchor` or canonical `memberSignature`. A body or source target is
+portable only when the responsible query owner supplies its exact stable
+identity and version-2 codec. Otherwise the state is `NonProjectable`; the
+transposer never serializes a Browser `selectedOverloadIndex`, metadata token
+alone, display name, or host object key.
+
+#### Portable subject selectors
+
+The `subject` object is a closed tagged union:
+
+| `kind` | Required fields | Forbidden fields | Structural subject |
+| --- | --- | --- | --- |
+| `root` | none | `library`, `type`, member selector | Realized coordinate Root |
+| `allLibraries` | none | `library`, `type`, member selector | Explicit aggregate Library |
+| `library` | `library` | `type`, member selector | One acquired Library |
+| `type` | `library`, `type` | member selector | One exact Type |
+| `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | One exact Member |
+
+`library` is the exact assembly identity resolved inside the state entry's
+coordinate and selected scenario context. `type` is an exact metadata
+definition name. A member selector resolves within that exact Library and
+Type. Display text, package ID alone, assembly filename, metadata token alone,
+list position, and Browser key are never subject identity.
+
+Resolution produces the exact
+`StructuralSubjectIdentity` consumed by Inspection Subject Navigation. A
+missing, ambiguous, cross-coordinate, or wrong-context selector is a typed
+preparation failure. It does not select a nearby Library, Type, or Member.
+Navigation alone owns any recommendation or reconciliation it performs from a
+valid request.
+
+#### Valid subject, facet, and query combinations
+
+The complete composition validator consumes owner-issued Registry and query
+descriptors and applies these rules before restoration may commit:
+
+| Subject request | Facet requirement | Query requirement |
+| --- | --- | --- |
+| Absent | `facet` and `queries` absent | Initial subject and facet recommendation |
+| Root | Known applicable Root facet, or absent for recommendation | Every referenced query declares Root input |
+| All Libraries or one Library | Known applicable Library facet, or absent for recommendation | Every referenced query declares the matching aggregate or exact-Library input |
+| Type | Known applicable Type facet, or absent for recommendation | Every referenced query declares Type input for the exact Library and Type |
+| Member | Known applicable Member facet, or absent for recommendation | Every referenced query declares Member input for the exact Member |
+
+When `facet` is present, exact Registry resolution occurs against the resolved
+subject. `Unknown` and `Inapplicable` are invalid portable combinations.
+`Unavailable` and `Failed` remain exact typed preparation outcomes and retain
+their Registry evidence; the coordinator does not choose another facet.
+When `facet` is absent, Navigation owns recommendation and its complete
+evidence.
+
+Every query reference resolves one version-2 query record. The selected
+facet's private execution binding and each query descriptor jointly declare
+whether that query participates in the view. Unknown query IDs, duplicate
+query purposes, missing required selectors, extra payload fields, a payload
+whose owner codec is unavailable, a query incompatible with the exact subject
+or facet, and `libraries` supplied to a query without multi-Library scope all
+fail closed. A query-free facet is valid only when its execution binding
+requires no persisted query state. A state whose visible result depends on a
+filter, body, or source target that lacks a portable query payload is
+non-projectable rather than silently restored with a default.
+
+`facet` values are **Registry identities, not display labels or CLI
+spellings**. The Registry owns stable human-writable spelling, title, summary,
+structural applicability, and order; this owner consumes those IDs without
+minting another identity space. CLI commands, Browser lenses, and Member
+sections remain projections that may rename their own surfaces. A section is
+not intrinsically Member-scoped; the facet descriptor's structural kind and
+execution binding decide the subject.
 
 This is load-bearing because definitions persist: a bundled demo must resolve
-years after a flag or chip label changed. Every bound view-facet ID is therefore
-a compatibility surface like the anchor digest below, with an unknown ID a
-typed outcome through the view-facet gate. Current example values such as
-`api` and `call-graph` remain transitional presentation tokens pending #4787's
-portable field and migration decision. Registry resolution never slugs a label
-or accepts a CLI alias. Qualified spellings such as the packet's
-`pkg:dependencies` belong to flat projections, where no structure does that
-job. Qualification-in-names is the projection's tool, never the schema's.
+years after a flag or chip label changed. Every bound facet ID is therefore a
+compatibility surface like the anchor digest below, with an unknown ID a typed
+outcome through the view-facet gate. Version 2 never slugs a label, accepts a
+CLI alias, or interprets a subject prefix itself. It submits the complete
+opaque ID to the Registry and compares the returned descriptor's structural
+kind with the resolved subject.
+
+#### Schema-version composition
+
+A scenario and every workspace, navigation, view, and query record it
+references use one schema version. Catalog entries reached through that
+workspace use the same version. Version-1 and version-2 records never compose
+directly in one scenario, because that would let a legacy view token enter a
+canonical-ID composition. The explicit legacy lowerer first produces a
+complete version-2 record set; ordinary version-2 validation then runs once
+over that output.
 
 ### The dependency boundary
 
@@ -352,14 +553,12 @@ share links prefer well-known groups, and what the unknown-group open
 question governs. Navigation tab ids are similarly bundle-author-owned but
 record-local: they carry no product semantics and only let `focus` address one
 tab in the same navigation preset. Query preset ids and payloads comply by the
-constraint stated above: their owner must sit at or below the boundary. Lens
-and section ids are then the one *current* hole: their only existing token
-spaces are L3-owned today, which is why the settled
-[View Facet Registry](view-facet-registry.md) decision requires minting the ID
-space at the substrate rather than merely preferring it.
-The layer diagram assigns sections to L2, but the descriptor catalog
-currently resides in the CLI project, so homing the registry below the
-boundary is part of the work, not a given.
+constraint stated above: their owner must sit at or below the boundary.
+Schema-version-1 `lens` and `section` values are the remaining legacy hole:
+their token spaces are L3-owned. Schema version 2 closes that hole by carrying
+only View Facet Registry IDs and query-owner payloads. The explicit version-1
+lowerer below contains the legacy vocabulary; ordinary version-2 validation
+never does.
 
 ### Scenario activation
 
@@ -411,9 +610,9 @@ table plus peer definition records lowered to a `ResolvedScenario`. Listing
 remains metadata-only. `ProductDemoRunPlan` is the host-neutral lowering of a
 resolved scenario into its selected context, navigation focus, type/member
 selection, and section; CLI and browser encodings consume that plan rather than
-parsing the member selection independently. **Home demos now bind product
-section display names**
-through `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
+parsing the member selection independently. **The current schema-version-1
+home demos bind legacy product section display names** through
+`ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
 Graph` primary bind for multi-package and package-local graph demos, expanded
 at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
 `Call Graph` + `Callers`; table/tsv/jsonl select `Callers` when the demo has
@@ -428,10 +627,17 @@ section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
 mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
-versioned migration and complete view composition remain open under
-[Portable view-facet composition](#open-questions). Platform workspaces remain
-product capability; they are not a home-demo entry (home catalog is package-
-and graph-shaped scenarios).
+schema version 2 and the explicit legacy table below settle versioned migration
+and complete view composition. Platform workspaces remain product capability;
+they are not a home-demo entry (home catalog is package- and graph-shaped
+scenarios).
+
+A schema-version-2 home demo persists only `ViewState.Facet` and version-2
+query records. The facet's product execution binding reaches the ordinary
+section pipeline; `ProductDemoSections`, `View.Section`, display labels, and
+CLI `-S` spellings do not enter the version-2 record. The two existing display
+names are accepted only by the schema-version-1 lowerer and must round-trip to
+their exact canonical facet IDs before Registry resolution.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
@@ -660,6 +866,9 @@ quoting-free as a bare CLI argument.
 
 The browser keeps a terse `?w=` base64url JSON packet as a **projection** the
 transposition layer converts to and from one packet-local scenario composition.
+
+#### Packet format 1
+
 The normative v1 decoded shape is:
 
 ```json
@@ -810,6 +1019,301 @@ arrays and the transposer must not collapse their identities.
   so packet → records → packet semantic identity is meaningful rather than
   identity after a lossy deduplication or truncation step.
 
+#### Packet format 2
+
+Format 2 retains `t`, `g`, `a`, and `x` unchanged and replaces the one flat
+view with a complete per-coordinate view table. A packet without persisted
+query payloads has this canonical decoded shape:
+
+```json
+{
+  "f": 2,
+  "t": [
+    [":Platform", "10.0.10", "net10.0", null],
+    ["System.Text.Json", "10.0.0", "net10.0", null]
+  ],
+  "g": [[0, 1]],
+  "a": 1,
+  "x": 0,
+  "v": [
+    {
+      "t": 0
+    },
+    {
+      "t": 1,
+      "u": {
+        "k": "member",
+        "l": "System.Text.Json",
+        "y": "System.Text.Json.JsonSerializer",
+        "m": "74b6b4b321"
+      },
+      "f": "member.call-graph"
+    }
+  ]
+}
+```
+
+The top-level property order is `f`, `t`, `g`, `a`, `x`, optional `q`, then
+`v`. `f` is the exact integer `2`. The format-1 top-level `v`, `y`, `m`, `s`,
+`c`, and `l` fields do not exist in format 2; `v` is now the required view
+table. An old scalar `v` under `f:2`, a new array `v` under `f:1`, or any mixed
+field set is invalid rather than shape-sniffed.
+
+`v` has exactly one entry for every `t` index, in ascending `t` order. Entry
+properties are emitted as `t`, optional `u`, optional `f`, optional `q`, then
+optional `l`:
+
+- `t` is the exact coordinate-table index.
+- `u` is the portable subject. Its closed property order is `k`, optional
+  `l`, optional `y`, then exactly one optional `m` or `s`. `k` is `root`,
+  `all-libraries`, `library`, `type`, or `member`; the remaining fields project
+  the corresponding long-form subject selector.
+- `f` is one exact View Facet Registry ID. Its absence preserves a
+  recommendation basis; it never means a host-default facet.
+- `q` is a nonempty array of unique indexes into the query table, in ascending
+  order.
+- `l` is a nonempty array of unique acquired-Library identities in ascending
+  ordinal order. The selected facet's execution binding or one referenced
+  query descriptor must explicitly accept multi-Library scope.
+
+`q`, when present, is a table of packet-local query states. Each tuple is
+`[queryId,payload]`: `queryId` is the exact product query identity and
+`payload` is the closed JSON object emitted by that query owner's version-2
+packet codec. The owner codec defines its property order, string and numeric
+grammar, selector identities, and limits beneath the packet's outer limits.
+It must round-trip its payload byte-for-byte through parse and canonical
+write. Unknown query IDs, a missing codec, a payload rejected by its owner,
+duplicate semantic tuples, unreferenced entries, and a `q` index naming no
+entry are invalid packets.
+
+The query table is sorted first by ordinal `queryId`, then by the query codec's
+canonical UTF-8 payload bytes. Semantically identical query states are
+deduplicated. Long-form query record IDs do not enter the packet; each
+version-2 view state's peer references transpose to the matching canonical
+indexes. This preserves reusable named records in bundles without making a
+bundle-local name part of share-link identity.
+
+Format 2 uses format 1's coordinate, context, base64url, canonical scalar
+escaping, exact-version normalization, and all-or-nothing validation rules.
+Its bounds are 32 KiB encoded text, 24 KiB decoded UTF-8 JSON, nesting depth
+24, 2048 JSON values, 12 tuples, 24 contexts, exactly one view state per tuple,
+and at most 24 query states. One query payload is additionally limited to
+4 KiB of UTF-8 JSON, nesting depth 12, and 256 JSON values before its owner
+codec runs. Cancellation is checked before decode and before each query
+payload is bound. Breaching either the outer or nested limit is a typed packet
+failure and restores nothing.
+
+Packet-to-record transposition creates one schema-version-2 workspace,
+navigation, view, scenario, and the needed query records. Record-to-packet
+projection first validates the complete version-2 composition, then requires
+one view state per navigation tab and one packet codec for every query payload.
+Valid state outside the table or byte bounds, a coordinate kind unavailable in
+the compact tuple grammar, or a portable query whose owner has no format-2
+codec is `NonProjectable`. An invalid subject, facet, query, or cross-record
+relationship is `InvalidDefinitionSet`. Neither outcome flattens, drops, or
+defaults a field.
+
+#### Legacy lowering
+
+Definition schema version 1 and packet format 1 remain supported contracts,
+but they never acquire Registry semantics in place. Decode first produces the
+unchanged version-1 semantic model. A dedicated compatibility adapter then
+lowers the complete version-1 scenario composition to version 2 **before** any
+Registry lookup. Ordinary version-2 validation and exact Registry resolution
+run only on that output.
+
+The version dispatch matrix is closed:
+
+| Input | Parse and lowering path |
+| --- | --- |
+| Packet with exact `f:1` | Strict format-1 decode, then whole-composition legacy lowering |
+| Packet with exact `f:2` | Strict format-2 decode and direct version-2 validation |
+| Packet with absent, unknown, or non-integer `f` | `UnsupportedFormat`; no shape sniffing or lowering |
+| Definition scenario graph containing only version-1 records | Strict version-1 bind, then whole-graph legacy lowering |
+| Definition scenario graph containing only version-2 records | Strict version-2 bind and direct validation |
+| Definition scenario graph mixing record versions | `InvalidDefinitionSet`; no partial lowering |
+
+Dispatch reads only the required top-level discriminator through the bounded
+hardened parser. It never tries one format after another format fails and never
+uses `v` shape, field presence, a record `kind`, or a legacy token to guess a
+version.
+
+The lowerer uses this closed, scope-aware table:
+
+| Version-1 source and structural evidence | Exact legacy value | Version-2 subject and facet |
+| --- | --- | --- |
+| `lens`, exact Type, no Member | `api` | Type, `type.api` |
+| `lens`, exact Type, no Member | `metadata` | Type, `type.metadata` |
+| `lens`, exact Type, no Member | `source` | Type, `type.source` |
+| package-capable coordinate with no Type or Member | `overview` | Root, `root.package-overview` |
+| package-capable coordinate with no Type or Member | `dependencies` | Root, `root.package-dependencies` |
+| package-capable coordinate with no Type or Member | `integrations` | All Libraries, `library.integrations` |
+| package-capable coordinate with no Type or Member | `opportunities` | All Libraries, `library.opportunities` |
+| package-capable coordinate with no Type or Member | `analysis` | All Libraries, `library.analysis` |
+| package-capable coordinate with no Type or Member | `metadata` | All Libraries, `library.metadata` |
+| packet `section`, exact Member | `overview` | Member, `member.overview` |
+| packet `section`, exact Member | `call-graph` | Member, `member.call-graph` |
+| packet `section`, exact Member | `facts` | Member, `member.facts` |
+| packet `section`, exact Member | `source` | Member, `member.source` |
+| packet `section`, exact Member | `annotated` | Member, `member.annotated-source` |
+| definition `section`, exact Type, no Member | `Methods` | Type, `type.api` |
+| definition `section`, exact Member | `Call Graph` | Member, `member.call-graph` |
+
+The packet rows name exact Browser tokens; the final two rows name the exact
+legacy `ProductDemoSections` values. They are compatibility mappings, not
+Registry aliases. Case variation, whitespace, labels, qualified Browser hash
+spellings such as `pkg:dependencies`, CLI aliases, and values absent from this
+table fail with `LegacyLoweringFailed`.
+
+An exact Member comes from version 1's `type` plus exactly one
+`memberAnchor` or `memberSignature`; an exact Type comes from `type` without a
+member selector. A `section` applicable to that exact subject is the effective
+facet. A simultaneously present `lens` must be the exact known parent-Type
+token and is discarded as legacy context; any other pair is contradictory and
+fails lowering. Version-1 `library` or `libraries` values copy only to the
+version-2 view state's query scope and never infer a Library subject.
+
+Format 1 carries view state only for `a`. The lowerer creates an absent-subject
+recommendation state for every other open coordinate; it does not pretend
+version 1 preserved those views. A version-1 composition with no view fields
+likewise becomes recommendation state. Filters, body targets, source targets,
+and overload ordinals have no version-1 field and are never inferred from
+courtesy routes or host state.
+
+The adapter retains the exact decoded version-1 packet as the requested packet
+basis. If restoration commits the same semantic state, the result is
+`ExactRequested` and that original canonical format-1 packet remains the
+installed location basis. Any committed owner reconciliation, later user
+change, or newly captured per-coordinate state projects as format 2. No
+version-2 writer emits a version-1 token, and no version-1 writer accepts a
+Registry ID.
+
+### Complete restoration
+
+Decoding and transposition are pure. Applying their result uses one
+Workspace-Definitions-owned coordinator because coordinate realization,
+Navigation preparation, and query or target preparation may finish, fail, or
+be superseded independently.
+
+One restoration attempt proceeds in this order:
+
+1. Decode one supported packet, lower version 1 when needed, validate the whole
+   version-2 composition, and capture its exact packet basis. Preflight failure
+   returns a typed result before participant work starts.
+2. Submit the canonical-restoration operation to the retained Navigation
+   session, retain its immutable request, and use the exact Navigation-issued
+   intent token as the coordinator attempt token. There is no second
+   Workspace-Definitions counter. A newer restoration or explicit subject,
+   facet, or coordinate intent receives a newer Navigation token and
+   supersedes the older attempt.
+3. Derive the exact required participant set from every coordinate's committed
+   view. It includes workspace realization for every coordinate, one retained
+   Navigation preparation for the focused coordinate, stateless
+   subject-and-facet resolution for each inactive coordinate, and the query or
+   target adapters named by each state. The inactive checks publish no
+   Navigation snapshot or authority. The coordinator neither invents a
+   participant nor omits validation because its state is currently offscreen.
+4. Ask every participant to prepare against the same request and attempt
+   token. Preparation may populate private caches, but it cannot mutate or
+   publish the installed workspace, Navigation snapshot, query result, URL
+   basis, or consumer state. A prepared fragment identifies the exact request
+   and reports `Exact` or `Replacement` with its owner-issued reason.
+5. If every required participant is ready, compose one candidate and project
+   it canonically. An exact candidate may retain its format-1 basis; every
+   replacement candidate must successfully project as format 2 before commit.
+6. Compose one immutable `CompleteRestorationPublication` containing every
+   prepared fragment, the focused Navigation snapshot, the complete dormant
+   view table, and the canonical location basis. Return that publication as the
+   one result of the same Navigation explicit operation. Navigation's existing
+   retained-session contract accepts it only for the current exact intent
+   token, installs its Navigation snapshot, and issues current effect authority;
+   the coordinator carries that authority opaquely with the complete
+   publication. No participant fragment is separately observable. This
+   contract does not prescribe Navigation's storage or locking implementation.
+7. If any participant fails, exact resolution is unavailable without an
+   owner-issued complete replacement, or candidate projection fails, abort
+   every prepared fragment and retain the whole prior installed snapshot and
+   revision. If the attempt is superseded, discard every fragment and publish
+   no consumer result or authority. A late ready or failed completion for a
+   settled token is discarded and cannot install.
+
+Owner-issued reconciliation is not partial success. A participant may prepare
+a complete replacement fragment, including Navigation's exact unavailable or
+reconciled snapshot and evidence. If all other participants prepare against
+that same replacement and the composed state is projectable, the coordinator
+may atomically commit it as `ReplacementInstalled`. The coordinator never
+turns a failure into a replacement itself.
+
+Preparation validates and binds state; it is not permission to execute every
+inactive result eagerly. An inactive query participant produces an immutable
+validated plan or typed non-success outcome. Network, source-content,
+exhaustive, or otherwise expensive execution remains explicit and
+capability-gated by its owner; packet presence alone never enables it. The
+active committed view may perform owner-authorized preparation needed to make
+its availability honest, while inactive views defer result materialization
+until activation under fresh current authority.
+
+Failure remains source-identifying throughout the pipeline. Decode reports
+`InvalidPacket` or `UnsupportedFormat`; compatibility reports
+`LegacyLoweringFailed`; record and combination validation reports
+`InvalidDefinitionSet`; participant preparation reports its owner and exact
+unavailable or failed evidence; and final canonicalization reports
+`NonProjectableCandidate`. These are not interchangeable success-shaped empty
+states. A preflight failure starts no attempt and receives no Navigation
+authority.
+
+The owner-issued result is a closed union:
+
+```text
+CompleteRestorationResult
+  PreflightFailed
+    Failure              Decode | LegacyLowering | InvalidDefinitionSet
+    PriorSnapshot        CompleteWorkspaceSnapshot?
+    PriorProjection      Projectable | NonProjectable | Failed
+  Published
+    Relation             ExactRequested | ReplacementInstalled | PriorRetained
+    Snapshot             CompleteWorkspaceSnapshot?
+    Projection           Projectable | NonProjectable | Failed
+    NavigationResult     opaque owner-issued current result and authority
+    ParticipantEvidence  ordered complete evidence
+  Superseded
+```
+
+`ParticipantEvidence` uses the coordinator's deterministic participant-plan
+order, not completion order. It retains every unavailable or failed result and
+the source owner that produced it. `Published` is the only arm that may carry
+an installable snapshot; `Superseded` produces no consumer value.
+
+The consumer result has one relation:
+
+| Relation | Installed state | Canonical-location evidence |
+| --- | --- | --- |
+| `ExactRequested` | Complete candidate equal to the requested semantic state | Exact requested packet basis |
+| `ReplacementInstalled` | Complete owner-issued replacement candidate | Canonical format-2 packet for the installed snapshot |
+| `PriorRetained` | Prior complete snapshot, or explicit no-snapshot state on initial failure | Prior snapshot's projectable/non-projectable outcome and typed failure |
+| `Superseded` | No effect | No consumer result or authority |
+
+`ExactRequested`, `ReplacementInstalled`, and post-admission `PriorRetained`
+results each carry the complete installed snapshot when one exists, otherwise
+an explicit no-snapshot state, plus typed semantic outcome and participant
+evidence, projection classification, and current opaque Navigation authority.
+`PreflightFailed` carries the same prior-state and failure evidence but no
+authority. The relation is evidence for the UI location adapter, not a history
+command. Inspect Web alone maps exact restoration to adoption, replacement to
+its defined replace behavior, and retained failure to realignment with the
+prior canonical location. Explicit-action push versus replace policy remains
+outside this owner.
+
+The coordinator state machine is specified by
+[`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
+Its attempt token abstracts the exact Navigation-issued intent token; it does
+not model a second authority source. The model covers three abstract
+participants, two requests, exact and replacement preparation,
+canonicalization failure, abort, supersession, stale completion, and atomic
+publication. Its finite checks establish evidence for this coordination
+protocol, not for the complete packet, identity, participant, authority, or UI
+contracts.
+
 ### Files and bundles
 
 Each definition record serializes to a standalone `.json` file (including a
@@ -868,8 +1372,8 @@ two persisted contracts are isomorphic.
 
 ## Open questions
 
-Questions the schema's own edges raise that this note deliberately does not
-answer; each needs a decision before or during implementation.
+Remaining questions the schema's other edges raise; each needs a decision
+before or during implementation.
 
 - **Unknown group references.** A `subscribe` naming a group absent from
   every catalog in scope is a typed load failure (failure stays visible, per
@@ -878,17 +1382,6 @@ answer; each needs a decision before or during implementation.
 - **Catalog precedence.** Collisions between two bundle catalogs, and
   whether a bundle may graft a child under a product path
   (`:Platform:MyThing`), are unresolved.
-- **Portable view-facet composition.** The
-  [View Facet Registry](view-facet-registry.md) settles canonical identity:
-  IDs are subject-prefixed, globally unique, human-writable, and additive.
-  Existing package-root and type lens tokens plus package-, library-, type-,
-  and member-scope section names remain presentation spaces; neither their
-  collisions (`overview`, `source`, `metadata`) nor CLI aliases enter registry
-  lookup. What remains open here is the portable composition owned by #4787:
-  whether the canonical view keeps separate `lens` and `section` fields, which
-  registered facet combinations are valid, and how existing examples migrate.
-  That decision consumes registry IDs and descriptors; it does not mint
-  another identity space.
 
 ## Status and gates
 
@@ -906,7 +1399,11 @@ Implementation must add, at minimum:
   hardened bind path;
   `Serialize_RejectsGroupDepthAndNodeLimitsBeforeRecursiveWalks` gates the
   portable group-tree bounds; well-known group redefinition, broader JSON
-  depth/value budgets, and cancellation remain open;
+  depth/value budgets, and cancellation remain open. Version-2 implementation
+  must add round-trip and closed-shape cases for every portable subject arm,
+  absent recommendation state, exact facet state, query references,
+  multi-Library scope, one state per navigation entry, same-version peer
+  composition, and rejection of every mixed-version graph;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
@@ -958,7 +1455,13 @@ Implementation must add, at minimum:
   `ToPacket_OverCapacityPreflightRemainsNearLinear`,
   `ToPacket_ClassifiesPacketCapacityAsNonProjectable`,
   `ToPacket_ClassifiesDistinctEquivalentContextsAsNonProjectable`, and the
-  neighboring `ToPacket_Rejects*` tests gate those properties;
+  neighboring `ToPacket_Rejects*` tests gate those properties. Version 2 must
+  additionally prove every navigation tuple retains its own subject, facet,
+  query set, and Library scope across packet → records → packet; inactive
+  coordinate state is not replaced by the active state; query records
+  deduplicate and sort by canonical semantic content rather than peer ID; and
+  a valid unsupported query codec is `NonProjectable` while an invalid
+  relationship is `InvalidDefinitionSet`;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
@@ -982,10 +1485,25 @@ Implementation must add, at minimum:
   validation, canonical writer, fixed vectors, and declared bounds; an
   `BrowserWorkspaceShareOperationsTests.CanonicalPacket_RoundTripsThroughLongFormBrowserTransport`
   gates the Browser JS-export adapter against the same product-owned codec and
-  transposer rather than a second packet implementation;
+  transposer rather than a second packet implementation. Format-2 gates must
+  cover its exact fixed vector, all subject arms, mixed format-1/format-2
+  fields, view-table cardinality and order, query-table order and references,
+  owner-codec canonical byte equality, every outer and per-query bound, and
+  cancellation before each query bind;
+- a legacy-lowering gate derived from the closed mapping table, with one
+  positive case for every row and close negatives for case variation,
+  whitespace, Browser hash spellings, CLI aliases, contradictory lens/section
+  pairs, wrong structural evidence, ambiguous Library identity, and unknown
+  tokens. It must prove Registry resolution is not called until lowering
+  succeeds, inactive format-1 coordinates become explicit recommendation
+  states, exact format-1 restoration retains its byte basis, and every changed
+  or newly captured state emits format 2 rather than a legacy token;
 - a session-closure gate asserting the packet grammar covers every
-  interactively reachable v1 session state without inferring relationships
-  across contexts, including library scope over non-platform packages;
+  interactively reachable format-2 committed state, including distinct
+  inactive-coordinate views, all structural subjects, package-root facets,
+  filters, exact member anchors or signatures, multi-Library scope, and every
+  portable body or source-target query payload. Format 1 retains its narrower
+  existing closure gate without inferring relationships across contexts;
 - a shared-acquisition gate proving `CorpusManifest` population and workspace
   loading call the same package, platform-family, platform-assembly, project,
   directory, and local resolution owners without translating one persisted
@@ -995,9 +1513,11 @@ Implementation must add, at minimum:
   network resolution path;
 - a preset-input gate derived from the registered query descriptors, with
   positive cases for sufficient selectors and close negative cases proving
-  missing, ambiguous, and incompatible inputs fail closed; #4787 extends this
-  gate with complete query, subject, and retained view-facet combination
-  validation;
+  missing, ambiguous, extra, duplicate-purpose, and incompatible inputs fail
+  closed. It must derive subject-kind, exact-facet, query, Library-scope, and
+  portable-payload combinations from owner-issued descriptors rather than a
+  second host table, and classify a non-portable result-affecting filter, body,
+  or source target as `NonProjectable`;
 - a navigation gate proving ordered tabs and record-local focus round-trip,
   duplicate ids or normalized sources fail, target-distinct group sources
   remain distinct, group and coordinate sources resolve in at least one
@@ -1007,11 +1527,22 @@ Implementation must add, at minimum:
   degraded-decode prefix behind `MemberAnchor.ComputeFingerprint`, so a
   formatting change that would invalidate issued links and bundled demos
   fails a test instead of shipping silently;
-- a view-facet registry gate: unknown values in fields #4787 designates as view
-  facets are typed outcomes validated against the product-owned registry. A
-  `library` name is not a facet: it resolves against the loaded context's
-  assemblies, with an unknown name a typed outcome there. The gate's concrete
-  field set follows #4787's portable composition decision; and
+- a view-facet registry gate proving version 2 submits only `ViewState.Facet`
+  as an exact opaque Registry ID, never parses its prefix, and distinguishes
+  unknown, inapplicable, unavailable, and failed outcomes. Version-1
+  `lens`/`section` values must reach only the legacy lowerer. A `library` name
+  is not a facet: it resolves against the loaded context's assemblies, with an
+  unknown name a typed outcome there;
+- a complete-restoration conformance gate with controllable workspace,
+  Navigation, query, and canonical-projection participants. It must cover
+  out-of-order readiness, one failure after peers become ready, exact and
+  replacement commit, replacement projection failure, supersession before and
+  after all peers are ready, late completion, and an initial failure with no
+  prior snapshot. Every non-commit case retains the complete prior snapshot
+  and revision; a commit publishes every fragment in one revision; the exact
+  result retains the requested packet basis; the replacement result contains
+  the format-2 packet for the installed snapshot; and only current opaque
+  Navigation authority can reach the consumer;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
@@ -1035,8 +1566,20 @@ Implementation must add, at minimum:
   `ProductHomeDemos_AllBindKnownProductSections`,
   `ProductDemoSections_AreProductSectionNames`, and
   `DemoCommandTests.ExecuteScenario_*_Returns*Section` (CLI encoding). Residual
-  gates for facet-ID migration, complete portable composition, and
-  `WorkspaceContextLoader` group run remain open with #4787.
+  implementation gates for facet-ID migration, complete portable composition,
+  and `WorkspaceContextLoader` group run remain open.
+
+The complete-restoration coordinator is model-checked by
+[`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
+Its positive configuration checks complete readiness, exact request
+correlation, atomic publication, failure and non-projectability retention,
+supersession, stale completion, and per-attempt progress. Eight mutation
+configurations independently demonstrate that the named safety properties
+reject early commit, partial commit, failed or superseded commit, abort
+mutation, stale installation, wrong exact/replacement relation, and
+cross-request publication. The model does not prove codec, Registry, query
+payload, Navigation, or UI implementation conformance; the gates above remain
+required.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -1178,8 +1721,9 @@ Definition records and product demos (this slice):
   Package-root navigation and explicit Share use the ordinary
   Browser route, without stale packet state, until product facet IDs are
   implemented; and
-- **not yet:** the designed View Facet Registry implementation, complete packet
-  view/query binding, CLI
+- **not yet:** the designed View Facet Registry implementation, schema version
+  2, packet format 2, legacy lowering, per-coordinate view/query binding,
+  complete-restoration coordinator, CLI
   use of the codec/transposer for executable `-W`, or
   `WorkspaceContextLoader` acquisition as the CLI run substrate (the CLI still
   uses package + `--caller-package` encoding).
