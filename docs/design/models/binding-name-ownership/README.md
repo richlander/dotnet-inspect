@@ -69,6 +69,10 @@ valid assembly-reference miss answers unchanged. The concrete
 `ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults` and
 `BindingPolicyResolver_PreservesDelegatedNonSelectedResults` gate that Analysis
 and Queries wrappers preserve the same terminal policy currency.
+`EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition` and
+`EcmaEquivalentFacadeIdentity_ResolvesToTargetDefinition` gate that
+caller-scope ownership uses ECMA assembly-identity equivalence when recognizing
+the selected target and scope roots.
 `AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition`
 proves that a new observed policy version refreshes the frozen disposition;
 issue #5213 still owns composite child-version propagation and atomic

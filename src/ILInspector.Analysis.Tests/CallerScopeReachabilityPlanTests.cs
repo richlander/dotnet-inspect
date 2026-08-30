@@ -198,6 +198,72 @@ public class CallerScopeReachabilityPlanTests
             unavailable.Failure.Kind);
     }
 
+    [Fact]
+    public void EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition()
+    {
+        byte[] targetImage = BuildTarget();
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        AssemblyReferenceIdentity equivalent =
+            target.Identity with
+            {
+                Name = target.Identity.Name.ToLowerInvariant(),
+                Culture = "neutral",
+            };
+        byte[] callerImage = BuildCaller(equivalent);
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NotFound(
+                AssemblyBindingMissDisposition.NoNameOwner));
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                fallback,
+                target,
+                ReadTargetDefinition(targetImage),
+                [caller]);
+
+        Assert.IsType<CandidateTypeRelation.SameDefinition>(
+            plan.Resolution.GetRelation(
+                caller,
+                ReadCallerReference(callerImage)));
+        Assert.Equal(0, fallback.CallCount);
+    }
+
+    [Fact]
+    public void EcmaEquivalentFacadeIdentity_ResolvesToTargetDefinition()
+    {
+        byte[] targetImage = BuildTarget();
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        byte[] facadeImage = BuildFacade(
+            new Version(1, 0, 0, 0),
+            target.Identity);
+        ResolvedAssemblyReference facade = Descriptor(facadeImage);
+        AssemblyReferenceIdentity equivalent =
+            facade.Identity with
+            {
+                Name = facade.Identity.Name.ToLowerInvariant(),
+                Culture = "neutral",
+            };
+        byte[] callerImage = BuildCaller(equivalent);
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NotFound(
+                AssemblyBindingMissDisposition.NoNameOwner));
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                fallback,
+                target,
+                ReadTargetDefinition(targetImage),
+                [caller, facade]);
+
+        Assert.IsType<CandidateTypeRelation.SameDefinition>(
+            plan.Resolution.GetRelation(
+                caller,
+                ReadCallerReference(callerImage)));
+        Assert.Equal(0, fallback.CallCount);
+    }
+
     static TypeRef ReadTargetDefinition(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -387,10 +453,15 @@ public class CallerScopeReachabilityPlanTests
     sealed class FixedPolicy(AssemblyBindingSelection selection)
         : IAssemblyBindingPolicy
     {
+        public int CallCount { get; private set; }
+
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
         public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            selection;
+            AssemblyBindingRequest request)
+        {
+            CallCount++;
+            return selection;
+        }
     }
 }

@@ -577,7 +577,7 @@ public sealed class CallerScopeReachabilityPlan
                     _fallback.Select(request));
             }
 
-            if (_target.Identity == reference.Identity)
+            if (_target.Identity.IsEquivalentTo(reference.Identity))
                 return AssemblyBindingSelection.Found(_target);
 
             if (string.Equals(
@@ -593,7 +593,8 @@ public sealed class CallerScopeReachabilityPlan
                         _fallback.Select(request));
                 if (fallback
                         is AssemblyBindingSelection.Selected selected
-                    && selected.Assembly.Identity == _target.Identity)
+                    && selected.Assembly.Identity.IsEquivalentTo(
+                        _target.Identity))
                 {
                     return fallback;
                 }
@@ -614,7 +615,9 @@ public sealed class CallerScopeReachabilityPlan
             }
 
             ImmutableArray<ResolvedAssemblyReference> matches = _roots
-                .Where(root => root.Identity == reference.Identity)
+                .Where(
+                    root => root.Identity.IsEquivalentTo(
+                        reference.Identity))
                 .ToImmutableArray();
             return matches.Length switch
             {
