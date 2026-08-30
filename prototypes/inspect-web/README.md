@@ -871,9 +871,10 @@ CSS is not linted. Adopting Stylelint is tracked separately.
 
 ### Protections the linters cannot provide
 
-Everything above reads source text at build time. One property matters here that
-no amount of reading source text can establish: what a browser is allowed to do
-with the page once it ships.
+Everything above reads source text at build time. Two properties matter here that
+no amount of reading source text can establish.
+
+The first is what a browser is allowed to do with the page once it ships.
 
 `staticwebapp.config.json` sets four response headers globally —
 `X-Content-Type-Options: nosniff`, which stops content-type guessing on the JSON,
@@ -900,12 +901,39 @@ under `/api/*`, which carry whatever headers the function sets for itself. The
 MSDL proxy is such a function, so these four headers do not cover its responses.
 Giving the proxy its own headers is tracked in #5119.
 
-Two neighbouring protections are tracked separately rather than bundled here.
-`require-sri` enforces that a cross-origin subresource *carries* a digest, but
-whether that digest still describes what the CDN serves is a network fact no
-linter can reach; checking it is its own change. A Content-Security-Policy is
-also still outstanding, because the generated `<script type="importmap">` needs
-a per-build hash before `script-src` can be strict.
+The second property is whether the third-party digests in `index.html` still
+describe what the CDN serves. `require-sri` enforces that a cross-origin
+subresource *carries* a digest, and that is the whole of what a linter can see;
+whether the digest is still current lives on the network and changes without any
+commit here. `scripts/check-sri-freshness.ts` re-fetches each pinned URL and
+compares hashes, reading the pins out of the document so they cannot drift from
+what the site actually loads.
+
+Be precise about what that buys, because it is not a security control. SRI is
+the security control and the browser enforces it: a stale pin means the browser
+*refuses* the bytes, so nothing unexpected runs. What goes wrong is that the
+subresource silently disappears — on this site, syntax highlighting stops
+working — with nothing to say why. This is a maintenance signal, and it is
+scheduled weekly rather than gating pull requests, because reaching jsDelivr is
+required and an outage there is not a defect in somebody's change.
+
+It reads the document with html-validate's own parser — the same parser that
+lints the file — rather than with a pattern, so the two cannot disagree about
+what the markup contains. It resolves URLs the way a browser does and follows
+the SRI metadata grammar, so valid markup does not produce false drift. It also
+separates the two ways it can fail: a stale pin is fixed by re-pinning, an
+unreachable CDN is not a pin problem at all, and filing the second under the
+first sends somebody looking for drift that is not there.
+
+The check that matters most is the cheapest one. Finding *no* pinned
+subresources exits as inconclusive rather than as success, because this script
+exists to check them and finding none means the markup shape changed underneath
+it. Without that, every later refactor of `index.html` would quietly turn the
+weekly run into a green light for nothing.
+
+A Content-Security-Policy is still outstanding, because the generated
+`<script type="importmap">` needs a per-build hash before `script-src` can be
+strict.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
