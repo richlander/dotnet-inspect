@@ -453,6 +453,247 @@ public class CatalogMemberCorrespondencePlanTests
     }
 
     [Fact]
+    public void EstablishedPair_DoesNotOverrideConflictingResolvedDefinitions()
+    {
+        byte[] firstImage = BuildAssembly("First", ["Api"]);
+        byte[] secondImage = BuildAssembly("Second", ["Api"]);
+        ResolvedAssemblyReference firstSource = Descriptor(firstImage);
+        ResolvedAssemblyReference secondSource = Descriptor(secondImage);
+        TypeRef firstType = ReadDefinition(firstImage, "Api");
+        TypeRef secondType = ReadDefinition(secondImage, "Api");
+        CatalogMemberCorrespondencePlan first =
+            CatalogMemberCorrespondencePlan.Create(
+                firstSource,
+                Method(
+                    firstSource,
+                    firstImage,
+                    firstType,
+                    [firstType],
+                    firstType));
+        CatalogMemberCorrespondencePlan second =
+            CatalogMemberCorrespondencePlan.Create(
+                secondSource,
+                Method(
+                    secondSource,
+                    secondImage,
+                    secondType,
+                    [secondType],
+                    secondType));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [firstSource, secondSource],
+            first.Requests.Concat(second.Requests));
+        var firstProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                first.Project(context));
+        var secondProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                second.Project(context));
+
+        Assert.False(
+            first.CorrespondsTo(
+                second,
+                firstProjection,
+                secondProjection,
+                Assert.Single(first.Requests),
+                Assert.Single(second.Requests)));
+    }
+
+    [Fact]
+    public void UnresolvedDeclaringType_PreservesTerminalAssemblyIdentity()
+    {
+        byte[] image = BuildAssembly("Owner", ["Entry"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        var dependency = new AssemblyReferenceIdentity(
+            "Dependency",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+        TypeRef declaring = ReferencedType(dependency, "Api");
+        CatalogMemberCorrespondencePlan plan =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, declaring, [], declaring));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            plan.Requests);
+
+        Assert.Equal(
+            dependency,
+            plan.DeclaringTypeResolutionAssemblyIdentity(context));
+    }
+
+    [Fact]
+    public void MultidimensionalArrayBounds_AreIdentityBearing()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        TypeRef zeroBased = TypeRef.MdArray(
+            owner,
+            new ArrayShape(1, [3], [0]));
+        TypeRef oneBased = TypeRef.MdArray(
+            owner,
+            new ArrayShape(1, [3], [1]));
+        CatalogMemberCorrespondencePlan first =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [zeroBased], owner));
+        CatalogMemberCorrespondencePlan second =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [oneBased], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            first.Requests.Concat(second.Requests));
+        var firstProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                first.Project(context));
+        var secondProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                second.Project(context));
+
+        Assert.NotEqual(
+            firstProjection.Key.ParameterTypes[0],
+            secondProjection.Key.ParameterTypes[0]);
+        Assert.False(
+            first.CorrespondsTo(
+                second,
+                firstProjection,
+                secondProjection));
+    }
+
+    [Fact]
+    public void NamedSignatureTypeKind_IsIdentityBearing()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        TypeRef classType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x12);
+        TypeRef valueType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x11);
+        CatalogMemberCorrespondencePlan first =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [classType], owner));
+        CatalogMemberCorrespondencePlan second =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [valueType], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            first.Requests.Concat(second.Requests));
+        var firstProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                first.Project(context));
+        var secondProjection =
+            Assert.IsType<CatalogMemberJoinProjection.Issued>(
+                second.Project(context));
+
+        Assert.NotEqual(
+            firstProjection.Key.ParameterTypes[0],
+            secondProjection.Key.ParameterTypes[0]);
+        Assert.False(
+            first.CorrespondsTo(
+                second,
+                firstProjection,
+                secondProjection));
+    }
+
+    [Fact]
+    public void UnknownDefinitionKind_DiscardsUnverifiedSignatureKind()
+    {
+        Assert.Equal(
+            0,
+            CatalogMemberJoinProjector.EffectiveRawTypeKind(
+                rawTypeKind: 0x12,
+                MetadataTypeDefinitionKind.Unknown));
+    }
+
+    [Fact]
+    public void EqualUnknownKindProjection_DoesNotOverrideContradictoryPlannedRawKinds()
+    {
+        byte[] image = BuildAssembly("Owner", ["Owner"]);
+        ResolvedAssemblyReference source = Descriptor(image);
+        TypeRef owner = ReadDefinition(image, "Owner");
+        TypeRef classType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x12);
+        TypeRef valueType = TypeRef.Definition(
+            owner.Assembly,
+            owner.Namespace,
+            owner.Name,
+            owner.Resolution,
+            rawTypeKind: 0x11);
+        CatalogMemberCorrespondencePlan first =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [classType], owner));
+        CatalogMemberCorrespondencePlan second =
+            CatalogMemberCorrespondencePlan.Create(
+                source,
+                Method(source, image, owner, [valueType], owner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            MissingPolicy.Instance,
+            [source],
+            first.Requests.Concat(second.Requests));
+        var issued = Assert.IsType<CatalogMemberJoinProjection.Issued>(
+            first.Project(context));
+
+        DefinitionJoinToken definition =
+            issued.Key.ParameterTypes[0].Definition
+            ?? throw new InvalidOperationException(
+                "Expected a resolved parameter definition.");
+        CatalogTypeShape unknownKind = CatalogTypeShape.Resolved(
+            definition,
+            CatalogMemberJoinProjector.EffectiveRawTypeKind(
+                rawTypeKind: 0x12,
+                MetadataTypeDefinitionKind.Unknown));
+        var unknownKindKey = new CatalogMemberJoinKey(
+            issued.Key.Catalog,
+            issued.Key.Generation,
+            issued.Key.Kind,
+            issued.Key.DeclaringType,
+            issued.Key.Name,
+            issued.Key.MemberKind,
+            issued.Key.GenericArity,
+            issued.Key.HasThis,
+            issued.Key.SignatureHeader,
+            issued.Key.RequiredParameterCount,
+            [unknownKind],
+            issued.Key.ReturnType);
+        var unknownKindProjection = new CatalogMemberJoinProjection.Issued(
+            unknownKindKey,
+            []);
+        Assert.False(
+            first.CorrespondsToEstablished(
+                second,
+                unknownKindProjection,
+                unknownKindProjection,
+                static (_, _) => false));
+    }
+
+    [Fact]
     public void EstablishedTypeRequestPairDoesNotVouchForAnotherType()
     {
         byte[] targetImage = BuildAssembly("Target", ["Api"]);
