@@ -84,9 +84,10 @@ receipt, namespace requirement, compatibility text, or diagnostic prose.
 
 Admission is one ordered decision, not independent predicates:
 
-1. Require exact definition identity and authoritative per-segment introduced
-   counts. An input missing either stays on the legacy path outside this
-   contract.
+1. Require exact definition identity and per-segment introduced counts. A
+   missing definition identity or `null` or empty count vector stays on the
+   legacy path outside this contract. A supplied nonempty vector participates
+   in admission; it does not become legacy merely because its length is wrong.
 2. Keep a leaf recognized by the existing CSharp generated-name classifier on
    the legacy path; generated substitution is not admitted by this design.
 3. Validate the complete count vector against the definition-name segment
@@ -165,12 +166,14 @@ subtree, or selected replacement body is published. An empty compilation unit,
 a partial `CSharpTypePrintResult`, and a free-form diagnostic are not failure
 results.
 
-An `ApiType` without `MetadataTypeDefinitionName`, or without authoritative
-per-segment introduced counts, remains on the existing legacy compatibility
-path. That path supports hand-composed and older serialized inputs, but it
-cannot produce an admitted self-name or serve as evidence for this claim.
-Recognized generated names likewise preserve their current legacy normalization
-without acquiring admission or identity-fidelity claims.
+An `ApiType` without `MetadataTypeDefinitionName`, or with a `null` or empty
+introduced-count vector, remains on the existing legacy compatibility path.
+That path supports hand-composed and older serialized inputs, but it cannot
+produce an admitted self-name or serve as evidence for this claim. A nonempty
+vector whose length disagrees with the exact definition-name segment count is
+instead contradictory exact evidence and produces `ArityMismatch`. Recognized
+generated names likewise preserve their current legacy normalization without
+acquiring admission or identity-fidelity claims.
 Existing formatter methods may continue to produce identity display or legacy
 text; that text cannot be converted to the admitted currency.
 
@@ -223,13 +226,15 @@ These properties remain unverified until the Release suite contains:
   the exact introduced count;
 - `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
   one admitted value supplies the type header, constructors, and
-  destructor-spelled finalizers while suppressed finalizers use no self-name;
-  and
+  destructor-spelled finalizers while suppressed finalizers use no self-name.
+  An exact delegate named `extension` explicitly proves the separate delegate
+  header path consumes the prepared admitted identifier; and
 - `CSharpTypePrinterTests.SelfNameFailureMakesBatchNotRendered`, using the
   hostile metadata fixture for top-level, nested, same-namespace,
   multi-namespace, and selected-replacement failures while proving the typed
   outcome exposes no partial source surface. Singleton `Print`, `PrintBatch`,
-  generated-name legacy routing, missing-evidence legacy routing, mixed
+  generated-name legacy routing, missing-identity and `null` or empty-count
+  legacy routing, nonempty truncated and overlong count-vector refusal, mixed
   legacy/exact batches, and both request orders for refusal plus duplicate
   validation are explicit cases.
 
