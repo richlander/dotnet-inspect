@@ -128,7 +128,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
-- [Architecture](architecture.md): command and metadata architecture.
+- [Architecture](architecture.md): host-neutral composition,
+  logical layers, project regions, currencies, and code-navigation map.
+- [CLI host architecture](cli-architecture.md): command-host responsibilities,
+  request lifetime, selection, and presentation composition.
 - [Inspection layers](design/inspection-layers.md): layer split for multiple consumers, vocabulary, and seam rules.
 - [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition):
   L1/L2 binding from one immutable typed-query domain to reusable compiled
@@ -170,9 +173,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
   discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
-- [Item and line limits](design/item-and-line-limits.md): target `-n`,
-  range-only `--rows`, ranked `--top`, line windows, and multi-item printable
-  payload behavior.
+- [Item and line selection composition](design/item-and-line-limits.md):
+  cross-component sequencing and typed handoffs for focused semantic
+  selection, L2, source-execution, CLI, payload, and presentation designs.
 - [Semantic row selection](design/semantic-row-selection.md): dependency-free
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
