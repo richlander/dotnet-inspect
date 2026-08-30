@@ -96,8 +96,6 @@ contains only the opaque identity. The semantic component retains authority
 over lazy, stage-ordered resolver invocation and comparer caching.
 
 Resolution failure produces one structured failure and no executable request.
-No source creation, network access, row production, or output may occur before
-resolution succeeds.
 
 This boundary is per schema. The later L2 declared-row-set design owns how one
 resolved request is associated with one or more concrete row sets and how
