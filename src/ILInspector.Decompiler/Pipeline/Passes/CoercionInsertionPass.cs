@@ -23,6 +23,15 @@ public static class CoercionSinks
 
     public readonly record struct TypedSink(IrExpression Value, TypeRef Target, SinkScope Scope = SinkScope.Wrappable);
 
+    public enum SlotTypeTestimonyStatus
+    {
+        Decided,
+        Underivable,
+        Conflicting,
+    }
+
+    public readonly record struct SlotTypeTestimony(TypeRef? Type, SlotTypeTestimonyStatus Status);
+
     /// <summary>
     /// One shared decision for pass and checker: an enumerated sink requires a
     /// <see cref="Coerce"/> when its target is in the invariant's domain, the
@@ -90,34 +99,43 @@ public static class CoercionSinks
     /// enumeration (slice 5b).
     /// </summary>
     public static Dictionary<int, TypeRef> TestifiedSlotTypes(IrNode scope, TypeRef? returnType, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => AnalyzeSlotTypeTestimony(scope, returnType, shapes)
+            .Where(static entry => entry.Value.Status == SlotTypeTestimonyStatus.Decided)
+            .ToDictionary(static entry => entry.Key, static entry => entry.Value.Type!);
+
+    /// <summary>
+    /// The product-owned testimony decision behind <see cref="TestifiedSlotTypes"/>.
+    /// Measurement consumers use the status to distinguish an untyped load with
+    /// no derivable sink from loads that actively disagree.
+    /// </summary>
+    public static Dictionary<int, SlotTypeTestimony> AnalyzeSlotTypeTestimony(
+        IrNode scope,
+        TypeRef? returnType,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
     {
-        var types = new Dictionary<int, TypeRef>();
-        var ambiguous = new HashSet<int>();
+        var testimony = new Dictionary<int, SlotTypeTestimony>();
         foreach (var load in ScopeNodes(scope).OfType<LoadStackSlot>())
         {
-            if (ambiguous.Contains(load.Slot))
-                continue;
             var evidence = BitwiseEnumSinkType(load, shapes) ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
             if (evidence is null)
             {
-                types.Remove(load.Slot);
-                ambiguous.Add(load.Slot);
+                testimony[load.Slot] = new(null, SlotTypeTestimonyStatus.Underivable);
                 continue;
             }
-            if (types.TryGetValue(load.Slot, out var existing))
+            if (testimony.TryGetValue(load.Slot, out var existing))
             {
-                if (!existing.Equals(evidence))
-                {
-                    types.Remove(load.Slot);
-                    ambiguous.Add(load.Slot);
-                }
+                if (existing.Status == SlotTypeTestimonyStatus.Underivable)
+                    continue;
+                if (existing.Status == SlotTypeTestimonyStatus.Conflicting
+                    || !existing.Type!.Equals(evidence))
+                    testimony[load.Slot] = new(null, SlotTypeTestimonyStatus.Conflicting);
             }
             else
             {
-                types[load.Slot] = evidence;
+                testimony[load.Slot] = new(evidence, SlotTypeTestimonyStatus.Decided);
             }
         }
-        return types;
+        return testimony;
     }
 
     /// <summary>The target type of the sink directly consuming an untyped slot load, where one is derivable — the printer's StackSlotLoadTargetType vocabulary.</summary>
