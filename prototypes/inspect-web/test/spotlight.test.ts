@@ -163,6 +163,23 @@ test("NuGet hits are visible only for their resolved query and survive a query r
   assert.deepEqual(visibleSpotlightPackageHits("alpha", "alpha", hits), hits);
 });
 
+test("Spotlight renders the package-query action with its seeded prefix identity", () => {
+  const { spotlight } = createHarness({
+    query: "Microsoft.Extensions.",
+    searchResults: () => [{
+      kind: "package-query",
+      prefix: "Microsoft.Extensions.",
+      ranges: [],
+    }],
+  });
+
+  const html = spotlight.modalHtml();
+
+  assert.match(html, /Package query/);
+  assert.match(html, /Microsoft\.Extensions\./);
+  assert.match(html, /data-sl-package-query="1"/);
+});
+
 test("Spotlight keeps the selected result when async rows are inserted before it", () => {
   const pkg = { id: "Example.Package", version: "1.0.0" };
   const first: SpotlightResult = {
