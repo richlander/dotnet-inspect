@@ -12,7 +12,11 @@ public sealed record RuntimeAPI(string Value);
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(global::@string), TypeInfoPropertyName = "StringDto")]
+[JsonSerializable(typeof(global::@byte), TypeInfoPropertyName = "ByteDto")]
 [JsonSerializable(typeof(global::KeywordHolder))]
+[JsonSerializable(
+    typeof(IReadOnlyDictionary<string, global::@string>),
+    TypeInfoPropertyName = "StringDtoMap")]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class FixtureJsonContext : JsonSerializerContext;
 
@@ -67,8 +71,27 @@ public static partial class TypeScriptFixtureExports
             new global::KeywordHolder(
                 title,
                 new global::@string(title),
-                [new global::@string(title)]),
+                [new global::@string(title)],
+                new Dictionary<string, global::@string>
+                {
+                    [title] = new(title),
+                },
+                [new global::@byte(title)]),
             FixtureJsonContext.Default.KeywordHolder);
+    }
+
+    [JSExport]
+    public static async Task<string> GetKeywordMapAsync(string value)
+    {
+        await Task.Yield();
+        IReadOnlyDictionary<string, global::@string> map =
+            new Dictionary<string, global::@string>
+            {
+                [value] = new(value),
+            };
+        return JsonSerializer.Serialize(
+            map,
+            FixtureJsonContext.Default.StringDtoMap);
     }
 
     [JSExport]

@@ -149,6 +149,9 @@ public static class JsonWireContractResolver
             ReturnWireTypeReferences = returnType is not null
                 ? [.. ReferencedTypes(returnType).Distinct()]
                 : [],
+            ReturnWireTypeShape = returnType is not null
+                ? ToApiTypeShape(returnType)
+                : null,
             ParameterWireTypes =
                 [.. parameterTypes.Select(
                     type => type.ToQualifiedDisplayString())],
@@ -612,6 +615,118 @@ public static class JsonWireContractResolver
             }
         }
 
+    }
+
+    static ApiTypeShape? ToApiTypeShape(TypeRef type) =>
+        ToApiTypeShape(type, depth: 0);
+
+    static ApiTypeShape? ToApiTypeShape(TypeRef type, int depth)
+    {
+        if (depth >= MetadataSafetyPolicy.MaxRelationshipNodes)
+            return null;
+
+        if (TryGetPrimitiveType(type, out ApiPrimitiveType primitive))
+            return ApiTypeShape.PrimitiveType(primitive);
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                return GetTypeReferenceIdentity(type) is { } definition
+                    ? ApiTypeShape.Named(definition)
+                    : null;
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is not { } genericDefinition
+                    || GetTypeReferenceIdentity(genericDefinition)
+                        is not { } genericIdentity)
+                {
+                    return null;
+                }
+                var arguments =
+                    ImmutableArray.CreateBuilder<ApiTypeShape>(
+                        type.TypeArguments.Length);
+                foreach (TypeRef typeArgument in type.TypeArguments)
+                {
+                    if (ToApiTypeShape(
+                            typeArgument,
+                            depth + 1) is not { } argument)
+                        return null;
+                    arguments.Add(argument);
+                }
+                return ApiTypeShape.GenericInstance(
+                    genericIdentity,
+                    arguments.MoveToImmutable());
+            case TypeRefKind.SzArray:
+                return type.ElementType is { } szElement
+                    && ToApiTypeShape(
+                        szElement,
+                        depth + 1) is { } szElementShape
+                        ? ApiTypeShape.SzArray(szElementShape)
+                        : null;
+            case TypeRefKind.Array:
+                return type.ElementType is { } arrayElement
+                    && ToApiTypeShape(
+                        arrayElement,
+                        depth + 1) is { } arrayElementShape
+                        ? ApiTypeShape.Array(arrayElementShape, type.Rank)
+                        : null;
+            default:
+                return null;
+        }
+    }
+
+    static ApiTypeReferenceIdentity? GetTypeReferenceIdentity(
+        TypeRef type) =>
+        GetAssemblyIdentity(type) is { } assembly
+            ? new(
+                assembly,
+                type.ToQualifiedDisplayString(),
+                type.Resolution?.Type)
+            : null;
+
+    static bool TryGetPrimitiveType(
+        TypeRef type,
+        out ApiPrimitiveType primitive)
+    {
+        primitive = type.Namespace == "System"
+            ? type.Name switch
+            {
+                "Void" => ApiPrimitiveType.Void,
+                "Boolean" => ApiPrimitiveType.Boolean,
+                "Char" => ApiPrimitiveType.Char,
+                "SByte" => ApiPrimitiveType.SByte,
+                "Byte" => ApiPrimitiveType.Byte,
+                "Int16" => ApiPrimitiveType.Int16,
+                "UInt16" => ApiPrimitiveType.UInt16,
+                "Int32" => ApiPrimitiveType.Int32,
+                "UInt32" => ApiPrimitiveType.UInt32,
+                "Int64" => ApiPrimitiveType.Int64,
+                "UInt64" => ApiPrimitiveType.UInt64,
+                "Single" => ApiPrimitiveType.Single,
+                "Double" => ApiPrimitiveType.Double,
+                "Decimal" => ApiPrimitiveType.Decimal,
+                "String" => ApiPrimitiveType.String,
+                "Object" => ApiPrimitiveType.Object,
+                _ => (ApiPrimitiveType)(-1),
+            }
+            : (ApiPrimitiveType)(-1);
+        if (primitive == (ApiPrimitiveType)(-1))
+            return false;
+
+        ApiAssemblyIdentity? assembly = GetAssemblyIdentity(type);
+        return type.Resolution?.Origin
+                is TypeReferenceOrigin.IntrinsicCoreLibrary
+            || assembly is
+            {
+                Name: "System.Private.CoreLib"
+                    or "System.Runtime"
+                    or "mscorlib"
+                    or "netstandard",
+            }
+            && PlatformKeys.IsPlatform(assembly.PublicKeyToken)
+            && HasTopLevelDefinitionName(
+                type,
+                "System",
+                type.Name);
     }
 
     static bool IsTrustedSystemTextJsonType(

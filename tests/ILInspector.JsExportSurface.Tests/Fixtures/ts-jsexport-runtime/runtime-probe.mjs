@@ -19,6 +19,8 @@ const getStringDtoAsyncKey =
   facadeSource.match(/"(GetStringDtoAsync\.-?\d+)"/)?.[1];
 const getKeywordHolderAsyncKey =
   facadeSource.match(/"(GetKeywordHolderAsync\.-?\d+)"/)?.[1];
+const getKeywordMapAsyncKey =
+  facadeSource.match(/"(GetKeywordMapAsync\.-?\d+)"/)?.[1];
 const getNullableWidgetAsyncKey =
   facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
 const undefinedKey =
@@ -47,6 +49,10 @@ assert.ok(
 assert.ok(
   getKeywordHolderAsyncKey,
   "The generated GetKeywordHolderAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getKeywordMapAsyncKey,
+  "The generated GetKeywordMapAsync runtime dispatch key was not found.",
 );
 assert.ok(
   getNullableWidgetAsyncKey,
@@ -86,6 +92,13 @@ function managedExports(methods = {}) {
                 title,
                 inner: { value: title },
                 many: [{ value: title }],
+                byName: { [title]: { value: title } },
+                byteDtos: [{ value: title }],
+              })),
+            [getKeywordMapAsyncKey]:
+              methods.getKeywordMapAsync
+              ?? (async (value) => JSON.stringify({
+                [value]: { value },
               })),
             [getNullableWidgetAsyncKey]:
               methods.getNullableWidgetAsync
@@ -195,7 +208,13 @@ async function freshFacade() {
       title: "holder",
       inner: { value: "holder" },
       many: [{ value: "holder" }],
+      byName: { holder: { value: "holder" } },
+      byteDtos: [{ value: "holder" }],
     },
+  );
+  assert.deepEqual(
+    await facade.getKeywordMapAsync("map"),
+    { map: { value: "map" } },
   );
   assert.deepEqual(
     await facade.getNullableWidgetAsync("nullable"),

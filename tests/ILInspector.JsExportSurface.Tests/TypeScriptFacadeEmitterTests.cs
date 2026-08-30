@@ -270,6 +270,8 @@ public sealed class TypeScriptFacadeEmitterTests
                     .TypeScriptFixtureExports).Assembly.Location);
         JsExportFunction function = surface.Functions.Single(
             function => function.Name == "GetStringDtoAsync");
+        JsExportFunction mapFunction = surface.Functions.Single(
+            function => function.Name == "GetKeywordMapAsync");
 
         string source = TypeScriptFacadeEmitter.Emit(
             surface,
@@ -303,6 +305,28 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "readonly many: ReadonlyArray<type_",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly byName: Readonly<Record<string, type_",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export interface byte {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly byteDtos: ReadonlyArray<byte>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"readonly \"{mapFunction.RuntimeDispatchKey}\": "
+                + "(value: string) => Promise<string>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getKeywordMapAsync(value: string): "
+                + "Promise<Readonly<Record<string, type_",
             source,
             StringComparison.Ordinal);
     }

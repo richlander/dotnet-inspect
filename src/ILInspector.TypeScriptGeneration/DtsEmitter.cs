@@ -182,12 +182,16 @@ static class DtsEmitter
                 diagnostics,
                 $"{function.Name} return",
                 BlockedAliases(
-                    function.ReturnWireTypeReferences
-                        .Concat(function.ReturnTypeReferences)
-                        .ToArray(),
+                    function.ReturnWireTypeReferences,
                     typeEnvironment.KnownTypeNames,
                     typeEnvironment.KnownTypeIdentities),
-                publicReturnTypeNames)
+                publicReturnTypeNames,
+                function.ReturnWireTypeShape,
+                typeEnvironment.IdentityNames,
+                BlockedAliases(
+                    function.ReturnTypeReferences,
+                    typeEnvironment.KnownTypeNames,
+                    typeEnvironment.KnownTypeIdentities))
             : TsTypeMapper.MapReturnType(
                 function.ReturnType,
                 typeEnvironment.KnownTypeNames,
@@ -494,7 +498,9 @@ static class DtsEmitter
                     MappedTypeNames(
                         typeEnvironment,
                         member.SignatureModel?.ReturnTypeReferences
-                            ?? []));
+                            ?? []),
+                    member.SignatureModel?.ReturnTypeShape,
+                    typeEnvironment.IdentityNames);
             }
             sb.Append("  readonly ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
