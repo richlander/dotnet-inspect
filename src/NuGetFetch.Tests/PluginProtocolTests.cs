@@ -1263,13 +1263,23 @@ public sealed class PluginProtocolTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseInterruption = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeCompletes = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var quiescenceAwaiting = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var resourcesDisposing = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hooksEnabled = new ManualResetEventSlim();
         var hooks = new PluginConnection.PluginConnectionTestHooks
         {
-            RequestWriteStarted = () => writeStarted.TrySetResult(),
+            RequestWriteOverride = () => hooksEnabled.IsSet ? writeCompletes.Task : null,
+            RequestWriteStarted = () =>
+            {
+                if (hooksEnabled.IsSet)
+                {
+                    writeStarted.TrySetResult();
+                }
+            },
             RequestWriteInterrupted = () =>
             {
                 writeInterrupted.TrySetResult();
@@ -1295,8 +1305,9 @@ public sealed class PluginProtocolTests : IDisposable
                 TestContext.Current.CancellationToken,
                 hooks));
         using var cancellation = new CancellationTokenSource();
+        hooksEnabled.Set();
         Task<GetAuthenticationCredentialsResponse?> request = connection.GetCredentialsAsync(
-            CreateLargeFeedUri(),
+            new Uri("https://feed.example/v3/index.json"),
             isRetry: false,
             isNonInteractive: true,
             canShowDialog: false,
@@ -1321,6 +1332,7 @@ public sealed class PluginProtocolTests : IDisposable
         }
         finally
         {
+            writeCompletes.TrySetResult();
             releaseInterruption.TrySetResult();
         }
 

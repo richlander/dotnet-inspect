@@ -54,14 +54,53 @@ approval. Before requesting approval, present the component map, explain why
 focused designs cannot close independently, and name the intended claims and
 non-claims.
 
+## Stage implementation after locking the design
+
+A new cross-cutting pattern, containment model, or convention gets its own
+focused design document under [One owner per focused
+design](#one-owner-per-focused-design): informed by a survey of the components
+that will eventually adopt it, the document defines the pattern's own
+contract — its type, construction, validation, and invariants. It must not
+also redefine how any existing owner's internals change to adopt the pattern;
+specifying every adopting owner's migration in the same document is the
+multiple-owners case that [What makes a design broad](#what-makes-a-design-broad)
+already gates, and needs that same explicit approval.
+
+Beyond that document, each existing owner adopts the pattern as its own
+focused effort, one owner at a time: an adoption PR names the pattern
+document, names the one owner adopting it, and states that owner's
+adoption-specific decisions. Do not fold one owner's adoption into another
+owner's PR, and do not adopt the pattern across every owner in a single PR.
+
+One bounded exception: the pattern document may lock together with exactly
+one owner's adoption in a single PR, proving the pattern works end to end
+before any other owner adopts it. Treat this the same way as the other named
+exceptions in this document — one additional cohesive claim riding with the
+focused effort, not a license to combine further owners. After that PR locks,
+every other owner's adoption stages as its own follow-on effort or stack
+slice, tracked as filed issues rather than reopening the pattern document or
+the first adoption to add them.
+
+Folding every owner's adoption into the pattern document, or into one
+implementation PR beyond the bounded first-adopter exception, is what makes
+this kind of work unclosable: reviewers keep finding owner-specific issues the
+pattern document didn't anticipate, rounds never converge, and the critical
+issues get lost in the noise of unrelated
+owner detail. Staging the pattern first, then one owner at a time, is what
+keeps both closable.
+
 ## Keep specifications readable; model interactions
 
-Design specifications own detailed requirements, component boundaries, and
-policies. Keep them readable as prose and typed contracts; do not turn them
-into unconventional EBNF-like descriptions of operational behavior. When a
-feature's correctness depends on significant stateful, concurrent, distributed,
-or scheduling interactions, use a small TLA+ model that states the relevant
-safety and liveness properties, and model-check it before implementation. (See
+Design documents state the smallest contract needed to guide implementation and
+review: the owner's boundary, observable obligations, invariants, failure
+semantics, and non-claims. They do not narrate current or planned fields,
+methods, branches, or execution steps. State architectural constraints as
+contract boundaries, not as prose implementation plans. Code implements the
+contract; do not duplicate it in words.
+
+When correctness depends on significant stateful, concurrent, distributed, or
+scheduling interactions, use a small TLA+ model that states the relevant safety
+and liveness properties, and model-check it before implementation. (See
 [`docs/runbooks/tla-plus-setup.md`](runbooks/tla-plus-setup.md) for installing
 and pinning the TLA+ tools and Java, and
 [`docs/tla-plus-methodology.md`](tla-plus-methodology.md) for modeling
