@@ -233,20 +233,36 @@ A scenario a reviewer can construct, and a rule that exists but is off by
 default, are not evidence.
 
 The fourth form needs a constraint, or it becomes the ratchet this principle
-exists to stop: every declined proposal can be re-argued after one incident. The
-constraint is that a demonstrated failure justifies a **structural** response —
-failing closed on the unrecognized, or containment at the build boundary — and
-not another enumerated rule. Enumeration is what failed in the first place, so
-answering a bypass by naming the bypass is the response this document is
-specifically about not making.
+exists to stop: every declined proposal can be re-argued after one incident.
+
+The constraint is behavioral, and it is a question about the cases the check
+does *not* recognize: **when the check meets a form it has no rule for, does
+that form fail or pass?** A demonstrated failure justifies a check that fails
+closed on the unrecognized. It does not justify one that passes it.
+
+That test is deliberately not "is it a list?", because the distinction is not
+list-ness. The bespoke HTML gate is mechanically a list — an allow list of
+elements and attributes. The deny list it replaced was also a list. They differ
+in what happens to a spelling neither one anticipated: the allow list rejects
+it, the deny list shipped it. Enumeration is only fatal when the default is to
+permit, and that is the property to check rather than the shape of the code.
+
+Passing an evidence form makes a proposal **eligible, not entitled**. Principle
+5 still applies: a fail-closed check can be disproportionate to the risk, cost
+more to maintain than it protects, or duplicate a gate that already holds. An
+eligible proposal that principle 5 rejects should be declined explicitly and on
+those grounds, rather than by disputing the evidence.
 
 That fourth form is also what makes this principle honest about the repository's
 own bespoke HTML gate. That gate is not common practice by any of the first
 three tests, and without a fourth form principle 6 would condemn the single
 strongest protection here. It qualifies on demonstrated failure: an earlier
-deny-list version of it shipped a document that ran script on load, and four
-separate spellings walked through it. Its response was structural — invert the
-question and reject the unrecognized — so it satisfies the constraint too.
+deny-list version of it shipped a document that ran script on load, and three
+separate spellings walked through it — `<iframe srcdoc>`, an unquoted
+`href=javascript:`, and an entity-encoded `&#106;avascript:`. A fourth probe,
+`<object data="javascript:">`, was caught, which is what made the near misses
+legible. Its replacement fails closed on the unrecognized, so it satisfies the
+constraint as well as the evidence test.
 
 Principle 6 governs whether to pursue a property at all; principle 1 governs how
 to implement one already judged worth having. Where a preset covers a property
@@ -255,22 +271,27 @@ hand-writing a local substitute.
 
 ## What is enforced today
 
-| Protection | Enforced by | Notes |
+Each row names what the gate does **not** cover. That column is required: a row
+whose boundary is unstated is a row that will be read as broader than it is,
+which is the defect principle 3 describes and the one this table kept
+reproducing. An empty cell is visible; an unstated assumption is not.
+
+| Protection | Enforced by | Does not cover |
 | --- | --- | --- |
-| Script-capable HTML rejected unless classified inert | Bespoke fail-closed gate in `test/toolchain.test.ts` | Fails on unrecognized elements and attributes |
-| HTML validity and accessibility | `html-validate` in `npm run lint` | `standard`, `document`, and `a11y` presets |
-| SRI attribute present on cross-origin subresources | `html-validate` `require-sri` | Presence only; accepts `integrity="not-a-digest"` |
-| Remote `<script>` bytes pinned to a real digest | Bespoke gate in `test/toolchain.test.ts` | Validates digest syntax; normalizes backslash URL spellings; `<script>` only |
-| TypeScript correctness and unsafe-value rules | `oxlint`, type-aware | `correctness` and `suspicious` as errors |
-| Unused files, exports, dependencies | `knip` | |
-| Every registry artifact pinned with integrity metadata | `test/toolchain.test.ts` | Lockfile carries an integrity hash per artifact |
-| No source path escapes type checking or linting | `test/toolchain.test.ts` | Symlink, stray-JavaScript, and suppression checks fail closed |
-| Bundler-read files are linted and typechecked, or on a pinned exception list | `test/toolchain.test.ts` | An *unexpected* exception fails; the five current ones are named and reviewed |
-| mermaid, marked, and DOMPurify resolve from the lockfile | npm dependencies plus Vite bundling | Those three only; Prism still ships from a CDN, and nothing gates a new cross-origin import — see Known gaps |
-| Known advisories in npm-graph dependencies | `npm audit --audit-level=info` in CI | Fails at any severity; cannot see CDN-loaded code |
-| Provenance of the Markdown sanitizer | Same lockfile and audit gate as any dependency | Sanitization *policy* is not owned here; see below |
-| Response headers | `staticwebapp.config.json` `globalHeaders` | `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Strict-Transport-Security` |
-| Pinned subresource staleness | Weekly `inspect-web-sri.yml` | A staleness check, not a security control |
+| Script-capable HTML rejected unless classified inert | Bespoke fail-closed gate in `test/toolchain.test.ts` | Nothing known: unrecognized elements and attributes fail |
+| HTML validity and accessibility | `html-validate` `standard`, `document`, `a11y` | Anything the presets do not encode |
+| SRI attribute present on cross-origin subresources | `html-validate` `require-sri` | Digest *validity* — `integrity="not-a-digest"` passes; and backslash-spelled URLs |
+| Remote `<script>` bytes pinned to a real digest | Bespoke gate in `test/toolchain.test.ts` | Any element other than `<script>`, notably cross-origin `<link>` |
+| TypeScript correctness and unsafe-value rules | `oxlint`, type-aware, `correctness` + `suspicious` | Files outside the lint targets; see the two rows below |
+| Unused files, exports, dependencies | `knip` | Anything about the code that *is* used; this reduces surface, it does not inspect behavior |
+| Every registry artifact pinned with integrity metadata | `test/toolchain.test.ts` | Code that is not a registry artifact, such as CDN scripts |
+| No **project-owned** source path escapes type checking or linting | `test/toolchain.test.ts` | Paths outside the project, which the next row governs |
+| Bundler-read files are linted and typechecked, or on a pinned exception list | `test/toolchain.test.ts` | The five pinned exceptions themselves, one of which is unlinted shipped JavaScript (#4780) |
+| mermaid, marked, and DOMPurify resolve from the lockfile | npm dependencies plus Vite bundling | Prism, which still ships from a CDN; and any *new* cross-origin import |
+| Known advisories in npm-graph dependencies | `npm audit --audit-level=info` in CI | Anything absent from the npm graph, including the Prism scripts |
+| Provenance of the Markdown sanitizer | Same lockfile and audit gate as any dependency | Sanitization *policy*, which is another owner's; see below |
+| Response headers on **static** responses | `staticwebapp.config.json` `globalHeaders` | `/api/*`, which the host serves without `globalHeaders` (#5119) |
+| Pinned subresource staleness | Weekly `inspect-web-sri.yml` | Everything security-relevant: this detects staleness, not compromise |
 
 The front-end renders package-supplied Markdown through DOMPurify with an
 explicit allow list, configured in `src/data.ts`. That is a *sanitizing* path,
@@ -312,11 +333,13 @@ Recorded so they are not rediscovered as findings:
 - **Nothing prevents a *new* cross-origin runtime `import()`.** Vite preserves a
   dynamic import of a constructed URL when marked `@vite-ignore`, and no linter
   rule or test rejects one. Today's bundling is a convention, not a boundary.
-  Under the fourth evidence form in principle 6 this one *qualifies* for
-  closure — the failure is demonstrated rather than hypothetical, and a check on
-  built output for cross-origin specifiers would be structural containment
-  rather than another enumerated rule. It is open work, not a declined
-  proposal. Tracked as #5240.
+  This is eligible for closure under principle 6's fourth evidence form, but
+  only in a shape that fails closed: a check over built output that rejects any
+  dynamic import whose target it cannot resolve to a lockfile-backed bare
+  specifier. A scan for `https://` or for known CDN hostnames would be the
+  fail-open shape, and would reproduce the defect rather than close it. Whether
+  the fail-closed version is proportionate is a principle 5 question and is
+  still open. Tracked as #5240.
 - **Response headers do not apply to `/api/*`.** The static host does not apply
   `globalHeaders` to API routes. Tracked as #5119.
 - **`stylelint` is not adopted**, at the measurement recorded in principle 1.
