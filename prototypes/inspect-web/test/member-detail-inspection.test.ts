@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 import type { AnnotatedSourceResult } from "../src/annotated-source.ts";
+import {
+  createAnnotatedSourceViewerModel,
+  createEmbeddedSession,
+} from "../src/annotated-source-session.ts";
 import { validateAnnotatedSourceDocument } from "../src/annotated-source-view.ts";
 import { sampleViewerCatalog } from "./annotated-source-result-fixture.ts";
 import {
@@ -131,8 +135,8 @@ function inspectionState(
     memberAnnotatedLoading: false,
     memberAnnotatedError: "",
     memberAnnotatedKey: "",
-    memberAnnotatedFactId: null,
-    memberAnnotatedNodeIds: [],
+    memberAnnotatedEmbedded: null,
+    memberAnnotatedModal: null,
     memberFacts: null,
     memberFactsLoading: false,
     memberFactsError: "",
@@ -540,13 +544,19 @@ test("stale documentation failure cannot overwrite newer request state", async (
   assert.equal(state.memberDocumentationLoading, true);
 });
 
-test("annotated source publishes exact current results and resets selection", async () => {
+test("annotated source publishes exact current results and initializes its reader", async () => {
   const result = annotatedResult();
   const preservedFocus = focusSnapshot();
   const focusCalls: (MemberFocusSnapshot | null | undefined)[] = [];
   const state = inspectionState({
-    memberAnnotatedFactId: 42,
-    memberAnnotatedNodeIds: [7, 8],
+    memberAnnotatedEmbedded: {
+      ...createEmbeddedSession(createAnnotatedSourceViewerModel(result)),
+      primary: { kind: "node", id: 1 },
+    },
+    memberAnnotatedModal: {
+      ...createEmbeddedSession(createAnnotatedSourceViewerModel(result)),
+      surface: "modal",
+    },
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
@@ -578,8 +588,11 @@ test("annotated source publishes exact current results and resets selection", as
 
   assert.equal(state.memberAnnotated, result);
   assert.equal(state.memberAnnotatedLoading, false);
-  assert.equal(state.memberAnnotatedFactId, null);
-  assert.deepEqual(state.memberAnnotatedNodeIds, []);
+  assert.deepEqual(
+    state.memberAnnotatedEmbedded,
+    createEmbeddedSession(createAnnotatedSourceViewerModel(result)),
+  );
+  assert.equal(state.memberAnnotatedModal, null);
   assert.deepEqual(focusCalls, [undefined, preservedFocus]);
 });
 
@@ -610,11 +623,12 @@ test("cached annotated source renders without querying again", async () => {
   const cached = annotatedResult();
   let queries = 0;
   let renders = 0;
+  const cachedSession =
+    createEmbeddedSession(createAnnotatedSourceViewerModel(cached));
   const state = inspectionState({
     memberAnnotated: cached,
     memberAnnotatedKey: "annotated",
-    memberAnnotatedFactId: 42,
-    memberAnnotatedNodeIds: [7, 8],
+    memberAnnotatedEmbedded: cachedSession,
   });
   const coordinator = createMemberDetailInspectionCoordinator(
     inspectionDependencies(state, {
@@ -630,8 +644,7 @@ test("cached annotated source renders without querying again", async () => {
   assert.equal(queries, 0);
   assert.equal(renders, 1);
   assert.equal(state.memberAnnotated, cached);
-  assert.equal(state.memberAnnotatedFactId, 42);
-  assert.deepEqual(state.memberAnnotatedNodeIds, [7, 8]);
+  assert.equal(state.memberAnnotatedEmbedded, cachedSession);
 });
 
 test("cleared annotated source reloads for the same member", async () => {

@@ -73,8 +73,6 @@ export interface AnnotatedView {
   hiddenLines: number;
 }
 
-export const MEDIA = ["CSharp", "Il"] as const satisfies readonly SourceMedium[];
-
 export const MEDIUM_LABELS: Readonly<Record<SourceMedium, string>> = {
   CSharp: "C#",
   Il: "IL",

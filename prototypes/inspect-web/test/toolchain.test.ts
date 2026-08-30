@@ -172,7 +172,10 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(browserTsconfig.include, ["src/**/*.ts"]);
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
-  assert.deepEqual(testTsconfig.include, ["./**/*.ts"]);
+  assert.deepEqual(
+    testTsconfig.include,
+    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts"],
+  );
   // The toolchain scripts and the Vite config are Node programs rather than browser
   // source, so they get Node globals from their own project instead of widening the
   // browser one. Without this project the Vite config would be checked by nothing: no
@@ -2478,8 +2481,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
   assert.equal(
     packageJson.scripts.lint,
     "node scripts/verify-analysis-host.ts && "
-      + "oxlint --no-ignore --disable-nested-config src test scripts "
-      + "engine/wwwroot/inspect-web-engine.js vite.config.ts && "
+      + "oxlint --no-ignore --disable-nested-config src test browser scripts "
+      + "engine/wwwroot/inspect-web-engine.js vite.config.ts playwright.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });

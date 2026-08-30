@@ -10,6 +10,7 @@ export const WORKBENCH_KEYBINDING_PRIORITY = {
   spotlight: 300,
   documentViewer: 310,
   graphSource: 320,
+  annotatedSource: 325,
   unavailableWorkspace: 330,
   settings: 340,
   metadataExplorer: 350,

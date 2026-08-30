@@ -1,5 +1,12 @@
 import { sourceRequestNeedsLoad } from "./data.ts";
-import type { AnnotatedSourceResult } from "./annotated-source.ts";
+import {
+  createAnnotatedSourceViewerModel,
+  createEmbeddedSession,
+} from "./annotated-source-session.ts";
+import type {
+  AnnotatedSourceResult,
+  AnnotatedSourceSession,
+} from "./annotated-source-session.ts";
 import type {
   BrowserMemberDocumentation,
   BrowserMemberFacts,
@@ -55,8 +62,8 @@ export interface MemberDetailInspectionState {
   memberAnnotatedLoading: boolean;
   memberAnnotatedError: string;
   memberAnnotatedKey: string;
-  memberAnnotatedFactId: number | null;
-  memberAnnotatedNodeIds: number[];
+  memberAnnotatedEmbedded: AnnotatedSourceSession | null;
+  memberAnnotatedModal: AnnotatedSourceSession | null;
   memberFacts: MemberFacts | null;
   memberFactsLoading: boolean;
   memberFactsError: string;
@@ -179,14 +186,17 @@ export function createMemberDetailInspectionCoordinator(
       state.memberAnnotated = null;
       state.memberAnnotatedLoading = true;
       state.memberAnnotatedError = "";
-      state.memberAnnotatedFactId = null;
-      state.memberAnnotatedNodeIds = [];
+      state.memberAnnotatedEmbedded = null;
+      state.memberAnnotatedModal = null;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       try {
         const result = await dependencies.queryAnnotated(request);
         if (request.isCurrent()
           && state.memberAnnotatedKey === request.signature) {
           state.memberAnnotated = result;
+          state.memberAnnotatedEmbedded = createEmbeddedSession(
+            createAnnotatedSourceViewerModel(result),
+          );
         }
       } catch (error) {
         if (request.isCurrent()
@@ -218,6 +228,8 @@ export function createMemberDetailInspectionCoordinator(
       state.memberFactsError = "";
       state.memberAnnotated = null;
       state.memberAnnotatedError = "";
+      state.memberAnnotatedEmbedded = null;
+      state.memberAnnotatedModal = null;
       const preservedFocus = dependencies.renderPreservingMemberFocus();
       let query = memberFactsQueries.get(request.signature);
       if (!query) {

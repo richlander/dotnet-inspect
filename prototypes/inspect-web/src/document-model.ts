@@ -16,7 +16,7 @@ export interface AnnotatedSourceNode {
   il_offset?: number | null;
 }
 
-interface AnnotatedSourceRegion {
+export interface AnnotatedSourceRegion {
   role: string;
   spans: readonly TextSpan[];
 }
