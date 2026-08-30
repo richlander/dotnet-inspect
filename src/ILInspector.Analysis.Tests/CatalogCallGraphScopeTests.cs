@@ -11,6 +11,49 @@ namespace ILInspector.Analysis.Tests;
 public class CatalogCallGraphScopeTests
 {
     [Fact]
+    public void EmptyIndexCatalogBindingUsesIssuedModuleIdentity()
+    {
+        string path =
+            typeof(CatalogCallGraphScopeTests).Assembly.Location;
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.None);
+        ResolvedAssemblyReference assembly = Descriptor(index);
+        var policy = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path));
+
+        Assert.Empty(index.DeclaredMethods);
+        using (var scope = new CatalogCallGraphScope(
+            policy,
+            [new(index, assembly)]))
+        {
+            CallTreeNode root = scope.BuildCallerTree(
+                index,
+                0x06000001);
+
+            Assert.Equal(
+                index.ModuleIdentity.ModuleVersionId,
+                root.GraphEvidence?.Storage.ModuleVersionId);
+        }
+
+        ResolvedAssemblyReference wrongAssembly =
+            ResolvedAssemblyReference.Create(
+                assembly.Identity with
+                {
+                    Version = new Version(99, 0, 0, 0),
+                },
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local(
+                    "mismatched catalog module identity"));
+
+        Assert.Throws<ArgumentException>(
+            () => new CatalogCallGraphScope(
+                policy,
+                [new(index, wrongAssembly)]));
+    }
+
+    [Fact]
     public void BothDirectionsAndProjectionReuseOneFrozenGraph()
     {
         LibraryBodyIndex analysis = LibraryBodyIndex.Open(

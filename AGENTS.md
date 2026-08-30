@@ -232,23 +232,23 @@ Full mechanics, the composition-document rules, TLA+ modeling guidance, and the
 over-broad-design recovery procedure live in
 [`docs/design-scope.md`](docs/design-scope.md). The binding rules:
 
-- Default every design effort to exactly one architectural owner with a named
-  owning document. A focused design may reference an adjacent owner's types but
-  must not redefine that owner's construction, validation, identity, lifetime,
-  or failure semantics. One bounded exception allows a single-claim transfer of
-  one cohesive responsibility between two owners; any other cross-owner change
-  needs two focused efforts connected by a thin composition map.
+- Default every design effort to one named architectural owner. A focused design
+  may reference adjacent owner-issued types but must not redefine another
+  owner's contract; beyond the single-claim transfer exception, cross-owner
+  normative changes need focused efforts joined by a thin composition map.
+- State boundaries and contracts as simply as possible. Never translate current
+  or planned implementation into prose; code implements the contract.
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
   Do not start or broaden into one without the user's explicit request or
   approval; a large issue, cross-cutting motivation, or reviewer suggestion is
   not approval.
-- If review keeps discovering new component-internal contracts the design
-  doesn't close, stop and apply the
-  [scope-violation recovery transition](#recovery-transitions): keep the locked
-  candidate unchanged, name the combined components, and ask the user to
-  choose among splitting into focused successors, abandoning, or approving a
-  recorded broad exception.
+- If review keeps discovering new component-internal contracts, stop and apply
+  the [scope-violation recovery transition](#recovery-transitions).
+- Lock a new cross-cutting pattern as its own focused design document — defining
+  only the pattern's contract, not other owners' internals — then have each
+  owner adopt it one at a time rather than one PR sweeping every owner; see
+  [Stage implementation after locking the design](docs/design-scope.md#stage-implementation-after-locking-the-design).
 
 ## Repository-wide engineering constraints
 
