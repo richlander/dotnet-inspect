@@ -2239,6 +2239,12 @@ registered and to expose it with that candidate. It is new state, not a
 rediscovered property, and it belongs to the catalog because the catalog is what
 authorized the candidate.
 
+`AssemblyResolutionScope` has two arms, `Any` and `Platform`, and tightening
+never loosens. A `Platform` baseline therefore constrains **every** occurrence in
+the signature, including an ordinary package reference; it is not a per-reference
+default that platform references escape. That is the whole observable effect of
+the baseline, and it is what makes its use testable.
+
 Given that state, a speller neither infers scope from assembly names or file
 paths nor substitutes an unconstrained scope when it is absent. A candidate
 without a recorded baseline is a rejection with its own reason; substituting
@@ -2280,9 +2286,12 @@ resolution already issued and returns one closed outcome:
   failure, and it is not spellable.
 
 Those are the only rejection arms, and the omissions are deliberate. A disposed
-context or ended catalog generation **throws** `ObjectDisposedException`, as
-every other operation on this context does; it is not converted into a typed
-outcome. And the declaring chain was already walked under its bound when
+context or a dead catalog **throws** `ObjectDisposedException`, matching
+`Resolve`, which checks both before doing any work; that is a caller error, not
+a metadata outcome, and is not converted into one. Generation supersession is a
+different case and is not a throw: the context remains usable, and a definition
+key issued by another generation is the `Rejected` stale-generation arm above.
+And the declaring chain was already walked under its bound when
 resolution issued the definition key, so accessibility does not re-derive it and
 has no separate chain-budget rejection of its own. An arm that no caller can
 reach is structure without a case, which is the failure mode this redesign
@@ -3994,17 +4003,28 @@ internal vocabulary constrains structure rather than behaviour.
 - `SignatureSpellability_RetainsUnsupportedModuleReference` proves that a
   module-scoped occurrence retains `UnsupportedModuleReference` and is not
   spellable.
-- `SignatureSpellability_DerivesInitialScopePerReference` combines a platform
-  reference and an ordinary package reference in one signature; the first is
-  `Platform`, the second remains `Any`, and a confusable local platform copy is
-  never selected. The source candidate is registered with a baseline narrower
-  than `Any` so the gate cannot be satisfied by ignoring the baseline and
-  hard-coding an unconstrained start.
+- `SignatureSpellability_DerivesInitialScopePerReference` uses a source
+  candidate whose baseline is `Any` and a signature combining a platform
+  reference with an ordinary package reference. The first tightens to `Platform`,
+  the second remains `Any`, and a confusable local platform copy is never
+  selected for the first. This proves tightening is per occurrence rather than
+  once per signature.
+- `SignatureSpellability_AppliesPlatformBaselineToEveryOccurrence` uses the same
+  signature with a source candidate whose baseline is `Platform`. Now the
+  ordinary package reference is also `Platform`, because tightening never
+  loosens. An implementation that ignores the baseline and starts every
+  occurrence at `Any` passes the previous gate and fails this one, which is what
+  makes baseline use observable. The two gates are a matched pair and neither
+  alone is sufficient.
+- `SignatureSpellability_UsesBaselineForCurrentAssemblyOccurrence` registers the
+  source candidate with a `Platform` baseline and proves a `CurrentAssembly`
+  occurrence starts from it rather than from `Any`. Without this, an
+  implementation could widen a platform-authorized lookup and select a
+  confusable non-platform forwarder target while passing every other gate.
 - `SignatureSpellability_RejectsMissingBaselineScope` proves that a source
   candidate registered without an authorized baseline scope produces a rejection
-  with its own reason. Substituting `Any` fails the gate. This is the
-  non-vacuity partner of the gate above: one proves the baseline is used, the
-  other proves its absence is not papered over.
+  with its own reason. Substituting `Any` fails the gate. The three gates above
+  prove the baseline is used; this one proves its absence is not papered over.
 - `SignatureSpellability_MergesModifierParticipation` covers optional-only,
   required-only, ordinary, and mixed duplicate occurrences. Resolution is
   required for all; external accessibility is ignored only for an
@@ -4024,9 +4044,11 @@ internal vocabulary constrains structure rather than behaviour.
   controls external accessibility.
 - `SignatureSpellability_RejectsInvalidAccessibilityKey` proves that a
   cross-catalog or stale-generation definition key cannot borrow an
-  accessibility result, and that a disposed context throws rather than returning
-  a rejection outcome. These are the only two rejection arms; the gate is the
-  non-vacuity check that no third arm is added without a reachable case.
+  accessibility result, and that a disposed context or dead catalog throws
+  rather than returning a rejection outcome. A superseded generation is covered
+  separately: the context stays usable and only a key from another generation is
+  rejected. These are the only two rejection arms; the gate is the non-vacuity
+  check that no third arm is added without a reachable case.
 - `SignatureSpellability_AccessibilityReusesResolvedSession` configures the
   terminal candidate opener to fail after resolution records its completed
   inventory and durable-session open count, then proves that accessibility
