@@ -33,6 +33,23 @@ public static class MatchCommand
         if (options.Similar)
             return await MatchDiscovery.ExecuteAsync(options);
 
+        // The discovery options share this options object. Pairwise comparison honors none of
+        // them, so accepting them would silently ignore a scope or limit the caller asked for.
+        string? discoveryOnly = options switch
+        {
+            { AssemblyWide: true } => "--assembly-wide",
+            { Top: not null } => "--top",
+            { MaximumResults: not null } => "--max-results",
+            { MaximumMethods: not null } => "--max-methods",
+            _ => null,
+        };
+
+        if (discoveryOnly is not null)
+        {
+            CommandError.Write($"{discoveryOnly} applies to discovery; add --similar.");
+            return 1;
+        }
+
         if (string.IsNullOrEmpty(options.LeftSelector) || string.IsNullOrEmpty(options.RightSelector))
         {
             CommandError.Write("match requires two method selectors (Type.Member).");
@@ -168,6 +185,24 @@ public static class MatchCommand
     /// </summary>
     internal static ResolvedSelector ResolveSelector(ApiSurface api, string apiDllPath, string selector)
     {
+        // A MethodDef token addresses a row directly, so it resolves without a name. This is what
+        // makes every discovery row addressable here: an overloaded member and a property with
+        // both accessors have no unambiguous Type.Member spelling, but they always have a token,
+        // and `match --similar` prints one on every row for exactly this purpose.
+        if (MatchDiscovery.TryParseMethodToken(selector, out int methodToken))
+        {
+            ApiType? tokenType = api.Types.FirstOrDefault(
+                type => type.Members.Any(
+                    member => MatchDiscovery.MemberTokens(member).Contains(methodToken)));
+            return new ResolvedSelector(
+                methodToken,
+                tokenType is null
+                    ? $"MethodDef 0x{methodToken:X8}"
+                    : $"{tokenType.FullName} MethodDef 0x{methodToken:X8}",
+                tokenType?.SourceAssemblyPath ?? apiDllPath,
+                null);
+        }
+
         var lookup = ApiTypeLookupService.LookupType(api, selector);
         if (!lookup.Found || lookup.ImpliedMember is null)
         {

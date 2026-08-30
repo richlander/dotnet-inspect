@@ -7,6 +7,8 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using System.CommandLine;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
 
 namespace DotnetInspector.Tests;
@@ -498,6 +500,257 @@ public sealed class MatchDiscoveryTests
         int expected = Parse(unboundedOutput).GetProperty("method_outcomes").GetArrayLength();
         Assert.True(expected > 1, "Expected more than one outcome for this to prove anything.");
         Assert.Equal(expected, Parse(boundedOutput).GetProperty("method_outcomes").GetArrayLength());
+    }
+
+    // ---- Round 2 review findings ----
+
+    /// <summary>
+    /// Runs through the real root command so the option parser is part of the gate. Every earlier
+    /// gate calls <c>MatchCommand.ExecuteAsync</c> directly, which cannot see an option the
+    /// command definition never registers or never reads.
+    /// </summary>
+    static Task<(int ExitCode, string Output, string Error)> RunCliAsync(params string[] args)
+        => ConsoleCapture.RunAsync(async () =>
+        {
+            RootCommand root = CommandLineBuilder.CreateRootCommand();
+            string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeAsync(root.Parse(processed), processed);
+        });
+
+    /// <summary>
+    /// A MethodDef token is a table row, so the seed's token names a different member in the
+    /// candidate image. The seed row must carry the seed's own resolved name, never a lookup in
+    /// the candidate name map, or cross-image JSON reports the wrong member as the seed.
+    /// </summary>
+    [Fact]
+    public async Task Similar_CrossImage_NamesTheSeedFromItsOwnImage()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.Runtime.dll");
+
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyPath = $"{TestAssembly}..{facade}",
+            RightSelector = "System.String",
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.Equal(SampleSeed, document.GetProperty("seed").GetString());
+        Assert.Equal(
+            SampleSeed,
+            document.GetProperty("seed_outcome").GetProperty("member").GetString());
+    }
+
+    /// <summary>
+    /// Only <c>Completed</c> ranked the population. <c>Unsupported</c> and <c>LimitReached</c> are
+    /// terminal non-completions carrying blockers, so reporting success would turn an analysis
+    /// failure into success-shaped empty output.
+    /// </summary>
+    [Fact]
+    public async Task Similar_LimitReached_IsAVisibleFailure()
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            MaximumMethods = 1,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, _) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        JsonElement document = Parse(output);
+        Assert.Equal("LimitReached", document.GetProperty("disposition").GetString());
+        Assert.NotEmpty(document.GetProperty("blockers").EnumerateArray());
+    }
+
+    /// <summary>
+    /// The receipt is the retrieval's own evidence, so every field the query issued must survive
+    /// the projection. Dropping <c>BodyBytes</c> or <c>Locals</c> while claiming complete
+    /// evidence is a silent loss.
+    /// </summary>
+    [Fact]
+    public async Task Similar_MethodOutcomes_ProjectEveryReceiptField()
+    {
+        MatchOptions options = Seeded(SampleSeed) with { JsonOutput = true };
+
+        var (exitCode, output, _) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        foreach (JsonElement outcome in
+            Parse(output).GetProperty("method_outcomes").EnumerateArray())
+        {
+            foreach (string field in
+                (string[])["body_bytes", "instructions", "blocks", "edges", "locals"])
+            {
+                Assert.True(
+                    outcome.TryGetProperty(field, out JsonElement value),
+                    $"{field} is missing from a method outcome.");
+                Assert.Equal(JsonValueKind.Number, value.ValueKind);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A range separator abuts the right operand's own parent segment, so the two spellings run
+    /// together into one run of dots. Scanning for the leftmost split that leaves two well-formed
+    /// paths accepts that, where skipping bounded occurrences rejected it as ambiguous.
+    /// </summary>
+    [Theory]
+    [InlineData("old/F.dll..../../new/F.dll", 9)]
+    [InlineData("../a/F.dll..../b/F.dll", 10)]
+    [InlineData("/x/F.dll../../y/F.dll", 8)]
+    [InlineData("old/F.dll..new/F.dll", 9)]
+    [InlineData("old\\F.dll..new\\F.dll", 9)]
+    [InlineData("a.dll..b.dll..c.dll", -2)]
+    [InlineData("..a.dll", -2)]
+    [InlineData("a.dll..", -2)]
+    public void RangeSeparator_SplitsWhereBothSidesRemainWellFormedPaths(
+        string value,
+        int expected)
+        => Assert.Equal(expected, MatchDiscovery.FindRangeSeparator(value));
+
+    /// <summary>
+    /// The end-to-end consequence: a range whose right operand is parent-relative is a range, not
+    /// an ambiguity.
+    /// </summary>
+    [Fact]
+    public async Task Similar_RangeWithParentRelativeRightPath_IsARange()
+    {
+        string directory = Path.GetDirectoryName(TestAssembly)!;
+        string relative = Path.Combine(
+            directory, "..", Path.GetFileName(directory), Path.GetFileName(TestAssembly));
+
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyPath = $"{TestAssembly}..{relative}",
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("Completed", Parse(output).GetProperty("disposition").GetString());
+    }
+
+    /// <summary>
+    /// <c>--table</c>, <c>--tsv</c>, and <c>--jsonl</c> require exactly one table shape
+    /// (<c>docs/design/output-shapes.md</c>), and <c>match</c> carries no section-selection
+    /// options. Emitting a field/value table followed by a candidate table gives a scripted
+    /// consumer two incompatible row schemas on one stream.
+    /// </summary>
+    [Fact]
+    public async Task Similar_Jsonl_EmitsExactlyOneRowSchema()
+    {
+        MatchOptions options = Seeded(SampleSeed) with { Tabular = true, Jsonl = true };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        string[] lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+
+        string[] first = Keys(lines[0]);
+        Assert.Contains("rank", first);
+        foreach (string line in lines)
+            Assert.Equal(first, Keys(line));
+
+        // The context the single table cannot carry still reaches the reader.
+        Assert.Contains("Disposition: Completed", error);
+        Assert.Contains("Seed:", error);
+
+        static string[] Keys(string line) =>
+            [.. JsonDocument.Parse(line).RootElement.EnumerateObject().Select(p => p.Name)];
+    }
+
+    /// <summary>
+    /// An overloaded member has no unambiguous <c>Type.Member</c> spelling, so the promise that
+    /// every ranked row is addressable by pairwise <c>match</c> holds only if the printed token is
+    /// itself a selector.
+    /// </summary>
+    [Fact]
+    public async Task RankedRowToken_IsAcceptedByPairwiseMatch()
+    {
+        MatchOptions discovery = Seeded($"{typeof(MatchSampleA).FullName}.AddOne") with
+        {
+            JsonOutput = true,
+        };
+
+        var (discoveryExit, discoveryOutput, _) = await RunAsync(discovery);
+        Assert.Equal(0, discoveryExit);
+
+        JsonElement top = Parse(discoveryOutput).GetProperty("candidates").EnumerateArray().First();
+        string token = top.GetProperty("token").GetString()!;
+        Assert.Equal(
+            $"{typeof(MatchSampleA).FullName}.Overloaded",
+            top.GetProperty("member").GetString());
+
+        var pairwise = new MatchOptions
+        {
+            LeftSelector = $"{typeof(MatchSampleA).FullName}.AddOne",
+            RightSelector = token,
+            AssemblyPath = TestAssembly,
+            IncludeAll = true,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(pairwise);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("\"relation\":", output);
+    }
+
+    /// <summary>
+    /// The discovery options share the pairwise options object. Accepting one without
+    /// <c>--similar</c> silently ignores a scope or limit the caller asked for.
+    /// </summary>
+    [Theory]
+    [InlineData("--assembly-wide")]
+    [InlineData("--top", "1")]
+    [InlineData("--max-results", "1")]
+    [InlineData("--max-methods", "1")]
+    public async Task Pairwise_RejectsDiscoveryOnlyOptions(params string[] option)
+    {
+        string[] args =
+        [
+            "match",
+            $"{typeof(MatchSampleA).FullName}.AddOne",
+            $"{typeof(MatchSampleB).FullName}.AddOneToo",
+            "--library", TestAssembly,
+            "--all",
+            .. option,
+        ];
+
+        var (exitCode, output, error) = await RunCliAsync(args);
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("applies to discovery; add --similar", error);
+    }
+
+    /// <summary>
+    /// Runs the whole surface through the real parser, so an option the command definition fails
+    /// to register or read is a failure here rather than an untested gap.
+    /// </summary>
+    [Fact]
+    public async Task Similar_RunsThroughTheRealCommandLine()
+    {
+        var (exitCode, output, error) = await RunCliAsync(
+            "match", SampleSeed, "--similar", "--library", TestAssembly, "--all", "--top", "1",
+            "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.Equal("Completed", document.GetProperty("disposition").GetString());
+        Assert.Equal(SampleSeed, document.GetProperty("seed").GetString());
+        Assert.Equal(1, document.GetProperty("limits").GetProperty("text_rows").GetInt32());
     }
 
     /// <summary>

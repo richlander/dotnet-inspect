@@ -253,6 +253,7 @@ public sealed class PackageProfileRow
 [MarkoutContext(typeof(DotnetInspector.Views.MatchDiscoveryView))]
 [MarkoutContext(typeof(DotnetInspector.Views.MatchDiscoveryBlockerRow))]
 [MarkoutContext(typeof(DotnetInspector.Views.MatchDiscoveryCandidateRow))]
+[MarkoutContext(typeof(DotnetInspector.Views.MatchDiscoveryCandidateTableView))]
 public partial class SearchViewContext : MarkoutSerializerContext
 {
 }

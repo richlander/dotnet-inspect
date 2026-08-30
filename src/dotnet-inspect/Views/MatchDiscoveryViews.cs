@@ -112,6 +112,20 @@ public class MatchDiscoveryView
         value is null ? null : CSharpIdentifier.ContainRenderedText(value);
 }
 
+/// <summary>
+/// The tabular projection of a discovery result. <c>--table</c>, <c>--tsv</c>, and <c>--jsonl</c>
+/// require exactly one table shape (see <c>docs/design/output-shapes.md</c>), and <c>match</c>
+/// carries no section-selection options, so the ranked candidates are that one shape. The seed,
+/// scope, receipt, blockers, and disclosure travel on stderr instead of adding a second row
+/// schema to the parsed stream.
+/// </summary>
+[MarkoutSerializable]
+public class MatchDiscoveryCandidateTableView
+{
+    [MarkoutSection(Name = "Ranked Candidates")]
+    public List<MatchDiscoveryCandidateRow> Candidates { get; set; } = [];
+}
+
 [MarkoutSerializable]
 public record MatchDiscoveryBlockerRow(string Kind, string Detail)
 {
@@ -179,9 +193,11 @@ public sealed record MatchDiscoveryMethodOutcomeDocument(
     string Token,
     string Disposition,
     ImmutableArray<MatchDiscoveryBlockerDocument> Blockers,
+    int BodyBytes,
     int Instructions,
     int Blocks,
-    int Edges);
+    int Edges,
+    int Locals);
 
 public sealed record MatchDiscoveryLimitsDocument(
     int MaximumMethods,
@@ -243,6 +259,34 @@ internal static class MatchDiscoveryFormatter
 {
     internal const string RejectedDisposition = "Rejected";
     internal const string UnresolvedDisposition = "Unresolved";
+
+    /// <summary>
+    /// The one table shape that <c>--table</c>, <c>--tsv</c>, and <c>--jsonl</c> may emit. A run
+    /// that ranked nothing yields an empty table; its blockers and disposition reach the reader
+    /// through <see cref="TabularContext"/> and the exit code.
+    /// </summary>
+    internal static MatchDiscoveryCandidateTableView CandidateTable(MatchDiscoveryView view)
+        => new() { Candidates = view.Candidates ?? [] };
+
+    /// <summary>
+    /// Everything the full view carries that the single tabular table cannot. Emitted as stderr
+    /// notes so a failed or blocked retrieval stays visible without adding a second row schema to
+    /// the parsed stream.
+    /// </summary>
+    internal static IEnumerable<string> TabularContext(MatchDiscoveryView view)
+    {
+        yield return $"Seed: {view.Seed}";
+        yield return $"Scope: {view.Scope}";
+        if (view.CandidateAssembly is string assembly)
+            yield return $"Candidate assembly: {assembly}";
+
+        yield return $"Disposition: {view.Disposition}";
+        if (view.Receipt is string receipt)
+            yield return $"Receipt: {receipt}";
+
+        foreach (MatchDiscoveryBlockerRow blocker in view.Blockers ?? [])
+            yield return $"Blocker {blocker.Kind}: {blocker.Detail}";
+    }
 
     /// <summary>
     /// Retrieval ranks structural candidates. It is a selection step, not a verdict: use pairwise
@@ -368,7 +412,9 @@ internal static class MatchDiscoveryFormatter
             Disclosure,
             LimitsOf(request),
             new MatchDiscoverySeedDocument(
-                names.Display(retrieval.Seed.Method),
+                // The seed's own resolved display, never a lookup in the candidate name map: the
+                // seed can live in a different image, where its token names another member.
+                request.Seed,
                 $"0x{retrieval.Seed.Method.Token:X8}",
                 retrieval.Seed.Disposition.ToString(),
                 [.. retrieval.Seed.Blockers.Select(
@@ -401,9 +447,11 @@ internal static class MatchDiscoveryFormatter
                 [.. outcome.Blockers.Select(
                     blocker => new MatchDiscoveryBlockerDocument(
                         blocker.Kind.ToString(), blocker.Detail))],
+                outcome.Receipt.BodyBytes,
                 outcome.Receipt.Instructions,
                 outcome.Receipt.Blocks,
-                outcome.Receipt.Edges))],
+                outcome.Receipt.Edges,
+                outcome.Receipt.Locals))],
             Failure: null);
 
         return (view, document);

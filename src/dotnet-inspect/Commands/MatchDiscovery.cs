@@ -210,17 +210,25 @@ internal static class MatchDiscovery
             }
             else if (options.Tabular)
             {
-                // Table, TSV, and JSONL carry rows but no prose, so the Markout description paragraph
-                // is dropped. The disclosure is not optional, so it goes to stderr, which reaches the
-                // reader without corrupting the parsed stream on stdout.
+                // Table, TSV, and JSONL require exactly one table shape and carry no prose, so
+                // this renders only the ranked candidates. Everything the full view would add --
+                // the disclosure, which is not optional, plus the identity, receipt, and any
+                // blockers -- goes to stderr, which reaches the reader without adding a second row
+                // schema to the parsed stream on stdout.
                 CommandError.WriteNote(MatchDiscoveryFormatter.Disclosure);
+                foreach (string line in MatchDiscoveryFormatter.TabularContext(view.View))
+                    CommandError.WriteNote(line);
 
+                // `match` does not carry the section-projection options (--select, --columns,
+                // --fields, --schema, --tree travel as one bundle), so no projection is passed
+                // rather than implying a filter the command cannot accept.
                 OutputFormatter.WriteProjectedTable(
                     Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
-                    options.Columns, options.Fields,
+                    columns: null, fields: null,
                     (writer, formatter, writerOptions) =>
                         MarkoutSerializer.Serialize(
-                            view.View, writer, formatter, SearchViewContext.Default, writerOptions),
+                            MatchDiscoveryFormatter.CandidateTable(view.View),
+                            writer, formatter, SearchViewContext.Default, writerOptions),
                     options.Rows);
             }
             else
@@ -229,13 +237,13 @@ internal static class MatchDiscovery
                     opts => MarkoutSerializer.Serialize(view.View, SearchViewContext.Default, opts));
             }
 
-            // A retrieval that could not run is a failure, not an empty result set.
-            return view.Document.Disposition is
-                nameof(StructuralCloneRetrievalDisposition.Failed)
-                or MatchDiscoveryFormatter.RejectedDisposition
-                or MatchDiscoveryFormatter.UnresolvedDisposition
-                ? 1
-                : 0;
+            // A retrieval that could not run is a failure, not an empty result set. Only
+            // Completed ranked the population; Unsupported and LimitReached are terminal
+            // non-completions that carry blockers, so they must not report success.
+            return view.Document.Disposition
+                == nameof(StructuralCloneRetrievalDisposition.Completed)
+                ? 0
+                : 1;
         }
         finally
         {
@@ -252,31 +260,23 @@ internal static class MatchDiscovery
     /// </summary>
     static ResolvedSeed ResolveSeed(LoadedSide seed, string selector)
     {
-        if (TryParseMethodToken(selector, out int token))
-        {
-            ApiType? declaring = seed.Api.Types.FirstOrDefault(
-                type => type.Members.Any(member => MemberTokens(member).Contains(token)));
-            return new ResolvedSeed(
-                token,
-                declaring is null
-                    ? $"MethodDef 0x{token:X8}"
-                    : $"{declaring.FullName} MethodDef 0x{token:X8}",
-                seed.ApiDllPath,
-                declaring,
-                null);
-        }
-
         MatchCommand.ResolvedSelector resolved =
             MatchCommand.ResolveSelector(seed.Api, seed.ApiDllPath, selector);
         if (resolved.Error is not null)
             return new ResolvedSeed(null, null, null, null, resolved.Error);
 
-        ApiTypeLookupResult lookup = ApiTypeLookupService.LookupType(seed.Api, selector);
+        // A raw token addresses a row directly, so the declaring type comes from a token scan
+        // rather than from the selector text.
+        ApiType? declaring = TryParseMethodToken(selector, out int token)
+            ? seed.Api.Types.FirstOrDefault(
+                type => type.Members.Any(member => MemberTokens(member).Contains(token)))
+            : ApiTypeLookupService.LookupType(seed.Api, selector).Type;
+
         return new ResolvedSeed(
             resolved.Token,
             resolved.Display,
             resolved.OriginAssemblyPath,
-            lookup.Type,
+            declaring,
             null);
     }
 
@@ -414,29 +414,79 @@ internal static class MatchDiscovery
     /// (<c>../a.dll</c>, <c>a/../b.dll</c>, <c>a/..</c>); a range separator never is, because a
     /// range joins two file names. Splitting on the first <c>..</c> instead rejects
     /// <c>--library ../a.dll</c>, which pairwise <c>match</c> accepts.
-    /// Returns -1 when the argument carries no range, and -2 when it carries more than one, which
-    /// is ambiguous rather than a silent left-most win.
+    /// Returns -1 when the argument carries no range, and -2 when no single <c>..</c> separates
+    /// two well-formed paths, which is ambiguous rather than a silent left-most win.
     /// </remarks>
     internal static int FindRangeSeparator(string value)
     {
-        int found = -1;
-
-        for (int index = value.IndexOf("..", StringComparison.Ordinal);
-            index >= 0;
-            index = value.IndexOf("..", index + 2, StringComparison.Ordinal))
+        // A spelling whose every `..` is a bounded parent segment carries no range at all.
+        bool sawUnbounded = false;
+        for (int index = 0; index + 1 < value.Length; index++)
         {
-            bool openBounded = index == 0 || IsDirectorySeparator(value[index - 1]);
-            bool closeBounded = index + 2 == value.Length || IsDirectorySeparator(value[index + 2]);
-            if (openBounded && closeBounded)
-                continue;
-
-            if (found >= 0)
-                return -2;
-
-            found = index;
+            if (IsDoubleDot(value, index) && !IsParentSegment(value, index))
+            {
+                sawUnbounded = true;
+                break;
+            }
         }
 
-        return found;
+        if (!sawUnbounded)
+            return -1;
+
+        // Something must separate the two operands. The separator is the leftmost `..` that
+        // leaves a non-empty path on each side whose own `..` occurrences are all parent
+        // segments. Scanning occurrences rather than skipping bounded ones is what admits
+        // `old/F.dll..` + `../new/F.dll`, where the separator abuts the right operand's own
+        // parent segment so the two spellings run together as a single run of dots.
+        for (int index = 0; index + 1 < value.Length; index++)
+        {
+            if (!IsDoubleDot(value, index))
+                continue;
+
+            if (index == 0 || index + 2 == value.Length)
+                continue;
+
+            if (IsAllParentSegments(value.AsSpan(0, index))
+                && IsAllParentSegments(value.AsSpan(index + 2)))
+            {
+                return index;
+            }
+        }
+
+        return -2;
+    }
+
+    static bool IsDoubleDot(string value, int index)
+        => value[index] == '.' && value[index + 1] == '.';
+
+    /// <summary>
+    /// True when the <c>..</c> at <paramref name="index"/> is a parent-directory segment, which is
+    /// always bounded by directory separators or by the ends of the argument (<c>../a.dll</c>,
+    /// <c>a/../b.dll</c>, <c>a/..</c>). A range separator never is, because a range joins two file
+    /// names.
+    /// </summary>
+    static bool IsParentSegment(string value, int index)
+        => (index == 0 || IsDirectorySeparator(value[index - 1]))
+            && (index + 2 == value.Length || IsDirectorySeparator(value[index + 2]));
+
+    static bool IsAllParentSegments(ReadOnlySpan<char> path)
+    {
+        if (path.IsEmpty)
+            return false;
+
+        for (int index = 0; index + 1 < path.Length; index++)
+        {
+            if (path[index] != '.' || path[index + 1] != '.')
+                continue;
+
+            bool openBounded = index == 0 || IsDirectorySeparator(path[index - 1]);
+            bool closeBounded =
+                index + 2 == path.Length || IsDirectorySeparator(path[index + 2]);
+            if (!openBounded || !closeBounded)
+                return false;
+        }
+
+        return true;
     }
 
     static bool IsDirectorySeparator(char value) => value is '/' or '\\';
@@ -453,7 +503,7 @@ internal static class MatchDiscovery
         if (separator == -2)
         {
             return (null, null,
-                "Ambiguous library range: more than one '..' separator. "
+                "Invalid library range: no single '..' separates two library paths. "
                     + "Use format: old/Foo.dll..new/Foo.dll");
         }
 
@@ -466,7 +516,7 @@ internal static class MatchDiscovery
         return (library[..separator], library[(separator + 2)..], null);
     }
 
-    static bool TryParseMethodToken(string selector, out int token)
+    internal static bool TryParseMethodToken(string selector, out int token)
     {
         token = 0;
         if (!selector.StartsWith("0x", StringComparison.OrdinalIgnoreCase)

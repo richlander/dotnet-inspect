@@ -318,8 +318,19 @@ The default candidate population is the seed's declaring type. `--assembly-wide`
 opts into whole-assembly retrieval, which costs materially more. `--top` bounds
 rendered rows only; `--json` retains every candidate, per-method outcome,
 blocker, and receipt regardless. `--max-results` and `--max-methods` move the
-product retrieval limits themselves. In `--table`, `--tsv`, and `--jsonl`, which
-carry no prose, the disclosure is written to stderr so stdout stays parseable.
+product retrieval limits themselves. In `--table`, `--tsv`, and `--jsonl`, the
+ranked candidates are the only row shape; the seed, scope, disposition, receipt,
+blockers, and disclosure are written to stderr so stdout stays single-shaped and
+parseable.
+
+Every ranked row prints a `Token` column holding the candidate's metadata token,
+which the pairwise form accepts directly as the second operand. That keeps every
+row addressable even when a name is ambiguous across overloads or property
+accessors:
+
+```bash
+dotnet-inspect match 'Sample.Encode' 0x06000CF8 --library ./app.dll
+```
 
 ### Relationships and graphs
 

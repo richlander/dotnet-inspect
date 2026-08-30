@@ -440,6 +440,30 @@ Markdown carries it as a paragraph and structured output as a field, but table,
 TSV, and JSONL carry rows without prose, so it is written to stderr. That keeps
 the obligation unconditional without corrupting a parsed stream.
 
+The tabular formats emit exactly one row shape: the ranked candidates. Discovery
+also produces a seed, a scope, a retrieval disposition, a receipt, and blockers,
+and those are not candidate rows. Emitting them as extra tables would give
+`--table`, `--tsv`, and `--jsonl` two or three incompatible schemas in one
+stream, which the output-shape contract forbids. They travel to stderr as notes
+beside the disclosure, so the parsed stream stays single-shaped while the
+context remains visible. Markdown and structured output, which can carry several
+shapes, keep all of it inline.
+
+Discovery prints a metadata token on every ranked row, which is a promise that
+the row is directly addressable by the pairwise transition. Honoring that
+promise means the token grammar belongs to `match`'s shared selector resolution
+rather than to discovery alone; a token that only discovery can read would make
+the printed transition false for overloads and multi-accessor properties.
+
+Range spelling has to coexist with relative paths, because `..` is both the
+range separator and a parent directory segment. A `..` that is a bounded parent
+segment is part of a path; a range requires a single `..` that splits the value
+into two non-empty library paths whose own `..` occurrences are all parent
+segments. `old/Foo.dll..new/Foo.dll` is a range, `../lib/Foo.dll` is a path, and
+`left.dll../../right.dll` is a range whose right operand is parent-relative.
+Discovery-only options are rejected outright on the pairwise path rather than
+being silently accepted and ignored.
+
 ## Timeline and bisect consequences
 
 `timeline` and `diff` are peers. Both are multi-address operations over the same
