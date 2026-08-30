@@ -1848,7 +1848,15 @@ public class AssemblyDependencyResolverTests
             string designatedPath = Path.Combine(
                 root,
                 Path.GetFileName(platformPath));
-            Directory.CreateDirectory(designatedPath);
+            File.Copy(platformPath, designatedPath);
+            using var exclusive = new FileStream(
+                designatedPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None);
+            Assert.True(File.Exists(designatedPath));
+            Assert.Throws<IOException>(
+                () => File.OpenRead(designatedPath));
             using var stream = File.OpenRead(platformPath);
             using var peReader = new PEReader(stream);
             AssemblyReferenceIdentity platformIdentity =
@@ -1896,7 +1904,15 @@ public class AssemblyDependencyResolverTests
             string unreadablePath = Path.Combine(
                 unreadableDirectory,
                 Path.GetFileName(platformPath));
-            Directory.CreateDirectory(unreadablePath);
+            File.Copy(platformPath, unreadablePath);
+            using var exclusive = new FileStream(
+                unreadablePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None);
+            Assert.True(File.Exists(unreadablePath));
+            Assert.Throws<IOException>(
+                () => File.OpenRead(unreadablePath));
             using var stream = File.OpenRead(platformPath);
             using var peReader = new PEReader(stream);
             AssemblyReferenceIdentity platformIdentity =
@@ -1907,7 +1923,7 @@ public class AssemblyDependencyResolverTests
                 {
                     PackageRoots = [],
                     CorpusAssemblyPaths =
-                        [platformPath, unreadablePath],
+                        [unreadablePath, platformPath],
                     IncludeSiblingAssemblies = false,
                     IncludeAspNetCoreSharedFramework = false,
                     IncludeDepsJsonAssets = false,

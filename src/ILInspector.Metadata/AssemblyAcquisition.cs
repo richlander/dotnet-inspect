@@ -292,12 +292,15 @@ public sealed class ResolvedAssemblyReference
         string fullPath = System.IO.Path.GetFullPath(path);
         FileStream? stream = null;
         PEReader? peReader = null;
+        AssemblyReferenceIdentity? identity = null;
         try
         {
             stream = File.OpenRead(fullPath);
             try
             {
-                peReader = new PEReader(stream);
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
                 if (!MetadataFormatAdmission.AdmitImage(peReader))
                     return null;
             }
@@ -310,7 +313,7 @@ public sealed class ResolvedAssemblyReference
                 return null;
             }
 
-            AssemblyReferenceIdentity identity =
+            identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
                     MetadataFormatAdmission.GetMetadataReader(peReader));
             if (string.IsNullOrWhiteSpace(identity.Name))
@@ -333,8 +336,17 @@ public sealed class ResolvedAssemblyReference
         }
         finally
         {
-            peReader?.Dispose();
-            stream?.Dispose();
+            if (identity is null)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref stream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
         }
     }
 
@@ -397,6 +409,7 @@ public sealed class ResolvedAssemblyReference
 
         Stream? stream = null;
         PEReader? peReader = null;
+        bool rejectionEstablished = false;
         try
         {
             stream = openRead();
@@ -410,7 +423,10 @@ public sealed class ResolvedAssemblyReference
             {
                 peReader = new PEReader(stream);
                 if (!MetadataFormatAdmission.AdmitImage(peReader))
+                {
+                    rejectionEstablished = true;
                     return null;
+                }
             }
             catch (MalformedMetadataRootException)
             {
@@ -418,6 +434,7 @@ public sealed class ResolvedAssemblyReference
             }
             catch (BadImageFormatException)
             {
+                rejectionEstablished = true;
                 return null;
             }
 
@@ -426,13 +443,17 @@ public sealed class ResolvedAssemblyReference
             if (artifactRegistration is not null
                 && !metadata.IsAssembly)
             {
+                rejectionEstablished = true;
                 return null;
             }
 
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
             if (string.IsNullOrWhiteSpace(identity.Name))
+            {
+                rejectionEstablished = true;
                 return null;
+            }
 
             var registration =
                 new AssemblyAcquisitionRegistration(artifactRegistration);
@@ -461,8 +482,17 @@ public sealed class ResolvedAssemblyReference
         }
         finally
         {
-            peReader?.Dispose();
-            stream?.Dispose();
+            if (rejectionEstablished)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref stream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
         }
     }
 
@@ -490,21 +520,23 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(fallbackIdentity);
         ArgumentNullException.ThrowIfNull(provenance);
 
-        Stream? source = openRead();
-        if (source is null || !source.CanRead)
-        {
-            source?.Dispose();
-            throw new IOException(
-                "The assembly opener did not return a readable stream.");
-        }
-
+        Stream? stream = null;
+        PEReader? peReader = null;
         AssemblyReferenceIdentity? identity = null;
-        using (Stream stream = source)
+        try
         {
+            stream = openRead();
+            if (stream is null || !stream.CanRead)
+            {
+                throw new IOException(
+                    "The assembly opener did not return a readable stream.");
+            }
+
             try
             {
-                using var peReader =
-                    new System.Reflection.PortableExecutable.PEReader(stream);
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
                 if (MetadataFormatAdmission.AdmitImage(peReader))
                 {
                     MetadataReader metadata = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -522,17 +554,45 @@ public sealed class ResolvedAssemblyReference
                 ex is BadImageFormatException
                     or UnsupportedMetadataFormatException)
             {
+                OwnedResourceCleanup.DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
                 // The descriptor retains the selected image as a rejection carrier.
             }
-        }
+            usedFallbackIdentity = identity is null;
+            ResolvedAssemblyReference result = Create(
+                identity ?? fallbackIdentity,
+                path: null,
+                openRead,
+                provenance,
+                lastWriteTimeUtc);
+            if (usedFallbackIdentity)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref stream);
+            }
+            else
+            {
+                PEReader? readerToDispose = peReader;
+                peReader = null;
+                readerToDispose?.Dispose();
+                Stream? streamToDispose = stream;
+                stream = null;
+                streamToDispose?.Dispose();
+            }
 
-        usedFallbackIdentity = identity is null;
-        return Create(
-            identity ?? fallbackIdentity,
-            path: null,
-            openRead,
-            provenance,
-            lastWriteTimeUtc);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
+        }
     }
 
     public static bool TryCreateFromPath(

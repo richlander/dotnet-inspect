@@ -272,9 +272,9 @@ public sealed class MetadataSource : IDisposable
                 bindingPolicy,
                 context);
         }
-        catch
+        catch (Exception ex)
         {
-            peReader?.Dispose();
+            DisposeAfterFailure(peReader, stream: null, ex);
             throw;
         }
     }
@@ -332,10 +332,9 @@ public sealed class MetadataSource : IDisposable
                 new AssemblyReferenceBindingPolicy(effectiveResolver),
                 context);
         }
-        catch
+        catch (Exception ex)
         {
-            peReader?.Dispose();
-            stream.Dispose();
+            DisposeAfterFailure(peReader, stream, ex);
             throw;
         }
     }
@@ -385,11 +384,33 @@ public sealed class MetadataSource : IDisposable
                 bindingPolicy,
                 context);
         }
-        catch
+        catch (Exception ex)
+        {
+            DisposeAfterFailure(peReader, stream, ex);
+            throw;
+        }
+    }
+
+    static void DisposeAfterFailure(
+        PEReader? peReader,
+        Stream? stream,
+        Exception primaryFailure)
+    {
+        ArgumentNullException.ThrowIfNull(primaryFailure);
+        try
         {
             peReader?.Dispose();
-            stream.Dispose();
-            throw;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            stream?.Dispose();
+        }
+        catch
+        {
         }
     }
 

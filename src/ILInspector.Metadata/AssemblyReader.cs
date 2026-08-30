@@ -84,23 +84,62 @@ public static class AssemblyReader
     /// </summary>
     public static ApiSurface? ExtractApiSurface(Stream stream, bool includeAll = false, bool typesOnly = false)
     {
+        Stream? ownedStream = null;
+        PEReader? peReader = null;
+        bool noResultEstablished = false;
         try
         {
-            using var peReader = new PEReader(stream);
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            ownedStream = stream;
 
             if (!MetadataFormatAdmission.AdmitImage(peReader))
+            {
+                noResultEstablished = true;
                 return null;
+            }
 
             return ApiSurfaceExtractor.Extract(peReader, includeAll, typesOnly);
         }
         catch (BadImageFormatException ex)
             when (ex is not MalformedMetadataRootException)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
             return null;
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
             return null;
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
+            throw;
+        }
+        finally
+        {
+            if (noResultEstablished)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref ownedStream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                ownedStream?.Dispose();
+            }
         }
     }
 
@@ -136,23 +175,62 @@ public static class AssemblyReader
     /// </summary>
     public static ApiSurface? ExtractApiSummarySurface(Stream stream)
     {
+        Stream? ownedStream = null;
+        PEReader? peReader = null;
+        bool noResultEstablished = false;
         try
         {
-            using var peReader = new PEReader(stream);
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            ownedStream = stream;
 
             if (!MetadataFormatAdmission.AdmitImage(peReader))
+            {
+                noResultEstablished = true;
                 return null;
+            }
 
             return ApiSurfaceExtractor.ExtractSummary(peReader);
         }
         catch (BadImageFormatException ex)
             when (ex is not MalformedMetadataRootException)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
             return null;
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
             return null;
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref ownedStream,
+                ex);
+            throw;
+        }
+        finally
+        {
+            if (noResultEstablished)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref ownedStream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                ownedStream?.Dispose();
+            }
         }
     }
 

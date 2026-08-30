@@ -62,13 +62,24 @@ public static class AssemblyTypeDeclarationInventoryReader
     {
         ArgumentNullException.ThrowIfNull(assembly);
 
+        Stream? stream = null;
+        PEReader? peReader = null;
+        bool rejectionEstablished = false;
+        AssemblyTypeDeclarationInventoryOutcome Reject(
+            CandidateOpenFailureKind kind,
+            string detail)
+        {
+            rejectionEstablished = true;
+            return Rejected(kind, detail);
+        }
+
         try
         {
-            using Stream stream = assembly.OpenRead();
-            using var peReader = new PEReader(stream);
+            stream = assembly.OpenRead();
+            peReader = new PEReader(stream);
             if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
-                return Rejected(
+                return Reject(
                     CandidateOpenFailureKind.InvalidImage,
                     "The selected image has no managed metadata.");
             }
@@ -79,7 +90,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
             if (actual != assembly.Identity)
             {
-                return Rejected(
+                return Reject(
                     CandidateOpenFailureKind.InvalidImage,
                     "The opened image identity does not match the acquisition descriptor.");
             }
@@ -93,7 +104,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 if (MetadataTypeDefinitionNameReader.Read(reader, handle)
                     is not MetadataTypeDefinitionNameReadResult.Read read)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "A type definition name could not be decoded.");
                 }
@@ -118,7 +129,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                     RelationshipTraversalResult<
                         RelationshipChain<ExportedTypeHandle>>.Rejected)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "An exported type relationship could not be decoded.");
                 }
@@ -136,7 +147,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                     reader.GetExportedType(chain.Handles[0]);
                 if (!root.IsForwarder)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "An assembly-forwarded type chain is not marked as a forwarder.");
                 }
@@ -144,7 +155,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 if (MetadataTypeDefinitionNameReader.Read(reader, handle)
                     is not MetadataTypeDefinitionNameReadResult.Read read)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "A forwarded type name could not be decoded.");
                 }
@@ -159,8 +170,12 @@ public static class AssemblyTypeDeclarationInventoryReader
                     forwarders.ToImmutable(),
                     meaningfulPublicTypeCount));
         }
-        catch (UnsupportedMetadataFormatException)
+        catch (UnsupportedMetadataFormatException ex)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             return Rejected(
                 CandidateOpenFailureKind.UnsupportedMetadataFormat,
                 "The selected image uses an unsupported metadata format.");
@@ -168,6 +183,10 @@ public static class AssemblyTypeDeclarationInventoryReader
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             return Rejected(
                 CandidateOpenFailureKind.Unreadable,
                 "The selected image could not be read.");
@@ -176,9 +195,35 @@ public static class AssemblyTypeDeclarationInventoryReader
             ex is BadImageFormatException
                 or ArgumentOutOfRangeException)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             return Rejected(
                 CandidateOpenFailureKind.InvalidImage,
                 "The selected image metadata is invalid.");
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
+        }
+        finally
+        {
+            if (rejectionEstablished)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref stream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
         }
     }
 

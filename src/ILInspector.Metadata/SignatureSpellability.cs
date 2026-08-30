@@ -109,7 +109,10 @@ public sealed class SignatureSpellability
         new(CanSpell: false, SignatureDecodeStatus.Degraded);
 
     static bool IsDecodeException(Exception ex)
-        => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
+        => ex is (BadImageFormatException
+                and not MalformedMetadataRootException)
+            or InvalidOperationException
+            or ArgumentException;
 
     bool IsInaccessible(MetadataReader reader, TypeReferenceHandle handle)
     {
@@ -154,7 +157,19 @@ public sealed class SignatureSpellability
                     or BadImageFormatException
                     or UnauthorizedAccessException))
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
             return new NonPublicTypeSet(null);
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
+            throw;
         }
         finally
         {

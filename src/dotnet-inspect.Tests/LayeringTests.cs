@@ -362,6 +362,9 @@ public sealed class LayeringTests
         Assert.Contains(
             "DotnetInspector.Tests.LayeringTests.MetadataProviderFromStreamFixture/1",
             sites);
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataCallSiteNestedFixture.MetadataReaderFixture/1",
+            sites);
         Assert.DoesNotContain(
             "DotnetInspector.Tests.LayeringTests.PortablePdbProviderFixture/1",
             sites);
@@ -380,6 +383,10 @@ public sealed class LayeringTests
     {
         Assert.Contains(
             "DotnetInspector.Tests.LayeringTests.MetadataHasMetadataFixture/1",
+            MetadataHasMetadataSites(
+                typeof(LayeringTests).Assembly.Location));
+        Assert.Contains(
+            "DotnetInspector.Tests.LayeringTests.MetadataCallSiteNestedFixture.MetadataHasMetadataFixture/1",
             MetadataHasMetadataSites(
                 typeof(LayeringTests).Assembly.Location));
     }
@@ -1196,18 +1203,41 @@ public sealed class LayeringTests
 
             TypeDefinitionHandle declaringHandle =
                 method.GetDeclaringType();
-            TypeDefinition declaring = reader.GetTypeDefinition(
-                declaringHandle);
             int parameterCount = method.GetParameters().Count(
                 parameter =>
                     reader.GetParameter(parameter).SequenceNumber != 0);
             sites.Add(
-                $"{reader.GetString(declaring.Namespace)}."
-                + $"{reader.GetString(declaring.Name)}."
+                $"{MetadataDeclaringTypeName(reader, declaringHandle)}."
                 + $"{reader.GetString(method.Name)}/{parameterCount}");
         }
 
         return sites;
+    }
+
+    static string MetadataDeclaringTypeName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        var names = new Stack<string>();
+        string typeNamespace;
+        while (true)
+        {
+            TypeDefinition type = reader.GetTypeDefinition(handle);
+            names.Push(reader.GetString(type.Name));
+            TypeDefinitionHandle declaring = type.GetDeclaringType();
+            if (declaring.IsNil)
+            {
+                typeNamespace = reader.GetString(type.Namespace);
+                break;
+            }
+
+            handle = declaring;
+        }
+
+        string typeName = string.Join(".", names);
+        return string.IsNullOrEmpty(typeNamespace)
+            ? typeName
+            : $"{typeNamespace}.{typeName}";
     }
 
     static bool CallsPeReaderHasMetadata(
@@ -1308,6 +1338,17 @@ public sealed class LayeringTests
 
     static bool MetadataHasMetadataFixture(PEReader reader)
         => reader.HasMetadata;
+
+    static class MetadataCallSiteNestedFixture
+    {
+        internal static MetadataReader MetadataReaderFixture(
+            PEReader reader) =>
+            reader.GetMetadataReader();
+
+        internal static bool MetadataHasMetadataFixture(
+            PEReader reader) =>
+            reader.HasMetadata;
+    }
 
     private static bool IsNuGetImplementationPackage(string package) =>
         package.Equals("NuGet", StringComparison.OrdinalIgnoreCase)

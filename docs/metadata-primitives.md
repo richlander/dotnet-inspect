@@ -188,6 +188,9 @@ text for unsupported Windows Metadata and
 constraint for a malformed-root result. Typed query owners catch and preserve
 those distinct mechanisms as unsupported-input and malformed-input results.
 They must not translate either to `null`, an empty projection, or partial rows.
+An admission owner that rejects an image disposes every reader and stream it
+has not transferred, but a cleanup failure must not replace the admission
+failure or turn a typed rejection into degraded success.
 Workspace realization uses
 `WorkspaceContextLoadFailureKind.UnsupportedMetadataFormat` consistently for
 package, platform, and embedded members; grouped package preflight retains the
@@ -237,7 +240,11 @@ raw `PEReader.HasMetadata` predicate from running before that admission in the
 Metadata assembly.
 `LayeringTests.Decompiler_MetadataSourceRequiresFormatAdmission` applies the
 same compiled-IL closure to Decompiler `MetadataSource` predicates and reader
-construction. Browser projection
+construction. `MetadataAdmissionCleanupTests`,
+`MetadataSourceFormatAdmissionTests`, and
+`SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
+gate cleanup precedence across the stream-backed Metadata and Decompiler
+admission consumers. Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.
 These focused gates do not close `MDP017`'s separately planned cache,

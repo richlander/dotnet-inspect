@@ -98,7 +98,7 @@ public sealed class SignatureSpellabilityTests
     }
 
     [Fact]
-    public void InspectField_MalformedDependencyIsDegraded()
+    public void InspectField_MalformedDependencyIsTyped()
     {
         byte[] image = File.ReadAllBytes(
             typeof(VisibleReferenceType).Assembly.Location);
@@ -115,8 +115,8 @@ public sealed class SignatureSpellabilityTests
         using var fixture = OpenFixture(
             new DeferredImageResolver(image));
 
-        SignatureSpellabilityResult result =
-            fixture.Spellability.InspectField(
+        Assert.Throws<MalformedMetadataRootException>(
+            () => fixture.Spellability.InspectField(
                 fixture.Reader,
                 GetField(
                     fixture.Reader,
@@ -124,12 +124,27 @@ public sealed class SignatureSpellabilityTests
                     "VisibleField"),
                 GenericContext.ForType(
                     fixture.Reader,
-                    fixture.Type));
+                    fixture.Type)));
+    }
 
-        Assert.False(result.CanSpell);
-        Assert.Equal(
-            SignatureDecodeStatus.Degraded,
-            result.DecodeStatus);
+    [Fact]
+    public void InspectField_CleanupCannotDegradeFormatRejection()
+    {
+        using var fixture = OpenFixture(
+            new ThrowingCleanupImageResolver(
+                MetadataAdmissionCleanupTests
+                    .BuildManagedWindowsMetadata()));
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => fixture.Spellability.InspectField(
+                fixture.Reader,
+                GetField(
+                    fixture.Reader,
+                    fixture.Type,
+                    "VisibleField"),
+                GenericContext.ForType(
+                    fixture.Reader,
+                    fixture.Type)));
     }
 
     static Fixture OpenFixture(IAssemblyReferenceResolver? resolver = null)
@@ -309,6 +324,21 @@ public sealed class SignatureSpellabilityTests
                 () => new MemoryStream(image, writable: false),
                 AssemblyResolutionProvenance.Local(
                     "deferred malformed image"));
+    }
+
+    sealed class ThrowingCleanupImageResolver(byte[] image)
+        : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope) =>
+            ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MetadataAdmissionCleanupTests
+                    .ThrowingDisposeMemoryStream(image),
+                AssemblyResolutionProvenance.Local(
+                    "deferred unsupported image"));
     }
 
     sealed record Fixture(

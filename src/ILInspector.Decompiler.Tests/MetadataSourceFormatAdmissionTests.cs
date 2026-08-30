@@ -60,6 +60,26 @@ public sealed class MetadataSourceFormatAdmissionTests
                 TestAssemblyReferenceResolvers.None));
     }
 
+    [Fact]
+    public void OpenFromResolvedAssembly_CleanupCannotReplaceFormatRejection()
+    {
+        byte[] image = BuildManagedWindowsMetadata();
+        var assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Unsupported",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            () => new ThrowingDisposeMemoryStream(image),
+            AssemblyResolutionProvenance.Local("format admission test"));
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => MetadataSource.OpenWithoutSymbols(
+                assembly,
+                TestAssemblyReferenceResolvers.None));
+    }
+
     static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();
@@ -102,5 +122,19 @@ public sealed class MetadataSourceFormatAdmissionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    sealed class ThrowingDisposeMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic disposal failure.");
+            }
+        }
     }
 }
