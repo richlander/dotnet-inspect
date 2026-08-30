@@ -108,15 +108,17 @@ identity, group disposal, source-lease lifetime, or admission's rejection of
 replayed platform-realization evidence before `PlatformAuthorized` is granted.
 Pre-publication policy preparation and exact group adoption, delegated-policy
 composition, the Metadata-owned typed name-owner disposition tracked by #5210,
-and the complete version-bound arbitration handoff tracked by #5213 are
-implementation-boundary gates rather than additional model states. Before
-#5210 lands, undifferentiated delegated `Missing` is fail-closed as name-owned
-rather than modeled as no-owner evidence. This model neither defines nor
-checks either adjacent Metadata currency. A complete #5213 domain containing
-only admitted authority-role registrations is represented by the modeled
-registrations. Terminal binding selections, domain completeness, a domain
-containing any outside-group or non-authority candidate, and the ordinary outer
-identity-policy validation are not modeled. TLC does not establish group
+the Metadata-owned complete identity-eligible domain tracked by #5214, atomic
+selection/version currency tracked by #5213, and context replacement after a
+delegated `AssemblyBindingPolicyVersion` change are implementation-boundary
+gates rather than additional model states. Before those prerequisites land,
+undifferentiated delegated `Missing` is fail-closed as name-owned and current
+selected, ambiguous, or mutable-version answers are not treated as role
+arbitration evidence. This model neither defines nor checks those adjacent
+Metadata currencies. An all-role-bearing in-group #5214 domain is represented
+by the modeled registrations, while a domain containing any outside-group or
+non-authority candidate remains outside role arbitration; the ordinary outer
+identity-policy validation is also not modeled. TLC does not establish group
 construction, delegated-domain completeness, name ownership, or policy-version
 consistency.
 TLC results establish properties of this state machine under the stated
