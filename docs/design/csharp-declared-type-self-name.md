@@ -8,6 +8,8 @@ until their named gates land.
 
 This is the focused successor to superseded PR #5110. It does not inherit that
 PR's proposed declaration-result, receipt, composition, or retention protocol.
+Compiler-accurate type-declaration identifier admission remains an explicit
+CSharpText prerequisite in issue #5215.
 
 ## Responsibility
 
@@ -57,18 +59,19 @@ metadata name represented by the C# identifier `@class`, and Unicode identifier
 The admission input is:
 
 - one exact `MetadataTypeDefinitionName`;
-- the authoritative introduced generic-parameter count for its leaf; and
-- the existing CSharp-owned generated-name classification.
+- the complete authoritative per-segment introduced generic-parameter count;
+  and
+- the CSharpText-owned type-declaration identifier-admission result from #5215.
 
 An arbitrary `ApiType.Name`, formatted type name, compatibility string, or
 inert display value is not admission evidence. CSharpText continues to own the
-model-free Unicode identifier grammar and declaration-keyword classification;
-this component applies those rules to the typed Metadata identity.
+model-free compiler-accurate identifier and declaration-keyword classification;
+this component applies its owner-issued result to the typed Metadata identity.
 
 The closed result is one of:
 
-- **Admitted**: the exact Metadata identity, one legal C# identifier, and one
-  fidelity value, `Exact` or `GeneratedSubstitute`;
+- **Admitted**: the exact Metadata identity and one identity-preserving legal
+  C# identifier;
 - **Unrepresentable**: the exact Metadata identity and a closed reason, with no
   C# identifier.
 
@@ -82,67 +85,46 @@ Admission is one ordered decision, not independent predicates:
 1. Require exact definition identity and authoritative per-segment introduced
    counts. An input missing either stays on the legacy path outside this
    contract.
-2. Validate the leaf's canonical metadata arity against its introduced count.
-3. If the existing CSharp generated-name classifier recognizes the exact leaf,
-   derive and validate its substitute.
-4. Otherwise require an identity-preserving C# identifier.
-5. Return the one failure selected by the first unsuccessful applicable step.
+2. Keep a leaf recognized by the existing CSharp generated-name classifier on
+   the legacy path; generated substitution is not admitted by this design.
+3. Validate the complete count vector against the definition-name segment
+   count, then validate the leaf's canonical metadata arity against its
+   introduced count.
+4. Ask CSharpText #5215 to admit the arity-free leaf in type-declaration
+   position.
+5. Map that owner-issued spelling into `Admitted`, or return the one
+   `Unrepresentable` reason selected by the first unsuccessful applicable step.
 
-This order makes `Exact`, `GeneratedSubstitute`, and `Unrepresentable`
-disjoint. A generated leaf is considered for its explicit substitute before
-ordinary identifier rejection; an ordinary exact leaf is never rejected merely
-because it is ineligible for generated substitution.
+This order makes `Admitted`, `Unrepresentable`, and legacy compatibility
+disjoint. An ordinary exact leaf is never judged by generated-substitute
+policy, and this component does not reproduce CSharpText's compiler exceptions.
 
-### Exact
+### Admitted
 
 Exact admission requires the canonical metadata arity to equal the
 authoritative introduced count: a positive count requires its matching suffix,
 and a zero count requires no suffix. It removes that suffix only after the
-equality is proven. The remaining leaf must satisfy CSharpText's full Unicode
-identifier grammar and preserve its exact identity when compiled. A declaration
-keyword is represented with the ordinary `@` prefix.
+equality is proven. CSharpText #5215 must then issue a legal source spelling
+whose compiler-emitted TypeDef name equals the remaining leaf. A reserved
+type-declaration word may therefore use the ordinary `@` prefix without
+changing identity.
 
 `@` escaping changes source spelling without changing the declared identifier,
-so it remains exact. Punctuation encoding, character replacement, truncation,
-or parsing a display escape is not exact admission.
-
-Unicode format characters are valid in portions of C#'s identifier grammar but
-are removed from identifier identity by the compiler. A leaf containing one is
-therefore not `Exact`. The compiler characterization gate compares the emitted
-TypeDef leaf with the Metadata input; successful compilation alone is
-insufficient.
-
-### Generated substitute
-
-A generated substitute is permitted only when the CSharp owner recognizes the
-exact Metadata leaf with its existing compiler-generated-name classifier. The
-substitute must itself be a legal declaration identifier and must be derived
-deterministically from the exact leaf. The choice is unconditional wherever
-the first adopter currently normalizes a generated type name; body policy does
-not add another switch.
-
-The result retains `GeneratedSubstitute`; it never claims that recompiling the
-substitute recreates the original metadata identity. Callers cannot provide an
-arbitrary substitute or relabel one as exact.
-
-Admission of one value does not establish output-name uniqueness. Before
-publication, the first adopter compares declaration identity by namespace,
-containing declared-type identity, admitted identifier semantics, and generic
-arity. Type-parameter spelling is not part of that key. A generated substitute
-that collides with another generated or ordinary name fails atomically even
-when their type-parameter names differ.
+so the result remains identity-preserving. Punctuation encoding, character
+replacement, truncation, generated substitution, or parsing a display escape
+is not admission.
 
 ### Unrepresentable
 
 Admission is unrepresentable when:
 
-- its canonical arity does not equal the authoritative introduced count;
-- a recognized generated name does not produce a legal substitute; or
-- the residual ordinary leaf cannot preserve its exact Metadata identity as a
-  C# identifier.
+- the complete count vector or canonical leaf arity does not agree with the
+  exact definition name; or
+- CSharpText refuses the residual ordinary leaf in type-declaration position.
 
-The corresponding closed reasons are `ArityMismatch`,
-`InvalidGeneratedSubstitute`, and `IdentityNotRepresentable`.
+The corresponding closed reasons are `ArityMismatch` and
+`IdentifierNotAdmitted`, with the latter retaining CSharpText's closed lexical
+reason.
 A noncanonical backtick sequence is residual leaf text, not a malformed
 canonical arity suffix. It is judged by the final identity-preservation step.
 The ordered decision gives one input one reason.
@@ -155,9 +137,8 @@ with a plausible ordinary identifier cannot turn this result into `Admitted`.
 `CSharpTypePrinter` admits every exact self-name in the complete batch,
 including nested declared types, before rendering or publishing source. Its
 target return is an atomic typed outcome: `Printed` carries the existing
-`CSharpTypePrintResult`; `NotRendered` carries the exact self-name or
-declaration-identity collision failures and has no units, source, source
-artifact, or replacement range.
+`CSharpTypePrintResult`; `NotRendered` carries the exact self-name failures and
+has no units, source, source artifact, or replacement range.
 
 For each admitted type:
 
@@ -170,18 +151,26 @@ For each admitted type:
 - no position calls a separate metadata-leaf formatter or searches completed
   declaration text.
 
-If any exact self-name is `Unrepresentable`, or two admitted names collide
-under declaration identity, the complete batch is `NotRendered`. No namespace
-group, independent top-level request, nested subtree, or selected replacement
-body is published. An empty compilation unit, a partial
-`CSharpTypePrintResult`, and a free-form diagnostic are not failure results.
+If any exact self-name is `Unrepresentable`, the complete batch is
+`NotRendered`. No namespace group, independent top-level request, nested
+subtree, or selected replacement body is published. An empty compilation unit,
+a partial `CSharpTypePrintResult`, and a free-form diagnostic are not failure
+results.
 
 An `ApiType` without `MetadataTypeDefinitionName`, or without authoritative
 per-segment introduced counts, remains on the existing legacy compatibility
 path. That path supports hand-composed and older serialized inputs, but it
 cannot produce an admitted self-name or serve as evidence for this claim.
+Recognized generated names likewise preserve their current legacy normalization
+without acquiring admission or identity-fidelity claims.
 Existing formatter methods may continue to produce identity display or legacy
 text; that text cannot be converted to the admitted currency.
+
+Existing duplicate-output validation remains outside this self-name result.
+Its current exception behavior applies to exact, legacy, and mixed batches;
+this design neither makes it a `NotRendered` arm nor claims its key is
+compiler-complete. Correcting generated-name or cross-scope collisions is
+separate work tracked by issue #5217.
 
 ## Mock interaction
 
@@ -189,7 +178,7 @@ text; that text cannot be converted to the admitted currency.
 request
   exact leaf = "class"
 result
-  Admitted(identifier="@class", fidelity=Exact)
+  Admitted(identifier="@class")
 uses
   type header = "class @class"
   constructor = "public @class()"
@@ -203,25 +192,24 @@ uses
   no type, constructor, or finalizer source is published
 ```
 
-A recognized generated leaf may instead produce
-`Admitted(fidelity=GeneratedSubstitute)`. Its exact identity remains available
-for diagnostics and correspondence, while only its legal substitute enters C#
-syntax.
+An exact generated leaf remains on the legacy compatibility path. Its current
+substitute may enter legacy shell output, but it is not an admitted identifier
+and makes no exact identity claim.
 
 ## Required implementation gates
 
 These properties remain unverified until the Release suite contains:
 
-- `DeclaredTypeSelfNameAdmissionTests.OutcomesAreOrderedAndRoundTripIdentity`,
-  covering ordinary, Unicode, Unicode-format, keyword, nested, generic,
-  generated, noncanonical-backtick, arity-mismatch, literal-punctuation, and
-  hostile metadata neighbors against the real C# compiler, with emitted
-  TypeDef-name equality required for `Exact`;
-- `CSharpTypePrinterTests.SelfNameIsSharedAndCollisionSafe`, proving one
-  admitted value supplies the type header, constructors, and
-  destructor-spelled finalizers, suppressed finalizers use no self-name, and
-  generated/ordinary collisions use identifier-plus-arity identity rather than
-  type-parameter spelling; and
+- `DeclaredTypeSelfNameAdmissionTests.ExactNamesConsumeCSharpTextAdmission`,
+  covering ordinary, BMP and supplementary Unicode, Unicode format characters,
+  ordinary and newly reserved words such as `extension`, nested, generic,
+  noncanonical-backtick, arity-mismatch, literal-punctuation, and hostile
+  metadata neighbors; the gate requires #5215's real-compiler and emitted
+  TypeDef-identity evidence rather than restating its tables;
+- `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
+  one admitted value supplies the type header, constructors, and
+  destructor-spelled finalizers while suppressed finalizers use no self-name;
+  and
 - `CSharpTypePrinterTests.SelfNameFailureMakesBatchNotRendered`, using the
   hostile metadata fixture for top-level, nested, same-namespace,
   multi-namespace, and selected-replacement failures while proving the typed
@@ -236,6 +224,8 @@ the test oracle.
 This design does not define:
 
 - a universal CSharp declaration-result or provenance protocol;
+- generated-name substitution or declaration-identity collision policy
+  (#5217);
 - names of ordinary members, parameters, generic parameters, namespaces,
   attributes, constraints, type references, or explicit-interface qualifiers;
 - declaration composition, receipts, compatibility text, retention domains, or
