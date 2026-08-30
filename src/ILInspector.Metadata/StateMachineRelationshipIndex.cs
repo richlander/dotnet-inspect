@@ -192,8 +192,24 @@ public sealed class StateMachineRelationshipIndex
         {
             moduleVersionId =
                 reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+        }
+        try
+        {
             methodRows =
                 reader.GetTableRowCount(TableIndex.MethodDef);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+        }
+        try
+        {
             typeRows =
                 reader.GetTableRowCount(TableIndex.TypeDef);
         }

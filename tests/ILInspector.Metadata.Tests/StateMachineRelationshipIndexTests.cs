@@ -252,6 +252,102 @@ public sealed class StateMachineRelationshipIndexTests
 
     [Fact]
     public void
+        StateMachineRelationshipIndex_MalformedMvidPreservesGlobalFailureForValidHandles()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [],
+                includeStateMachineType: false,
+                malformedMvid: true));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Rejected>(
+                index.Relationships);
+        var kickoff =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        var implementation =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByImplementation(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        var stateMachine =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByStateMachine(
+                    MetadataTokens.TypeDefinitionHandle(2)));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            relationships.Failure.Kind);
+        Assert.Same(relationships.Failure, kickoff.Failure);
+        Assert.Same(relationships.Failure, implementation.Failure);
+        Assert.Same(relationships.Failure, stateMachine.Failure);
+    }
+
+    [Theory]
+    [InlineData(StateMachineRelationshipFailureKind.Malformed)]
+    [InlineData(StateMachineRelationshipFailureKind.BudgetExceeded)]
+    public void
+        StateMachineRelationshipIndex_RelationshipsDistinguishesFailureScopeFromKind(
+            StateMachineRelationshipFailureKind kind)
+    {
+        byte[] localBytes =
+            kind == StateMachineRelationshipFailureKind.Malformed
+                ? BuildClaimImage(
+                    [StateMachineClaimKind.ClassicAsync],
+                    malformedConstructor: true)
+                : BuildClaimImage(
+                    Enumerable.Repeat(
+                            StateMachineClaimKind.ClassicAsync,
+                            MetadataSafetyPolicy.MaxRelationshipNodes + 1)
+                        .ToArray(),
+                    reuseClaimConstructors: true);
+        byte[] globalBytes =
+            kind == StateMachineRelationshipFailureKind.Malformed
+                ? BuildClaimImage(
+                    [],
+                    includeStateMachineType: false,
+                    malformedMvid: true)
+                : localBytes;
+        using var localImage = new LoadedImage(localBytes);
+        using var globalImage = new LoadedImage(globalBytes);
+
+        StateMachineRelationshipIndex local =
+            StateMachineRelationshipIndex.Create(localImage.Reader);
+        StateMachineRelationshipIndex global =
+            kind == StateMachineRelationshipFailureKind.BudgetExceeded
+                ? StateMachineRelationshipIndex.Create(
+                    globalImage.Reader,
+                    relationshipBudget: 1)
+                : StateMachineRelationshipIndex.Create(
+                    globalImage.Reader);
+        var localRelationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                local.Relationships);
+        var localFailure =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                local.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        var globalRelationships =
+            Assert.IsType<StateMachineRelationshipsResult.Rejected>(
+                global.Relationships);
+        var globalFailure =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                global.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Empty(localRelationships.Relationships);
+        Assert.Equal(kind, localFailure.Failure.Kind);
+        Assert.Equal(kind, globalRelationships.Failure.Kind);
+        Assert.Same(
+            globalRelationships.Failure,
+            globalFailure.Failure);
+    }
+
+    [Fact]
+    public void
         StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget()
     {
         using FileStream stream =
@@ -2046,13 +2142,16 @@ public sealed class StateMachineRelationshipIndexTests
             additionalKickoffClaims = null,
         bool reuseClaimConstructors = false,
         byte[]? assemblyPublicKey = null,
-        string? assemblyCulture = null)
+        string? assemblyCulture = null,
+        bool malformedMvid = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
             metadata.GetOrAddString("StateMachineClaims.dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
+            malformedMvid
+                ? MetadataTokens.GuidHandle(9999)
+                : metadata.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(

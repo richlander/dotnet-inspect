@@ -287,13 +287,16 @@ cannot proceed without first observing which state construction reached.
 Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PropagatesTypedBudgetFailure`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsReportsGlobalFailure`,
-`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsKeepsSuccessfulEmptyDistinct`.
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsKeepsSuccessfulEmptyDistinct`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MalformedMvidPreservesGlobalFailureForValidHandles`.
 
 The first two gates assert that one queried kickoff returns `Rejected` with
 kind `BudgetExceeded`. The collection gates distinguish a successful empty
 index from whole-module budget failure and require collection and keyed
-queries to expose the same immutable failure. The `Malformed` whole-module
-path remains `unverified`.
+queries to expose the same immutable failure. The malformed-MVID gate exercises
+one valid MethodDef through both method-keyed paths and one valid TypeDef through
+the type-keyed path. Exhaustive valid-row coverage for the malformed
+whole-module path remains `unverified`.
 
 ### C3 — Whole-module failure rejects the whole module
 
@@ -338,11 +341,10 @@ both paths. `Relationships.Rejected` identifies whole-module failure;
 per-claim refusals remain keyed results beneath `Relationships.Available`.
 
 Gate:
-`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsReportsGlobalFailure`,
-`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_IsolatesMalformedConstructorRow`.
-Together they require the outer result to distinguish a whole-module failure
-from a locally rejected kickoff while keeping the failure kind shared by both
-paths non-decisive.
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RelationshipsDistinguishesFailureScopeFromKind`.
+Its paired `Malformed` and `BudgetExceeded` arms each require the same kind on
+one local rejection beneath `Relationships.Available` and one whole-module
+`Relationships.Rejected`, so only the outer result identifies scope.
 
 ### C5 — Merged rejections agree
 
