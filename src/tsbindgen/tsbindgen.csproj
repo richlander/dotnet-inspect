@@ -42,12 +42,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
-    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
-    <ProjectReference Include="..\ILInspector.JsExportSurface\ILInspector.JsExportSurface.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.TypeScriptGeneration\ILInspector.TypeScriptGeneration.csproj" />
     <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
   </ItemGroup>
 

@@ -3,7 +3,7 @@ using CSharpText;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
-namespace tsbindgen;
+namespace ILInspector.TypeScriptGeneration;
 
 static class DtsEmitter
 {
@@ -41,16 +41,228 @@ static class DtsEmitter
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
     {
-        ApiType[] declarationTypes =
+        ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        ValidateTypeNames(declarationTypes);
+        ValidateWireNames(declarationTypes);
+        ValidateFunctionNames(surface.Functions);
+
+        var sb = new StringBuilder();
+        EmitWireDeclarations(
+            sb,
+            surface,
+            declarationTypes,
+            diagnostics);
+
+        sb.Append(
+            "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;\n");
+
+        foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
+            EmitFunction(sb, GetFunctionSignature(
+                surface,
+                declarationTypes,
+                function,
+                diagnostics,
+                includeRawReturnType: false));
+
+        return sb.ToString();
+    }
+
+    internal static string EmitWireDeclarations(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        TsBindGenDiagnostics? diagnostics = null,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
+    {
+        ApiType[] declarationTypes = GetDeclarationTypes(surface);
+        ValidateTypeNames(declarationTypes, allocatedTypeNames);
+        ValidateWireNames(declarationTypes);
+
+        var sb = new StringBuilder();
+        EmitWireDeclarations(
+            sb,
+            surface,
+            declarationTypes,
+            diagnostics,
+            allocatedTypeNames);
+        return sb.ToString();
+    }
+
+    internal static TypeScriptFunctionSignature GetFunctionSignature(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        JsExportFunction function,
+        TsBindGenDiagnostics? diagnostics = null,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        bool includeRawReturnType = true) =>
+        GetFunctionSignature(
+            surface,
+            GetDeclarationTypes(surface),
+            function,
+            diagnostics,
+            allocatedTypeNames,
+            includeRawReturnType);
+
+    static ApiType[] GetDeclarationTypes(
+        ILInspector.JsExportSurface.JsExportSurface surface) =>
         [
             .. surface.Records
                 .Concat(surface.Enums)
                 .Where(type => ShouldEmit(surface, type)),
         ];
-        ValidateTypeNames(declarationTypes);
-        ValidateWireNames(declarationTypes);
-        ValidateFunctionNames(surface.Functions);
 
+    static void EmitWireDeclarations(
+        StringBuilder sb,
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        ApiType[] declarationTypes,
+        TsBindGenDiagnostics? diagnostics,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
+    {
+        TypeMappingEnvironment typeEnvironment =
+            CreateKnownTypes(
+                surface,
+                declarationTypes,
+                allocatedTypeNames);
+
+        foreach (ApiType enumType in surface.Enums
+            .Where(type => ShouldEmit(surface, type))
+            .OrderBy(
+                type => AllocatedTypeName(type, allocatedTypeNames),
+                StringComparer.Ordinal))
+            EmitEnum(
+                sb,
+                enumType,
+                AllocatedTypeName(enumType, allocatedTypeNames),
+                diagnostics);
+
+        foreach (ApiType record in surface.Records
+            .Where(type => ShouldEmit(surface, type))
+            .OrderBy(
+                type => AllocatedTypeName(type, allocatedTypeNames),
+                StringComparer.Ordinal))
+            EmitRecord(
+                sb,
+                record,
+                surface.WireDirections.TryGetValue(
+                    record,
+                    out JsonWireDirection recordDirections)
+                    ? recordDirections
+                    : JsonWireDirection.Both,
+                AllocatedTypeName(record, allocatedTypeNames),
+                typeEnvironment,
+                diagnostics);
+    }
+
+    static TypeScriptFunctionSignature GetFunctionSignature(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        ApiType[] declarationTypes,
+        JsExportFunction function,
+        TsBindGenDiagnostics? diagnostics,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
+        bool includeRawReturnType = true)
+    {
+        var effectiveDiagnostics =
+            diagnostics ?? new TsBindGenDiagnostics();
+        TypeMappingEnvironment typeEnvironment =
+            CreateKnownTypes(
+                surface,
+                declarationTypes,
+                allocatedTypeNames);
+        IReadOnlyDictionary<string, string> publicReturnTypeNames =
+            MappedTypeNames(
+                typeEnvironment,
+                function.ReturnWireType is not null
+                    ? function.ReturnWireTypeReferences
+                    : function.ReturnTypeReferences);
+        IReadOnlyDictionary<string, string> rawReturnTypeNames =
+            MappedTypeNames(
+                typeEnvironment,
+                function.ReturnTypeReferences);
+        int returnDiagnosticsBefore =
+            effectiveDiagnostics.UnmappedTypes.Count;
+
+        string publicReturnType = function.ReturnWireType is { } returnWireType
+            ? TsTypeMapper.MapReturnEnvelope(
+                function.ReturnType,
+                returnWireType,
+                typeEnvironment.KnownTypeNames,
+                effectiveDiagnostics,
+                $"{function.Name} return",
+                BlockedAliases(
+                    function.ReturnWireTypeReferences,
+                    typeEnvironment.KnownTypeNames,
+                    typeEnvironment.KnownTypeIdentities),
+                publicReturnTypeNames,
+                function.ReturnWireTypeShape,
+                typeEnvironment.IdentityNames,
+                BlockedAliases(
+                    function.ReturnTypeReferences,
+                    typeEnvironment.KnownTypeNames,
+                    typeEnvironment.KnownTypeIdentities))
+            : TsTypeMapper.MapReturnType(
+                function.ReturnType,
+                typeEnvironment.KnownTypeNames,
+                effectiveDiagnostics,
+                $"{function.Name} return",
+                BlockedAliases(
+                    function.ReturnTypeReferences,
+                    typeEnvironment.KnownTypeNames,
+                    typeEnvironment.KnownTypeIdentities),
+                publicReturnTypeNames);
+        string rawReturnType = includeRawReturnType
+            && function.ReturnWireType is not null
+            ? TsTypeMapper.MapReturnType(
+                function.ReturnType,
+                typeEnvironment.KnownTypeNames,
+                effectiveDiagnostics,
+                $"{function.Name} raw return",
+                BlockedAliases(
+                    function.ReturnTypeReferences,
+                    typeEnvironment.KnownTypeNames,
+                    typeEnvironment.KnownTypeIdentities),
+                rawReturnTypeNames)
+            : publicReturnType;
+        bool hasMappedReturn =
+            effectiveDiagnostics.UnmappedTypes.Count
+                == returnDiagnosticsBefore;
+        TypeScriptParameterSignature[] parameters =
+        [
+            .. function.Parameters.Select(parameter =>
+                new TypeScriptParameterSignature(
+                    CamelCase.FromPascalCase(parameter.Name),
+                    TsTypeMapper.MapParameterType(
+                        parameter.Type,
+                        typeEnvironment.KnownTypeNames,
+                        effectiveDiagnostics,
+                        $"{function.Name}.{parameter.Name}",
+                        BlockedAliases(
+                            parameter.TypeReferences,
+                            typeEnvironment.KnownTypeNames,
+                            typeEnvironment.KnownTypeIdentities),
+                        MappedTypeNames(
+                            typeEnvironment,
+                            parameter.TypeReferences)))),
+        ];
+
+        return new TypeScriptFunctionSignature(
+            CamelCase.FromPascalCase(function.Name),
+            parameters,
+            rawReturnType,
+            publicReturnType,
+            hasMappedReturn
+                && TsTypeMapper.IsAsyncReturnType(function.ReturnType),
+            hasMappedReturn
+                && function.ReturnWireType is not null
+                && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType),
+            hasMappedReturn
+                && function.ReturnWireType is not null
+                && TsTypeMapper.IsNullableJsonEnvelopeReturnType(
+                    function.ReturnType));
+    }
+
+    static TypeMappingEnvironment
+        CreateKnownTypes(
+            ILInspector.JsExportSurface.JsExportSurface surface,
+            ApiType[] declarationTypes,
+            IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
+    {
         var knownTypeNames = new HashSet<string>(
             declarationTypes.SelectMany(
                 type => new[] { type.Name, type.FullName, type.MetadataName }
@@ -65,42 +277,81 @@ static class DtsEmitter
                         type.FullName,
                         type.DefinitionName)))
             : [];
+        var aliases = new Dictionary<string, string>(
+            StringComparer.Ordinal);
+        foreach (IGrouping<string, ApiType> group in declarationTypes
+            .GroupBy(type => type.Name, StringComparer.Ordinal)
+            .Where(group => group.Count() == 1))
+        {
+            ApiType type = group.Single();
+            aliases.Add(
+                group.Key,
+                AllocatedTypeName(type, allocatedTypeNames));
+        }
+        foreach (ApiType type in declarationTypes)
+        {
+            string allocatedName =
+                AllocatedTypeName(type, allocatedTypeNames);
+            aliases[type.FullName] = allocatedName;
+            if (!string.IsNullOrEmpty(type.MetadataName))
+                aliases[type.MetadataName] = allocatedName;
+        }
 
-        var sb = new StringBuilder();
+        var identityNames =
+            new Dictionary<ApiTypeReferenceIdentity, string>();
+        if (surface.AssemblyIdentity is { } identityAssembly)
+        {
+            foreach (ApiType type in declarationTypes)
+            {
+                identityNames.Add(
+                    new ApiTypeReferenceIdentity(
+                        identityAssembly,
+                        type.FullName,
+                        type.DefinitionName),
+                    AllocatedTypeName(type, allocatedTypeNames));
+            }
+        }
 
-        foreach (ApiType enumType in surface.Enums
-            .Where(type => ShouldEmit(surface, type))
-            .OrderBy(e => e.Name, StringComparer.Ordinal))
-            EmitEnum(sb, enumType, diagnostics);
-
-        foreach (ApiType record in surface.Records
-            .Where(type => ShouldEmit(surface, type))
-            .OrderBy(r => r.Name, StringComparer.Ordinal))
-            EmitRecord(
-                sb,
-                record,
-                surface.WireDirections.TryGetValue(
-                    record,
-                    out JsonWireDirection recordDirections)
-                    ? recordDirections
-                    : JsonWireDirection.Both,
-                knownTypeNames,
-                knownTypeIdentities,
-                diagnostics);
-
-        sb.Append(
-            "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;\n");
-
-        foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
-            EmitFunction(
-                sb,
-                function,
-                knownTypeNames,
-                knownTypeIdentities,
-                diagnostics);
-
-        return sb.ToString();
+        return new TypeMappingEnvironment(
+            knownTypeNames,
+            knownTypeIdentities,
+            aliases,
+            identityNames);
     }
+
+    static IReadOnlyDictionary<string, string> MappedTypeNames(
+        TypeMappingEnvironment environment,
+        IEnumerable<ApiTypeReferenceIdentity> references)
+    {
+        var aliases = new Dictionary<string, string>(
+            StringComparer.Ordinal);
+        foreach ((string alias, string allocatedName) in environment.Aliases)
+        {
+            if (!TsTypeMapper.IsIntrinsicTypeSpelling(alias))
+                aliases.Add(alias, allocatedName);
+        }
+        foreach (ApiTypeReferenceIdentity reference in references)
+        {
+            if (!environment.IdentityNames.TryGetValue(
+                    reference,
+                    out string? allocatedName))
+            {
+                continue;
+            }
+
+            aliases[reference.FullName] = allocatedName;
+            aliases[LastSegment(reference.FullName)] = allocatedName;
+        }
+        return aliases;
+    }
+
+    static string AllocatedTypeName(
+        ApiType type,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames) =>
+        allocatedTypeNames is not null
+            && allocatedTypeNames.TryGetValue(type, out string? name)
+                ? name
+                : type.Name;
 
     static bool ShouldEmit(
         ILInspector.JsExportSurface.JsExportSurface surface,
@@ -113,37 +364,38 @@ static class DtsEmitter
     static void EmitEnum(
         StringBuilder sb,
         ApiType enumType,
+        string declarationName,
         TsBindGenDiagnostics? diagnostics)
     {
         if (enumType.JsonPropertyNamingPolicy
             == JsonWireNamingPolicy.Unsupported)
         {
             ReportUnsupportedContextOptions(enumType, diagnostics);
-            EmitBlockedType(sb, enumType);
+            EmitBlockedType(sb, declarationName);
             return;
         }
         if (HasUnsupportedJsonConverter(enumType))
         {
             ReportUnsupportedJsonConverter(enumType.Name, diagnostics);
-            EmitBlockedType(sb, enumType);
+            EmitBlockedType(sb, declarationName);
             return;
         }
         if (enumType.HasUnsupportedJsonWireAttributes)
         {
             ReportUnsupportedJsonWireShape(enumType.Name, diagnostics);
-            EmitBlockedType(sb, enumType);
+            EmitBlockedType(sb, declarationName);
             return;
         }
 
         if (!enumType.HasJsonStringEnumConverter)
         {
-            sb.Append("export type ").Append(enumType.Name).Append(" = number;\n\n");
+            sb.Append("export type ").Append(declarationName).Append(" = number;\n\n");
             return;
         }
 
         if (enumType.IsFlagsEnum)
         {
-            sb.Append("export type ").Append(enumType.Name).Append(" = string | number;\n\n");
+            sb.Append("export type ").Append(declarationName).Append(" = string | number;\n\n");
             return;
         }
 
@@ -154,7 +406,7 @@ static class DtsEmitter
         string union = string.Join(
             " | ",
             memberNames.Select(n => $"\"{EscapeString(n)}\""));
-        sb.Append("export type ").Append(enumType.Name).Append(" = ").Append(union)
+        sb.Append("export type ").Append(declarationName).Append(" = ").Append(union)
             .Append(" | number;\n\n");
     }
 
@@ -174,27 +426,27 @@ static class DtsEmitter
         StringBuilder sb,
         ApiType record,
         JsonWireDirection directions,
-        IReadOnlySet<string> knownTypeNames,
-        IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
+        string declarationName,
+        TypeMappingEnvironment typeEnvironment,
         TsBindGenDiagnostics? diagnostics)
     {
         JsonWireNamingPolicy namingPolicy = record.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
         if (namingPolicy == JsonWireNamingPolicy.Unsupported)
         {
             ReportUnsupportedContextOptions(record, diagnostics);
-            EmitBlockedType(sb, record);
+            EmitBlockedType(sb, declarationName);
             return;
         }
         if (HasUnsupportedJsonConverter(record))
         {
             ReportUnsupportedJsonConverter(record.Name, diagnostics);
-            EmitBlockedType(sb, record);
+            EmitBlockedType(sb, declarationName);
             return;
         }
         if (HasUnsupportedRecordWireShape(record))
         {
             ReportUnsupportedJsonWireShape(record.Name, diagnostics);
-            EmitBlockedType(sb, record);
+            EmitBlockedType(sb, declarationName);
             return;
         }
         if ((directions & JsonWireDirection.Deserialize)
@@ -208,7 +460,7 @@ static class DtsEmitter
             ReportUnsupportedConstructorBinding(
                 record.Name,
                 diagnostics);
-            EmitBlockedType(sb, record);
+            EmitBlockedType(sb, declarationName);
             return;
         }
 
@@ -216,7 +468,7 @@ static class DtsEmitter
             && record.Members.Any(JsonWireMemberRules.IsDirectionSensitive))
         {
             ReportDirectionSplitWireShape(record.Name, diagnostics);
-            EmitBlockedType(sb, record);
+            EmitBlockedType(sb, declarationName);
             return;
         }
 
@@ -229,7 +481,7 @@ static class DtsEmitter
                 ResolvedName: member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy)))
             .ToArray();
 
-        sb.Append("export interface ").Append(record.Name).Append(" {\n");
+        sb.Append("export interface ").Append(declarationName).Append(" {\n");
 
         foreach ((ApiMember member, string resolvedName) in members)
         {
@@ -246,13 +498,19 @@ static class DtsEmitter
             {
                 tsType = TsTypeMapper.MapJsonWireType(
                     propertyType,
-                    knownTypeNames,
+                    typeEnvironment.KnownTypeNames,
                     diagnostics,
                     location,
                     BlockedAliases(
                         member.SignatureModel?.ReturnTypeReferences,
-                        knownTypeNames,
-                        knownTypeIdentities));
+                        typeEnvironment.KnownTypeNames,
+                        typeEnvironment.KnownTypeIdentities),
+                    MappedTypeNames(
+                        typeEnvironment,
+                        member.SignatureModel?.ReturnTypeReferences
+                            ?? []),
+                    member.SignatureModel?.ReturnTypeShape,
+                    typeEnvironment.IdentityNames);
             }
             sb.Append("  readonly ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
@@ -420,26 +678,30 @@ static class DtsEmitter
         }
     }
 
-    static void ValidateTypeNames(IEnumerable<ApiType> types)
+    static void ValidateTypeNames(
+        IEnumerable<ApiType> types,
+        IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (ApiType type in types)
         {
-            if (!TypeScriptIdentifier.IsBindingIdentifier(type.Name))
+            string typeName =
+                AllocatedTypeName(type, allocatedTypeNames);
+            if (!TypeScriptIdentifier.IsBindingIdentifier(typeName))
             {
                 throw new UnsupportedWireContractException(
                     FormatTypeLocation(type),
                     "TypeScript declaration names must be identifiers");
             }
 
-            if (!TypeScriptIdentifier.IsTypeDeclarationIdentifier(type.Name))
+            if (!TypeScriptIdentifier.IsTypeDeclarationIdentifier(typeName))
             {
                 throw new UnsupportedWireContractException(
                     FormatTypeLocation(type),
                     "declaration name conflicts with TypeScript or generated binding vocabulary");
             }
 
-            if (!names.Add(type.Name))
+            if (!names.Add(typeName))
             {
                 throw new UnsupportedWireContractException(
                     FormatTypeLocation(type),
@@ -644,56 +906,28 @@ static class DtsEmitter
     static string ResolvedEnumMemberName(ApiMember member) =>
         member.JsonStringEnumMemberName ?? member.Name;
 
-    static void EmitBlockedType(StringBuilder sb, ApiType type) =>
-        sb.Append("export type ").Append(type.Name).Append(" = unknown;\n\n");
+    static void EmitBlockedType(StringBuilder sb, string declarationName) =>
+        sb.Append("export type ").Append(declarationName).Append(" = unknown;\n\n");
+
+    private sealed record TypeMappingEnvironment(
+        HashSet<string> KnownTypeNames,
+        HashSet<ApiTypeReferenceIdentity> KnownTypeIdentities,
+        Dictionary<string, string> Aliases,
+        Dictionary<ApiTypeReferenceIdentity, string> IdentityNames);
 
     static void EmitFunction(
         StringBuilder sb,
-        JsExportFunction function,
-        IReadOnlySet<string> knownTypeNames,
-        IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
-        TsBindGenDiagnostics? diagnostics)
+        TypeScriptFunctionSignature signature)
     {
-        string returnType = function.ReturnWireType is { } returnWireType
-            ? TsTypeMapper.MapReturnEnvelope(
-                function.ReturnType,
-                returnWireType,
-                knownTypeNames,
-                diagnostics,
-                $"{function.Name} return",
-                BlockedAliases(
-                    function.ReturnWireTypeReferences
-                        .Concat(function.ReturnTypeReferences)
-                        .ToArray(),
-                    knownTypeNames,
-                    knownTypeIdentities))
-            : TsTypeMapper.MapReturnType(
-                function.ReturnType,
-                knownTypeNames,
-                diagnostics,
-                $"{function.Name} return",
-                BlockedAliases(
-                    function.ReturnTypeReferences,
-                    knownTypeNames,
-                    knownTypeIdentities));
-
-        var parameters = function.Parameters.Select(p =>
-            $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(
-                p.Type,
-                knownTypeNames,
-                diagnostics,
-                $"{function.Name}.{p.Name}",
-                BlockedAliases(
-                    p.TypeReferences,
-                    knownTypeNames,
-                    knownTypeIdentities))}");
-
         sb.Append("export declare function ")
-          .Append(CamelCase.FromPascalCase(function.Name))
+          .Append(signature.Name)
           .Append('(')
-          .Append(string.Join(", ", parameters))
+          .Append(string.Join(
+              ", ",
+              signature.Parameters.Select(
+                  parameter => $"{parameter.Name}: {parameter.Type}")))
           .Append("): ")
-          .Append(returnType)
+          .Append(signature.PublicReturnType)
           .Append(";\n");
     }
 

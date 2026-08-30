@@ -55,11 +55,11 @@ namespace InspectWeb.Engine;
 /// gate the service-index-free Gallery routes, while
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_RejectedReservationDisposesGalleryPayload</c>
 /// gates response ownership when Browser capacity policy rejects a transfer.
-/// <c>BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration</c>
+/// <c>BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForSourceTimeout</c>
 /// and
-/// <c>BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut</c>
-/// gate the timeout margin that lets optional registration degrade to a partial
-/// version-picker result before the Browser operation ceiling.
+/// <c>BrowserEngineBoundaryTests.VersionPickerPreservesGalleryRegistrationTimeout</c>
+/// gate the timeout margin that lets the source-owned registration timeout remain
+/// visible before the Browser operation ceiling.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]

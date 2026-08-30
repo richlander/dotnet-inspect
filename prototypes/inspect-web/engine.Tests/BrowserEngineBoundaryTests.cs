@@ -5198,7 +5198,7 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut()
+    public async Task DependencyRangePreservesGalleryRegistrationTimeout()
     {
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
@@ -5218,16 +5218,15 @@ public sealed class BrowserEngineBoundaryTests
                     source,
                     TimeSpan.FromSeconds(10)));
 
-        Assert.Contains(
-            "authoritative Gallery listing state is unavailable",
-            failure.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "The package source operation exceeded its configured deadline.",
+            failure.Message);
         Assert.Equal(1, handler.FlatContainerRequests);
         Assert.True(handler.RegistrationRequests >= 1);
     }
 
     [Fact]
-    public void BrowserGalleryDeadlineLeavesTimeForPartialRegistration()
+    public void BrowserGalleryDeadlineLeavesTimeForSourceTimeout()
     {
         Assert.Equal(
             TimeSpan.FromSeconds(5),
@@ -5245,7 +5244,7 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task VersionPickerRetainsFlatListWhenRegistrationTimesOut()
+    public async Task VersionPickerPreservesGalleryRegistrationTimeout()
     {
         var handler = new StallingGalleryRegistrationHandler();
         using IPackageSourceClient source =
@@ -5257,12 +5256,16 @@ public sealed class BrowserEngineBoundaryTests
                     OperationTimeout = TimeSpan.FromSeconds(5),
                 });
 
-        string[] versions = await BrowserPackageWorkspace.GetVersionsAsync(
-            "contoso",
-            source,
-            TimeSpan.FromSeconds(10));
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.GetVersionsAsync(
+                    "contoso",
+                    source,
+                    TimeSpan.FromSeconds(10)));
 
-        Assert.Equal(["1.0.0"], versions);
+        Assert.Equal(
+            "The package source operation exceeded its configured deadline.",
+            failure.Message);
         Assert.Equal(1, handler.FlatContainerRequests);
         Assert.True(handler.RegistrationRequests >= 1);
     }

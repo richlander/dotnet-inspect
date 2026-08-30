@@ -386,6 +386,7 @@ instead of changing the denominator. Version 1 accepts only the versioned
 {
   "version": 1,
   "printerComparisonVersion": 1,
+  "syntaxInventoryVersion": 1,
   "files": [
     {
       "sourceUrl": "https://raw.githubusercontent.com/owner/repo/commit/src/Oracle.cs",
@@ -393,6 +394,11 @@ instead of changing the denominator. Version 1 accepts only the versioned
       "checksum": "ABCDEF...",
       "printerProfile": "default-v1",
       "requirePrinterExact": true,
+      "expectedFeatures": [
+        "expression.add",
+        "expression.numeric-literal",
+        "statement.return"
+      ],
       "members": [
         {
           "assembly": "Oracle",
@@ -408,6 +414,24 @@ instead of changing the denominator. Version 1 accepts only the versioned
   ]
 }
 ```
+
+`syntaxInventoryVersion` opts the complete manifest into syntax inventory
+tracking. Every file must then declare the exact `expectedFeatures` union
+derived from its captured Printer bodies in ordinal sort order. Feature names
+identify concrete C#
+statement, expression, pattern, type, clause, argument, declaration, parameter,
+interpolation, and syntax surfaces rather than source text. Both directions are
+checked: an invented feature and an observed feature omitted from the manifest
+fail the gate.
+This inventory is the observed numerator for later printer-model coverage; it
+does not claim a denominator or that distinct IR paths producing the same C#
+form were all exercised.
+`AuthoredSourceOracleManifestTests.Manifest_SyntaxInventoryRejectsMissingAndInventedFeatures`
+is the named enforcing gate. A legacy manifest may omit
+`syntaxInventoryVersion` while its vendor data is being migrated, but it reports
+the syntax inventory as not tracked and cannot contain `expectedFeatures`.
+An inventory requested under any unsupported governing version reports as not
+evaluated and publishes no aggregate or per-file inventory.
 
 Without `--source-oracle-manifest`, the card reports the whole-file source
 oracle as **not judged**; absence is not a Printer-exact pass. This is a
