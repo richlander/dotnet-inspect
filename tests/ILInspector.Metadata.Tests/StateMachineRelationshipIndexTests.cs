@@ -203,6 +203,55 @@ public sealed class StateMachineRelationshipIndexTests
 
     [Fact]
     public void
+        StateMachineRelationshipIndex_RelationshipsReportsGlobalFailure()
+    {
+        using FileStream stream =
+            File.OpenRead(typeof(Fixtures).Assembly.Location);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle kickoff =
+            FindMethod(reader, nameof(Fixtures.ClassicAsync));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                reader,
+                relationshipBudget: 1);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Rejected>(
+                index.Relationships);
+        var keyed =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(kickoff));
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            relationships.Failure.Kind);
+        Assert.Same(relationships.Failure, keyed.Failure);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_RelationshipsKeepsSuccessfulEmptyDistinct()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [],
+                includeStateMachineType: false));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+
+        Assert.Empty(relationships.Relationships);
+        Assert.IsType<StateMachineRelationshipResult.Absent>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
+    }
+
+    [Fact]
+    public void
         StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget()
     {
         using FileStream stream =
@@ -248,6 +297,77 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Equal(
             "The state-machine attribute constructor is malformed.",
             result.Failure.Detail);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_IsolatesMalformedConstructorRow()
+    {
+        using var image = new LoadedImage(
+            BuildClassicRelationshipImage(
+                ClassicRelationshipMutation.None,
+                addMalformedConstructorRow: true));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+        StateMachineRelationship relationship =
+            Assert.Single(relationships.Relationships);
+        var damaged =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(4)));
+
+        Assert.Equal(0x06000001, relationship.Kickoff.Token);
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            damaged.Failure.Kind);
+        Assert.Equal(
+            "A custom-attribute constructor could not be read.",
+            damaged.Failure.Detail);
+        Assert.Equal(
+            0x06000004,
+            Assert.Single(damaged.Failure.KickoffCandidates).Token);
+        Assert.Empty(damaged.Failure.StateMachineCandidates);
+        Assert.Empty(damaged.Failure.ClaimedTypes);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_MalformedConstructorRowRejectsOwningClaim()
+    {
+        using var image = new LoadedImage(
+            BuildClassicRelationshipImage(
+                ClassicRelationshipMutation.None,
+                addMalformedConstructorRow: true,
+                malformedConstructorOnRelationshipKickoff: true));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+        var kickoff =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        var stateMachine =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByStateMachine(
+                    MetadataTokens.TypeDefinitionHandle(3)));
+
+        Assert.Empty(relationships.Relationships);
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            kickoff.Failure.Kind);
+        Assert.Same(kickoff.Failure, stateMachine.Failure);
+        Assert.Single(kickoff.Failure.StateMachineCandidates);
+        Assert.Single(kickoff.Failure.ClaimedTypes);
     }
 
     [Fact]
@@ -2170,7 +2290,9 @@ public sealed class StateMachineRelationshipIndexTests
     }
 
     static byte[] BuildClassicRelationshipImage(
-        ClassicRelationshipMutation mutation)
+        ClassicRelationshipMutation mutation,
+        bool addMalformedConstructorRow = false,
+        bool malformedConstructorOnRelationshipKickoff = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2340,6 +2462,20 @@ public sealed class StateMachineRelationshipIndexTests
             metadata.GetOrAddBlob(setStateMachineSignature),
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle damagedKickoff = default;
+        if (addMalformedConstructorRow
+            && !malformedConstructorOnRelationshipKickoff)
+        {
+            damagedKickoff =
+                metadata.AddMethodDefinition(
+                    MethodAttributes.Public
+                        | MethodAttributes.Static,
+                    MethodImplAttributes.IL,
+                    metadata.GetOrAddString("DamagedKickoff"),
+                    metadata.GetOrAddBlob(staticVoidSignature),
+                    bodyOffset,
+                    MetadataTokens.ParameterHandle(1));
+        }
 
         if (bodyOnOwner)
         {
@@ -2378,6 +2514,15 @@ public sealed class StateMachineRelationshipIndexTests
             kickoff,
             constructor,
             metadata.GetOrAddBlob(value));
+        if (addMalformedConstructorRow)
+        {
+            metadata.AddCustomAttribute(
+                malformedConstructorOnRelationshipKickoff
+                    ? kickoff
+                    : damagedKickoff,
+                MetadataTokens.MemberReferenceHandle(2),
+                metadata.GetOrAddBlob(value));
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -2774,6 +2919,7 @@ public sealed class StateMachineRelationshipIndexTests
 
     public enum ClassicRelationshipMutation
     {
+        None,
         CustomModifiedSetStateMachine,
         ValueTypeSetStateMachine,
         StaticMoveNext,

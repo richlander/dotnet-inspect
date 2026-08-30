@@ -52,11 +52,15 @@ public sealed class StateMachineRelationshipIndex
         _byKickoff = byKickoff;
         _byStateMachine = byStateMachine;
         _byImplementation = byImplementation;
-        Relationships = relationships;
         _globalFailure = globalFailure;
+        Relationships = globalFailure is null
+            ? new StateMachineRelationshipsResult.Available(
+                relationships)
+            : new StateMachineRelationshipsResult.Rejected(
+                globalFailure.Failure);
     }
 
-    public ImmutableArray<StateMachineRelationship> Relationships { get; }
+    public StateMachineRelationshipsResult Relationships { get; }
 
     public static StateMachineRelationshipIndex Create(
         MetadataReader reader)
@@ -366,23 +370,37 @@ public sealed class StateMachineRelationshipIndex
             MethodDefinition method =
                 _reader.GetMethodDefinition(kickoff);
             var candidates = new List<ClaimCandidate>();
+            bool unreadableConstructor = false;
             foreach (CustomAttributeHandle attributeHandle
                 in method.GetCustomAttributes())
             {
                 Charge();
-                CustomAttribute attribute =
-                    _reader.GetCustomAttribute(attributeHandle);
-                if (!_attributeConstructors.TryGetValue(
-                        attribute.Constructor,
-                        out AttributeConstructorClassification
-                            classification))
+                CustomAttribute attribute;
+                AttributeConstructorClassification classification;
+                try
                 {
-                    classification =
-                        _signatures.ClassifyAttributeConstructor(
-                            attribute.Constructor);
-                    _attributeConstructors.Add(
-                        attribute.Constructor,
-                        classification);
+                    attribute =
+                        _reader.GetCustomAttribute(attributeHandle);
+                    if (!_attributeConstructors.TryGetValue(
+                            attribute.Constructor,
+                            out classification))
+                    {
+                        classification =
+                            _signatures.ClassifyAttributeConstructor(
+                                attribute.Constructor);
+                        _attributeConstructors.Add(
+                            attribute.Constructor,
+                            classification);
+                    }
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException
+                        or InvalidOperationException
+                        or OverflowException)
+                {
+                    unreadableConstructor = true;
+                    continue;
                 }
 
                 if (classification.Status
@@ -416,6 +434,33 @@ public sealed class StateMachineRelationshipIndex
                                 classification.Kind,
                                 StateMachineRelationshipFailureKind.Malformed,
                                 "The state-machine attribute constructor is malformed."));
+            }
+
+            if (unreadableConstructor)
+            {
+                const string detail =
+                    "A custom-attribute constructor could not be read.";
+                if (candidates.Count == 0)
+                {
+                    PublishRejection(
+                        StateMachineRelationshipFailureKind.Malformed,
+                        detail,
+                        [Address(kickoff)],
+                        [],
+                        [],
+                        [MetadataTokens.GetToken(kickoff)],
+                        [],
+                        []);
+                }
+                else
+                {
+                    RejectKickoffCandidates(
+                        kickoff,
+                        candidates,
+                        StateMachineRelationshipFailureKind.Malformed,
+                        detail);
+                }
+                return;
             }
 
             if (candidates.Count == 0)
