@@ -44,9 +44,14 @@ applications do not need it in their runtime bundle.
   compatibility alias. The
   `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
   element per export return and parameter, each built by a
-  `JSMarshalerType` factory compatible with that managed type. A diagnosed
-  registration, wrapper, or stub body, prefix sibling, or handwritten candidate
-  cannot publish another export.
+  `JSMarshalerType` factory compatible with that managed type. Trusted
+  `System.Action` and `System.Func` parameters require the generated
+  `Action(...)` or `Function(...)` factory respectively, with every nested
+  parameter and synchronous return descriptor authenticated in managed order.
+  The resulting target-language-neutral `JsExportDelegateParameter` facts are
+  correlated to the containing method parameter by index. A diagnosed
+  registration, wrapper, or stub body, prefix sibling, or handwritten
+  candidate cannot publish another export.
   An attributed body in a non-partial type is rejected because it has no
   runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
@@ -223,6 +228,23 @@ publishes:
 - `Build_RejectsRegistrationWithSwappedDescriptorElement` — the registration
   keeps its name, hash, and element count; only the marshaler the element holds
   stops matching the export's own return type.
+- `Build_RejectsDelegateRegistrationWithWrongNestedDescriptor` and
+  `Build_RejectsDelegateRegistrationWithWrongResultDescriptor` — the generated
+  delegate factory remains, but one argument or result payload descriptor
+  changes.
+- `Build_RejectsDelegateRegistrationWithReorderedDescriptors` and
+  `Build_RejectsDelegateRegistrationWithWrongOuterFactory` — the authenticated
+  managed order is swapped or the same-arity `Function` factory is replaced by
+  `Action`.
+- `Build_RejectsDelegateRegistrationWithMismatchedSignatureHash` and
+  `Build_RejectsDelegateWrapperThatCallsDifferentExport` — a delegate export
+  cannot borrow another generated registration or wrapper target.
+- `Build_PublishesAuthenticatedSynchronousDelegateSignatures` — the unmodified
+  compiled `Action` and `Func` controls publish their exact managed parameter
+  and return shapes.
+- `TryGetDelegateShape_RejectsDecodedFourArgumentAction` — decoded callback
+  metadata beyond the SDK's three-parameter limit is not authenticated even
+  when its generic definition is otherwise `Action`.
 - `Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` — the positive
   control, a real source-generated context whose user partial adds an unrelated
   static `JsonSerializerOptions`.
@@ -238,9 +260,17 @@ slot is threaded correctly inside the generated stub. And the descriptor check
 compares the generated descriptor graph against the export's managed signature
 through a compatibility table; it is not a reimplementation of the runtime's
 `JSExportGenerator`. An export whose managed type that table does not recognize
-— a delegate parameter, or a `[JSMarshalAs]` override that redirects marshaling
-— fails visibly with an unsupported-surface message rather than being published
-on weaker evidence.
+— such as a custom delegate definition or an unsupported `[JSMarshalAs]`
+override — fails visibly rather than being published on weaker evidence. The
+SDK source generator itself rejects a Promise-returning
+`Func<..., Task<T>>` callback and callbacks with more than three parameters
+with method-scoped `SYSLIB1072`;
+`UnsupportedDelegateShapes_AreRejectedBySdkGenerator` gates that boundary.
+Consumers independently reject over-arity hand-composed delegate facts;
+`MapParameterType_RejectsDelegateFactsBeyondSdkArity` gates that containment.
+They also reject `Void` parameters and `Func<..., Void>` returns that this
+producer cannot publish;
+`MapParameterType_RejectsVoidDelegatePayloads` gates that boundary.
 
 `[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
 rejects for a different reason: the descriptor is real and the wrapper is

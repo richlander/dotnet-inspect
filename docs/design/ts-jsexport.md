@@ -648,14 +648,21 @@ The generator implementation performs this migration:
     for an inherited, accessor-backed, absent, or non-callable path;
 11. remove `ValueTask` mapping branches, reject such a hand-composed input
     visibly, and retain the SDK compile-time negative;
-12. allocate deterministic operation, parameter, enum, and DTO names from
+12. retain authenticated synchronous delegate facts, preserve callback
+    parameter order and nullability, and reject Promise-returning delegates
+    rather than inventing a JavaScript async callback contract. `Action`
+    callbacks use `(...args) => undefined`, not `void`, because TypeScript
+    otherwise accepts Promise-returning functions; named callbacks must
+    likewise declare or infer an `undefined` return;
+13. allocate deterministic operation, parameter, enum, and DTO names from
     complete managed identities, route every typed reference through that
     allocation, and preserve parameter order and types instead of rejecting
     legal spelling collisions; and
-13. preserve deterministic output and failure-before-publication behavior.
+14. preserve deterministic output and failure-before-publication behavior.
 
-Steps 9 and 12 are atomic for methods sharing one declaring-type path and
-managed name. Allocating two facade names that both call an ambiguous bare
+Steps 9 and 13 are atomic for methods sharing one declaring-type path and
+managed name. The generator consumes the exact runtime dispatch identity from
+issue #4791; allocating two facade names that both call an ambiguous bare
 runtime key is never an intermediate state.
 
 ## Consumer integration
@@ -678,6 +685,17 @@ that two generated facade modules attach to one consumer-coordinated runtime
 and retain assembly-specific dispatch without turning its fixture assemblies
 into a proposed production-layer split; #4497 remains the owner of any such
 product decision.
+
+Browser callback-lifetime canaries are likewise consumer evidence rather than
+generator ownership. Same-operation callback routing belongs to the managed
+operation bridge in
+[#5094](https://github.com/richlander/dotnet-inspect/issues/5094), worker-epoch
+lifetime belongs to the worker protocol in
+[#5093](https://github.com/richlander/dotnet-inspect/issues/5093), and both
+depend on inspect-web adopting the generated facade under
+[#5003](https://github.com/richlander/dotnet-inspect/issues/5003). A canary
+against the current main-thread handcrafted browser contract would prove a
+superseded placement rather than the intended architecture.
 
 ## Acceptance
 
@@ -733,10 +751,36 @@ issue references below.
   assuming it is the build's only cascading diagnostic, while a hand-composed
   surface test proves the TypeScript mapper also rejects those unsupported
   inputs visibly;
+- compiled synchronous `Action` and `Func` fixtures prove that the owner
+  authenticates the exact generated `Action(...)` and `Function(...)`
+  descriptors, every nested payload descriptor, managed parameter order,
+  supported callback arity, signature hash, and wrapper target before
+  publishing delegate facts;
+- TypeScript mapping tests prove that only those authenticated facts become
+  synchronous function types, preserving callback parameter order,
+  nullability, primitive payload types, and return type after every display
+  type is correlated with its authenticated assembly and type identity.
+  Framework mappings require exact metadata names and generic arity; local
+  mappings require retained resolution origin, complete containing-assembly
+  identity, exact structured metadata definition name, and declaration kind
+  before nullable-reference spelling is accepted. Every delegate fact must
+  associate uniquely with an in-range managed parameter. Authenticated
+  framework payloads retain their framework meaning during rendering even when
+  a local declaration has the same display spelling. Unauthenticated,
+  untrusted-framework, mismatched, unclassified-nullable, malformed-arity,
+  unassociated, over-arity, `Void`-payload, or async-disguising evidence
+  remains a diagnosed `unknown`;
+- an SDK compile-negative fixture requires method-scoped `SYSLIB1072` for a
+  Promise-returning `Func<..., Task<T>>` callback and a callback with more than
+  three parameters without assuming either is the build's only cascading
+  diagnostic;
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
   rejects an invalid use of the generic runtime API, and proves the
-  assembly-specific `getAssemblyExports()` narrowing;
+  assembly-specific `getAssemblyExports()` narrowing. The compiled fixture
+  includes synchronous `Action` and `Func` exports; valid inline and named
+  `undefined`-returning callbacks compile and execute through the runtime seam,
+  while async and `void`-returning `Action` callbacks fail compilation;
 - a declaration-emission test proves the public facade declaration does not
   expose or import SDK runtime types;
 - a compiler test proves the generated TypeScript emits executable JavaScript

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ILInspector.Decompiler;
 
 namespace InspectWeb.Engine;
 
@@ -661,20 +662,124 @@ public sealed record BrowserDependencyCoordinateMatch(
     BrowserDependencyCoordinateMatchOutcome Outcome,
     string? CandidateKey);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserAnnotatedSourceMedium>))]
+public enum BrowserAnnotatedSourceMedium
+{
+    CSharp,
+    Il,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserAnnotatedSourceCapabilityUnavailableReason>))]
+public enum BrowserAnnotatedSourceCapabilityUnavailableReason
+{
+    NotProjected,
+}
+
+public sealed record BrowserAnnotatedSourceCapabilityAvailability
+{
+    public BrowserAnnotatedSourceCapabilityAvailability(
+        bool Available,
+        BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason)
+    {
+        if (Available == (UnavailableReason is not null))
+        {
+            throw new ArgumentException(
+                Available
+                    ? "An available capability cannot carry an unavailable reason."
+                    : "An unavailable capability must carry an unavailable reason.",
+                nameof(UnavailableReason));
+        }
+
+        this.Available = Available;
+        this.UnavailableReason = UnavailableReason;
+    }
+
+    public bool Available { get; }
+    public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason { get; }
+}
+
+public sealed record BrowserAnnotatedSourceViewerCatalog
+{
+    private readonly int[] _defaultFindingIds;
+    private readonly BrowserAnnotatedSourceMedium[] _supportedMedia;
+    private readonly string[] _invocationLikeNodeKinds;
+
+    public BrowserAnnotatedSourceViewerCatalog(
+        int[] DefaultFindingIds,
+        BrowserAnnotatedSourceMedium[] SupportedMedia,
+        string[] InvocationLikeNodeKinds,
+        BrowserAnnotatedSourceCapabilityAvailability FindingEvidence,
+        BrowserAnnotatedSourceCapabilityAvailability Destinations)
+    {
+        ArgumentNullException.ThrowIfNull(DefaultFindingIds);
+        ArgumentNullException.ThrowIfNull(SupportedMedia);
+        ArgumentNullException.ThrowIfNull(InvocationLikeNodeKinds);
+        ArgumentNullException.ThrowIfNull(FindingEvidence);
+        ArgumentNullException.ThrowIfNull(Destinations);
+
+        _defaultFindingIds = [.. DefaultFindingIds];
+        _supportedMedia = [.. SupportedMedia];
+        _invocationLikeNodeKinds = [.. InvocationLikeNodeKinds];
+        this.FindingEvidence = FindingEvidence;
+        this.Destinations = Destinations;
+    }
+
+    public int[] DefaultFindingIds => [.. _defaultFindingIds];
+    public BrowserAnnotatedSourceMedium[] SupportedMedia => [.. _supportedMedia];
+    public string[] InvocationLikeNodeKinds => [.. _invocationLikeNodeKinds];
+    public BrowserAnnotatedSourceCapabilityAvailability FindingEvidence { get; }
+    public BrowserAnnotatedSourceCapabilityAvailability Destinations { get; }
+}
+
 /// <summary>
 /// The annotated-source envelope: the product's portable <c>AnnotatedSourceDocument</c> serialized
-/// by its owning <c>AnnotatedSourceDocumentJsonContext</c>, plus the provenance of the artifact it
-/// was raised from. The document travels as a <see cref="JsonElement"/> so the wire shape stays
-/// exactly the one the viewer's model validates — the host neither reshapes nor renames a field.
+/// by its owning <c>AnnotatedSourceDocumentJsonContext</c>, the product-issued viewer catalog, and
+/// the provenance of the artifact it was raised from. The document travels as a
+/// <see cref="JsonElement"/> so the wire shape stays exactly the one the viewer's model validates —
+/// the host neither reshapes nor renames a field.
 /// </summary>
 /// <param name="ContextLimitation">
 /// Set when the projection's whole-assembly fact context was narrower than a complete one, so a
 /// short fact list is never mistaken for an honest absence of facts.
 /// </param>
-public sealed record BrowserAnnotatedSource(
-    JsonElement Document,
-    string Provenance,
-    string? ContextLimitation);
+public sealed record BrowserAnnotatedSource
+{
+    private BrowserAnnotatedSource(
+        JsonElement Document,
+        BrowserAnnotatedSourceViewerCatalog ViewerCatalog,
+        string Provenance,
+        string? ContextLimitation)
+    {
+        this.Document = Document;
+        this.ViewerCatalog = ViewerCatalog;
+        this.Provenance = Provenance;
+        this.ContextLimitation = ContextLimitation;
+    }
+
+    public JsonElement Document { get; }
+    public BrowserAnnotatedSourceViewerCatalog ViewerCatalog { get; }
+    public string Provenance { get; }
+    public string? ContextLimitation { get; }
+
+    internal static BrowserAnnotatedSource Create(
+        AnnotatedSourceDocument document,
+        string provenance,
+        string? contextLimitation)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentException.ThrowIfNullOrWhiteSpace(provenance);
+
+        using JsonDocument serialized = JsonDocument.Parse(
+            JsonSerializer.Serialize(
+                document,
+                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
+        return new BrowserAnnotatedSource(
+            serialized.RootElement.Clone(),
+            BrowserAnnotatedSourceViewerCatalogFactory.Create(document),
+            provenance,
+            contextLimitation);
+    }
+}
 
 public sealed record BrowserSource(
     string Provider,

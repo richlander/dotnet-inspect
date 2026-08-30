@@ -1,5 +1,6 @@
 src/CSharpText
 src/DotnetInspector.Artifacts
+src/DotnetInspector.Artifacts.Local
 src/DotnetInspector.Core
 src/DotnetInspector.CSharpBodySlicer
 src/DotnetInspector.PackageQueries

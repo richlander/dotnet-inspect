@@ -1,3 +1,5 @@
+export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | number;
+export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
@@ -27,8 +29,20 @@ export interface BrowserAllocationFact {
 }
 export interface BrowserAnnotatedSource {
     readonly document: unknown;
+    readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
     readonly provenance: string;
     readonly contextLimitation: string | null;
+}
+export interface BrowserAnnotatedSourceCapabilityAvailability {
+    readonly available: boolean;
+    readonly unavailableReason: BrowserAnnotatedSourceCapabilityUnavailableReason | null;
+}
+export interface BrowserAnnotatedSourceViewerCatalog {
+    readonly defaultFindingIds: ReadonlyArray<number>;
+    readonly supportedMedia: ReadonlyArray<BrowserAnnotatedSourceMedium>;
+    readonly invocationLikeNodeKinds: ReadonlyArray<string>;
+    readonly findingEvidence: BrowserAnnotatedSourceCapabilityAvailability;
+    readonly destinations: BrowserAnnotatedSourceCapabilityAvailability;
 }
 export interface BrowserAssemblyMetadata {
     readonly assembly: string;
