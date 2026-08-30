@@ -90,16 +90,16 @@ binding is unverified pending
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | Current `CSharpFormattedDeclaration` and formatter string results | One model-bound declaration request | Current C# display text, namespace imports, and available diagnostics | Metadata identity, slot provenance, structured-versus-compatibility fidelity, or body correspondence |
-| Target `CSharpDeclarationResult`, `CSharpDeclarationReceipt`, `CSharpDeclarationText`, and `CSharpCompatibilityText` | One declaration plan | The required `Representable`, `FallbackRequired`, `Degraded`, or `Unavailable` outcome; representable declarations carry final text, exact namespace requirements, and typed occurrence receipts, while fallback preserves contained facts before optional compatibility text | Metadata extraction, identity, API serialization, call-graph correspondence, or proof that the declaration compiles |
+| Target `CSharpDeclarationResult`, `CSharpDeclarationReceipt`, `CSharpDeclarationText`, and `CSharpCompatibilityText` | One declaration plan | The required `Representable`, `FallbackRequired`, `Degraded`, or `Unavailable` outcome; representable declarations carry final text, exact namespace requirements, and typed occurrence receipts, while fallback preserves its stable reason and contained facts before optional compatibility text | Metadata extraction, identity, API serialization, call-graph correspondence, or proof that the declaration compiles |
 
 The target currencies and their shared result/receipt protocol are owned by
 [C# declaration result and receipt protocol](csharp-structured-declaration-provenance.md).
 They preserve the rule that a display string is an output, never a source from
 which identity or provenance is reconstructed. Their properties are unverified
-until that document's named gates exist. Type-form adoption is tracked by
-issues #5181 and #5183, while #5142 owns complete source-unit aggregation.
-Those owners define their form-specific plans rather than extending the shared
-protocol into an implementation inventory.
+until that document's named gates exist. Issue #5181 tracks type-form adoption,
+while #5183 tracks member-form adoption and #5142 owns complete source-unit
+aggregation. Those owners define their form-specific plans rather than
+extending the shared protocol into an implementation inventory.
 
 #### `ILInspector.Metadata`
 

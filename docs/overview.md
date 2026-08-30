@@ -57,9 +57,10 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and
   type-view layer over Metadata shapes.
   [The declaration result and receipt protocol](design/csharp-structured-declaration-provenance.md)
-  owns the shared representability result, contained and compatibility text
-  currencies, occurrence receipts, and adoption contract. Type- and
-  member-form adoption remain separately owned by #5181 and #5183.
+  owns the CSharp carrier and containment protocol for the owner-issued
+  representability outcome, contained and compatibility text currencies,
+  occurrence receipts, and adoption contract. Type- and member-form adoption
+  remain separately owned by #5181 and #5183.
   `CSharpTypePrinter` composes
   exact typed requests, including skeleton, full, stub, mixed-accessor,
   primary-constructor, and nested-type shapes, without taking a Decompiler or
@@ -166,9 +167,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
 - [C# declaration result and receipt protocol](design/csharp-structured-declaration-provenance.md):
-  CSharp-owned four-arm representability result, contained and compatibility
-  text currencies, occurrence receipts, diagnostic containment, and adoption
-  contract.
+  CSharp-owned carrier and containment protocol for the four-arm
+  representability outcome, contained and compatibility text currencies,
+  occurrence receipts, diagnostic containment, and adoption contract.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.
