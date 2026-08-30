@@ -488,27 +488,19 @@ feedback, since the settled PR still requires its full round.
 
 ### Running the round
 
-Give every reviewer the same self-contained prompt and a separate worktree.
-Review the whole head unless the user narrows scope. Reproduce findings before
-acting on them, wait for all locked-head reviews, and reconcile publicly. Word
-the prompt as a description of the property under test, not as an attack
-brief — an exploit-tutorial-style prompt can trip a model's content filter and
-fail silently (empty response, looks broken); suspect the prompt before the
-model. Follow
+Start every reviewer prompt with the complete canonical
+[adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
+paraphrase, reorder, or precede it with domain instructions. Append the same
+self-contained candidate instructions for every seat, directly or with the
+optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.
 
 ### Keep review proportional to the contract
 
-Review the invariant the design promises, not arbitrary misuse outside the
-threat model. A surviving mutation justifies a gate only when it exposes a
-plausible regression of promised behavior. Prefer outcome-level tests and
-simple, auditable enforcement over fixture seams or abstractions hardened
-against callers the contract excludes.
-
-A reviewer concern that materially expands functionality is a scope proposal,
-not a landing requirement — reject it as out of scope or record it as
-follow-up work unless the operator explicitly approves it.
+The prompt's finding-admission and trust-boundary rules are binding. A
+reviewer concern outside them is a scope proposal, not a landing requirement,
+unless the operator explicitly approves it.
 
 ### Stop after six rounds
 
