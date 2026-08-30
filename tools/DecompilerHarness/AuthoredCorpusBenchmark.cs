@@ -533,6 +533,12 @@ static class AuthoredCorpusBenchmark
             {
                 output.WriteLine("    Syntax inventory                 : NOT TRACKED (legacy manifest)");
             }
+            else if (oracleReport.SyntaxInventoryEvaluated == false)
+            {
+                output.WriteLine(
+                    $"    Syntax inventory v{oracleReport.SyntaxInventoryVersion}"
+                    + "              : NOT EVALUATED (unsupported version)");
+            }
             else
             {
                 IReadOnlyList<string> observedFeatures =

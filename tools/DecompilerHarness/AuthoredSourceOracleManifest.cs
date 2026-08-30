@@ -46,6 +46,7 @@ static class AuthoredSourceOracleManifest
         [property: JsonRequired] bool Passed,
         [property: JsonRequired] IReadOnlyList<string> Failures,
         int? SyntaxInventoryVersion = null,
+        bool? SyntaxInventoryEvaluated = null,
         int FilesInventoryTracked = 0,
         IReadOnlyList<string>? ObservedFeatures = null,
         IReadOnlyList<FileInventoryEntry>? FileInventory = null);
@@ -119,11 +120,13 @@ static class AuthoredSourceOracleManifest
                 + $"expected {PrinterComparisonVersion}");
         }
         bool inventoryRequested = manifest.SyntaxInventoryVersion is not null;
+        bool syntaxInventoryVersionSupported =
+            manifest.SyntaxInventoryVersion == PrinterSyntaxInventory.Version;
         bool inventoryEnabled =
             manifestVersionSupported
             && printerComparisonVersionSupported
-            && manifest.SyntaxInventoryVersion == PrinterSyntaxInventory.Version;
-        if (inventoryRequested && !inventoryEnabled)
+            && syntaxInventoryVersionSupported;
+        if (inventoryRequested && !syntaxInventoryVersionSupported)
         {
             failures.Add(
                 $"syntax inventory version {manifest.SyntaxInventoryVersion} is unsupported; "
@@ -384,9 +387,10 @@ static class AuthoredSourceOracleManifest
                 && exactPassing == exactRequired,
             failures,
             manifest.SyntaxInventoryVersion,
+            inventoryRequested ? inventoryEnabled : null,
             filesInventoryTracked,
-            [.. observedInventory],
-            fileInventory);
+            inventoryRequested && !inventoryEnabled ? null : [.. observedInventory],
+            inventoryRequested && !inventoryEnabled ? null : fileInventory);
     }
 
     static bool SameFile(

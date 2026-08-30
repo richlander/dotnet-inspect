@@ -178,20 +178,36 @@ static class PrinterSyntaxInventory
             if (node is ArgumentSyntax { NameColon: not null })
                 Features.Add("argument.named");
             if (node is ParameterSyntax parameter)
+                AddParameterModifiers(parameter.Modifiers);
+            if (node is FunctionPointerParameterSyntax functionPointerParameter)
+                AddParameterModifiers(functionPointerParameter.Modifiers);
+            if (node is FunctionPointerCallingConventionSyntax convention)
             {
-                foreach (SyntaxToken modifier in parameter.Modifiers)
+                Features.Add(
+                    $"type.function-pointer-"
+                    + convention.ManagedOrUnmanagedKeyword.ValueText);
+                if (convention.UnmanagedCallingConventionList is not null)
                 {
-                    if (modifier.Kind() is
-                        SyntaxKind.RefKeyword or
-                        SyntaxKind.OutKeyword or
-                        SyntaxKind.InKeyword)
-                    {
-                        Features.Add($"parameter.{modifier.ValueText}");
-                    }
+                    Features.Add(
+                        "type.function-pointer-named-calling-convention");
                 }
             }
 
             base.Visit(node);
+        }
+
+        void AddParameterModifiers(SyntaxTokenList modifiers)
+        {
+            foreach (SyntaxToken modifier in modifiers)
+            {
+                if (modifier.Kind() is
+                    SyntaxKind.RefKeyword or
+                    SyntaxKind.OutKeyword or
+                    SyntaxKind.InKeyword)
+                {
+                    Features.Add($"parameter.{modifier.ValueText}");
+                }
+            }
         }
 
         void Add(string prefix, SyntaxKind kind, string suffix)

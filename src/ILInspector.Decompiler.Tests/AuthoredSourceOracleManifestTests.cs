@@ -473,6 +473,47 @@ public sealed class AuthoredSourceOracleManifestTests
             out error),
             error);
         Assert.DoesNotContain($"parameter.{refKind}", ordinaryFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            $"delegate*<{refKind} int, void> callback = null;",
+            out IReadOnlyList<string> functionPointerFeatures,
+            out error),
+            error);
+        Assert.Contains($"parameter.{refKind}", functionPointerFeatures);
+    }
+
+    [Fact]
+    public void SyntaxInventory_DistinguishesFunctionPointerConventions()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "delegate*<int, void> callback = null;",
+            out IReadOnlyList<string> managedFeatures,
+            out string? error),
+            error);
+        Assert.DoesNotContain("type.function-pointer-unmanaged", managedFeatures);
+        Assert.DoesNotContain(
+            "type.function-pointer-named-calling-convention",
+            managedFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "delegate* unmanaged<int, void> callback = null;",
+            out IReadOnlyList<string> unmanagedFeatures,
+            out error),
+            error);
+        Assert.Contains("type.function-pointer-unmanaged", unmanagedFeatures);
+        Assert.DoesNotContain(
+            "type.function-pointer-named-calling-convention",
+            unmanagedFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "delegate* unmanaged[Cdecl]<int, void> callback = null;",
+            out IReadOnlyList<string> namedConventionFeatures,
+            out error),
+            error);
+        Assert.Contains("type.function-pointer-unmanaged", namedConventionFeatures);
+        Assert.Contains(
+            "type.function-pointer-named-calling-convention",
+            namedConventionFeatures);
     }
 
     [Fact]
@@ -499,6 +540,7 @@ public sealed class AuthoredSourceOracleManifestTests
             [row]);
 
         Assert.True(report.Passed);
+        Assert.Equal(true, report.SyntaxInventoryEvaluated);
         Assert.Equal(1, report.FilesInventoryTracked);
         Assert.Equal(file.ExpectedFeatures, report.ObservedFeatures);
         Assert.Equal(file.ExpectedFeatures, Assert.Single(report.FileInventory!).Features);
@@ -596,7 +638,9 @@ public sealed class AuthoredSourceOracleManifestTests
             failure.Contains("unsupported", StringComparison.Ordinal));
         Assert.DoesNotContain(report.Failures, failure =>
             failure.Contains("could not parse", StringComparison.Ordinal));
-        Assert.Empty(report.FileInventory!);
+        Assert.Equal(false, report.SyntaxInventoryEvaluated);
+        Assert.Null(report.ObservedFeatures);
+        Assert.Null(report.FileInventory);
     }
 
     [Theory]
@@ -639,9 +683,14 @@ public sealed class AuthoredSourceOracleManifestTests
         Assert.False(report.Passed);
         Assert.Contains(report.Failures, failure =>
             failure.Contains("unsupported", StringComparison.Ordinal));
+        Assert.DoesNotContain(report.Failures, failure =>
+            failure.Contains(
+                $"syntax inventory version {PrinterSyntaxInventory.Version} is unsupported",
+                StringComparison.Ordinal));
+        Assert.Equal(false, report.SyntaxInventoryEvaluated);
         Assert.Equal(0, report.FilesInventoryTracked);
-        Assert.Empty(report.ObservedFeatures!);
-        Assert.Empty(report.FileInventory!);
+        Assert.Null(report.ObservedFeatures);
+        Assert.Null(report.FileInventory);
     }
 
     [Fact]
@@ -834,6 +883,7 @@ public sealed class AuthoredSourceOracleManifestTests
 
         Assert.True(report.Passed);
         Assert.Null(report.SyntaxInventoryVersion);
+        Assert.Null(report.SyntaxInventoryEvaluated);
         Assert.Equal(0, report.FilesInventoryTracked);
         Assert.Empty(report.ObservedFeatures!);
         Assert.Empty(report.FileInventory!);
@@ -883,6 +933,7 @@ public sealed class AuthoredSourceOracleManifestTests
 
         Assert.NotNull(report);
         Assert.Null(report.SyntaxInventoryVersion);
+        Assert.Null(report.SyntaxInventoryEvaluated);
         Assert.Equal(0, report.FilesInventoryTracked);
         Assert.Null(report.ObservedFeatures);
         Assert.Null(report.FileInventory);
@@ -1009,6 +1060,7 @@ public sealed class AuthoredSourceOracleManifestTests
             Assert.Equal(1, payload.SourceOracleManifest.FilesRegistered);
             Assert.False(payload.SourceOracleManifest.Passed);
             Assert.Equal(1, payload.SourceOracleManifest.SyntaxInventoryVersion);
+            Assert.Equal(true, payload.SourceOracleManifest.SyntaxInventoryEvaluated);
             Assert.Equal(1, payload.SourceOracleManifest.FilesInventoryTracked);
             Assert.Empty(payload.SourceOracleManifest.ObservedFeatures!);
             Assert.Empty(Assert.Single(
@@ -1023,6 +1075,75 @@ public sealed class AuthoredSourceOracleManifestTests
                 text.ToString());
         }
 
+        finally
+        {
+            System.IO.File.Delete(corpus);
+            System.IO.File.Delete(manifestPath);
+        }
+    }
+
+    [Fact]
+    public void Benchmark_ReportsRejectedInventoryAsNotEvaluated()
+    {
+        string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
+        string corpus = AuthoredCorpusTestData.WriteCorrelatedCorpus(assembly);
+        string manifestPath = Path.Combine(
+            Path.GetTempPath(),
+            $"source-oracle-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            var records = AuthoredCorpusBenchmark.ReadCorpus(corpus, out int malformed);
+            Assert.Equal(0, malformed);
+            var manifest = ManifestWithInventory(
+                File(Assert.Single(records), requirePrinterExact: true) with
+                {
+                    ExpectedFeatures = ["statement.return"],
+                }) with
+            {
+                Version = AuthoredSourceOracleManifest.Version + 1,
+            };
+            System.IO.File.WriteAllText(
+                manifestPath,
+                JsonSerializer.Serialize(
+                    manifest,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    }));
+
+            using var text = new StringWriter();
+            int textExit = AuthoredCorpusBenchmark.Run(
+                [assembly],
+                corpus,
+                json: false,
+                sourceOracleManifestPath: manifestPath,
+                output: text);
+
+            using var json = new StringWriter();
+            int jsonExit = AuthoredCorpusBenchmark.Run(
+                [assembly],
+                corpus,
+                json: true,
+                sourceOracleManifestPath: manifestPath,
+                output: json);
+            AuthoredCorpusBenchmark.Report payload =
+                AuthoredCorpusHistoryStore.ParseBenchmarkReport(json.ToString());
+
+            Assert.Equal(1, textExit);
+            Assert.Equal(textExit, jsonExit);
+            Assert.Contains(
+                "Syntax inventory v1              : NOT EVALUATED",
+                text.ToString());
+            Assert.DoesNotContain(
+                "Syntax inventory v1              : 0 feature(s)",
+                text.ToString());
+            Assert.NotNull(payload.SourceOracleManifest);
+            Assert.Equal(false, payload.SourceOracleManifest.SyntaxInventoryEvaluated);
+            Assert.Equal(0, payload.SourceOracleManifest.FilesInventoryTracked);
+            Assert.Null(payload.SourceOracleManifest.ObservedFeatures);
+            Assert.Null(payload.SourceOracleManifest.FileInventory);
+        }
         finally
         {
             System.IO.File.Delete(corpus);
