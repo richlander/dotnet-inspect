@@ -1422,9 +1422,15 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
 
-        // The final range is bounded by the MethodDef table, so this
-        // pins the derived bound on the path where no projection table
-        // stands between the column and the methods it names.
+        // No MethodPtr table stands between the column and the methods
+        // it names, so this is the descending shape on a plain image.
+        // The throw fires at the module row, before any row is
+        // projected; pinned so the comment cannot drift from the
+        // fixture.
+        Assert.Equal(
+            [-1, 2],
+            MeasureMethodRangeLengths(image));
+
         var failed = Assert.IsType<
             AssemblyContextStructuralCloneRetrievalResult.Failed>(
                 Execute(
@@ -1462,10 +1468,66 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
 
-        // The MethodPtr rows reverse MethodDef order, so the projected
-        // handles differ from raw row order and the final range end is
-        // supplied by MethodPtr. That is the one shape where the derived
-        // bound rests on a different table than the one being covered.
+        // The same column on an unoptimized image whose MethodPtr rows
+        // reverse MethodDef order, so the guard is exercised on the
+        // other metadata shape. Like the plain case this throws at the
+        // module row, so the reordering itself is never projected; what
+        // it gates is that a MethodPtr image reaches the check at all.
+        Assert.Equal(
+            [-1, 2],
+            MeasureMethodRangeLengths(image));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_MethodListStartPastProjectedTableIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildStartPastProjectedTableAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // Every start sits past the end of the projected table, so the
+        // earlier ranges report length zero and enumerate nothing and
+        // the final range is the one that reports a negative length.
+        // This is the only case that reaches the end of the derived
+        // bound: the descending cases throw at the module row first.
+        // Coverage also rejects this shape if the range-length check is
+        // removed, so this pins the bound's end, not a case that would
+        // otherwise be silently accepted.
+        // Pinned rather than asserted, so the fixture cannot drift into
+        // rejecting for some earlier reason.
+        Assert.Equal(
+            [0, -1],
+            MeasureMethodRangeLengths(image));
+
         var failed = Assert.IsType<
             AssemblyContextStructuralCloneRetrievalResult.Failed>(
                 Execute(
@@ -3241,6 +3303,37 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         byte[] bytes = BuildTwoTypeTwoMethodAssembly();
         WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
         WriteMethodListStart(bytes, typeDefRow: 1, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Reports the length SRM computes for each TypeDef's method range,
+    /// so a fixture can pin which row carries the negative length rather
+    /// than leaving that to a comment.
+    /// </summary>
+    static int[] MeasureMethodRangeLengths(ImmutableArray<byte> image)
+    {
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        return [.. reader.TypeDefinitions.Select(
+            handle => reader.GetTypeDefinition(handle)
+                .GetMethods()
+                .Count)];
+    }
+
+    /// <summary>
+    /// Builds a column whose starts all sit two rows past the end of the
+    /// projected method table. Every earlier range then reports length
+    /// zero and enumerates nothing, so the *final* range is the one that
+    /// reports a negative length. This isolates the end of the derived
+    /// bound, which the descending fixtures never reach because they
+    /// throw at the module row before any row is projected.
+    /// </summary>
+    static byte[] BuildStartPastProjectedTableAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 4);
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 4);
         return bytes;
     }
 

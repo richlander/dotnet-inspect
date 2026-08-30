@@ -922,21 +922,25 @@ repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary. Its
 type-name decode-failure case gates the decode-failure ceiling, paired with a
 below-ceiling case that proves isolated malformed neighbors remain tolerable.
-Ten cases gate whole-image method ownership across the type-scoped,
+Eleven cases gate whole-image method ownership across the type-scoped,
 whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
 covering duplicate, out-of-range, cross-type aliased, and silently empty
 projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
-metadata declaring no TypeDef rows. Three of the descending cases separate the
-shapes the derived bound depends on: a `MethodPtr`-free image bounded by the
-MethodDef table, and a reordered `MethodPtr` permutation whose final range end
-comes from a different table than the one being covered. A further case starts
+metadata declaring no TypeDef rows. The descending cases pin the check on both
+metadata shapes -- a `MethodPtr`-free image and a reordered `MethodPtr`
+permutation -- and each is rejected at the module row, before any row is
+projected. A further case pushes every start past the end of the projected
+table so the earlier ranges report length zero and enumerate nothing, isolating
+the one path that reaches the end of the derived bound with a negative final
+range. Each of these fixtures pins its per-row range lengths, so the shape it
+claims to exercise is gated rather than asserted in prose. A further case starts
 the column past MethodDef row 1 while every range keeps a non-negative length,
 so it is rejected by coverage alone and pins the half of the ordering proof the
-range-length check cannot supply. An eleventh case gates that a null
+range-length check cannot supply. A twelfth case gates that a null
 `MethodList`, which ECMA-335 permits and the runtime reader projects as an
-empty run, is accepted rather than reported as malformed. A twelfth gates
+empty run, is accepted rather than reported as malformed. A thirteenth gates
 uniqueness of the exact seed member, which a rejected sibling leaves unproven,
-and a thirteenth gates that matching a candidate leaf charges the
+and a fourteenth gates that matching a candidate leaf charges the
 declaring-chain traversal it performs rather than only the names it compares;
 that case pins its fixture's declaring depth, because a shallow fixture would
 exhaust the same budget while leaving the traversal unexercised.

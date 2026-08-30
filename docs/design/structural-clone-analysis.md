@@ -320,10 +320,18 @@ The
 `Execute_TypeDeflessImageIsAVisibleRejection`,
 `Execute_DescendingMethodListIsAVisibleRejection`,
 `Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection`,
-`Execute_DescendingReorderedMethodPtrIsAVisibleRejection`, and
+`Execute_DescendingReorderedMethodPtrIsAVisibleRejection`,
+`Execute_MethodListStartPastProjectedTableIsAVisibleRejection`, and
 `Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` gates cover those
 boundaries.
-Removing the range-length check fails the three descending cases; removing
+Removing the range-length check fails the three descending cases and the
+start-past-projected-table case, though not in the same way: the descending
+cases are then *accepted* as `Available`, which is the silent-acceptance
+failure the check exists to prevent, while the start-past-projected-table case
+is still rejected by coverage under a different message. The range-length
+check's unique safety contribution therefore rests on the descending cases; the
+start-past-projected-table case exists to reach the end of the derived bound,
+not to show an otherwise-silent acceptance. Removing
 coverage fails the start-past-row-1 case; removing the `MethodPtr` row-count
 and TypeDef-presence guards each fails one more.
 
@@ -353,9 +361,18 @@ row 1 and every later start into the table. A descending column passes
 coverage, and a column starting past row 1 passes the length check, so removing
 either check leaves a malformed column accepted.
 `Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection` and
-`Execute_DescendingReorderedMethodPtrIsAVisibleRejection` separate the two
-shapes the derived bound rests on -- a range end supplied by the MethodDef
-table, and one supplied by a reordering `MethodPtr` table --  while
+`Execute_DescendingReorderedMethodPtrIsAVisibleRejection` pin the check on both
+metadata shapes -- a `MethodPtr`-free image and a reordering `MethodPtr` table.
+Both reject at the module row, before any row is projected, so neither reaches
+the end of the derived bound;
+`Execute_MethodListStartPastProjectedTableIsAVisibleRejection` isolates that
+end by pushing every start past the projected table, leaving the earlier ranges
+at length zero so the final range is the one that goes negative. That case is
+rejected by coverage too if the range-length check is removed, so it pins the
+bound's end rather than a silent acceptance; the descending cases are the ones
+that would otherwise be accepted outright. Each of the
+three pins its per-row range lengths, so the path it claims to exercise is
+gated rather than described. Meanwhile
 `Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` pins the coverage
 half by starting the column past row 1 with every length non-negative.
 
