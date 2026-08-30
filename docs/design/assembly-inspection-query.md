@@ -563,6 +563,30 @@ ownership, its contract forbids retention after the call, and it avoids a produc
 remains the public
 body-local Metadata capability, and high-level Metadata facets own drill projection. These paths
 remove target reopens without exposing the raw reader to the CLI.
+
+Every image-backed `LibraryBodyIndex` publishes one immutable
+`LibraryBodyModuleIdentity` derived from the same `MetadataReader` before
+feature selection or method filtering. It retains the exact assembly-definition
+identity and non-empty MVID; a standalone managed module has no assembly
+identity. The caller-supplied `Path` remains a display/acquisition input and
+method rows remain body evidence, so neither can substitute for module
+identity. `CatalogCallGraphScope` validates and keys participants with the
+issued identity even when an index has no declared methods. The internal
+`FromEvidence` test seam is not image-backed: non-empty synthetic method
+evidence is validated against its synthetic identity, and an empty synthetic
+index must receive identity explicitly rather than acquiring a success-shaped
+default. `ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes`,
+`ModuleIdentity_MethodlessPrefetchedImageRetainsExactIdentity`,
+`ModuleIdentity_DistinguishesAssemblyAndModuleGeneration`,
+`ModuleIdentity_StandaloneModuleHasNoAssemblyIdentity`,
+`ModuleIdentity_RejectsEmptyModuleVersionIdentifier`, and
+`EmptyIndexCatalogBindingUsesIssuedModuleIdentity` gate the image-backed and
+catalog properties.
+`SyntheticModuleIdentity_EmptyEvidenceRequiresExplicitIdentity`,
+`SyntheticModuleIdentity_ValidatesMethodsAgainstExplicitIdentity`, and
+`SyntheticModuleIdentity_NonEmptyEvidenceDerivesFixtureIdentity` gate the
+synthetic seam.
+
 The broader model still has a prerequisite. `MetadataSource` owns a separate reader, and
 `ResolvedAssemblyReference` carries only an `OpenRead` opener. Completing the session across
 member/decompiler and descriptor-based paths requires a **low-level PE-owner primitive** opened
