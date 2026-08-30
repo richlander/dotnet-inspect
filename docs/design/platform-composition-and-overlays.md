@@ -429,11 +429,9 @@ not every outcome the current resolver can produce:
   that identity to one artifact and one policy snapshot. When resolution finds
   that a reference can bind to both a designated participant and a
   platform-backed participant, the binding policy selects the designated
-  participant. Directly opening the file already reads the designated artifact;
-  cross-assembly resolution does not yet enforce the same choice. Today an
-  earlier candidate may win, the reference may remain unresolved, or the
-  overlay may be selected. Those are implementation accidents, not separate
-  cases in the product contract. Enforcing the rule is **#4593**.
+  participant. The current #4593 implementation enforces this choice through
+  provenance-classified candidates. The workspace-role policy below replaces
+  that authority input while preserving the selection result.
 - **Designation applies only to that artifact.** It does not become the
   platform, and it does not entitle nearby artifacts — directory membership is
   not designation. This half is real: a sibling reached by
@@ -528,6 +526,11 @@ policy version and cannot fall back to source provenance. An empty role set is
 valid for an ordinary participant; it grants no designated or platform
 authority.
 
+Admission remains responsible for validating the platform-realization evidence
+from which it grants `PlatformAuthorized`, including stale or replayed evidence.
+Binding consumes the resulting current-generation projection; it does not
+reopen or reinterpret the platform owner's receipts.
+
 For one valid snapshot, candidate classification is exact:
 
 - `CallerDesignated` makes that registration a designated candidate;
@@ -545,6 +548,22 @@ platform-version policy, including an enabled installed-platform fallback.
 Unrelated package, project, sibling, discovered, or other name-owning tiers and
 their typed failures remain outside this arbitration and cannot be bypassed by
 a role-bearing candidate.
+
+A delegated policy can join this composition only with a closed candidate
+registration domain supplied at policy formation. Every registration in that
+domain must already be present in the sealed group and role snapshot; otherwise
+formation rejects the policy as incomplete role evidence. A delegated result
+cannot add a registration after sealing or acquire authority from its
+provenance. Returning an undeclared registration is a visible
+`InvalidRoleEvidence` invariant failure, never a group mutation or fallback.
+The delegated policy's existing `Unavailable` and `Rejected` outcomes remain
+authoritative and cannot be bypassed by role precedence.
+
+Existing #4593 fixtures that construct a designated or platform delegated
+candidate outside the initial participant array must declare and admit that
+registration and role before sealing when run against the replacement policy.
+This changes fixture construction, not the required selection, ambiguity,
+shadow, or failure outcome.
 
 A selected designated registration retains every otherwise eligible platform
 registration as typed inactive-shadow evidence. A shadow is explanatory
@@ -596,9 +615,10 @@ authority-bearing field to it.
   declaration and proves none becomes designated or platform-authorized.
 - `WorkspaceRoleBinding_InvalidRoleEvidenceRejectsWithoutFallback` derives
   absent-snapshot, foreign-generation, ended-generation, wrong-group,
-  missing-registration, extra-registration, duplicate-input, and contradictory
-  evidence cases and proves no policy version, selection, shadow, or
-  provenance fallback survives.
+  missing-registration, extra-registration, duplicate-input,
+  undeclared-delegated-registration, altered-role-set, and contradictory
+  evidence cases and proves no policy version, selection, shadow, group
+  mutation, or provenance fallback survives.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
   registration, or role change requires a new version.

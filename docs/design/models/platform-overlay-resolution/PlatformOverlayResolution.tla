@@ -31,8 +31,8 @@ CallerDesignated == "CallerDesignated"
 PlatformAuthorized == "PlatformAuthorized"
 WorkspaceRoles == {CallerDesignated, PlatformAuthorized}
 RoleEvidenceModes ==
-    {"Pending", "Valid", "Missing", "Foreign", "Stale", "Replayed",
-     "WrongGroup", "Incomplete", "Extra", "Contradictory"}
+    {"Pending", "Valid", "Missing", "Foreign", "Stale", "WrongGroup",
+     "Incomplete", "Extra", "Altered", "Contradictory"}
 CurrentGroup == "CurrentGroup"
 ForeignGroup == "ForeignGroup"
 NoGroup == "NoGroup"
@@ -50,7 +50,8 @@ ASSUME
         {"Policy", "RegistrationOrder", "VersionSensitive"}
     /\ TraversalMode \in
         {"Policy", "RejectSkew", "SuppressFailure"}
-    /\ RoleValidationMode \in {"Policy", "LegacyFallback"}
+    /\ RoleValidationMode \in
+        {"Policy", "IgnoreOwnerProjection", "LegacyFallback"}
 
 Phases == {"Registering", "Loaded", "Resolved", "Traversed"}
 ResolutionFailures ==
@@ -75,7 +76,7 @@ RegistrationPermutations(sequence) ==
         /\ NoDuplicates(candidate)
         /\ RegisteredSet(candidate) = RegisteredSet(sequence)}
 
-CanonicalRoles(candidate) ==
+OwnerRoles(candidate) ==
     IF candidate \in CanonicalDesignatedCandidates
     THEN {CallerDesignated}
     ELSE
@@ -83,19 +84,36 @@ CanonicalRoles(candidate) ==
         THEN {PlatformAuthorized}
         ELSE {}
 
-CanonicalRoleAssignments ==
-    [candidate \in Candidates |-> CanonicalRoles(candidate)]
+OwnerRoleProjection ==
+    [candidate \in Candidates |-> OwnerRoles(candidate)]
+
+LegacyRoles(candidate) ==
+    IF candidate \in CanonicalDesignatedCandidates
+    THEN {CallerDesignated}
+    ELSE
+        IF candidate \in CanonicalPlatformCandidates
+        THEN {PlatformAuthorized}
+        ELSE {}
 
 ContradictoryRoleAssignments(witness) ==
     [candidate \in Candidates |->
         IF candidate = witness
         THEN {CallerDesignated, PlatformAuthorized}
-        ELSE CanonicalRoles(candidate)]
+        ELSE OwnerRoles(candidate)]
+
+AlteredRoleAssignments(witness) ==
+    [candidate \in Candidates |->
+        IF candidate = witness
+        THEN
+            IF OwnerRoles(candidate) = {}
+            THEN {CallerDesignated}
+            ELSE {}
+        ELSE OwnerRoles(candidate)]
 
 RolesAt(domain, assignments, candidate) ==
     IF candidate \in domain THEN assignments[candidate] ELSE {}
 
-RoleEvidenceValidAt(
+RoleEvidenceEnvelopeValidAt(
         mode,
         group,
         generation,
@@ -111,6 +129,23 @@ RoleEvidenceValidAt(
         /\ assignments[candidate] \subseteq WorkspaceRoles
         /\ ~(/\ CallerDesignated \in assignments[candidate]
              /\ PlatformAuthorized \in assignments[candidate])
+
+RoleEvidenceValidAt(
+        mode,
+        group,
+        generation,
+        domain,
+        assignments,
+        sequence) ==
+    /\ RoleEvidenceEnvelopeValidAt(
+        mode,
+        group,
+        generation,
+        domain,
+        assignments,
+        sequence)
+    /\ \A candidate \in domain:
+        assignments[candidate] = OwnerRoleProjection[candidate]
 
 VARIABLES
     phase,
@@ -141,14 +176,22 @@ RoleEvidenceStructurallyValid ==
         registration)
 
 RoleEvidenceAccepted ==
-    IF RoleValidationMode = "Policy"
-    THEN RoleEvidenceStructurallyValid
-    ELSE roleEvidenceMode # "Pending"
+    CASE RoleValidationMode = "Policy" ->
+            RoleEvidenceStructurallyValid
+      [] RoleValidationMode = "IgnoreOwnerProjection" ->
+            RoleEvidenceEnvelopeValidAt(
+                roleEvidenceMode,
+                roleGroup,
+                roleGeneration,
+                roleDomain,
+                roleAssignments,
+                registration)
+      [] OTHER -> roleEvidenceMode # "Pending"
 
 BindingRoles(candidate) ==
     IF /\ RoleValidationMode = "LegacyFallback"
        /\ ~RoleEvidenceStructurallyValid
-    THEN CanonicalRoles(candidate)
+    THEN LegacyRoles(candidate)
     ELSE RolesAt(roleDomain, roleAssignments, candidate)
 
 DesignatedCandidatesFor(sequence) ==
@@ -321,37 +364,31 @@ FinishLoad ==
         CurrentGroup,
         CurrentGeneration,
         RegisteredSet(registration),
-        CanonicalRoleAssignments)
+        OwnerRoleProjection)
     \/ FinishLoadWith(
         "Missing",
         NoGroup,
         NoGeneration,
         {},
-        CanonicalRoleAssignments)
+        OwnerRoleProjection)
     \/ FinishLoadWith(
         "Foreign",
         CurrentGroup,
         ForeignGeneration,
         RegisteredSet(registration),
-        CanonicalRoleAssignments)
+        OwnerRoleProjection)
     \/ FinishLoadWith(
         "Stale",
         CurrentGroup,
         StaleGeneration,
         RegisteredSet(registration),
-        CanonicalRoleAssignments)
-    \/ FinishLoadWith(
-        "Replayed",
-        CurrentGroup,
-        StaleGeneration,
-        RegisteredSet(registration),
-        CanonicalRoleAssignments)
+        OwnerRoleProjection)
     \/ FinishLoadWith(
         "WrongGroup",
         ForeignGroup,
         CurrentGeneration,
         RegisteredSet(registration),
-        CanonicalRoleAssignments)
+        OwnerRoleProjection)
     \/ /\ RegisteredSet(registration) # {}
        /\ \E missing \in RegisteredSet(registration):
             FinishLoadWith(
@@ -359,7 +396,7 @@ FinishLoad ==
                 CurrentGroup,
                 CurrentGeneration,
                 RegisteredSet(registration) \ {missing},
-                CanonicalRoleAssignments)
+                OwnerRoleProjection)
     \/ /\ Candidates \ RegisteredSet(registration) # {}
        /\ \E extra \in Candidates \ RegisteredSet(registration):
             FinishLoadWith(
@@ -367,7 +404,15 @@ FinishLoad ==
                 CurrentGroup,
                 CurrentGeneration,
                 RegisteredSet(registration) \union {extra},
-                CanonicalRoleAssignments)
+                OwnerRoleProjection)
+    \/ /\ RegisteredSet(registration) # {}
+       /\ \E witness \in RegisteredSet(registration):
+            FinishLoadWith(
+                "Altered",
+                CurrentGroup,
+                CurrentGeneration,
+                RegisteredSet(registration),
+                AlteredRoleAssignments(witness))
     \/ /\ RegisteredSet(registration) # {}
        /\ \E witness \in RegisteredSet(registration):
             FinishLoadWith(
