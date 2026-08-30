@@ -169,19 +169,13 @@ try
         return 0;
     }
 
+    var rootCommand = CommandLineBuilder.CreateRootCommand();
+
     // Pre-process args for implicit package command (also expands -NN → -n NN)
     var argsBeforePreprocess = args;
-    args = CommandLineBuilder.PreprocessArgs(args);
+    args = CommandLineBuilder.PreprocessArgs(args, rootCommand);
     if (showTraceMermaid && args.Length > 0 && argsBeforePreprocess.FirstOrDefault() != args[0])
         RequestTelemetry.Breadcrumb("preprocess", $"{string.Join(' ', argsBeforePreprocess)} -> {string.Join(' ', args)}");
-
-    // Install line-limiting writer when -NN shorthand was used (e.g. -30).
-    // With --rows, -n/-NN is interpreted by commands as per-table row limits. The
-    // head/tail conflict is validated at parse time by the command validator in
-    // SharedOptions.AddOutputOptionsTo against the real System.CommandLine parse (so it
-    // covers =-syntax and concatenated forms the arg-preprocessor token scan misses),
-    // which is why no --rows gate remains here.
-    var rowLimitMode = args.Any(a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
 
     if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
     {
@@ -189,36 +183,11 @@ try
         return 1;
     }
 
-    // Parse before installing a global line writer so commands that own -n as a typed
-    // item limit can keep complete records rather than clipping rendered output.
-    var rootCommand = CommandLineBuilder.CreateRootCommand();
     var result = rootCommand.Parse(args);
-    bool packageSearchItemLimit =
-        CommandLineBuilder.UsesTypedItemLimit(result);
 
-    // Line/tail windows apply only outside row and package-search item modes.
-    if (!rowLimitMode && CommandLineBuilder.HeadLines is int headLines)
-    {
-        if (!packageSearchItemLimit)
-            Console.SetOut(new LineLimitingTextWriter(Console.Out, headLines));
-    }
-
-    // Install tail writer when --tail N was used
-    TailLineLimitingTextWriter? tailWriter = null;
-    if (!rowLimitMode && CommandLineBuilder.TailLines is int tailLines)
-    {
-        if (!packageSearchItemLimit)
-        {
-            tailWriter = new TailLineLimitingTextWriter(Console.Out, tailLines);
-            Console.SetOut(tailWriter);
-        }
-    }
-
-    int exitCode = await CommandLineBuilder.InvokeAsync(result);
-
-    // Flush tail writer to emit only the last N lines
-    if (tailWriter != null)
-        tailWriter.FlushTail();
+    int exitCode = await CommandLineBuilder.InvokeWithLineWindowAsync(
+        result,
+        args);
 
     // Write info metrics to stderr if --info was requested
     if (showInfo)
