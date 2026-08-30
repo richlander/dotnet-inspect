@@ -48,6 +48,11 @@ interface PackageRecentResult {
   ranges: readonly HighlightRange[];
 }
 
+interface PackageQueryResult {
+  kind: "package-query";
+  prefix: string;
+}
+
 interface RuntimeSuggestionResult {
   kind: "rtpack-suggest";
 }
@@ -88,6 +93,7 @@ export type SpotlightResult =
   | PackageLoadedResult
   | PackageNugetResult
   | PackageRecentResult
+  | PackageQueryResult
   | RuntimeSuggestionResult
   | RuntimeStatusResult
   | PlatformLibraryResult
@@ -150,6 +156,7 @@ const PLATFORM_PACK_LABEL: Readonly<Record<string, string>> = {
 const GROUP_LABELS: Readonly<Record<SpotlightResult["kind"], string>> = {
   command: "Commands",
   "pkg-recent": "Recent",
+  "package-query": "Query",
   "pkg-loaded": "Packages",
   "pkg-nuget": "Packages",
   type: "Types",
@@ -213,6 +220,8 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
         result.entry.version ?? "",
         result.entry.framework ?? "",
       ]);
+    case "package-query":
+      return JSON.stringify([result.kind, result.prefix]);
     case "platform-lib":
       return JSON.stringify([result.kind, result.pack, result.assembly]);
     case "type":
@@ -300,6 +309,16 @@ export function createSpotlight(options: SpotlightOptions) {
         <span class="kind-icon sl-pkg">▣</span>
         <span class="spotlight-item-name">${options.highlightRanges(result.entry.id, result.ranges)}</span>
         <span class="spotlight-item-ns">${version ? `${escapeHtml(version)} · ` : ""}recent</span>
+      </button>`;
+    }
+    if (result.kind === "package-query") {
+      const suffix = result.prefix
+        ? `Start with “${escapeHtml(result.prefix)}”`
+        : "Choose a package ID prefix and nuspec facets";
+      return `<button ${base} data-sl-package-query="1">
+        <span class="kind-icon sl-command">⌕</span>
+        <span class="spotlight-item-name">Package query</span>
+        <span class="spotlight-item-ns">${suffix}</span>
       </button>`;
     }
     if (result.kind === "rtpack-suggest") {
