@@ -624,6 +624,317 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task WorkspaceClose_RejectsAdmissionAndRoutesLateGroupToRelease()
+    {
+        TestAssembly source = TestAssembly.Create();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        using var enumerationEntered = new ManualResetEventSlim();
+        using var enumerationResume = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        IEnumerable<AssemblyContextParticipant> Participants()
+        {
+            enumerationEntered.Set();
+            enumerationResume.Wait(cancellationToken);
+            yield return source.Participant;
+        }
+
+        Task<AssemblyContextGroup> construction = StartConcurrent(
+            () => workspace.CreateAssemblyContextGroup(
+                Participants()));
+        Assert.True(
+            enumerationEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        Assert.False(close.IsCompleted);
+        Assert.Throws<ObjectDisposedException>(
+            () => workspace.CreateAssemblyContextGroup(
+                [source.Participant]));
+
+        enumerationResume.Set();
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await construction);
+        InspectionWorkspaceCloseReport report = await close;
+
+        InspectionWorkspaceGroupCloseResult result =
+            Assert.Single(report.Groups);
+        Assert.Equal(0, result.RegistrationIndex);
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Failure);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_NoGroupFailureSettlesAdmissionWithoutCleanupEntry()
+    {
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        using var enumerationEntered = new ManualResetEventSlim();
+        using var enumerationResume = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        IEnumerable<AssemblyContextParticipant> Participants()
+        {
+            enumerationEntered.Set();
+            enumerationResume.Wait(cancellationToken);
+            yield return ThrowConstructionFailure();
+        }
+
+        Task<AssemblyContextGroup> construction = StartConcurrent(
+            () => workspace.CreateAssemblyContextGroup(
+                Participants()));
+        Assert.True(
+            enumerationEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        Assert.False(close.IsCompleted);
+        enumerationResume.Set();
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await construction);
+        InspectionWorkspaceCloseReport report = await close;
+
+        Assert.Equal(
+            "Synthetic construction failure.",
+            failure.Message);
+        Assert.Empty(report.Groups);
+
+        static AssemblyContextParticipant
+            ThrowConstructionFailure() =>
+            throw new InvalidOperationException(
+                "Synthetic construction failure.");
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_AwaitsAllGroupCompletionsAndReportsEveryFailure()
+    {
+        TestAssembly first = TestAssembly.Create();
+        TestAssembly second = TestAssembly.Create();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup firstGroup =
+            workspace.CreateAssemblyContextGroup(
+                [first.Participant]);
+        AssemblyContextGroup secondGroup =
+            workspace.CreateAssemblyContextGroup(
+                [second.Participant]);
+        firstGroup.RegisterOwnedResource(new ThrowingResource());
+        secondGroup.RegisterOwnedResource(new ThrowingResource());
+        var callbackEntered =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackResume =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<AssemblyImageAccessResult<int>> operation =
+            firstGroup.UseAndReleaseAssemblySessionAsync(
+                first.Assembly,
+                async (_, _) =>
+                {
+                    callbackEntered.SetResult();
+                    await callbackResume.Task;
+                    return 1;
+                });
+        await callbackEntered.Task;
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        Assert.False(close.IsCompleted);
+
+        callbackResume.SetResult();
+        Assert.IsType<AssemblyImageAccessResult<int>.Available>(
+            await operation);
+        InspectionWorkspaceCloseReport report = await close;
+
+        Assert.Equal(2, report.Groups.Length);
+        Assert.All(
+            report.Groups,
+            result =>
+            {
+                Assert.False(result.Succeeded);
+                AggregateException failure =
+                    Assert.IsType<AggregateException>(
+                        result.Failure);
+                Assert.Contains(
+                    failure.InnerExceptions,
+                    ex => ex is InvalidOperationException
+                        && ex.Message
+                            == "Synthetic owned-resource disposal failure.");
+            });
+        Assert.Equal(
+            [0, 1],
+            report.Groups
+                .Select(result => result.RegistrationIndex)
+                .ToArray());
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance()
+    {
+        TestAssembly firstSource = TestAssembly.Create();
+        TestAssembly secondSource = TestAssembly.Create();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup firstGroup =
+            workspace.CreateAssemblyContextGroup(
+                [firstSource.Participant]);
+        AssemblyContextGroup secondGroup =
+            workspace.CreateAssemblyContextGroup(
+                [secondSource.Participant]);
+        using var releaseEntered = new ManualResetEventSlim();
+        using var releaseResume = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        firstGroup.RegisterOwnedResource(
+            new BlockingResource(
+                releaseEntered,
+                releaseResume,
+                cancellationToken));
+
+        Task<Task<InspectionWorkspaceCloseReport>> firstCall =
+            StartConcurrent(workspace.CloseAsync);
+        Assert.True(
+            releaseEntered.Wait(
+                TimeSpan.FromSeconds(10),
+                cancellationToken));
+        Task<InspectionWorkspaceCloseReport> second =
+            workspace.CloseAsync();
+        Assert.Throws<ObjectDisposedException>(
+            () => secondGroup.GetAssemblyImageSpan(
+                secondSource.Assembly));
+        Assert.False(second.IsCompleted);
+        releaseResume.Set();
+        Task<InspectionWorkspaceCloseReport> first =
+            await firstCall;
+        InspectionWorkspaceCloseReport firstReport = await first;
+        InspectionWorkspaceCloseReport secondReport = await second;
+        Task<InspectionWorkspaceCloseReport> third =
+            workspace.CloseAsync();
+
+        Assert.Same(first, second);
+        Assert.Same(first, third);
+        Assert.Same(firstReport, secondReport);
+        Assert.Same(firstReport, await third);
+        Assert.Same(firstReport, workspace.CloseReport);
+    }
+
+    [Fact]
+    public async Task WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority()
+    {
+        TestAssembly source = TestAssembly.Create();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        group.RegisterOwnedResource(new ThrowingResource());
+
+        Assert.Throws<InvalidOperationException>(workspace.Dispose);
+        Assert.True(
+            group.GetAssemblyImageSpan(source.Assembly).IsAvailable);
+        group.Dispose();
+
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync();
+
+        Assert.False(Assert.Single(report.Groups).Succeeded);
+
+        TestAssembly synchronousSource = TestAssembly.Create();
+        using var synchronousWorkspace = new InspectionWorkspace();
+        Assert.Throws<InvalidOperationException>(
+            () =>
+            {
+                _ = synchronousWorkspace.CloseAsync();
+            });
+        AssemblyContextGroup synchronousGroup =
+            synchronousWorkspace.CreateAssemblyContextGroup(
+                [synchronousSource.Participant]);
+        synchronousGroup.RegisterOwnedResource(
+            new ThrowingResource());
+        Assert.Throws<AggregateException>(
+            synchronousWorkspace.Dispose);
+
+        TestAssembly asyncCompatibilitySource =
+            TestAssembly.Create();
+        var asyncCompatibilityWorkspace =
+            new InspectionWorkspace();
+        AssemblyContextGroup asyncCompatibilityGroup =
+            asyncCompatibilityWorkspace.CreateAssemblyContextGroup(
+                [asyncCompatibilitySource.Participant]);
+
+        await asyncCompatibilityWorkspace.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => asyncCompatibilityGroup.GetAssemblyImageSpan(
+                asyncCompatibilitySource.Assembly));
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking()
+    {
+        TestAssembly source = TestAssembly.Create();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        var creationContext =
+            new NonPumpingSynchronizationContext();
+        SynchronizationContext? previousContext =
+            SynchronizationContext.Current;
+        AssemblyContextGroup group;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(
+                creationContext);
+            group = workspace.CreateAssemblyContextGroup(
+                [source.Participant]);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(
+                previousContext);
+        }
+        var callbackEntered =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackResume =
+            new TaskCompletionSource<int>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<AssemblyImageAccessResult<int>> operation =
+            group.UseAndReleaseAssemblySessionAsync(
+                source.Assembly,
+                async (_, _) =>
+                {
+                    callbackEntered.SetResult();
+                    return await callbackResume.Task;
+                });
+        await callbackEntered.Task;
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        Assert.False(close.IsCompleted);
+        Assert.Throws<ObjectDisposedException>(
+            () => group.GetAssemblyImageSpan(source.Assembly));
+
+        callbackResume.SetResult(42);
+        var available = Assert.IsType<
+            AssemblyImageAccessResult<int>.Available>(
+                await operation);
+        Assert.Equal(0, creationContext.PostCount);
+        InspectionWorkspaceCloseReport report = await close;
+
+        Assert.Equal(42, available.Value);
+        Assert.True(Assert.Single(report.Groups).Succeeded);
+    }
+
+    [Fact]
     public void ConcurrentDisposal_AfterAsyncCallbackEnds_PreservesOwnedResourceDisposalOrder()
     {
         TestAssembly source = TestAssembly.Create();
@@ -881,6 +1192,33 @@ public sealed class InspectionWorkspaceTests
         public void Dispose() =>
             throw new InvalidOperationException(
                 "Synthetic owned-resource disposal failure.");
+    }
+
+    sealed class BlockingResource(
+        ManualResetEventSlim entered,
+        ManualResetEventSlim resume,
+        CancellationToken cancellationToken)
+        : IDisposable
+    {
+        public void Dispose()
+        {
+            entered.Set();
+            resume.Wait(cancellationToken);
+        }
+    }
+
+    sealed class NonPumpingSynchronizationContext :
+        SynchronizationContext
+    {
+        int _postCount;
+
+        internal int PostCount =>
+            Volatile.Read(ref _postCount);
+
+        public override void Post(
+            SendOrPostCallback callback,
+            object? state) =>
+            Interlocked.Increment(ref _postCount);
     }
 
     sealed class RetainedImageAssertingResource(

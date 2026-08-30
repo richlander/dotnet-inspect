@@ -153,22 +153,31 @@ public sealed class AssemblyContextGroup : IDisposable
     readonly HashSet<IDisposable> _ownedResources =
         new(ReferenceEqualityComparer.Instance);
     readonly Action<AssemblyContextGroup> _onDisposed;
+    readonly TaskCompletionSource<AssemblyContextGroupReleaseResult>
+        _releaseCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    readonly bool _captureReleaseFailuresByDefault;
     readonly long _maxRetainedImageBytes;
     long _retainedImageBytes;
     int _activeCallbacks;
     bool _disposed;
+    bool _captureReleaseFailure;
+    bool _releaseRequested;
     bool _released;
 
     internal AssemblyContextGroup(
         IEnumerable<AssemblyContextParticipant> participants,
         AssemblyContextGroupOptions? options,
-        Action<AssemblyContextGroup> onDisposed)
+        Action<AssemblyContextGroup> onDisposed,
+        bool captureReleaseFailuresByDefault)
     {
         ArgumentNullException.ThrowIfNull(participants);
         ArgumentNullException.ThrowIfNull(onDisposed);
         options ??= new AssemblyContextGroupOptions();
         options.Validate();
         _onDisposed = onDisposed;
+        _captureReleaseFailuresByDefault =
+            captureReleaseFailuresByDefault;
         _maxRetainedImageBytes = options.MaxRetainedImageBytes;
 
         var builder =
@@ -614,13 +623,16 @@ public sealed class AssemblyContextGroup : IDisposable
         Exception? operationFailure)
     {
         bool release;
+        bool captureReleaseFailure;
         lock (participant.ImageLoadGate)
         {
             lock (_lifetimeGate)
             {
                 _activeCallbacks--;
                 release =
-                    _disposed && _activeCallbacks == 0 && !_released;
+                    _releaseRequested
+                    && _activeCallbacks == 0
+                    && !_released;
                 if (release)
                 {
                     _released = true;
@@ -629,10 +641,15 @@ public sealed class AssemblyContextGroup : IDisposable
                 {
                     _retainedImageBytes -= participant.Release();
                 }
+
+                captureReleaseFailure = _captureReleaseFailure;
             }
         }
 
-        CompleteCallbackRelease(release, operationFailure);
+        CompleteCallbackRelease(
+            release,
+            captureReleaseFailure,
+            operationFailure);
     }
 
     void ReleaseSnapshotCore(ParticipantState participant)
@@ -677,59 +694,114 @@ public sealed class AssemblyContextGroup : IDisposable
     void EndCallback(Exception? operationFailure)
     {
         bool release;
+        bool captureReleaseFailure;
         lock (_lifetimeGate)
         {
             _activeCallbacks--;
             release =
-                _disposed && _activeCallbacks == 0 && !_released;
+                _releaseRequested
+                && _activeCallbacks == 0
+                && !_released;
             if (release)
                 _released = true;
+            captureReleaseFailure = _captureReleaseFailure;
         }
 
-        CompleteCallbackRelease(release, operationFailure);
+        CompleteCallbackRelease(
+            release,
+            captureReleaseFailure,
+            operationFailure);
     }
 
     void CompleteCallbackRelease(
         bool release,
+        bool captureReleaseFailure,
         Exception? operationFailure)
     {
         if (!release)
             return;
 
-        try
-        {
-            ReleaseOwnedState();
-        }
-        catch (Exception releaseFailure)
-            when (operationFailure is not null)
+        Exception? releaseFailure = ReleaseOwnedState();
+        _releaseCompletion.TrySetResult(
+            new AssemblyContextGroupReleaseResult(releaseFailure));
+        if (releaseFailure is null || captureReleaseFailure)
+            return;
+
+        if (operationFailure is not null)
         {
             throw new AggregateException(
                 operationFailure,
                 releaseFailure);
         }
+
+        throw releaseFailure;
     }
 
     public void Dispose()
     {
-        bool release;
+        RequestRelease(captureFailure: false);
+    }
+
+    internal Task<AssemblyContextGroupReleaseResult> RequestReleaseAsync()
+    {
+        RequestRelease(captureFailure: true);
+        return _releaseCompletion.Task;
+    }
+
+    internal Task<AssemblyContextGroupReleaseResult> ReleaseCompletion =>
+        _releaseCompletion.Task;
+
+    internal void CloseAdmissionFromWorkspace(
+        bool captureFailure)
+    {
         lock (_lifetimeGate)
         {
-            if (_disposed)
+            _captureReleaseFailure |=
+                captureFailure
+                || _captureReleaseFailuresByDefault;
+            _disposed = true;
+        }
+    }
+
+    void RequestRelease(bool captureFailure)
+    {
+        bool release;
+        bool captureReleaseFailure;
+        bool notifyOwner;
+        lock (_lifetimeGate)
+        {
+            _captureReleaseFailure |=
+                captureFailure
+                || _captureReleaseFailuresByDefault;
+            captureReleaseFailure = _captureReleaseFailure;
+            if (_releaseRequested)
                 return;
 
+            notifyOwner = !_disposed;
             _disposed = true;
+            _releaseRequested = true;
             release = _activeCallbacks == 0 && !_released;
             if (release)
                 _released = true;
         }
 
-        _onDisposed(this);
+        if (notifyOwner)
+            _onDisposed(this);
 
         if (release)
-            ReleaseOwnedState();
+        {
+            Exception? releaseFailure = ReleaseOwnedState();
+            _releaseCompletion.TrySetResult(
+                new AssemblyContextGroupReleaseResult(releaseFailure));
+            if (releaseFailure is not null
+                && !captureReleaseFailure)
+            {
+                throw releaseFailure;
+            }
+        }
     }
 
-    void ReleaseOwnedState()
+    Exception? ReleaseOwnedState()
     {
         IDisposable[] resources;
         lock (_lifetimeGate)
@@ -757,8 +829,9 @@ public sealed class AssemblyContextGroup : IDisposable
             ReleaseSnapshotCore(participant);
         }
 
-        if (failures is not null)
-            throw new AggregateException(failures);
+        return failures is null
+            ? null
+            : new AggregateException(failures);
     }
 
     sealed class ParticipantState(
@@ -789,49 +862,184 @@ public sealed class AssemblyContextGroup : IDisposable
         CandidateOpenFailure? Failure);
 }
 
+sealed record AssemblyContextGroupReleaseResult(Exception? Failure);
+
+/// <summary>
+/// Terminal release result for one group admitted by an asynchronous workspace.
+/// </summary>
+public sealed class InspectionWorkspaceGroupCloseResult
+{
+    internal InspectionWorkspaceGroupCloseResult(
+        int registrationIndex,
+        Exception? failure)
+    {
+        RegistrationIndex = registrationIndex;
+        Failure = failure;
+    }
+
+    public int RegistrationIndex { get; }
+
+    public bool Succeeded => Failure is null;
+
+    public Exception? Failure { get; }
+}
+
+/// <summary>
+/// Immutable terminal report produced by an asynchronous workspace close.
+/// </summary>
+public sealed class InspectionWorkspaceCloseReport
+{
+    internal InspectionWorkspaceCloseReport(
+        ImmutableArray<InspectionWorkspaceGroupCloseResult> groups)
+    {
+        Groups = groups;
+    }
+
+    public ImmutableArray<InspectionWorkspaceGroupCloseResult> Groups
+    {
+        get;
+    }
+}
+
 /// <summary>
 /// Shared owner for one or more assembly context groups.
 /// </summary>
-public sealed partial class InspectionWorkspace : IDisposable
+public sealed partial class InspectionWorkspace :
+    IDisposable,
+    IAsyncDisposable
 {
     readonly object _gate = new();
     readonly List<AssemblyContextGroup> _groups = [];
-    bool _disposed;
+    readonly List<WorkspaceGroupAdmission> _admissions = [];
+    readonly InspectionWorkspaceLifetimeMode _lifetimeMode;
+    readonly TaskCompletionSource<
+        ImmutableArray<WorkspaceGroupAdmission>>? _closeStart;
+    readonly Task<InspectionWorkspaceCloseReport>? _closeTask;
+    InspectionWorkspaceCloseReport? _closeReport;
+    InspectionWorkspaceState _state;
+    int _nextRegistrationIndex;
+
+    public InspectionWorkspace()
+    {
+        _lifetimeMode = InspectionWorkspaceLifetimeMode.Synchronous;
+    }
+
+    InspectionWorkspace(
+        InspectionWorkspaceLifetimeMode lifetimeMode)
+    {
+        _lifetimeMode = lifetimeMode;
+        _closeStart = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _closeTask = CloseCoreAsync(_closeStart.Task);
+    }
+
+    /// <summary>
+    /// Creates a workspace whose terminal lifetime is observed through
+    /// <see cref="CloseAsync"/>.
+    /// </summary>
+    public static InspectionWorkspace CreateAsynchronous() =>
+        new(InspectionWorkspaceLifetimeMode.Asynchronous);
+
+    /// <summary>
+    /// Gets the terminal report after asynchronous close completes.
+    /// </summary>
+    public InspectionWorkspaceCloseReport? CloseReport
+    {
+        get
+        {
+            lock (_gate)
+                return _closeReport;
+        }
+    }
 
     public AssemblyContextGroup CreateAssemblyContextGroup(
         IEnumerable<AssemblyContextParticipant> participants,
         AssemblyContextGroupOptions? options = null)
     {
-        lock (_gate)
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-        var group = new AssemblyContextGroup(
-            participants,
-            options,
-            RemoveGroup);
-
+        WorkspaceGroupAdmission? admission = null;
         lock (_gate)
         {
-            if (!_disposed)
+            ObjectDisposedException.ThrowIf(
+                _state != InspectionWorkspaceState.Open,
+                this);
+            if (_lifetimeMode
+                == InspectionWorkspaceLifetimeMode.Asynchronous)
             {
-                _groups.Add(group);
-                return group;
+                admission = new WorkspaceGroupAdmission(
+                    _nextRegistrationIndex++);
+                _admissions.Add(admission);
             }
         }
 
-        group.Dispose();
+        AssemblyContextGroup group;
+        try
+        {
+            group = new AssemblyContextGroup(
+                participants,
+                options,
+                RemoveGroup,
+                captureReleaseFailuresByDefault:
+                    _lifetimeMode
+                    == InspectionWorkspaceLifetimeMode.Asynchronous);
+        }
+        catch
+        {
+            admission?.Complete(registration: null);
+            throw;
+        }
+
+        WorkspaceGroupRegistration? registration =
+            admission is null
+                ? null
+                : new WorkspaceGroupRegistration(
+                    admission.RegistrationIndex,
+                    group);
+        bool published;
+        lock (_gate)
+        {
+            published = _state == InspectionWorkspaceState.Open;
+            if (published)
+            {
+                _groups.Add(group);
+                admission?.Complete(registration);
+            }
+        }
+
+        if (published)
+            return group;
+
+        admission?.Complete(registration);
+        if (_lifetimeMode
+            == InspectionWorkspaceLifetimeMode.Synchronous)
+        {
+            group.Dispose();
+        }
+
         throw new ObjectDisposedException(nameof(InspectionWorkspace));
     }
 
     public void Dispose()
     {
+        if (_lifetimeMode
+            == InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            throw new InvalidOperationException(
+                "An asynchronous inspection workspace must be closed with CloseAsync or DisposeAsync.");
+        }
+
         List<AssemblyContextGroup> groups;
         lock (_gate)
         {
-            if (_disposed)
+            if (_state != InspectionWorkspaceState.Open)
                 return;
-            _disposed = true;
+            _state = InspectionWorkspaceState.Closing;
             groups = [.. _groups];
+            foreach (AssemblyContextGroup group in groups)
+            {
+                group.CloseAdmissionFromWorkspace(
+                    captureFailure: false);
+            }
+
             _groups.Clear();
         }
 
@@ -848,13 +1056,214 @@ public sealed partial class InspectionWorkspace : IDisposable
             }
         }
 
+        lock (_gate)
+            _state = InspectionWorkspaceState.Closed;
+
         if (failures is not null)
             throw new AggregateException(failures);
+    }
+
+    /// <summary>
+    /// Closes an asynchronous workspace and returns its shared terminal report.
+    /// </summary>
+    public Task<InspectionWorkspaceCloseReport> CloseAsync()
+    {
+        if (_lifetimeMode
+            != InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            throw new InvalidOperationException(
+                "CloseAsync requires a workspace created by CreateAsynchronous.");
+        }
+
+        ImmutableArray<WorkspaceGroupAdmission> admissions = default;
+        bool startClose = false;
+        lock (_gate)
+        {
+            if (_state == InspectionWorkspaceState.Open)
+            {
+                _state = InspectionWorkspaceState.Closing;
+                admissions = [.. _admissions];
+                foreach (AssemblyContextGroup group in _groups)
+                {
+                    group.CloseAdmissionFromWorkspace(
+                        captureFailure: true);
+                }
+
+                _groups.Clear();
+                startClose = true;
+            }
+        }
+
+        if (startClose)
+        {
+            foreach (WorkspaceGroupAdmission admission in admissions)
+            {
+                admission.TryRequestRelease();
+            }
+
+            _closeStart!.SetResult(admissions);
+        }
+
+        return _closeTask!;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        if (_lifetimeMode
+            == InspectionWorkspaceLifetimeMode.Asynchronous)
+        {
+            return new ValueTask(CloseAsync());
+        }
+
+        Dispose();
+        return ValueTask.CompletedTask;
     }
 
     void RemoveGroup(AssemblyContextGroup group)
     {
         lock (_gate)
             _groups.Remove(group);
+    }
+
+    async Task<InspectionWorkspaceCloseReport> CloseCoreAsync(
+        Task<ImmutableArray<WorkspaceGroupAdmission>> start)
+    {
+        ImmutableArray<WorkspaceGroupAdmission> admissions =
+            await start.ConfigureAwait(false);
+        var completionTasks =
+            new Task<InspectionWorkspaceGroupCloseResult?>[
+                admissions.Length];
+        for (int index = 0; index < admissions.Length; index++)
+        {
+            completionTasks[index] =
+                admissions[index].RequestReleaseAndGetResultAsync();
+        }
+
+        InspectionWorkspaceGroupCloseResult?[] completed =
+            await Task.WhenAll(completionTasks).ConfigureAwait(false);
+        var reportGroups =
+            ImmutableArray.CreateBuilder<
+                InspectionWorkspaceGroupCloseResult>();
+        foreach (InspectionWorkspaceGroupCloseResult? result in completed)
+        {
+            if (result is not null)
+                reportGroups.Add(result);
+        }
+
+        var report = new InspectionWorkspaceCloseReport(
+            reportGroups.ToImmutable());
+        lock (_gate)
+        {
+            _closeReport = report;
+            _state = InspectionWorkspaceState.Closed;
+        }
+        return report;
+    }
+
+    sealed class WorkspaceGroupAdmission(int registrationIndex)
+    {
+        readonly object _gate = new();
+        readonly TaskCompletionSource _constructionCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        readonly TaskCompletionSource<
+            InspectionWorkspaceGroupCloseResult?> _terminalCompletion =
+                new(TaskCreationOptions.RunContinuationsAsynchronously);
+        WorkspaceGroupRegistration? _registration;
+
+        internal int RegistrationIndex { get; } = registrationIndex;
+
+        internal void TryRequestRelease()
+        {
+            WorkspaceGroupRegistration? registration;
+            lock (_gate)
+                registration = _registration;
+
+            if (registration is not null)
+                _ = registration.Group.RequestReleaseAsync();
+        }
+
+        internal async Task<InspectionWorkspaceGroupCloseResult?>
+            RequestReleaseAndGetResultAsync()
+        {
+            await _constructionCompletion.Task.ConfigureAwait(false);
+            TryRequestRelease();
+            return await _terminalCompletion.Task.ConfigureAwait(false);
+        }
+
+        internal void Complete(
+            WorkspaceGroupRegistration? registration)
+        {
+            if (registration is null)
+            {
+                _terminalCompletion.SetResult(result: null);
+                _constructionCompletion.SetResult();
+                return;
+            }
+
+            lock (_gate)
+                _registration = registration;
+
+            ObserveRelease(registration);
+
+            _constructionCompletion.SetResult();
+        }
+
+        void ObserveRelease(
+            WorkspaceGroupRegistration registration)
+        {
+            Task<AssemblyContextGroupReleaseResult> completion =
+                registration.Group.ReleaseCompletion;
+            var awaiter =
+                completion.ConfigureAwait(false).GetAwaiter();
+            if (awaiter.IsCompleted)
+            {
+                CompleteRelease(
+                    registration,
+                    awaiter.GetResult());
+                return;
+            }
+
+            awaiter.OnCompleted(
+                () => CompleteRelease(
+                    registration,
+                    awaiter.GetResult()));
+        }
+
+        void CompleteRelease(
+            WorkspaceGroupRegistration registration,
+            AssemblyContextGroupReleaseResult release)
+        {
+            var result = new InspectionWorkspaceGroupCloseResult(
+                registration.RegistrationIndex,
+                release.Failure);
+            lock (_gate)
+            {
+                if (ReferenceEquals(
+                        _registration,
+                        registration))
+                {
+                    _registration = null;
+                }
+            }
+
+            _terminalCompletion.SetResult(result);
+        }
+    }
+
+    sealed record WorkspaceGroupRegistration(
+        int RegistrationIndex,
+        AssemblyContextGroup Group);
+
+    enum InspectionWorkspaceLifetimeMode
+    {
+        Synchronous,
+        Asynchronous
+    }
+
+    enum InspectionWorkspaceState
+    {
+        Open,
+        Closing,
+        Closed
     }
 }
