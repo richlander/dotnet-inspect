@@ -158,11 +158,11 @@ In the updated model:
 - the module publishes its rules version with
   `[module: MemorySafetyRulesAttribute(2)]`.
 
-A v2 member with positive body-unsafety evidence and no
-`RequiresUnsafeAttribute` is a safe boundary: it accepts the audit obligation
-inside its implementation instead of imposing it on callers. A v2 member with
-`RequiresUnsafeAttribute` is a propagator whether or not its body contains
-unsafe operations.
+A v2 member with positive evidence that its body used an inner unsafe context
+and no `RequiresUnsafeAttribute` is a safe boundary: it accepts the audit
+obligation inside its implementation instead of imposing it on callers. A v2
+member with `RequiresUnsafeAttribute` is a propagator whether or not its body
+contains unsafe operations.
 
 ### V2 audit and identification scenarios
 
@@ -170,12 +170,12 @@ The updated model is useful only if its method roles can be identified and
 navigated. A complete audit view needs three related answers:
 
 1. **Inner-unsafe census.** Identify every method with positive evidence that
-   its body established an inner unsafe context. This is the method population
-   that directly accepts an audit obligation. Source can confirm the lexical
-   context; binary analysis can infer it from operations that require such a
-   context under the selected language semantics. A binary-only result must
-   preserve unknowns and must not claim that an erased or empty lexical block
-   could be recovered.
+   its body used an inner unsafe context. This is the method population that
+   directly accepts an audit obligation. Under v2, a context-requiring call or
+   operation in a compiled body proves that source had to establish an inner
+   unsafe block or expression. This is a semantic census, not a census of empty
+   or otherwise behavior-free lexical blocks. Missing or incomplete body
+   evidence remains unknown rather than safe.
 2. **Safe-boundary census.** Identify every v2 inner-unsafe method that does
    not propagate unsafe. Safe boundaries are unsafe users, despite being
    callable from safe code, and carry the heaviest audit burden: they claim to
@@ -413,7 +413,7 @@ dotnet-inspect evidence plane.
 | Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, and the correct v2 attribute carrier | Metadata exposes `ApiMember.IsUnsafe` and Analysis exposes method `CallerUnsafeMode`; both are currently model-incomplete, and neither provides complete field/accessor coverage. |
 | Which methods establish inner unsafe? | Context-requiring operations plus source/build evidence where binary semantics are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet expose a model-aware, completeness-qualified inner-unsafe census. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive inner-unsafe evidence | Not currently exposed as a composed census. |
-| How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities, but no current query composes memory-safety roles onto paths. |
+| How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities. It can expose a conflating `MethodSignals.Unsafe` cue, but no current query composes the separate propagation, inner-use, and safe-boundary roles onto paths. |
 | How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
 | Is the project configured for the strongest default? | Updated project policy, unsafe-context permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
