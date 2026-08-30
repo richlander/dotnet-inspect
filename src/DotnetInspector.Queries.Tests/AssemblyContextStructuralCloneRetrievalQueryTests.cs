@@ -1043,6 +1043,167 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_WholeAssemblyDuplicateProjectionIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDuplicateMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+    }
+
+    [Fact]
+    public void Execute_OutOfRangeMethodProjectionIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildMethodPtrAssembly(1, 99));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+    }
+
+    [Fact]
+    public void Execute_DuplicateProjectionSeedMemberIsAMetadataRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDuplicateMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var anchor =
+            ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                Type(reader, "N.Fixture"),
+                reader.GetMethodDefinition(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed.Member(
+                            TypeName("N.Fixture"),
+                            anchor),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        // A repeated projection is a corrupt image, not a user-visible
+        // ambiguity between two distinct members.
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Seed,
+            failed.Failure.Role);
+    }
+
+    [Fact]
+    public void Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection()
+    {
+        ImmutableArray<byte> seedImage =
+            Image(FixtureCatalog.DiffPair.OldAssemblyPath());
+        ImmutableArray<byte> candidateImage =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDuplicateMethodPtrAssembly());
+        var seedPolicy = new TestBindingPolicy();
+        var candidatePolicy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup seedGroup =
+            Group(workspace, seedImage, seedPolicy);
+        using AssemblyContextGroup candidateGroup =
+            Group(workspace, candidateImage, candidatePolicy);
+        int seedToken = MetadataTokens.GetToken(
+            Method(
+                seedImage,
+                "DiffFixtureSample.DiffSample",
+                "Stable"));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        seedGroup,
+                        Assert.Single(seedGroup.Participants),
+                        candidateGroup,
+                        Assert.Single(candidateGroup.Participants),
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(seedToken),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+    }
+
+    [Fact]
     public void Execute_MalformedSeedImageIsAVisibleSeedRejection()
     {
         ImmutableArray<byte> candidateImage =
@@ -1702,13 +1863,19 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         }
     }
 
+    static byte[] BuildDuplicateMethodPtrAssembly() =>
+        BuildMethodPtrAssembly(1, 1);
+
     /// <summary>
     /// Builds an assembly whose metadata uses the unoptimized <c>#-</c>
-    /// tables stream and carries a MethodPtr table of <c>[1, 1]</c>, so
-    /// <c>N.Fixture</c> projects MethodDef row 1 twice. MetadataBuilder
-    /// cannot emit MethodPtr, so the serialized image is patched.
+    /// tables stream and carries a MethodPtr table selecting the two
+    /// supplied MethodDef rows, so <c>N.Fixture</c> projects them in
+    /// order. MetadataBuilder cannot emit MethodPtr, so the serialized
+    /// image is patched.
     /// </summary>
-    static byte[] BuildDuplicateMethodPtrAssembly()
+    static byte[] BuildMethodPtrAssembly(
+        ushort firstRow,
+        ushort secondRow)
     {
         var metadata = new MetadataBuilder();
         var bodies = new BlobBuilder();
@@ -1761,7 +1928,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        return InsertDuplicateMethodPtrTable(image.ToArray());
+        return InsertMethodPtrTable(
+            image.ToArray(),
+            firstRow,
+            secondRow);
     }
 
     /// <summary>
@@ -1770,7 +1940,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     /// reclaimed from the <c>#US</c> tail, keeping the image length and
     /// therefore every PE header and section size valid.
     /// </summary>
-    static byte[] InsertDuplicateMethodPtrTable(byte[] image)
+    static byte[] InsertMethodPtrTable(
+        byte[] image,
+        ushort firstRow,
+        ushort secondRow)
     {
         int metadataStart;
         int metadataSize;
@@ -1836,7 +2009,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             contents[stream.Name] = body;
         }
 
-        contents["#~"] = GrowTablesWithMethodPtr(contents["#~"]);
+        contents["#~"] = GrowTablesWithMethodPtr(
+            contents["#~"],
+            firstRow,
+            secondRow);
         byte[] originalUserStrings = contents["#US"];
         Assert.True(
             originalUserStrings.Length >= 12,
@@ -1894,7 +2070,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     /// Returns a tables-stream body that additionally declares a
     /// MethodPtr table holding two rows that both select MethodDef 1.
     /// </summary>
-    static byte[] GrowTablesWithMethodPtr(byte[] tables)
+    static byte[] GrowTablesWithMethodPtr(
+        byte[] tables,
+        ushort firstRow,
+        ushort secondRow)
     {
         Assert.Equal(0, tables[6] & 0x07);
         ulong valid = ReadUInt64At(tables, 8);
@@ -1970,8 +2149,8 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         int source = 24 + (4 * present.Count);
         Array.Copy(tables, source, grown, write, methodDefStart);
         int inserted = write + methodDefStart;
-        WriteUInt16At(grown, inserted, 1);
-        WriteUInt16At(grown, inserted + 2, 1);
+        WriteUInt16At(grown, inserted, firstRow);
+        WriteUInt16At(grown, inserted + 2, secondRow);
         Array.Copy(
             tables,
             source + methodDefStart,

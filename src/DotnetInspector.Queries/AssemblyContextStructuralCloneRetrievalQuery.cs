@@ -504,6 +504,9 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         TypeDefinition definition =
             reader.GetTypeDefinition(type.Handle);
         var attributeBudget = new AttributeInspectionBudget();
+        int seedMethodRows =
+            reader.GetTableRowCount(TableIndex.MethodDef);
+        var projected = new HashSet<MethodDefinitionHandle>();
         bool isExtensionContainer =
             definition.Attributes.HasFlag(TypeAttributes.Abstract)
             && definition.Attributes.HasFlag(TypeAttributes.Sealed)
@@ -522,6 +525,11 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                     "The exact seed member lookup exceeds the MethodDef "
                         + "row budget.");
             }
+
+            ValidateProjectedMethod(
+                methodHandle,
+                seedMethodRows,
+                projected);
 
             MethodDefinition method =
                 reader.GetMethodDefinition(methodHandle);
@@ -606,7 +614,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             is StructuralCloneQueryPopulation.WholeAssembly)
         {
             return PopulationResolution.Resolved(
-                reader.MethodDefinitions.ToImmutableArray());
+                ValidatedMethods(reader, reader.MethodDefinitions));
         }
 
         if (population
@@ -778,34 +786,59 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
 
     static ImmutableArray<MethodDefinitionHandle> ValidatedMethods(
         MetadataReader reader,
-        TypeDefinitionHandle type)
+        TypeDefinitionHandle type) =>
+        ValidatedMethods(
+            reader,
+            reader.GetTypeDefinition(type).GetMethods());
+
+    /// <summary>
+    /// Copies a projected method list, rejecting rows that fall outside
+    /// the MethodDef table or that repeat. An unoptimized image projects
+    /// this list through MethodPtr, so both shapes are reachable from
+    /// malformed metadata and must fail before Analysis sees them.
+    /// </summary>
+    static ImmutableArray<MethodDefinitionHandle> ValidatedMethods(
+        MetadataReader reader,
+        IEnumerable<MethodDefinitionHandle> projection)
     {
         int methodRows =
             reader.GetTableRowCount(TableIndex.MethodDef);
         var methods =
             ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
         var projected = new HashSet<MethodDefinitionHandle>();
-        foreach (MethodDefinitionHandle method
-            in reader.GetTypeDefinition(type).GetMethods())
+        foreach (MethodDefinitionHandle method in projection)
         {
-            int row = MetadataTokens.GetRowNumber(method);
-            if (row == 0 || row > methodRows)
-            {
-                throw new BadImageFormatException(
-                    "The selected TypeDef contains an invalid MethodDef range.");
-            }
-
-            if (!projected.Add(method))
-            {
-                throw new BadImageFormatException(
-                    "The selected TypeDef projects the same MethodDef "
-                        + "row more than once.");
-            }
-
+            ValidateProjectedMethod(method, methodRows, projected);
             methods.Add(method);
         }
 
         return methods.ToImmutable();
+    }
+
+    /// <summary>
+    /// Rejects a projected MethodDef row that is out of range or already
+    /// seen, so a malformed projection cannot reach Analysis as an
+    /// untyped argument error.
+    /// </summary>
+    static void ValidateProjectedMethod(
+        MethodDefinitionHandle method,
+        int methodRows,
+        HashSet<MethodDefinitionHandle> projected)
+    {
+        int row = MetadataTokens.GetRowNumber(method);
+        if (row == 0 || row > methodRows)
+        {
+            throw new BadImageFormatException(
+                "A projected MethodDef row falls outside the MethodDef "
+                    + "table.");
+        }
+
+        if (!projected.Add(method))
+        {
+            throw new BadImageFormatException(
+                "The selected method projection repeats a MethodDef "
+                    + "row.");
+        }
     }
 
     static bool HasExtensionAttribute(
