@@ -77,14 +77,15 @@ body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
 Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, group-scoped PDB-mapped-or-decompiled type/member source, immutable
-package-manifest facts, bounded package-prefix profiles, and product-owned
-nuspec package-query facets. Package dependency selection, package-prefix
-profiles, and package-query facets consume the same validated manifest-facts
-query. The package-query contract owns ordered opaque facet descriptors, typed
-selection validation, ANDed evaluation, inert evidence, distinct candidate and
-match bounds, and typed completion without choosing a renderer. This contract
-is gated by `PackageQueryTests` and the
+slices, seeded structural-clone retrieval, group-scoped
+PDB-mapped-or-decompiled type/member source, immutable package-manifest facts,
+bounded package-prefix profiles, and product-owned nuspec package-query facets.
+Package dependency selection, package-prefix profiles, and package-query facets
+consume the same validated manifest-facts query. The package-query contract
+owns ordered opaque facet descriptors, typed selection validation, ANDed
+evaluation, inert evidence, distinct candidate and match bounds, and typed
+completion without choosing a renderer. This contract is gated by
+`PackageQueryTests` and the
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` consumer canary. The
 profile's L2 `Packages` section owns package/dependency row grain, schema,
 projection, and visible failure or truncation evidence; `find` retains only
@@ -928,166 +929,392 @@ This boundary does not define:
 - outer-result publication, CLI/output behavior, or row integrity; or
 - Source, PDB, network, cache, retry, or authored-source behavior.
 
-## Package-realization coordinate admission
+## Package-realization exact-request admission
 
 **Status:** target design, scoped independently of #4745; unimplemented. This
-is a separate future responsibility of the same L1 owner, not an extension of
-the [Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
-plan/realize/cleanup contract or its gate list. It is *intended* to compose
-with that boundary rather than redefine it -- this admission layer decides
-whether a `RealizePackageAssemblyContextRoles` (or its #4745 typed successor)
-operation starts at all for a given package coordinate, and the existing
-boundary still owns everything that happens once that operation runs. This
-section defines the shared-realization lifetime composition; request
-granularity remains a separate open migration question.
+is a separate responsibility of the same L1 owner, not an extension of the
+[Package-role planning and cleanup boundary](#package-role-planning-and-cleanup-boundary)'s
+plan/realize/cleanup contract or gate list. Admission decides whether one
+whole package-role operation starts or whether an exact earlier operation is
+joined or reused. The adjacent boundary still owns planning, group
+construction, binding, aggregate limit enforcement, quiescence, and cleanup.
+
+This contract supersedes the earlier per-coordinate target. The current
+compatibility API does not produce independently composable per-coordinate
+realizations, so decomposing one request into partial cache hits would change
+the operation it claims to reuse.
 
 ### Current admission gap
 
 `RealizePackageAssemblyContextRoles` has no cache or admission logic today.
-Two calls with an identical realized package coordinate (package id, version,
-target framework, runtime identifier, and resolved producer -- see
-`RealizedMemberCoordinate.Package` in
-`src/DotnetInspector.Queries/WorkspaceAcquisitionCoordinates.cs`) each
-independently reopen content and mint an unrelated `AssemblyContextGroup`
-and participant set. `PackageAssemblyContextRealizationConcurrentDemandTests`
-demonstrates this behavior; issue #4960 tracks the admission gap itself.
+Repeated calls independently reopen content and mint unrelated
+`AssemblyContextGroup` and participant sets.
+`PackageAssemblyContextRealizationConcurrentDemandTests` demonstrates that
+behavior; #4960 tracks the product gap.
 
-### Why the coordinate, not the assembly content
+The API has no product caller today. Its only non-test consumer is the
+`inspect-web` prototype, where `BrowserInspectionScope` creates one
+`InspectionWorkspace` and one package-role realization per scope.
+`BrowserPackageWorkspace` retains and reuses complete prototype scopes through
+a higher registry boundary with its own exact-content check. It does not make
+a workspace-local admission hit reachable. Implementing this contract before a
+retained multi-call product workspace adopts it would add unreachable
+infrastructure rather than product value.
 
-A package coordinate is stable and decidable: id, version, framework, runtime
-identifier, and producer determine one selectable package occurrence, and
-`Producer` specifically resolves the case where two feeds could otherwise
-serve the same id and version with different bytes. Individual assembly/PE content has no
-equivalent independent identity -- `Foo.dll` can duplicate within one package
-or across packages with no canonical resolution -- so this admission layer is
-scoped to package coordinates only. It does not admit by assembly identity,
-and it does not replace `AssemblyInspectionSession.Borrow`'s existing
-pass-the-open-handle convention at that layer, which remains correct and
-conservative because no stable content coordinate exists to key a cache by.
+### Why the whole exact request is the cache unit
 
-### Target shape
+The compatibility API realizes every selected package in one operation:
 
-The per-coordinate admission primitive accepts only a
-`PackageRootRealization` whose asset selection is `Selected` and whose surface
-role is non-empty. A Root-only success has no assembly contexts or package-role
-session: it remains host-owned and bypasses this cache without a lease or
-cleanup request. In a mixed caller request, only selected coordinates enter
-this primitive after the adopting adapter performs the still-open request
-decomposition.
+- all surface assets enter one immutable binding domain;
+- implementation assets either share that group or enter one second group;
+- `SharesGroup` is decided from the flattened request-wide asset sets;
+- equivalent assembly identities are rejected across each combined role;
+- `MaxAssembliesPerRole` applies to each combined role; and
+- `MaxAggregateRetainedImageBytes` is apportioned across the request's
+  complete topology.
 
-For each admitted coordinate, a workspace-scoped cache keyed by its realized
-package coordinate admits through three open-workspace states: absent, in
-flight, or ready with a retained realization. A demand for an absent coordinate
-starts the one admitting operation; a demand for an in-flight coordinate joins
-it instead of starting a second one; a demand for a ready coordinate reuses the
-retained realization directly. Every demand that admitted or joined one
-operation observes the same outcome. A failed operation is not cached as
-failed -- the coordinate returns to absent so a later demand can retry --
-because a transient acquisition failure should not permanently poison a
-coordinate that never had a chance to succeed. Disposal adds draining, closing,
-releasing, and released states to govern terminal ownership.
+Two packages can therefore be valid separately but invalid together, and one
+package's role topology can change when another package joins the request.
+Independent per-coordinate results cannot be recombined without bypassing
+those checks or changing cross-package reference resolution. Admission never
+uses a ready subset, never joins an overlapping superset, and never assembles a
+new result from cached and fresh coordinate fragments.
 
-This says nothing about assembly-content identity, `AssemblyContextGroup`'s own
-callback/quiescence/disposal lifecycle (already modeled by
-[`AssemblyContextGroupLifecycle.tla`](../models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla)),
-or the internal plan/open/cleanup shape of one admitting operation (owned by
-the boundary above). It also does not claim current product behavior.
+A package coordinate remains the smallest stable semantic input identity:
+package id, version, framework, runtime identifier, and resolved producer
+identify one selectable occurrence. `Producer` distinguishes feeds, but it is
+source identity rather than immutable content-generation identity. A store may
+replace bytes under the same package/version/producer key, so coordinate
+equality alone cannot authorize reuse.
+That observation conflicts with the current realized-coordinate documentation
+that promises transporting the coordinate can reacquire the same bytes.
+Acquisition issue #5121 must resolve that owner contract rather than admission
+choosing one interpretation.
 
-`RealizePackageAssemblyContextRoles` admits an entire caller-supplied package
-set plus its options (budget and per-role limits) in one call, not one
-coordinate. This admission layer models the per-coordinate primitive;
-decomposing a multi-package request into independent per-coordinate admissions
-and composing partial cache hits with fresh admissions remains future work for
-the adopting adapter or migration slice. `PackageRootRealization` exposes the
-requested framework and content producer key, but it does not carry a
-`RealizedMemberCoordinate.Package`: it has no runtime identifier, and its id,
-version, and framework are not yet canonicalized as one realized coordinate.
-Deriving the cache key therefore still depends on `PackageCoordinateResolver`,
-the same normalizer `RealizedMemberCoordinate.Package` already defers to. This
-design consumes that resolved coordinate; it does not construct or normalize
-one. Root-only result construction and retention remain with the host boundary;
-this owner begins only after a selected coordinate is eligible for package-role
-realization.
+Each selected request member therefore also carries an acquisition-owned,
+opaque content-generation identity. Equal generation identities within the
+workspace guarantee the same immutable package content for the binding's
+lifetime. Replacement content receives a different generation identity or is
+visibly rejected by acquisition-owned interning. Admission compares the token
+but does not construct it, hash content, or define its portability.
+
+Content identity still does not determine selected assets. The same acquired
+package can produce different compile-asset outcomes for different requested
+frameworks, and `RealizedMemberCoordinate.Package.Framework` records the
+acquisition target rather than the selected package asset folder. Each member
+therefore also carries an acquisition-owned selection identity. Equal
+selection identities guarantee the same selection arm and, for `Selected`, the
+same ordered surface and implementation asset sequences. Admission compares
+that token without defining TFM matching, asset paths, selection ordering, or
+selection failure semantics.
+
+The generation and selection guarantees consumed here are target guarantees,
+not current verified product facts. They remain unverified until
+`PackageRootGenerationIdentity_ReplacementChangesIdentity`,
+`PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`, and
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent` land under #5121.
+
+Individual assembly content still has no equivalent independent coordinate, so
+this layer does not admit by assembly identity and does not replace
+`AssemblyInspectionSession.Borrow`'s pass-the-open-handle convention.
+
+### Exact request identity
+
+Admission consumes an immutable, already-resolved request. Its selected entries
+bind each `PackageRootRealization` to the
+`RealizedMemberCoordinate.Package`, immutable content-generation identity, and
+selection identity issued for that same occurrence. The acquisition boundary
+owns normalization, generation and selection identity, and correspondence;
+admission must not reconstruct a coordinate from display fields, treat
+`ProducerKey` as a generation, infer selection identity from a requested
+framework string, or accept an unproven binding.
+
+Root-only packages remain host-owned and are omitted from the selected
+sequence. If no selected package remains, the host returns the Root-only result
+without a cache entry, lease, or package-role cleanup request.
+Two demands that differ only in their Root-only members may share the same
+selected-package admission; each demand composes its own host-owned Root-only
+portion outside the lease.
+
+The cache key is:
+
+1. the ordered sequence of selected realized package-coordinate,
+   content-generation, and selection bindings; and
+2. the exact validated `PackageAssemblyContextRealizationOptions` value.
+
+Order remains part of identity because combined role construction and binding
+operate over ordered participants, and the demand-local projection preserves
+the submitted surface and implementation participant order. This focused
+design does not silently canonicalize that observable input. Two requests
+containing the same coordinates in a different order may run independently.
+
+Options use exact value equality across every policy field, including
+`MaxAssembliesPerRole`, `MaxAggregateRetainedImageBytes`,
+`MaxAssemblyEntryBytes`, and `RequireDeclaredEntryLengths`. A result admitted
+under looser limits cannot satisfy a stricter demand. Adding a future options
+field changes key equality by construction; admission does not maintain a
+separate hand-written compatibility table or take ownership of the adjacent
+boundary's budget arithmetic.
+
+A selected normalized coordinate may occur only once, even with two different
+generation tokens. Duplicate coordinates are rejected visibly before cache
+lookup, so they cannot join an entry or multiply one package occurrence inside
+a combined group.
+
+`PackageRootRealization` does not currently carry the complete resolved
+coordinate: it lacks a runtime identifier and its descriptive fields are not
+the coordinate authority. It also exposes no immutable content-generation
+or selection identity. The target input therefore requires a separate
+owner-issued typed seam before implementation (#5121). This section consumes
+that typed binding; it does not define coordinate construction, normalization,
+generation, selection, or acquisition.
+
+### Admission and publication
+
+Each exact request identity has one workspace-scoped cache entry. An absent
+entry admits one package-role operation. Admission publishes the entry as
+in-flight, including its physical operation identity, atomically and before
+the workspace-owned executor can run or re-enter admission. A matching
+in-flight demand joins that operation. A matching ready demand receives an
+independent lease over its retained result. Overlapping requests, reordered
+requests, and requests with different options use different entries even when
+some package coordinates are equal.
+
+Admission is capacity-bounded across the whole workspace. Workspace
+configuration supplies validated positive limits for:
+
+- retained or in-flight exact-request entries;
+- concurrently in-flight package-role operations; and
+- aggregate retained-byte reservation across all admitted entries.
+
+An absent request atomically reserves one entry, one operation slot, and its
+exact `MaxAggregateRetainedImageBytes` option value before the executor starts.
+That byte reservation may be zero, matching current options validation; the
+request still consumes entry and operation capacity.
+Joining an in-flight entry or leasing a ready entry consumes no additional
+capacity. Operation settlement releases the operation slot. Failure before
+publication also releases the entry and byte reservation; successful ready
+publication retains both until terminal cleanup completes. Caller cancellation
+does not release capacity still owned by the physical operation.
+
+If any reservation would exceed its workspace limit, that demand receives a
+typed capacity rejection before an operation id is minted or package-role work
+starts. Capacity rejection is not cached and does not disturb an existing
+entry. The retained caller in #5123 must choose explicit workspace limits; the
+admission implementation cannot inherit unbounded cardinality from caller
+input.
+
+One operation publishes one combined result atomically. Every demand attached
+to that operation receives the same success and realization identity, or every
+attached demand receives the same visible failure. No prefix, per-coordinate
+fragment, group, or participant collection becomes reusable before the whole
+package-role completion succeeds. A failed operation returns its exact key to
+absent so a later exact demand may retry.
+
+Each demand retains its own cancellation. Cancellation before lease delivery
+detaches that demand with a typed canceled outcome; it does not cancel or
+shorten the workspace-owned operation for another attached demand. The demand
+that first encountered an absent entry is not the operation's lifetime owner.
+If every attached demand cancels, the physical operation remains represented
+until it completes and may retain its ready result for a later exact request.
+It cannot disappear from the cache as though it never started. Workspace
+disposal closes admission but does not cancel or shorten an already-started
+physical operation; the operation settles naturally and a late success moves
+directly to cleanup. This deliberately accepts that synchronous work already
+in progress may reach its aggregate retained-byte limit before cleanup; caller
+or disposal cancellation is not an alternate partial-cleanup path.
+
+The physical operation is workspace-owned and independent of every demand's
+cancellation. Its in-flight identity is published atomically before any of its
+work can re-enter admission. Each demand may stop waiting without transferring
+or ending operation ownership. On supported single-threaded Browser/Wasm
+hosts, the operation provides bounded cooperative scheduling opportunities so
+cancellation and workspace lifecycle work can proceed without a background
+thread. The current synchronous compatibility API cannot provide this
+contract; #5122 owns the shareable asynchronous package-role completion and
+its cooperative-progress gate.
+
+A cancellation racing successful lease delivery linearizes as either
+cancellation without a lease or lease delivery followed by the caller's
+ordinary idempotent return obligation.
+
+The cache owns an adjacent-boundary shareable package-role completion, not the
+current caller-owned `PackageAssemblyContextRealization`. That compatibility
+type implements `IDisposable`, directly disposes its groups, and embeds the
+first caller's `PackageRootIdentity` references in participant wrappers; it
+cannot be returned to several independent callers safely.
+
+An adopting output seam must instead issue one demand-local projection per
+lease. The projection may reference the shared underlying group participants,
+but its `PackageAssemblyRoleParticipant` values must preserve that demand's
+submitted `PackageRootIdentity` references and ordered package associations.
+One caller cannot dispose, invalidate, or terminally release another caller's
+projection. Defining and implementing the adjacent package-role shareable
+completion is a prerequisite (#5122); this admission owner only retains it and
+issues leases.
+
+The projection must not expose a caller-disposable
+`AssemblyContextGroup` or any capability whose completion terminally releases
+a shared participant or group. "Non-owning" is insufficient:
+`AssemblyContextIntegrationsQuery.ExecuteParticipantAsync` leaves its group
+undisposed but permanently releases the selected participant for every
+sharer. Only the workspace-owned package-role completion can initiate
+participant or group release. Disposing or returning one projection releases
+its lease only.
+
+Projection use and lease return have one atomic linearization. A use that
+linearizes after return receives a typed returned-lease rejection and cannot
+begin group access. A use that linearizes before return may finish after the
+lease is removed; package-role quiescence prevents terminal cleanup from
+completing until that already-started use ends. `AssemblyContextGroup`
+`RetainAssemblyReference` can create an independent non-pooled snapshot whose
+lifetime already outlives group disposal. #5122 must decide explicitly whether
+the projection exposes that capability; returning the lease ends access
+through the projection but cannot revoke an independently retained snapshot.
 
 ### Shared-realization lifetime
 
-For each admitted selected coordinate, the workspace cache, not an admitting or
-reusing caller, owns the ready realization. A successful admission atomically
-publishes the ready cache entry and issues one `PackageRealizationLease` to
-every demand attached to that operation. A later authorized demand for the same
-coordinate receives its own lease over the same realization. The lease carries
-no package-selection, group-release, or cleanup authority; it only records that
-its demand may use the retained realization.
+The workspace cache, not an admitting or reusing caller, owns each ready
+combined realization. Successful atomic publication issues one
+`PackageRealizationLease` to every attached demand. A later exact demand
+receives its own lease. The lease carries no package-selection,
+group-release, or cleanup authority; it records only that its demand may use
+the retained result.
 
-A ready cache entry remains retained when its active lease count reaches zero.
-The first slice has no eviction, time-to-live, memory-pressure release, or
-cross-workspace persistence. Retaining the entry until workspace disposal
-keeps reuse independent of caller timing and prevents the last ordinary caller
-from racing a new demand by releasing and recreating the same coordinate.
+A ready entry remains retained when its active lease count reaches zero. The
+first implementation has no eviction, time-to-live, memory-pressure release,
+or cross-workspace persistence. Retention until workspace disposal prevents
+the last ordinary caller from racing a new exact demand by releasing and
+recreating the same request.
 
 Returning a lease is idempotent. The first return removes that demand from the
 active lease set; later returns do not change lease accounting, cache state, or
-cleanup authority. A returned lease cannot be used again. One demand in this
-contract holds one lease for one normalized coordinate; atomic rollback for a
-real caller request spanning several coordinates remains part of the separate
-request-granularity migration.
+cleanup authority. A returned lease cannot be used again. Because one lease
+covers one whole combined realization, cancellation or failure cannot require
+rollback of a partially leased coordinate prefix.
 
-Workspace disposal atomically closes package-realization admission. Pending
-demands are rejected, in-flight entries become draining, and ready entries
-become closing before any later demand can join or receive a lease. Existing
-lease holders retain access to the already-published realization until they
-return their leases. A closing entry cannot be reused, reopened, or returned to
-ready.
+In the target contract, workspace disposal atomically closes every request
+entry. Pending demands are rejected, in-flight entries become draining, and
+ready entries become closing before any later demand can join or receive a
+lease. Existing lease holders retain access to an already-published
+realization until they return their leases. A closing entry cannot be reused,
+reopened, or returned to ready.
 
-An admitting operation that completes successfully after disposal does not
-publish a ready entry or issue leases. Its newly created realization transfers
-directly into closing with zero active leases. A late failed operation remains
-a visible failed admission and leaves no reusable cache entry. Disposal does
-not turn either result into shortened success.
+An operation that succeeds after disposal does not publish or issue leases.
+Its newly created combined realization transfers directly into closing with
+zero active leases. Every still-attached demand receives a typed
+workspace-closed rejection. A late failed operation remains a visible failed
+admission and leaves no reusable entry. Disposal does not turn either result
+into shortened success.
 
-When a closing realization has no active leases, the cache requests the
+When a closing realization has no active leases, admission requests the
 existing package-role session close operation and retains its exact typed
 completion. The package-role boundary continues to own group release,
-quiescence, complete keyed cleanup reporting, and failure semantics. This
-admission owner neither releases an `AssemblyContextGroup` directly nor
-reinterprets a `PackageRoleCleanupReport`. Release is requested at most once;
-concurrent workspace disposers and a last-returning lease observe or await that
-same completion.
+quiescence, complete keyed cleanup reporting, and failure semantics. Admission
+neither releases an `AssemblyContextGroup` directly nor reinterprets a
+`PackageRoleCleanupReport`. Cleanup is requested at most once; concurrent
+workspace disposers and a last-returning lease observe or await the same
+completion.
 
-Workspace disposal is asynchronous in the target contract. It may wait
-indefinitely for a lease whose holder never returns it; weak-fairness model
-results therefore state the explicit product assumption that every issued
-lease is eventually returned. The implementation gate must separately prove
-that the target path uses awaited continuations rather than a blocking wait, so
-a single-threaded Browser/Wasm host can schedule lease return and cleanup.
+Target workspace disposal is asynchronous. The
+[workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority),
+defined by #5156, owns sole terminal release authority, coordinated
+lease-draining access, late-completion cleanup, and non-blocking close. Its
+direct-group asynchronous foundation is implemented by #5192. Coordinated
+package-role registration and release remain unimplemented and are tracked by
+issue #5185; the current package-role path still disposes its groups
+independently.
+Admission implementation therefore depends on that coordinated adoption after
+issue #5122 and this contract supply their owner-issued completion, projection,
+and lease handoffs. The target may wait indefinitely for a lease whose holder
+never returns it; weak-fairness model results therefore state the explicit
+caller assumption that every issued lease is eventually returned.
 
 Cleanup failure remains visible through the package-role completion and does
-not produce a ready cache entry. Once cleanup completes, successfully or with
-recorded failure, the coordinate is terminal for that disposed workspace.
+not produce a ready entry. Once cleanup completes, successfully or with
+recorded failure, that exact request is terminal for the disposed workspace.
+
+### Implementation prerequisites and gates
+
+Implementation of #4960 must not begin until:
+
+- an owner-issued typed input binds every selected root to its resolved package
+  coordinate, immutable content-generation identity, and exact selection
+  identity (#5121);
+- the package-role boundary supplies a shareable completion and demand-local
+  participant projection instead of the caller-owned disposable compatibility
+  result (#5122);
+- the assembly-context workspace adopts owner-issued coordinated release
+  completions for package-role groups and passes the remaining coordinated
+  gates from the landed
+  [workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority)
+  (#5185; the direct asynchronous foundation landed in #5192);
+  and
+- an approved retained multi-call workspace caller makes exact-request join or
+  reuse reachable (#5123).
 
 The target contract remains unimplemented until these named gates land:
 
 - `PackageRealizationRootOnly_BypassesAdmissionWithoutLeaseOrCleanup`
+- `PackageRealizationDuplicateCoordinates_RejectBeforeAdmission`
+- `PackageRealizationExactRequest_AdmitsOneCombinedOperation`
+- `PackageRealizationCapacity_RejectsBeforeStartingOperation`
+- `PackageRealizationCapacity_BoundsEntryCount`
+- `PackageRealizationCapacity_BoundsInFlightOperationCount`
+- `PackageRealizationCapacity_BoundsReservedRetainedBytes`
+- `PackageRealizationFailure_ReleasesReservedCapacity`
+- `PackageRealizationCleanupCompletion_ReleasesReservedCapacity`
+- `PackageRealizationCanceledOperation_RetainsCapacityUntilSettlement`
+- `PackageRealizationOverlappingRequest_DoesNotPartiallyReuse`
+- `PackageRealizationReorderedRequest_DoesNotShare`
+- `PackageRealizationDifferentOptions_DoNotShare`
+- `PackageRealizationDifferentContentGeneration_DoesNotShare`
+- `PackageRealizationDifferentSelection_DoesNotShare`
+- `PackageRealizationPublication_IsAtomicForAttachedDemands`
+- `PackageRealizationDemandCancellation_DetachesWithoutCancelingSharedWork`
+- `PackageRealizationFinalCancellation_CannotAbandonPhysicalOperation`
+- `PackageRealizationCallerCancellation_CannotFailPhysicalOperation`
+- `PackageRealizationCanceledOperation_CanCompleteAndBeReused`
+- `PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent`
+- `PackageRealizationOperation_CannotRunBeforeInFlightPublication`
+- `PackageRealizationOperation_HasBoundedCooperativeProgress`
+- `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
+- `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
+- `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`
+- `PackageRealizationLeaseHolder_CannotReleaseSharedGroup`
+- `PackageRealizationReturnedLease_RejectsProjectionAccess`
+- `PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup`
 - `PackageRealizationReadyReuse_IssuesIndependentLeases`
 - `PackageRealizationReadyEntry_RemainsCachedWithoutLeases`
 - `PackageRealizationLease_ReturnIsIdempotent`
 - `PackageRealizationWorkspaceDisposal_ClosesAdmissionAtomically`
 - `PackageRealizationLateSuccessAfterDisposal_CleansWithoutPublication`
+- `PackageRealizationLateSuccessAfterDisposal_RejectsAttachedDemands`
 - `PackageRealizationRelease_WaitsForEveryLease`
 - `PackageRealizationRelease_UsesPackageRoleCompletionExactlyOnce`
 - `PackageRealizationClosingEntry_CannotBeReusedOrResurrected`
 - `PackageRealizationCleanupFailure_RemainsVisible`
 - `PackageRealizationAsyncDisposal_NeverBlocksSingleThreadedHost`
+- `PackageRealizationRetainedCaller_ExercisesExactReadyReuse`
 
 [`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
-checks this target design's own internal soundness: single-flight admission,
-consistent shared outcomes, lease issuance and idempotent return,
-disposal-driven draining, no release with an active lease, exactly-once
-cleanup, and terminal closure. Its weak-fairness progress checks assume every
-lease holder eventually returns its lease; they do not prove the
-implementation avoids blocking waits. See its companion
-[`README.md`](../models/package-realization-admission/README.md) for the
-checked configurations.
+checks this target design's own internal soundness: whole-request identity,
+exact-policy, content-generation, and selection isolation; duplicate and
+Root-only front-door exclusion and outcomes; single-flight admission; atomic
+publication;
+cancellation without operation abandonment or caller-induced operation
+failure; consistent shared outcomes; lease issuance and idempotent return;
+workspace-wide admission capacity; disposal-driven draining; no release with
+an active lease; exactly-once cleanup; terminal closure; and eventual
+settlement of open and draining operations. Every bounded request topology has
+a complete safety/liveness configuration in addition to focused reachability
+and mutation probes. The model's weak-fairness progress checks assume every
+lease holder eventually returns its lease and every physical operation
+eventually settles; they do not prove implementation conformance, projection
+use/return quiescence, cooperative executor yields, a reachable retained
+caller, or non-blocking waits. See its companion
+[`README.md`](../models/package-realization-admission/README.md) for checked
+configurations.
 
 ## Current migration state
 
@@ -1191,6 +1418,12 @@ canaries:
   prerequisite and composes missing registration surfaces over the same
   immutable participant snapshots. The entire `@Integrations` section family
   is query-owned; the CLI retains only command hosting and projection.
+- Metadata-owned `IntegrationConceptCatalog` descriptors now flow through
+  scanner and opportunity evidence, while `IntegrationAnalysisCatalog` binds
+  those exact descriptors to the generic Census request planner, group query
+  prerequisites, and Integration graph relationships. Existing labels remain
+  compatibility presentation; L1 composition no longer uses them as concept
+  identity.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
   Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,
