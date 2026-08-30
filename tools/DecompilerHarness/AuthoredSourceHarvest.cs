@@ -401,6 +401,15 @@ static class AuthoredSourceHarvest
     internal static SourceOracleCandidateLedger.CandidateReason?
         ClassifyUnavailableInspection(PdbMemberSourceInspection inspection)
     {
+        if (inspection.Mapping is not null
+            && inspection.Document is not null
+            && inspection.ChecksumVerification is SourceChecksumVerification.Exact
+                or SourceChecksumVerification.LineEndingNormalized
+            && inspection.Text is not { Length: > 0 })
+        {
+            return SourceOracleCandidateLedger.CandidateReason.BodyExtractionFailed;
+        }
+
         if (inspection.Lines.Value is FindingInspection<string>.Failed)
             return SourceOracleCandidateLedger.CandidateReason.SourceAcquisitionFailed;
 

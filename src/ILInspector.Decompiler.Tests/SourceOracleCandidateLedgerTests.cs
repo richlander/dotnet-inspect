@@ -1,6 +1,8 @@
 
 using ILInspector.DecompilerHarness;
 using ILInspector.Findings;
+using ILInspector.MetadataPrimitives;
+using ILInspector.SourceLink;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -755,7 +757,61 @@ public class SourceOracleCandidateLedgerTests
         Assert.Contains("every enrolled file", error!, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Baseline_RejectsAVacuousPassingReport()
+    {
+        var report = Baseline();
+        string json = SerializeBaseline(report with
+        {
+            SourceOracleManifest = report.SourceOracleManifest! with
+            {
+                FilesRegistered = 0,
+                FilesValid = 0,
+                FilesCorrect = 0,
+                PrinterExactRequired = 0,
+                PrinterExactPassing = 0,
+                FilesInventoryTracked = 0,
+                ObservedFeatures = [],
+                FileInventory = [],
+            },
+        });
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(json, "digest", out _, out string? error));
+        Assert.Contains("at least one enrolled file", error!, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
+    [InlineData("valid")]
+    [InlineData("correct")]
+    [InlineData("exact-required")]
+    [InlineData("exact-passing")]
+    [InlineData("failure")]
+    public void Baseline_RejectsContradictoryPassingInvariants(string mutation)
+    {
+        var report = Baseline();
+        AuthoredSourceOracleManifest.Report manifest = report.SourceOracleManifest!;
+        manifest = mutation switch
+        {
+            "valid" => manifest with { FilesValid = 0 },
+            "correct" => manifest with { FilesCorrect = 0 },
+            "exact-required" => manifest with { PrinterExactRequired = 0 },
+            "exact-passing" => manifest with { PrinterExactPassing = 0 },
+            "failure" => manifest with { Failures = ["contradiction"] },
+            _ => throw new InvalidOperationException(),
+        };
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(
+                SerializeBaseline(report with { SourceOracleManifest = manifest }),
+                "digest",
+                out _,
+                out string? error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
+    }
+
+    [Theory]
+    [InlineData("empty")]
     [InlineData("blank")]
     [InlineData("duplicate")]
     [InlineData("unsorted")]
@@ -763,6 +819,7 @@ public class SourceOracleCandidateLedgerTests
     {
         IReadOnlyList<string> malformed = kind switch
         {
+            "empty" => [],
             "blank" => [""],
             "duplicate" => ["statement.return", "statement.return"],
             "unsorted" => ["statement.return", "expression.identifier-name"],
@@ -798,6 +855,45 @@ public class SourceOracleCandidateLedgerTests
 
         Assert.Equal(
             SourceOracleCandidateLedger.CandidateReason.SourceAcquisitionFailed,
+            AuthoredSourceHarvest.ClassifyUnavailableInspection(inspection));
+    }
+
+    [Fact]
+    public void HarvestInspection_ChecksumVerifiedSlicingFailureIsStructural()
+    {
+        byte[] content = "// no declaration"u8.ToArray();
+        var mapping = new MemberSourceObservation(
+            new MemberAnchor("M~1", "M:N.T.M", "1", "N.T", "M"),
+            MetadataToken: 0x06000001,
+            DocumentRowId: 1,
+            CanonicalPath: "T.cs",
+            OriginalPath: "/_/T.cs",
+            ResolvedUrl: FileA,
+            StartLine: 1,
+            EndLine: 1,
+            IsPrimaryDocument: true);
+        var document = new SourceDocumentObservation(
+            CanonicalPath: "T.cs",
+            OriginalPath: "/_/T.cs",
+            DocumentRowId: 1,
+            Storage: SourceDocumentStorage.SourceLink,
+            ResolvedUrl: FileA,
+            ChecksumAlgorithm: "SHA256",
+            Checksum: Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(content)));
+        var inspection = DotnetInspector.Services.PdbSourceAcquisition.FromContent(
+            mapping,
+            document,
+            content,
+            "M",
+            new FindingSubject("M~source", "N.T.M"));
+
+        Assert.IsType<FindingInspection<string>.Absent>(inspection.Lines.Value);
+        Assert.Equal(
+            DotnetInspector.Services.SourceChecksumVerification.Exact,
+            inspection.ChecksumVerification);
+        Assert.Equal(
+            SourceOracleCandidateLedger.CandidateReason.BodyExtractionFailed,
             AuthoredSourceHarvest.ClassifyUnavailableInspection(inspection));
     }
 

@@ -802,6 +802,25 @@ static class SourceOracleCandidateLedger
             error = "Baseline source-oracle report did not pass its source-oracle gate.";
             return false;
         }
+        if (manifest.FilesRegistered <= 0)
+        {
+            error = "Baseline source-oracle report must contain at least one enrolled file.";
+            return false;
+        }
+        if (manifest.Failures is not { Count: 0 })
+        {
+            error = "Baseline source-oracle report claims to pass while retaining failures.";
+            return false;
+        }
+        if (manifest.FilesValid != manifest.FilesRegistered
+            || manifest.FilesCorrect != manifest.FilesRegistered
+            || manifest.PrinterExactRequired != manifest.FilesRegistered
+            || manifest.PrinterExactPassing != manifest.FilesRegistered)
+        {
+            error = "Baseline source-oracle report claims to pass with contradictory "
+                + "Valid, Correct, or Printer-exact file counts.";
+            return false;
+        }
 
         if (manifest.SyntaxInventoryEvaluated != true)
         {
@@ -883,10 +902,11 @@ static class SourceOracleCandidateLedger
         foreach (AuthoredSourceOracleManifest.FileInventoryEntry file in fileInventory)
         {
             if (file.Features is not { } fileFeatures
+                || fileFeatures.Count == 0
                 || fileFeatures.Any(string.IsNullOrWhiteSpace))
             {
                 error = "Baseline source-oracle report contains an enrolled file with "
-                    + "an absent or empty syntax feature.";
+                    + "an absent or empty syntax feature set.";
                 return false;
             }
             if (fileFeatures.Distinct(StringComparer.Ordinal).Count()

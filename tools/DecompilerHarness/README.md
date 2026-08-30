@@ -537,9 +537,11 @@ declares what someone expects to be enrolled; only a passing report with an
 evaluated inventory is evidence that a feature was ever observed, and ranking
 against declarations would report enrolled coverage as new.
 The report must also identify every enrolled file as Printer exact, track every
-file's sorted and duplicate-free observed features, and publish the exact union
-of those per-file features as `observedFeatures`; contradictory aggregate and
-per-file evidence is rejected.
+file's nonempty, sorted, and duplicate-free observed features, publish the exact
+union of those per-file features as `observedFeatures`, and satisfy the
+producer's passing invariants: at least one file, no failures, and every
+registered file Valid, Correct, inventory-tracked, and Printer exact.
+Contradictory or vacuous passing evidence is rejected.
 `SourceOracleCandidateLedgerTests.Baseline_RejectsUnverifiedReports`,
 `Baseline_RejectsALegacyReportWithNoManifest`,
 `Baseline_RejectsAManifestSuppliedInPlaceOfAReport`,
@@ -547,9 +549,11 @@ per-file evidence is rejected.
 `Baseline_RejectsDuplicateObservedFeatures`,
 `Baseline_RejectsMalformedPerFileFeatures`,
 `Baseline_RejectsAnIncompleteTrackedFileCount`, and
-`Baseline_RejectsObservedFeaturesThatContradictTheFileInventory` are the named
-gates. The candidate report records the baseline's provenance, digest, and
-feature set — never its local path.
+`Baseline_RejectsObservedFeaturesThatContradictTheFileInventory`,
+`Baseline_RejectsAVacuousPassingReport`, and
+`Baseline_RejectsContradictoryPassingInvariants` are the named gates. The
+candidate report records the baseline's provenance, digest, and feature set —
+never its local path.
 
 Qualified files are then ranked greedily and deterministically: starting from
 the baseline's observed features, repeatedly take the remaining qualified file
