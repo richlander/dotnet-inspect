@@ -1,0 +1,1908 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+
+using DotnetInspector.Fixtures;
+
+using ILInspector.Analysis;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
+
+namespace ILInspector.Research.Tests;
+
+/// <summary>
+/// Gates for the Research-owned side-local target request and terminal attempt
+/// boundary described by <c>docs/design/implementation-diff.md</c> under
+/// <c>Side-local requests and attempts</c>.
+/// </summary>
+public class ResearchTargetResolverTests
+{
+    const string SampleType = "ILInspector.Research.TargetFixtures.TargetSample";
+    const string NestedType =
+        "ILInspector.Research.TargetFixtures.TargetOuter.TargetInner";
+    const string ForwardedType = "System.Uri";
+    const string AbsentType = "ILInspector.Research.TargetFixtures.NotHere";
+    const string DiffType = "DiffFixtureSample.DiffSample";
+
+    // --------------------------------------------------------------- requests
+
+    [Fact]
+    public void ResearchTargetRequests_AreStrictlySideInputAndScopeLocal()
+    {
+        // Two questions, each with one Before and one After sample input, plus
+        // a second unrelated domain in the first question. Two selection
+        // occurrences share the first question.
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (Sample(), Sample(), Diff(FixtureCatalog.DiffV1)),
+                (Sample(), Sample(), null),
+            ]);
+
+        ResearchCarriedMemberSelection first = fixture.Carried(0, SampleType, "Method");
+        ResearchCarriedMemberSelection second = fixture.Carried(0, SampleType, "Value");
+        ResearchCarriedMemberSelection third = fixture.Carried(1, SampleType, "Method");
+        ResearchTargetResolution resolution = fixture.Resolve(first, second, third);
+
+        Assert.Same(fixture.Population.Operation, resolution.Operation);
+        Assert.Equal(3, resolution.Scopes.Length);
+
+        foreach (ResearchTargetScope scope in resolution.Scopes)
+        {
+            foreach (ResearchTargetDomain domain in scope.Domains)
+            {
+                Assert.Same(scope.Id, domain.Id.Scope);
+                foreach (ResearchTargetRequest request in domain.Requests)
+                {
+                    // Every parent identity is the request's own.
+                    Assert.Same(domain.Id, request.Id.Domain);
+                    Assert.Same(scope.Id, request.Scope);
+                    Assert.Same(scope.Question, request.Question);
+                    Assert.Same(resolution.Operation, request.Operation);
+                    Assert.Same(request.Input.Question, request.Question);
+                    Assert.Equal(request.Input.Side, request.Side);
+
+                    // The request retains no admitted input, occurrence,
+                    // descriptor, resolver, or body index; only its intent and
+                    // the pinned surface scope.
+                    Assert.Same(
+                        ResearchTargetSurfaceScope.AllDeclaredMembers,
+                        request.Surface);
+                    Assert.True(request.Surface.IncludeAllMembers);
+                    Assert.True(request.Surface.IncludeCompilerGenerated);
+                    Assert.False(request.Surface.TypesOnly);
+                    Assert.Null(request.Surface.KindFilter);
+                    Assert.Equal(
+                        scope.DeclaringTypeFullName,
+                        request.DeclaringTypeFullName);
+                    Assert.Equal(scope.Selector, request.Selector);
+                }
+            }
+        }
+
+        // No request fans across scopes, and identities never repeat.
+        Assert.Equal(
+            resolution.Requests.Length,
+            Distinct(resolution.Requests.Select(request => request.Id)));
+        Assert.Equal(
+            resolution.Domains.Length,
+            Distinct(resolution.Domains.Select(domain => domain.Id)));
+
+        // Domain-side planning is total for every scope: one closed
+        // disposition per admitted input of that scope's question.
+        foreach ((ResearchTargetScope scope, int questionIndex) in
+            resolution.Scopes.Select(
+                (scope, index) => (scope, index switch { 2 => 1, _ => 0 })))
+        {
+            ResearchAdmittedQuestion question =
+                fixture.Population.Questions[questionIndex];
+            Assert.Equal(
+                question.Inputs.Select(input => input.Id).ToHashSet(),
+                scope.Domains
+                    .SelectMany(domain => domain.Inputs)
+                    .Select(disposition => disposition.Input)
+                    .ToHashSet());
+            Assert.All(
+                scope.Domains.SelectMany(domain => domain.Inputs),
+                disposition => Assert.Equal(
+                    ResearchTargetDispositionKind.Requested,
+                    disposition.Kind));
+        }
+
+        // An empty side is distinguishable from a side with an input: the diff
+        // domain of question 0 has a Before input and no After input.
+        ResearchTargetDomain diffDomain = resolution.Scopes[0].Domains
+            .Single(domain => domain.Key.Identity.Name == "DiffFixtureSample");
+        Assert.Single(diffDomain.Side(ResearchComparisonSide.Before));
+        Assert.Empty(diffDomain.Side(ResearchComparisonSide.After));
+    }
+
+    [Fact]
+    public void ResearchTargetRequests_CarriedRoleIsDerivedOnlyAfterResolution()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), Sample(), null)]);
+
+        // Carried requests assert no role at all.
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Value:2"));
+        Assert.All(
+            resolution.Requests,
+            request =>
+            {
+                Assert.Equal(ResearchTargetRequestKind.Carried, request.Kind);
+                Assert.Null(request.AssertedRole);
+                Assert.Null(request.AssertedAddress);
+            });
+
+        // The role appears only on the terminal outcome, derived from the
+        // selected member's setter MethodDef token, and both sides derive it
+        // independently rather than borrowing across the question.
+        Assert.Equal(2, resolution.Attempts.Length);
+        Assert.All(
+            resolution.Attempts,
+            attempt => Assert.Equal(
+                ResearchTargetRelationshipRole.Setter,
+                Resolved(attempt).Role));
+
+        // An ordinal never becomes a role: the same ordinal on a member with no
+        // accessors resolves to Method, not Getter.
+        ResearchTargetResolution methodResolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Method"));
+        Assert.All(
+            methodResolution.Attempts,
+            attempt => Assert.Equal(
+                ResearchTargetRelationshipRole.Method,
+                Resolved(attempt).Role));
+    }
+
+    // --------------------------------------------------------------- attempts
+
+    [Fact]
+    public void ResearchTargetAttempts_AccountForEveryRequestExactlyOnce()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (Sample(), Sample(), Diff(FixtureCatalog.DiffV1)),
+                (Sample(), null, null),
+            ]);
+
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Method"),
+            fixture.Carried(1, SampleType, "Method"));
+
+        Assert.Equal(resolution.Requests.Length, resolution.Attempts.Length);
+        Assert.Equal(
+            resolution.Attempts.Length,
+            Distinct(resolution.Attempts.Select(attempt => attempt.Id)));
+
+        HashSet<ResearchTargetRequestId> claimed = new(
+            ReferenceEqualityComparer.Instance);
+        foreach (ResearchTargetAttempt attempt in resolution.Attempts)
+        {
+            Assert.Same(attempt.Request.Id, attempt.Id.Request);
+            Assert.True(claimed.Add(attempt.Request.Id));
+            Assert.Same(attempt, resolution.GetAttempt(attempt.Request.Id));
+            Assert.NotNull(attempt.Outcome);
+        }
+
+        Assert.Equal(
+            resolution.Requests.Select(request => request.Id).ToHashSet(
+                ReferenceEqualityComparer.Instance
+                    as IEqualityComparer<ResearchTargetRequestId>),
+            claimed);
+
+        // A request from another resolution has no attempt here.
+        ResearchTargetResolution other = TargetFixture
+            .Create([(Sample(), null, null)])
+            .ResolveDefault(SampleType, "Method");
+        Assert.False(
+            resolution.TryGetAttempt(other.Requests[0].Id, out _));
+        Assert.Throws<ArgumentException>(
+            () => resolution.GetAttempt(other.Requests[0].Id));
+    }
+
+    [Fact]
+    public void ResearchTargetFinalValidation_RejectsBrokenSemanticBindings()
+    {
+        TargetFixture fixture = TargetFixture.Create([(Sample(), null, null)]);
+        ResearchCarriedMemberSelection selection =
+            fixture.Carried(0, SampleType, "Method");
+        ResearchTargetPlanningRequest planning = new(
+            fixture.Population,
+            fixture.Roles,
+            [selection]);
+        ResearchTargetResolution valid =
+            Assert.IsType<ResearchTargetPlanningOutcome.Planned>(
+                ResearchTargetResolver.Resolve(
+                    planning,
+                    TestContext.Current.CancellationToken)).Resolution;
+
+        ResearchTargetScope scope = Assert.Single(valid.Scopes);
+        ResearchTargetDomain domain = Assert.Single(scope.Domains);
+        ResearchTargetRequest request = Assert.Single(domain.Requests);
+        ResearchTargetOutcome.Resolved resolved =
+            Resolved(Assert.Single(domain.Attempts));
+        ResearchAdmittedInput input = Assert.Single(fixture.Population.Inputs);
+        MemberTargetResolution metadata = new(
+            resolved.Target,
+            Diagnostic: null,
+            resolved.Candidates);
+
+        Rejects(
+            new ResearchTargetOutcome.Resolved(
+                resolved.Target,
+                resolved.Address,
+                ResearchTargetRelationshipRole.Getter,
+                resolved.Module,
+                resolved.Candidates));
+        Rejects(
+            new ResearchTargetOutcome.Resolved(
+                resolved.Target,
+                resolved.Address,
+                resolved.Role,
+                LibraryBodyIndex.Open(
+                    FixtureCatalog.DiffV1.AssemblyPath()).ModuleIdentity,
+                resolved.Candidates));
+        Rejects(
+            new ResearchTargetOutcome.Resolved(
+                resolved.Target,
+                resolved.Address,
+                resolved.Role,
+                resolved.Module,
+                []));
+        Rejects(
+            new ResearchTargetOutcome.NotFound(
+                new MemberTargetDiagnostic(
+                    MemberTargetDiagnosticKind.MissingMember,
+                    "synthetic mismatch",
+                    []),
+                researchDiagnostic: null,
+                candidates: []));
+
+        void Rejects(ResearchTargetOutcome corrupted)
+        {
+            ResearchTargetAttempt attempt = new(
+                new ResearchTargetAttemptId(request.Id),
+                request,
+                corrupted);
+            ResearchTargetDomain corruptedDomain = new(
+                domain.Id,
+                domain.Key,
+                domain.Inputs,
+                domain.ConflictingInputs,
+                [request],
+                [attempt]);
+            ResearchTargetScope corruptedScope = new(
+                scope.Id,
+                scope.DeclaringTypeFullName,
+                scope.Selector,
+                scope.Kind,
+                [corruptedDomain]);
+            ResearchTargetResolution corruptedResolution = new(
+                valid.Operation,
+                [corruptedScope]);
+            ImmutableArray<ResearchTargetValidationEvidence> evidence =
+            [
+                new(
+                    request,
+                    input,
+                    ResearchTargetInputRole.Implementation,
+                    resolved.Target.ApiType,
+                    metadata,
+                    corrupted),
+            ];
+
+            Assert.Throws<InvalidOperationException>(
+                () => ResearchTargetResolutionValidator.Validate(
+                    planning,
+                    corruptedResolution,
+                    evidence));
+        }
+    }
+
+    [Fact]
+    public void ResearchTargetAttempts_MapEveryMetadataDiagnosticKind()
+    {
+        // The expected set is derived from the Metadata declaration, so a new
+        // or removed diagnostic kind fails this gate.
+        Dictionary<MemberTargetDiagnosticKind, ResearchTargetOutcomeKind> expected =
+            new()
+            {
+                [MemberTargetDiagnosticKind.MissingMember] =
+                    ResearchTargetOutcomeKind.NotFound,
+                [MemberTargetDiagnosticKind.DigestNotFound] =
+                    ResearchTargetOutcomeKind.NotFound,
+                [MemberTargetDiagnosticKind.AmbiguousMember] =
+                    ResearchTargetOutcomeKind.Ambiguous,
+                [MemberTargetDiagnosticKind.DigestAmbiguous] =
+                    ResearchTargetOutcomeKind.Ambiguous,
+                [MemberTargetDiagnosticKind.ConflictingSelectors] =
+                    ResearchTargetOutcomeKind.Rejected,
+                [MemberTargetDiagnosticKind.OverloadOutOfRange] =
+                    ResearchTargetOutcomeKind.Rejected,
+            };
+        Assert.Equal(
+            Enum.GetValues<MemberTargetDiagnosticKind>().ToHashSet(),
+            expected.Keys.ToHashSet());
+
+        foreach ((MemberTargetDiagnosticKind kind,
+            ResearchTargetOutcomeKind arm) in expected)
+        {
+            Assert.Equal(
+                arm,
+                ResearchTargetResolver.MapDiagnosticKind(kind));
+        }
+
+        // The mapping is closed: an undeclared value is not silently degraded.
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => ResearchTargetResolver.MapDiagnosticKind((MemberTargetDiagnosticKind)999));
+
+        // Every declared kind is reachable end to end against a real image, and
+        // reaches exactly the mapped arm with the exact Metadata diagnostic.
+        TargetFixture fixture = TargetFixture.Create([(Sample(), null, null)]);
+        string methodDigest = fixture.Fingerprint(SampleType, "Method");
+        string ambiguousDigest = fixture.AmbiguousDigestPrefix(SampleType, "Many");
+
+        Dictionary<MemberTargetDiagnosticKind, MemberTargetSelector> selectors =
+            new()
+            {
+                [MemberTargetDiagnosticKind.MissingMember] =
+                    new MemberTargetSelector("Absent", "Absent"),
+                [MemberTargetDiagnosticKind.DigestNotFound] =
+                    new MemberTargetSelector(
+                        "Method~deadbeefdeadbeef",
+                        "Method",
+                        DigestPrefix: "deadbeefdeadbeef"),
+                [MemberTargetDiagnosticKind.AmbiguousMember] =
+                    new MemberTargetSelector("Overloaded", "Overloaded"),
+                [MemberTargetDiagnosticKind.DigestAmbiguous] =
+                    new MemberTargetSelector(
+                        $"Many~{ambiguousDigest}",
+                        "Many",
+                        DigestPrefix: ambiguousDigest),
+                [MemberTargetDiagnosticKind.ConflictingSelectors] =
+                    new MemberTargetSelector(
+                        $"Method~{methodDigest}:1",
+                        "Method",
+                        OverloadIndex: 1,
+                        DigestPrefix: methodDigest),
+                [MemberTargetDiagnosticKind.OverloadOutOfRange] =
+                    new MemberTargetSelector(
+                        "Overloaded:9",
+                        "Overloaded",
+                        OverloadIndex: 9),
+            };
+        Assert.Equal(
+            Enum.GetValues<MemberTargetDiagnosticKind>().ToHashSet(),
+            selectors.Keys.ToHashSet());
+
+        foreach ((MemberTargetDiagnosticKind kind, MemberTargetSelector selector)
+            in selectors)
+        {
+            ResearchTargetAttempt attempt = Assert.Single(
+                fixture.Resolve(
+                    fixture.Carried(0, SampleType, selector)).Attempts);
+            MemberTargetDiagnostic diagnostic = MetadataDiagnostic(attempt.Outcome);
+            Assert.Equal(kind, diagnostic.Kind);
+            Assert.Equal(expected[kind], attempt.Outcome.Kind);
+        }
+    }
+
+    [Fact]
+    public void ResearchTargetResolution_PreservesMetadataDiagnosticsAndAccessorRoles()
+    {
+        TargetFixture fixture = TargetFixture.Create([(Sample(), null, null)]);
+
+        // Accessor roles come only from the selected member's MethodDef tokens.
+        (string Selector, ResearchTargetRelationshipRole Role)[] roles =
+        [
+            ("Method", ResearchTargetRelationshipRole.Method),
+            ("Value:1", ResearchTargetRelationshipRole.Getter),
+            ("Value:2", ResearchTargetRelationshipRole.Setter),
+            ("ReadOnlyValue", ResearchTargetRelationshipRole.Getter),
+            ("Changed:1", ResearchTargetRelationshipRole.Adder),
+            ("Changed:2", ResearchTargetRelationshipRole.Remover),
+            ("Field", ResearchTargetRelationshipRole.None),
+        ];
+
+        // Every declared role except None comes with a durable address; the
+        // declared role set is derived from the declaration.
+        Assert.Equal(
+            Enum.GetValues<ResearchTargetRelationshipRole>().ToHashSet(),
+            roles.Select(entry => entry.Role).ToHashSet());
+
+        ApiSurface surface = fixture.Surface(FixtureCatalog.ResearchTargetSample);
+        ApiType sample = surface.Types.Single(
+            type => type.DefinitionName?.ToMetadataFullName() == SampleType);
+
+        foreach ((string selector, ResearchTargetRelationshipRole role) in roles)
+        {
+            ResearchTargetAttempt attempt = Assert.Single(
+                fixture.Resolve(fixture.Carried(0, SampleType, selector)).Attempts);
+            ResearchTargetOutcome.Resolved resolved = Resolved(attempt);
+            Assert.Equal(role, resolved.Role);
+
+            // Exact Metadata evidence is retained, not reconstructed.
+            Assert.Same(resolved.Target.Anchor, resolved.Anchor);
+            Assert.Contains(
+                resolved.Candidates,
+                candidate => ReferenceEquals(candidate.Anchor, resolved.Anchor));
+            Assert.Same(fixture.ModuleIdentity(0), resolved.Module);
+
+            if (role == ResearchTargetRelationshipRole.None)
+            {
+                Assert.Null(resolved.Address);
+                continue;
+            }
+
+            MetadataMethodAddress address = Assert.NotNull(resolved.Address);
+            Assert.Equal(
+                fixture.ModuleIdentity(0).ModuleVersionId,
+                address.ModuleVersionId);
+            Assert.Equal(
+                ExpectedToken(sample, resolved.Target, role),
+                address.Token);
+        }
+
+        // A missing member keeps the exact Metadata diagnostic and candidates.
+        ResearchTargetAttempt missing = Assert.Single(
+            fixture.Resolve(fixture.Carried(0, SampleType, "Absent")).Attempts);
+        var notFound = Assert.IsType<ResearchTargetOutcome.NotFound>(missing.Outcome);
+        Assert.NotNull(notFound.MetadataDiagnostic);
+        Assert.Null(notFound.ResearchDiagnostic);
+        Assert.Equal(
+            MemberTargetDiagnosticKind.MissingMember,
+            notFound.MetadataDiagnostic.Kind);
+
+        // An ambiguous selector keeps the exact candidate references.
+        ResearchTargetAttempt ambiguous = Assert.Single(
+            fixture.Resolve(fixture.Carried(0, SampleType, "Overloaded")).Attempts);
+        var ambiguousOutcome =
+            Assert.IsType<ResearchTargetOutcome.Ambiguous>(ambiguous.Outcome);
+        Assert.Equal(2, ambiguousOutcome.Candidates.Length);
+        Assert.Equal(
+            ambiguousOutcome.Diagnostic.Candidates.Count,
+            ambiguousOutcome.Candidates.Length);
+        for (int index = 0;
+            index < ambiguousOutcome.Diagnostic.Candidates.Count;
+            index++)
+        {
+            Assert.Same(
+                ambiguousOutcome.Diagnostic.Candidates[index],
+                ambiguousOutcome.Candidates[index]);
+        }
+    }
+
+    [Fact]
+    public void ResearchTargetRejectedSelector_PreservesDiagnosticAndBlocksAbsence()
+    {
+        TargetFixture fixture = TargetFixture.Create([(Sample(), Sample(), null)]);
+
+        // An out-of-range positional selector is Rejected, not NotFound: it is
+        // not absence-safe, because ordinal movement can leave the same stable
+        // target at another position.
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Overloaded:9"));
+
+        Assert.Equal(2, resolution.Attempts.Length);
+        foreach (ResearchTargetAttempt attempt in resolution.Attempts)
+        {
+            var rejected =
+                Assert.IsType<ResearchTargetOutcome.Rejected>(attempt.Outcome);
+            Assert.Equal(
+                MemberTargetDiagnosticKind.OverloadOutOfRange,
+                rejected.Diagnostic.Kind);
+            Assert.NotEmpty(rejected.Candidates);
+
+            // Typed rejected evidence is not absence evidence: no arm of a
+            // Rejected outcome can be read as NotFound or Resolved.
+            Assert.Equal(ResearchTargetOutcomeKind.Rejected, attempt.Outcome.Kind);
+            Assert.IsNotType<ResearchTargetOutcome.NotFound>(attempt.Outcome);
+            Assert.IsNotType<ResearchTargetOutcome.Resolved>(attempt.Outcome);
+        }
+
+        // Its domain is blocked on both sides, so no side is left looking empty.
+        ResearchTargetDomain domain = Assert.Single(resolution.Scopes[0].Domains);
+        Assert.False(domain.IsAmbiguous);
+        Assert.Equal(2, domain.Inputs.Length);
+        Assert.All(
+            domain.Inputs,
+            disposition => Assert.Equal(
+                ResearchTargetDispositionKind.Requested,
+                disposition.Kind));
+    }
+
+    // ---------------------------------------------------------------- domains
+
+    [Fact]
+    public void ResearchTargetDomains_EraseOnlyAssemblyVersion()
+    {
+        // Two versions of one signed, cultured assembly share a domain; a
+        // same-named assembly with another public key token, another culture,
+        // or another simple name does not.
+        AssemblyReferenceIdentity before = new(
+            "Domain.Fixture",
+            new Version(1, 0, 0, 0),
+            "en-US",
+            "0123456789abcdef");
+        AssemblyReferenceIdentity after = before with { Version = new Version(9, 9) };
+        AssemblyReferenceIdentity otherToken =
+            before with { PublicKeyToken = "fedcba9876543210" };
+        AssemblyReferenceIdentity otherCulture = before with { Culture = "fr-FR" };
+        AssemblyReferenceIdentity otherName = before with { Name = "Domain.Other" };
+
+        TargetFixture fixture = TargetFixture.Reference(
+            [before, otherToken, otherCulture, otherName],
+            [after]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(SampleType, "Method");
+
+        ResearchTargetScope scope = Assert.Single(resolution.Scopes);
+        Assert.Equal(4, scope.Domains.Length);
+
+        ResearchTargetDomain shared = scope.Domains[0];
+        Assert.Null(shared.Key.Identity.Version);
+        Assert.Equal(before.Name, shared.Key.Identity.Name);
+        Assert.Equal(before.Culture, shared.Key.Identity.Culture);
+        Assert.Equal(before.PublicKeyToken, shared.Key.Identity.PublicKeyToken);
+        Assert.Single(shared.Side(ResearchComparisonSide.Before));
+        Assert.Single(shared.Side(ResearchComparisonSide.After));
+
+        // The three near misses are their own single-sided domains.
+        Assert.All(
+            scope.Domains.Skip(1),
+            domain =>
+            {
+                Assert.Null(domain.Key.Identity.Version);
+                Assert.Single(domain.Side(ResearchComparisonSide.Before));
+                Assert.Empty(domain.Side(ResearchComparisonSide.After));
+            });
+
+        // Domain keys are Metadata-equivalent, never display-derived.
+        Assert.Equal(
+            scope.Domains.Length,
+            scope.Domains.Select(domain => domain.Key).Distinct().Count());
+        Assert.NotEqual(shared.Key, scope.Domains[1].Key);
+    }
+
+    [Fact]
+    public void ResearchTargetDomains_RejectDuplicateSameSideCandidates()
+    {
+        // Two Before-side occurrences of the same assembly cannot be
+        // distinguished by domain, so every request in that domain blocks.
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), Sample(), Sample())]);
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(SampleType, "Method");
+
+        ResearchTargetDomain domain = Assert.Single(resolution.Scopes[0].Domains);
+        Assert.True(domain.IsAmbiguous);
+
+        // The complete conflicting set is retained, and it is exactly the two
+        // Before-side inputs.
+        Assert.Equal(2, domain.ConflictingInputs.Length);
+        Assert.Equal(
+            fixture.Population.Questions[0]
+                .Side(ResearchComparisonSide.Before)
+                .Select(input => input.Id)
+                .ToHashSet(),
+            domain.ConflictingInputs.ToHashSet());
+
+        // Every affected request blocks with DomainAmbiguous rather than
+        // pairing arbitrarily, including the unambiguous After side.
+        Assert.Equal(3, resolution.Attempts.Length);
+        Assert.All(
+            resolution.Attempts,
+            attempt =>
+            {
+                var unavailable = Assert.IsType<ResearchTargetOutcome.Unavailable>(
+                    attempt.Outcome);
+                Assert.Equal(
+                    ResearchTargetDiagnosticKind.DomainAmbiguous,
+                    unavailable.Diagnostic.Kind);
+            });
+    }
+
+    [Fact]
+    public void ResearchTargetDomains_BlockOnlyTheirOwnCensus()
+    {
+        // One ambiguous sample domain beside one healthy diff domain.
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (Sample(), Sample(), Sample()),
+                (Diff(FixtureCatalog.DiffV1), Diff(FixtureCatalog.DiffV2), null),
+            ]);
+
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Method"),
+            fixture.Carried(1, DiffType, "Stable"));
+
+        ResearchTargetDomain blocked =
+            Assert.Single(resolution.Scopes[0].Domains);
+        Assert.True(blocked.IsAmbiguous);
+        Assert.All(
+            blocked.Attempts,
+            attempt => Assert.Equal(
+                ResearchTargetOutcomeKind.Unavailable,
+                attempt.Outcome.Kind));
+
+        ResearchTargetDomain healthy =
+            Assert.Single(resolution.Scopes[1].Domains);
+        Assert.False(healthy.IsAmbiguous);
+        Assert.Empty(healthy.ConflictingInputs);
+        Assert.Equal(2, healthy.Attempts.Length);
+        Assert.All(
+            healthy.Attempts,
+            attempt => Assert.Equal(
+                ResearchTargetRelationshipRole.Method,
+                Resolved(attempt).Role));
+
+        // The healthy domain's own key is the diff assembly, and the blocked
+        // domain's conflicting set never leaks into it.
+        Assert.Equal("DiffFixtureSample", healthy.Key.Identity.Name);
+        Assert.All(
+            healthy.Inputs,
+            disposition => Assert.DoesNotContain(
+                disposition.Input,
+                blocked.ConflictingInputs));
+    }
+
+    // ----------------------------------------------------------------- scopes
+
+    [Fact]
+    public void ResearchTargetScopes_DeriveBijectivelyFromSelectionOccurrences()
+    {
+        // The second question admits no input at all, so its scope has no
+        // domain; the bijection must still hold.
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (Sample(), Sample(), null),
+                (null, null, null),
+            ]);
+
+        // Two occurrences with identical intent, plus one empty-question
+        // occurrence.
+        ResearchCarriedMemberSelection first = fixture.Carried(0, SampleType, "Method");
+        ResearchCarriedMemberSelection repeat = fixture.Carried(0, SampleType, "Method");
+        ResearchCarriedMemberSelection empty = fixture.Carried(1, SampleType, "Method");
+
+        ResearchTargetResolution resolution = fixture.Resolve(first, repeat, empty);
+
+        Assert.Equal(3, resolution.Scopes.Length);
+        Assert.Equal(
+            3,
+            Distinct(resolution.Scopes.Select(scope => scope.Id)));
+
+        // Occurrence order maps onto scope order, and identical intent still
+        // mints distinct scopes.
+        Assert.Same(first.Question, resolution.Scopes[0].Question);
+        Assert.Same(repeat.Question, resolution.Scopes[1].Question);
+        Assert.Same(empty.Question, resolution.Scopes[2].Question);
+        Assert.NotSame(resolution.Scopes[0].Id, resolution.Scopes[1].Id);
+        Assert.Equal(
+            resolution.Scopes[0].DeclaringTypeFullName,
+            resolution.Scopes[1].DeclaringTypeFullName);
+
+        // A scope with no admitted input on either side still exists.
+        Assert.Empty(resolution.Scopes[2].Domains);
+        Assert.NotEmpty(resolution.Scopes[0].Domains);
+
+        // No scope is shared and no request crosses one.
+        foreach (ResearchTargetScope scope in resolution.Scopes)
+        {
+            Assert.All(
+                scope.Domains.SelectMany(domain => domain.Requests),
+                request => Assert.Same(scope.Id, request.Scope));
+        }
+
+        // A duplicated occurrence instance is rejected before any scope exists.
+        ResearchTargetPlanningRejection rejection = fixture.Reject(first, first);
+        Assert.Equal(
+            ResearchTargetPlanningRejectionKind.DuplicateSelection,
+            rejection.Kind);
+    }
+
+    // ----------------------------------------------------- exact-address gate
+
+    [Fact]
+    public void ResearchTargetAttempt_AddressEvidenceMismatchBlocksBeforeCensus()
+    {
+        TargetFixture fixture = TargetFixture.Create([(Sample(), Sample(), null)]);
+        ResearchAdmittedInput before =
+            fixture.Population.Questions[0].Before[0];
+        ResearchAdmittedInput after = fixture.Population.Questions[0].After[0];
+
+        MetadataMethodAddress truth =
+            Assert.NotNull(fixture.ResolveDefault(SampleType, "Method")
+                .Attempts
+                .Select(Resolved)
+                .First()
+                .Address);
+
+        // Matching evidence resolves, and only the designated input is
+        // evaluated.
+        ResearchTargetResolution matched = fixture.Resolve(
+            fixture.Exact(
+                0,
+                before,
+                SampleType,
+                "Method",
+                truth,
+                ResearchTargetRelationshipRole.Method));
+        ResearchTargetDomain domain = Assert.Single(matched.Scopes[0].Domains);
+        Assert.Equal(2, domain.Inputs.Length);
+        ResearchTargetAttempt attempt = Assert.Single(domain.Attempts);
+        Assert.Same(before.Id, attempt.Request.Input);
+        Assert.Equal(truth, Resolved(attempt).Address);
+
+        ResearchTargetInputDisposition unevaluated = Assert.Single(
+            domain.Inputs.Where(
+                disposition => ReferenceEquals(disposition.Input, after.Id)));
+        Assert.Equal(
+            ResearchTargetDispositionKind.NotRequested,
+            unevaluated.Kind);
+        Assert.Equal(
+            ResearchTargetNotRequestedReason.ExactAddressDesignatesAnotherInput,
+            unevaluated.NotRequestedReason);
+        Assert.Null(unevaluated.Request);
+
+        // A wrong MVID blocks before any census can see a resolved target.
+        MetadataMethodAddress foreignModule =
+            truth with { ModuleVersionId = Guid.NewGuid() };
+        AssertBlocked(
+            fixture,
+            before,
+            foreignModule,
+            ResearchTargetRelationshipRole.Method,
+            ResearchTargetDiagnosticKind.AddressEvidenceMismatch);
+
+        // So does a wrong MethodDef row in the right module.
+        MetadataMethodAddress foreignRow = new(
+            truth.ModuleVersionId,
+            MetadataTokens.MethodDefinitionHandle(
+                MetadataTokens.GetRowNumber(truth.Handle) + 1));
+        AssertBlocked(
+            fixture,
+            before,
+            foreignRow,
+            ResearchTargetRelationshipRole.Method,
+            ResearchTargetDiagnosticKind.AddressEvidenceMismatch);
+
+        // So does a role that the derived accessor evidence contradicts.
+        AssertBlocked(
+            fixture,
+            before,
+            truth,
+            ResearchTargetRelationshipRole.Getter,
+            ResearchTargetDiagnosticKind.RelationshipRoleEvidenceMismatch);
+
+        // An exact selection that designates an input from another question is
+        // rejected before any identity exists.
+        TargetFixture twoQuestions = TargetFixture.Create(
+            [(Sample(), null, null), (Sample(), null, null)]);
+        ResearchTargetPlanningRejection rejection = twoQuestions.Reject(
+            twoQuestions.Exact(
+                0,
+                twoQuestions.Population.Questions[1].Before[0],
+                SampleType,
+                "Method",
+                truth,
+                ResearchTargetRelationshipRole.Method));
+        Assert.Equal(
+            ResearchTargetPlanningRejectionKind.ForeignInput,
+            rejection.Kind);
+    }
+
+    static void AssertBlocked(
+        TargetFixture fixture,
+        ResearchAdmittedInput input,
+        MetadataMethodAddress address,
+        ResearchTargetRelationshipRole role,
+        ResearchTargetDiagnosticKind expected)
+    {
+        ResearchTargetAttempt attempt = Assert.Single(
+            fixture.Resolve(
+                fixture.Exact(0, input, SampleType, "Method", address, role))
+                .Attempts);
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(attempt.Outcome);
+        Assert.Equal(expected, failed.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void ResearchTargetMethodAddressBinding_RequiresAnInRangeMethodDef()
+    {
+        using FileStream stream = File.OpenRead(
+            FixtureCatalog.ResearchTargetSample.AssemblyPath());
+        using var pe =
+            new System.Reflection.PortableExecutable.PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+
+        MethodDefinitionHandle method = reader.MethodDefinitions.First();
+        Assert.Equal(
+            MetadataMethodAddress.Create(reader, method),
+            ResearchTargetResolver.TryCreateAddress(
+                reader,
+                MetadataTokens.GetToken(method)));
+
+        Assert.Null(
+            ResearchTargetResolver.TryCreateAddress(
+                reader,
+                MetadataTokens.GetToken(reader.TypeDefinitions.First())));
+        Assert.Null(
+            ResearchTargetResolver.TryCreateAddress(
+                reader,
+                MetadataTokens.GetToken(
+                    MetadataTokens.MethodDefinitionHandle(
+                        reader.MethodDefinitions.Count + 1))));
+    }
+
+    [Fact]
+    public void ResearchTargetResolution_StagesEachAdmittedInputOnce()
+    {
+        // Two selection occurrences in one question produce four requests over
+        // two admitted inputs. Each borrowed input must be opened once for all
+        // of its requests, not once per request.
+        int beforeOpens = 0;
+        int afterOpens = 0;
+        TargetFixture fixture = TargetFixture.Create(
+            [
+                (
+                    Sample(() => Interlocked.Increment(ref beforeOpens)),
+                    Sample(() => Interlocked.Increment(ref afterOpens)),
+                    null
+                ),
+            ]);
+
+        ResearchTargetResolution resolution = fixture.Resolve(
+            fixture.Carried(0, SampleType, "Method"),
+            fixture.Carried(0, SampleType, "Value:1"));
+
+        Assert.Equal(4, resolution.Attempts.Length);
+        Assert.All(
+            resolution.Attempts,
+            attempt => Assert.IsType<ResearchTargetOutcome.Resolved>(
+                attempt.Outcome));
+        Assert.Equal(1, beforeOpens);
+        Assert.Equal(1, afterOpens);
+
+        // A reference-only input is never opened at all.
+        int referenceOpens = 0;
+        TargetFixture referenceOnly = TargetFixture.Create(
+            [(Sample(() => Interlocked.Increment(ref referenceOpens)), null, null)],
+            referenceOnly: static _ => true);
+        referenceOnly.ResolveDefault(SampleType, "Method");
+        Assert.Equal(0, referenceOpens);
+    }
+
+    // ------------------------------------------------------------- inertness
+
+    [Fact]
+    public void ResearchTargetResolution_RetainsNoBorrowedResourcesOrPresentation()
+    {
+        // The exposed surface closure of the result may not reach a borrowed
+        // resource, an admission occurrence, a raw exception, or a callback.
+        Type[] forbidden =
+        [
+            typeof(ResearchAdmittedPopulation),
+            typeof(ResearchAdmittedQuestion),
+            typeof(ResearchAdmittedInput),
+            typeof(ResearchComparisonInputOccurrence),
+            typeof(ResearchMemberSelectionOccurrence),
+            typeof(ResearchTargetPlanningRequest),
+            typeof(ResolvedAssemblyReference),
+            typeof(IAssemblyReferenceResolver),
+            typeof(LibraryBodyIndex),
+            typeof(ImplementationAssemblyInput),
+            typeof(MetadataReader),
+            typeof(System.Reflection.PortableExecutable.PEReader),
+            typeof(Stream),
+            typeof(Exception),
+            typeof(Delegate),
+            typeof(IDisposable),
+        ];
+
+        IReadOnlyCollection<Type> closure =
+            SurfaceClosure(typeof(ResearchTargetResolution));
+
+        // The walk is non-vacuous: it reaches every evidence-bearing type the
+        // result exposes, including the terminal outcome arms.
+        foreach (Type reached in (Type[])
+            [
+                typeof(ResearchTargetScope),
+                typeof(ResearchTargetDomain),
+                typeof(ResearchTargetInputDisposition),
+                typeof(ResearchTargetRequest),
+                typeof(ResearchTargetAttempt),
+                typeof(ResearchTargetOutcome),
+                typeof(ResearchTargetOutcome.Resolved),
+                typeof(ResearchTargetOutcome.NotFound),
+                typeof(ResearchTargetOutcome.Unavailable),
+                typeof(ResearchTargetOutcome.Failed),
+                typeof(ResearchTargetDiagnostic),
+            ])
+        {
+            Assert.Contains(reached, closure);
+        }
+
+        Assert.Empty(Violations(closure, forbidden));
+
+        // The same walk reports a deliberate violation, so it cannot pass by
+        // reaching nothing.
+        Assert.NotEmpty(
+            Violations(SurfaceClosure(typeof(BorrowedExposureProbe)), forbidden));
+
+        // The bounded Research diagnostics carry Research-owned text only.
+        TargetFixture fixture = TargetFixture.Create([(Unreadable(), null, null)]);
+        ResearchTargetAttempt attempt = Assert.Single(
+            fixture.ResolveDefault(SampleType, "Method").Attempts);
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(attempt.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.InputUnreadable,
+            failed.Diagnostic.Kind);
+        Assert.DoesNotContain(
+            TargetFixture.UnreadableMarker,
+            failed.Diagnostic.Summary,
+            StringComparison.Ordinal);
+
+        // Every declared diagnostic kind has bounded Research-owned text and
+        // exactly one terminal arm.
+        foreach (ResearchTargetDiagnosticKind kind in
+            Enum.GetValues<ResearchTargetDiagnosticKind>())
+        {
+            Assert.NotEmpty(Diagnostic(kind).Summary);
+        }
+    }
+
+    // ---------------------------------------------------------- cancellation
+
+    [Fact]
+    public void ResearchTargetCancellation_ExposesNoPartialPopulationOrResult()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), Sample(), null), (Sample(), null, null)]);
+
+        using CancellationTokenSource source = new();
+        source.Cancel();
+        Assert.Throws<OperationCanceledException>(
+            () => fixture.ResolveRaw(
+                [fixture.Carried(0, SampleType, "Method")],
+                source.Token));
+
+        // Cancellation observed after partial internal work still exposes
+        // nothing: no result, and no attempt evidence.
+        using CancellationTokenSource staged = new();
+        int observed = 0;
+        ImplementationComparisonInputOccurrence tripwire = Sample(
+            () =>
+            {
+                if (Interlocked.Increment(ref observed) == 1)
+                    staged.Cancel();
+            });
+        TargetFixture partial = TargetFixture.Create(
+            [(Sample(), tripwire, null)]);
+        Assert.Throws<OperationCanceledException>(
+            () => partial.ResolveRaw(
+                [partial.Carried(0, SampleType, "Method")],
+                staged.Token));
+
+        // A rejection also exposes no resolution.
+        ResearchTargetPlanningOutcome rejected =
+            ResearchTargetResolver.Resolve(
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    fixture.Roles,
+                    []),
+                TestContext.Current.CancellationToken);
+        Assert.IsType<ResearchTargetPlanningOutcome.Rejected>(rejected);
+    }
+
+    [Fact]
+    public void ResearchTargetCancellation_RetryPreservesAdmissionAndMintsFreshTargets()
+    {
+        using CancellationTokenSource source = new();
+        int observed = 0;
+        ImplementationComparisonInputOccurrence tripwire = Sample(
+            () =>
+            {
+                if (Interlocked.Increment(ref observed) == 1)
+                    source.Cancel();
+            });
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), tripwire, null)]);
+
+        ResearchComparisonOperationId operation = fixture.Population.Operation;
+        ImmutableArray<ResearchComparisonQuestionId> questions =
+            [.. fixture.Population.Questions.Select(question => question.Id)];
+        ImmutableArray<ResearchComparisonInputId> inputs =
+            [.. fixture.Population.Inputs.Select(input => input.Id)];
+
+        Assert.Throws<OperationCanceledException>(
+            () => fixture.ResolveRaw(
+                [fixture.Carried(0, SampleType, "Method")],
+                source.Token));
+
+        // The admitted identities survive the cancelled attempt untouched.
+        Assert.Same(operation, fixture.Population.Operation);
+        Assert.Equal(
+            questions,
+            fixture.Population.Questions.Select(question => question.Id));
+        Assert.Equal(
+            inputs,
+            fixture.Population.Inputs.Select(input => input.Id));
+
+        // The retry reuses those identities and mints fresh target identities.
+        ResearchTargetResolution first =
+            fixture.ResolveDefault(SampleType, "Method");
+        ResearchTargetResolution second =
+            fixture.ResolveDefault(SampleType, "Method");
+
+        Assert.Same(operation, first.Operation);
+        Assert.Same(operation, second.Operation);
+        Assert.All(
+            first.Requests,
+            request => Assert.Contains(request.Input, inputs));
+
+        Assert.NotSame(first.Scopes[0].Id, second.Scopes[0].Id);
+        Assert.NotSame(first.Domains[0].Id, second.Domains[0].Id);
+        Assert.Empty(
+            first.Requests.Select(request => request.Id)
+                .Intersect(second.Requests.Select(request => request.Id)));
+        Assert.Empty(
+            first.Attempts.Select(attempt => attempt.Id)
+                .Intersect(second.Attempts.Select(attempt => attempt.Id)));
+
+        // Both retries resolve the same physical target.
+        Assert.Equal(
+            Resolved(first.Attempts[0]).Address,
+            Resolved(second.Attempts[0]).Address);
+    }
+
+    // ------------------------------------------------- declaring-type outcomes
+
+    [Fact]
+    public void ResearchTargetDeclaringType_DistinguishesAbsentFromForwarded()
+    {
+        TargetFixture fixture = TargetFixture.Create([(Sample(), null, null)]);
+
+        // No TypeDef and no forwarder: a Research-owned bounded NotFound.
+        ResearchTargetAttempt absent = Assert.Single(
+            fixture.ResolveDefault(AbsentType, "Method").Attempts);
+        var notFound = Assert.IsType<ResearchTargetOutcome.NotFound>(absent.Outcome);
+        Assert.Null(notFound.MetadataDiagnostic);
+        Assert.NotNull(notFound.ResearchDiagnostic);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
+            notFound.ResearchDiagnostic.Kind);
+        Assert.Empty(notFound.Candidates);
+
+        // No TypeDef but an exact forwarder: Unavailable, never absence.
+        ResearchTargetAttempt forwarded = Assert.Single(
+            fixture.ResolveDefault(ForwardedType, "ToString").Attempts);
+        var unavailable =
+            Assert.IsType<ResearchTargetOutcome.Unavailable>(forwarded.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeForwarded,
+            unavailable.Diagnostic.Kind);
+
+        // A nested declaring type resolves only under its exact metadata full
+        // name.
+        Assert.IsType<ResearchTargetOutcome.Resolved>(
+            Assert.Single(
+                fixture.ResolveDefault(NestedType, "Method").Attempts).Outcome);
+        Assert.IsType<ResearchTargetOutcome.NotFound>(
+            Assert.Single(
+                fixture.ResolveDefault(
+                    NestedType.Replace('.', '+'),
+                    "Method").Attempts).Outcome);
+    }
+
+    [Fact]
+    public void ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening()
+    {
+        // A reference-only input is never opened: its descriptor throws if it
+        // is, and its body index would fail module validation.
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), Unreadable(), null)],
+            referenceOnly: input => input.Side == ResearchComparisonSide.After);
+
+        ResearchTargetResolution resolution =
+            fixture.ResolveDefault(SampleType, "Method");
+        Assert.Equal(2, resolution.Attempts.Length);
+
+        ResearchTargetAttempt reference = resolution.Attempts.Single(
+            attempt => attempt.Request.Side == ResearchComparisonSide.After);
+        var unavailable =
+            Assert.IsType<ResearchTargetOutcome.Unavailable>(reference.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.ReferenceOnlyInput,
+            unavailable.Diagnostic.Kind);
+
+        // Its disposition is still Requested: the input was evaluated and
+        // terminated, not silently skipped.
+        ResearchTargetDomain domain = Assert.Single(resolution.Scopes[0].Domains);
+        Assert.All(
+            domain.Inputs,
+            disposition => Assert.Equal(
+                ResearchTargetDispositionKind.Requested,
+                disposition.Kind));
+        Assert.Contains(
+            domain.Inputs,
+            disposition =>
+                disposition.Role == ResearchTargetInputRole.ReferenceOnly);
+
+        // The implementation side still resolves.
+        Assert.IsType<ResearchTargetOutcome.Resolved>(
+            resolution.Attempts
+                .Single(attempt =>
+                    attempt.Request.Side == ResearchComparisonSide.Before)
+                .Outcome);
+    }
+
+    [Fact]
+    public void ResearchTargetInputValidation_RejectsMismatchedModuleEvidence()
+    {
+        // A body index from another module fails before selection runs.
+        TargetFixture mismatched = TargetFixture.Create(
+            [(SampleWithForeignModule(), null, null)]);
+        var moduleFailure = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                mismatched.ResolveDefault(SampleType, "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.ModuleIdentityMismatch,
+            moduleFailure.Diagnostic.Kind);
+
+        // A descriptor identity that does not name the live image fails too.
+        TargetFixture renamed = TargetFixture.Create(
+            [(SampleWithForeignIdentity(), null, null)]);
+        var identityFailure = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                renamed.ResolveDefault(SampleType, "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.AssemblyIdentityMismatch,
+            identityFailure.Diagnostic.Kind);
+
+        // A body index with no assembly identity disagrees with the live
+        // assembly rather than proving that the live image is standalone.
+        TargetFixture standalone = TargetFixture.Create(
+            [(SampleWithStandaloneModule(), null, null)]);
+        var standaloneFailure = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                standalone.ResolveDefault(SampleType, "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.AssemblyIdentityMismatch,
+            standaloneFailure.Diagnostic.Kind);
+
+        // Malformed content is a bounded input failure rather than an escaping
+        // Metadata exception or a partial attempt set.
+        TargetFixture malformed = TargetFixture.Create(
+            [(Malformed(), null, null)]);
+        var malformedFailure = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                malformed.ResolveDefault(SampleType, "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.InputUnreadable,
+            malformedFailure.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void ResearchTargetPlanning_RejectsEveryDeclaredInvalidShape()
+    {
+        TargetFixture fixture = TargetFixture.Create(
+            [(Sample(), Sample(), null), (Sample(), null, null)]);
+        ResearchAdmittedInput admitted = fixture.Population.Inputs[0];
+        ResearchAdmittedPopulation stranger = TargetFixture
+            .Create([(Sample(), null, null)])
+            .Population;
+        MetadataMethodAddress address = new(Guid.NewGuid(), default);
+
+        Dictionary<ResearchTargetPlanningRejectionKind,
+            ResearchTargetPlanningRequest> shapes = new()
+        {
+            [ResearchTargetPlanningRejectionKind.UnsupportedProfile] =
+                new ResearchTargetPlanningRequest(
+                    BodySignalPopulation(),
+                    [],
+                    [fixture.Carried(0, SampleType, "Method")]),
+            [ResearchTargetPlanningRejectionKind.MissingSelections] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    fixture.Roles,
+                    []),
+            [ResearchTargetPlanningRejectionKind.MissingSelection] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    fixture.Roles,
+                    [null]),
+            [ResearchTargetPlanningRejectionKind.DuplicateSelection] =
+                Duplicate(fixture),
+            [ResearchTargetPlanningRejectionKind.ForeignQuestion] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    fixture.Roles,
+                    [
+                        new ResearchCarriedMemberSelection(
+                            stranger.Questions[0].Id,
+                            SampleType,
+                            MemberTargetSelector.Parse("Method")),
+                    ]),
+            [ResearchTargetPlanningRejectionKind.ForeignInput] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    fixture.Roles,
+                    [
+                        new ResearchExactAddressMemberSelection(
+                            fixture.Population.Questions[0].Id,
+                            stranger.Inputs[0],
+                            SampleType,
+                            MemberTargetSelector.Parse("Method"),
+                            address,
+                            ResearchTargetRelationshipRole.Method),
+                    ]),
+            [ResearchTargetPlanningRejectionKind.MissingInputRole] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    [null],
+                    [fixture.Carried(0, SampleType, "Method")]),
+            [ResearchTargetPlanningRejectionKind.DuplicateInputRole] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    [
+                        .. fixture.Roles,
+                        new ResearchTargetInputRoleAssignment(
+                            admitted,
+                            ResearchTargetInputRole.ReferenceOnly),
+                    ],
+                    [fixture.Carried(0, SampleType, "Method")]),
+            [ResearchTargetPlanningRejectionKind.ForeignInputRole] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    [
+                        .. fixture.Roles,
+                        new ResearchTargetInputRoleAssignment(
+                            stranger.Inputs[0],
+                            ResearchTargetInputRole.Implementation),
+                    ],
+                    [fixture.Carried(0, SampleType, "Method")]),
+            [ResearchTargetPlanningRejectionKind.UndeclaredInputRole] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    [
+                        new ResearchTargetInputRoleAssignment(
+                            admitted,
+                            (ResearchTargetInputRole)77),
+                    ],
+                    [fixture.Carried(0, SampleType, "Method")]),
+            [ResearchTargetPlanningRejectionKind.UndeclaredRelationshipRole] =
+                new ResearchTargetPlanningRequest(
+                    fixture.Population,
+                    fixture.Roles,
+                    [
+                        new ResearchExactAddressMemberSelection(
+                            fixture.Population.Questions[0].Id,
+                            admitted,
+                            SampleType,
+                            MemberTargetSelector.Parse("Method"),
+                            address,
+                            (ResearchTargetRelationshipRole)77),
+                    ]),
+        };
+
+        // The expected set is derived from the declaration, so a missing or
+        // stale rejection kind fails this gate.
+        Assert.Equal(
+            Enum.GetValues<ResearchTargetPlanningRejectionKind>().ToHashSet(),
+            shapes.Keys.ToHashSet());
+
+        foreach ((ResearchTargetPlanningRejectionKind kind,
+            ResearchTargetPlanningRequest invalid) in shapes)
+        {
+            var rejected = Assert.IsType<ResearchTargetPlanningOutcome.Rejected>(
+                ResearchTargetResolver.Resolve(
+                    invalid,
+                    TestContext.Current.CancellationToken));
+            Assert.Equal(kind, rejected.Rejection.Kind);
+            Assert.NotEmpty(rejected.Rejection.Summary);
+            Assert.NotNull(rejected.Rejection.Location);
+        }
+
+        static ResearchTargetPlanningRequest Duplicate(TargetFixture fixture)
+        {
+            ResearchCarriedMemberSelection selection =
+                fixture.Carried(0, SampleType, "Method");
+            return new ResearchTargetPlanningRequest(
+                fixture.Population,
+                fixture.Roles,
+                [selection, selection]);
+        }
+    }
+
+    [Fact]
+    public void ResearchTargetIdentities_AreOwnerIssuedReferenceIdentities()
+    {
+        foreach (Type type in (Type[])
+            [
+                typeof(ResearchTargetScopeId),
+                typeof(ResearchTargetDomainId),
+                typeof(ResearchTargetRequestId),
+                typeof(ResearchTargetAttemptId),
+            ])
+        {
+            Assert.True(type.IsSealed, type.Name);
+            Assert.Empty(
+                type.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+
+            // No parsing, string conversion, or ordinal surrogate.
+            Assert.Empty(
+                type.GetMethods(BindingFlags.Public | BindingFlags.Static));
+            Assert.All(
+                type.GetProperties(BindingFlags.Public | BindingFlags.Instance),
+                property => Assert.False(
+                    property.PropertyType == typeof(string)
+                        || property.PropertyType == typeof(int)
+                        || property.PropertyType == typeof(Guid),
+                    $"{type.Name}.{property.Name}"));
+
+            // Equality is reference identity, not structural.
+            Assert.Same(
+                typeof(object).GetMethod(nameof(Equals), [typeof(object)]),
+                type.GetMethod(nameof(Equals), [typeof(object)])!
+                    .GetBaseDefinition());
+        }
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    static ResearchTargetOutcome.Resolved Resolved(ResearchTargetAttempt attempt)
+        => Assert.IsType<ResearchTargetOutcome.Resolved>(attempt.Outcome);
+
+    static MemberTargetDiagnostic MetadataDiagnostic(ResearchTargetOutcome outcome)
+        => outcome switch
+        {
+            ResearchTargetOutcome.NotFound { MetadataDiagnostic: { } value } => value,
+            ResearchTargetOutcome.Ambiguous ambiguous => ambiguous.Diagnostic,
+            ResearchTargetOutcome.Rejected rejected => rejected.Diagnostic,
+            _ => throw new InvalidOperationException(
+                $"Expected a Metadata diagnostic, found {outcome.Kind}."),
+        };
+
+    static ResearchTargetDiagnostic Diagnostic(ResearchTargetDiagnosticKind kind)
+        => (ResearchTargetDiagnostic)Activator.CreateInstance(
+            typeof(ResearchTargetDiagnostic),
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            [kind],
+            culture: null)!;
+
+    static int ExpectedToken(
+        ApiType type,
+        ResolvedMemberTarget target,
+        ResearchTargetRelationshipRole role)
+    {
+        ApiMember member = type.Members.Single(
+            candidate =>
+                candidate.Name == target.ApiMember.Member.Name
+                && candidate.Kind == target.ApiMember.Member.Kind);
+        return role switch
+        {
+            ResearchTargetRelationshipRole.Method =>
+                Assert.NotNull(member.MetadataToken),
+            ResearchTargetRelationshipRole.Getter =>
+                Assert.NotNull(member.GetterToken),
+            ResearchTargetRelationshipRole.Setter =>
+                Assert.NotNull(member.SetterToken),
+            ResearchTargetRelationshipRole.Adder =>
+                Assert.NotNull(member.AdderToken),
+            ResearchTargetRelationshipRole.Remover =>
+                Assert.NotNull(member.RemoverToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(role)),
+        };
+    }
+
+    static int Distinct<T>(IEnumerable<T> values)
+        where T : class
+        => values
+            .Distinct((IEqualityComparer<T>)ReferenceEqualityComparer.Instance)
+            .Count();
+
+    static IReadOnlyList<string> Violations(
+        IReadOnlyCollection<Type> closure,
+        IReadOnlyList<Type> forbidden)
+    =>
+        [
+            .. from type in closure
+               from member in ExposedMembers(type)
+               from exposed in SignatureTypes(member)
+               where forbidden.Any(banned => banned.IsAssignableFrom(exposed))
+               select $"{type.Name}.{member.Name}: {exposed.Name}",
+        ];
+
+    /// <summary>
+    /// Every indirect shape through which a result surface could retain a
+    /// borrowed resource, an admission occurrence, a raw exception, or a
+    /// callback. The retention walk must report all of them.
+    /// </summary>
+    sealed class BorrowedExposureProbe
+    {
+        BorrowedExposureProbe()
+        {
+        }
+
+        public LibraryBodyIndex BodyIndex => null!;
+
+        public ImmutableArray<ResearchAdmittedInput> Inputs => [];
+
+        public IReadOnlyList<ResolvedAssemblyReference> Assemblies => null!;
+
+        public Func<Stream> Open => null!;
+
+        public Exception Failure => null!;
+
+        public MetadataReader Read() => default!;
+    }
+
+    static IReadOnlyCollection<Type> SurfaceClosure(Type root)
+    {
+        HashSet<Type> closure = [];
+        Queue<Type> pending = new();
+        pending.Enqueue(root);
+        while (pending.Count > 0)
+        {
+            Type type = pending.Dequeue();
+            if (!closure.Add(type))
+                continue;
+
+            foreach (MemberInfo member in ExposedMembers(type))
+            {
+                foreach (Type exposed in SignatureTypes(member))
+                {
+                    if (IsResearchOwned(exposed))
+                        pending.Enqueue(exposed);
+                }
+            }
+
+            foreach (Type nested in type.GetNestedTypes(BindingFlags.Public))
+                pending.Enqueue(nested);
+        }
+
+        return closure;
+    }
+
+    static IEnumerable<MemberInfo> ExposedMembers(Type type)
+        => type.GetMembers(
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
+                | BindingFlags.DeclaredOnly);
+
+    static IEnumerable<Type> SignatureTypes(MemberInfo member)
+    {
+        switch (member)
+        {
+            case PropertyInfo property:
+                foreach (Type type in ComponentTypes(property.PropertyType))
+                    yield return type;
+                break;
+
+            case FieldInfo field:
+                foreach (Type type in ComponentTypes(field.FieldType))
+                    yield return type;
+                break;
+
+            case MethodInfo method:
+                foreach (Type type in ComponentTypes(method.ReturnType))
+                    yield return type;
+                foreach (ParameterInfo parameter in method.GetParameters())
+                {
+                    foreach (Type type in ComponentTypes(parameter.ParameterType))
+                        yield return type;
+                }
+
+                break;
+        }
+    }
+
+    static IEnumerable<Type> ComponentTypes(Type type)
+    {
+        if (type.IsByRef || type.IsPointer || type.IsArray)
+            type = type.GetElementType()!;
+
+        Type underlying = Nullable.GetUnderlyingType(type) ?? type;
+        yield return underlying;
+        if (!underlying.IsGenericType)
+            yield break;
+
+        foreach (Type argument in underlying.GetGenericArguments())
+        {
+            foreach (Type component in ComponentTypes(argument))
+                yield return component;
+        }
+    }
+
+    static bool IsResearchOwned(Type type)
+        => type.Assembly == typeof(ResearchTargetResolution).Assembly;
+
+    static ResearchAdmittedPopulation BodySignalPopulation()
+        => Assert.IsType<ResearchAdmissionOutcome.Admitted>(
+            ResearchComparisonAdmission.Admit(
+                new ResearchComparisonAdmissionRequest(
+                    ResearchComparisonProfile.BodySignal,
+                    [
+                        new ResearchComparisonAdmissionQuestion(
+                            [
+                                new BodySignalComparisonInputOccurrence(
+                                    LibraryBodyIndex.Open(
+                                        FixtureCatalog.ResearchTargetSample
+                                            .AssemblyPath())),
+                            ],
+                            []),
+                    ]))).Population;
+
+    // ------------------------------------------------------ occurrence builders
+
+    static ImplementationComparisonInputOccurrence Sample(Action? onOpen = null)
+        => Occurrence(
+            FixtureCatalog.ResearchTargetSample.AssemblyPath(),
+            onOpen);
+
+    static ImplementationComparisonInputOccurrence Diff(FixtureDefinition fixture)
+        => Occurrence(fixture.AssemblyPath());
+
+    static ImplementationComparisonInputOccurrence Occurrence(
+        string path,
+        Action? onOpen = null)
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        return new ImplementationComparisonInputOccurrence(
+            ResolvedAssemblyReference.Create(
+                index.ModuleIdentity.AssemblyIdentity!,
+                path,
+                () =>
+                {
+                    onOpen?.Invoke();
+                    return File.OpenRead(path);
+                },
+                AssemblyResolutionProvenance.Project(
+                    Path.GetFileNameWithoutExtension(path),
+                    tfm: null,
+                    rid: null)),
+            new NullResolver(),
+            index);
+    }
+
+    /// <summary>
+    /// A real image whose Analysis body index names another module, so the
+    /// live MVID and the body-index MVID disagree.
+    /// </summary>
+    static ImplementationComparisonInputOccurrence SampleWithForeignModule()
+    {
+        string path = FixtureCatalog.ResearchTargetSample.AssemblyPath();
+        LibraryBodyIndex foreign =
+            LibraryBodyIndex.Open(FixtureCatalog.DiffV1.AssemblyPath());
+        LibraryBodyIndex spoofed = LibraryBodyIndex.FromEvidence(
+            [],
+            [],
+            moduleIdentity: new(
+                LibraryBodyIndex.Open(path).ModuleIdentity.AssemblyIdentity,
+                foreign.ModuleIdentity.ModuleVersionId));
+        return new ImplementationComparisonInputOccurrence(
+            Descriptor(path, LibraryBodyIndex.Open(path).ModuleIdentity.AssemblyIdentity!),
+            new NullResolver(),
+            spoofed);
+    }
+
+    /// <summary>
+    /// A real image whose acquisition descriptor names another assembly.
+    /// </summary>
+    static ImplementationComparisonInputOccurrence SampleWithForeignIdentity()
+    {
+        string path = FixtureCatalog.ResearchTargetSample.AssemblyPath();
+        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        return new ImplementationComparisonInputOccurrence(
+            Descriptor(
+                path,
+                new AssemblyReferenceIdentity(
+                    "NotTheFixture",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)),
+            new NullResolver(),
+            index);
+    }
+
+    /// <summary>
+    /// A real image whose Analysis body index carries no assembly identity.
+    /// </summary>
+    static ImplementationComparisonInputOccurrence SampleWithStandaloneModule()
+    {
+        string path = FixtureCatalog.ResearchTargetSample.AssemblyPath();
+        LibraryBodyIndex index = LibraryBodyIndex.Open(path);
+        LibraryBodyIndex standalone = LibraryBodyIndex.FromEvidence(
+            [],
+            [],
+            moduleIdentity: new(
+                assemblyIdentity: null,
+                index.ModuleIdentity.ModuleVersionId));
+        return new ImplementationComparisonInputOccurrence(
+            Descriptor(path, index.ModuleIdentity.AssemblyIdentity!),
+            new NullResolver(),
+            standalone);
+    }
+
+    /// <summary>
+    /// A descriptor whose content cannot be read, so opening it becomes a
+    /// bounded Research failure rather than an escaping exception.
+    /// </summary>
+    static ImplementationComparisonInputOccurrence Unreadable()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixtureCatalog.ResearchTargetSample.AssemblyPath());
+        return new ImplementationComparisonInputOccurrence(
+            ResolvedAssemblyReference.Create(
+                index.ModuleIdentity.AssemblyIdentity!,
+                path: null,
+                () => throw new IOException(TargetFixture.UnreadableMarker),
+                AssemblyResolutionProvenance.Project(
+                    "Unreadable",
+                    tfm: null,
+                    rid: null)),
+            new NullResolver(),
+            index);
+    }
+
+    static ImplementationComparisonInputOccurrence Malformed()
+    {
+        LibraryBodyIndex index = LibraryBodyIndex.Open(
+            FixtureCatalog.ResearchTargetSample.AssemblyPath());
+        return new ImplementationComparisonInputOccurrence(
+            ResolvedAssemblyReference.Create(
+                index.ModuleIdentity.AssemblyIdentity!,
+                path: null,
+                static () => new MemoryStream([0, 1, 2, 3]),
+                AssemblyResolutionProvenance.Project(
+                    "Malformed",
+                    tfm: null,
+                    rid: null)),
+            new NullResolver(),
+            index);
+    }
+
+    static ResolvedAssemblyReference Descriptor(
+        string path,
+        AssemblyReferenceIdentity identity)
+        => ResolvedAssemblyReference.Create(
+            identity,
+            path,
+            () => File.OpenRead(path),
+            AssemblyResolutionProvenance.Project(
+                Path.GetFileNameWithoutExtension(path),
+                tfm: null,
+                rid: null));
+
+    sealed class NullResolver : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => null;
+    }
+
+    /// <summary>
+    /// A purpose-built admitted population plus the Research-owned role
+    /// assignment and selection helpers every target gate needs.
+    /// </summary>
+    sealed class TargetFixture
+    {
+        internal const string UnreadableMarker = "unreadable-fixture-content";
+
+        TargetFixture(
+            ResearchAdmittedPopulation population,
+            ImmutableArray<ResearchTargetInputRoleAssignment?> roles)
+        {
+            Population = population;
+            Roles = roles;
+        }
+
+        public ResearchAdmittedPopulation Population { get; }
+
+        public ImmutableArray<ResearchTargetInputRoleAssignment?> Roles { get; }
+
+        /// <summary>
+        /// One admitted population per question tuple. Each tuple supplies one
+        /// Before occurrence, one After occurrence, and one optional second
+        /// Before occurrence; a null entry leaves that slot empty.
+        /// </summary>
+        public static TargetFixture Create(
+            IReadOnlyList<(
+                ImplementationComparisonInputOccurrence? Before,
+                ImplementationComparisonInputOccurrence? After,
+                ImplementationComparisonInputOccurrence? SecondBefore)> questions,
+            Func<ResearchAdmittedInput, bool>? referenceOnly = null)
+        {
+            List<ResearchComparisonAdmissionQuestion?> requested = [];
+            foreach ((ImplementationComparisonInputOccurrence? before,
+                ImplementationComparisonInputOccurrence? after,
+                ImplementationComparisonInputOccurrence? second) in questions)
+            {
+                List<ResearchComparisonInputOccurrence?> beforeSide = [];
+                if (before is not null)
+                    beforeSide.Add(before);
+                if (second is not null)
+                    beforeSide.Add(second);
+                List<ResearchComparisonInputOccurrence?> afterSide = [];
+                if (after is not null)
+                    afterSide.Add(after);
+                requested.Add(
+                    new ResearchComparisonAdmissionQuestion(beforeSide, afterSide));
+            }
+
+            return From(
+                new ResearchComparisonAdmissionRequest(
+                    ResearchComparisonProfile.ImplementationComparison,
+                    requested),
+                referenceOnly);
+        }
+
+        /// <summary>
+        /// One admitted population whose inputs are reference-only descriptors
+        /// with caller-chosen assembly identities, for inert domain planning.
+        /// </summary>
+        public static TargetFixture Reference(
+            IReadOnlyList<AssemblyReferenceIdentity> before,
+            IReadOnlyList<AssemblyReferenceIdentity> after)
+            => From(
+                new ResearchComparisonAdmissionRequest(
+                    ResearchComparisonProfile.ImplementationComparison,
+                    [
+                        new ResearchComparisonAdmissionQuestion(
+                            [.. before.Select(Synthetic)],
+                            [.. after.Select(Synthetic)]),
+                    ]),
+                static _ => true);
+
+        static TargetFixture From(
+            ResearchComparisonAdmissionRequest request,
+            Func<ResearchAdmittedInput, bool>? referenceOnly)
+        {
+            ResearchAdmittedPopulation population =
+                Assert.IsType<ResearchAdmissionOutcome.Admitted>(
+                    ResearchComparisonAdmission.Admit(request)).Population;
+            return new TargetFixture(
+                population,
+                [
+                    .. population.Inputs.Select(
+                        input => new ResearchTargetInputRoleAssignment(
+                            input,
+                            referenceOnly?.Invoke(input) == true
+                                ? ResearchTargetInputRole.ReferenceOnly
+                                : ResearchTargetInputRole.Implementation)),
+                ]);
+        }
+
+        static ImplementationComparisonInputOccurrence Synthetic(
+            AssemblyReferenceIdentity identity)
+            => new(
+                ResolvedAssemblyReference.Create(
+                    identity,
+                    path: null,
+                    static () => throw new InvalidOperationException(
+                        "A reference-only input must never be opened."),
+                    AssemblyResolutionProvenance.Project(
+                        identity.Name,
+                        tfm: null,
+                        rid: null)),
+                new NullResolver(),
+                LibraryBodyIndex.FromEvidence(
+                    [],
+                    [],
+                    moduleIdentity: new(identity, Guid.NewGuid())));
+
+        public ResearchCarriedMemberSelection Carried(
+            int questionIndex,
+            string declaringType,
+            string selector)
+            => Carried(
+                questionIndex,
+                declaringType,
+                MemberTargetSelector.Parse(selector));
+
+        public ResearchCarriedMemberSelection Carried(
+            int questionIndex,
+            string declaringType,
+            MemberTargetSelector selector)
+            => new(
+                Population.Questions[questionIndex].Id,
+                declaringType,
+                selector);
+
+        public ResearchExactAddressMemberSelection Exact(
+            int questionIndex,
+            ResearchAdmittedInput input,
+            string declaringType,
+            string selector,
+            MetadataMethodAddress address,
+            ResearchTargetRelationshipRole role)
+            => new(
+                Population.Questions[questionIndex].Id,
+                input,
+                declaringType,
+                MemberTargetSelector.Parse(selector),
+                address,
+                role);
+
+        public ResearchTargetResolution Resolve(
+            params ResearchMemberSelectionOccurrence?[] selections)
+            => Assert.IsType<ResearchTargetPlanningOutcome.Planned>(
+                ResolveRaw(selections, CancellationToken.None)).Resolution;
+
+        public ResearchTargetResolution ResolveDefault(
+            string declaringType,
+            string selector)
+            => Resolve(Carried(0, declaringType, selector));
+
+        public ResearchTargetPlanningOutcome ResolveRaw(
+            IEnumerable<ResearchMemberSelectionOccurrence?> selections,
+            CancellationToken cancellationToken)
+            => ResearchTargetResolver.Resolve(
+                new ResearchTargetPlanningRequest(Population, Roles, selections),
+                cancellationToken);
+
+        public ResearchTargetPlanningRejection Reject(
+            params ResearchMemberSelectionOccurrence?[] selections)
+            => Assert.IsType<ResearchTargetPlanningOutcome.Rejected>(
+                ResolveRaw(selections, CancellationToken.None)).Rejection;
+
+        public LibraryBodyModuleIdentity ModuleIdentity(int inputIndex)
+            => ((ImplementationComparisonInputOccurrence)
+                Population.Inputs[inputIndex].Occurrence)
+                .BodyIndex.ModuleIdentity;
+
+        public ApiSurface Surface(FixtureDefinition fixture)
+        {
+            using var reader = new System.Reflection.PortableExecutable.PEReader(
+                File.OpenRead(fixture.AssemblyPath()));
+            return ApiSurfaceExtractor.Extract(
+                reader,
+                includeAll: true,
+                typesOnly: false,
+                includeCompilerGenerated: true);
+        }
+
+        public string Fingerprint(string declaringType, string memberName)
+            => Candidates(declaringType, memberName).Single().Anchor.Fingerprint;
+
+        /// <summary>
+        /// A one-character digest prefix shared by at least two candidates.
+        /// The fixture declares more than sixteen overloads of one name, so
+        /// pigeonhole over the hex alphabet guarantees one exists.
+        /// </summary>
+        public string AmbiguousDigestPrefix(
+            string declaringType,
+            string memberName)
+        {
+            IReadOnlyList<MemberTargetCandidate> candidates =
+                Candidates(declaringType, memberName);
+            Assert.True(candidates.Count > 16);
+            return candidates
+                .GroupBy(candidate => candidate.Anchor.Fingerprint[..1])
+                .First(group => group.Count() > 1)
+                .Key;
+        }
+
+        IReadOnlyList<MemberTargetCandidate> Candidates(
+            string declaringType,
+            string memberName)
+        {
+            ApiSurface surface = Surface(FixtureCatalog.ResearchTargetSample);
+            ApiType type = surface.Types.Single(
+                candidate =>
+                    candidate.DefinitionName?.ToMetadataFullName()
+                        == declaringType);
+            return MemberTargetResolver.GetCandidates(
+                type,
+                new MemberTargetSelector(memberName, memberName));
+        }
+    }
+}

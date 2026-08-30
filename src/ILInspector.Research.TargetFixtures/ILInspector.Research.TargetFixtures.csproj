@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Purpose-built fixture for Research target requests and terminal attempts
+    (#5049). It supplies compiler-produced accessor tokens, an ambiguous
+    overload pair, a bodyless field, a nested declaring type, and a real
+    type-forwarder row. Loaded by path; never referenced for compilation, so
+    its assembly-level type forward cannot affect any consumer's binding.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>
