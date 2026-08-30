@@ -1386,6 +1386,49 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
+    public void ResearchTargetAbsence_FailedExtensionContainerBlocksProjectedMember()
+    {
+        byte[] healthyImage = BuildExtensionProjectionImage(
+            includeBrokenMethod: false);
+        ApiType healthyReceiver = ExtractSurface(healthyImage).Types.Single(
+            type => type.DefinitionName?.ToMetadataFullName() == "N.Y");
+        Assert.Contains(
+            healthyReceiver.Members,
+            member => member is { Name: "M", Kind: "extension-method" });
+        Assert.IsType<ResearchTargetOutcome.Resolved>(
+            Assert.Single(
+                TargetFixture.Create(
+                        [(Occurrence(healthyImage), null, null)])
+                    .ResolveDefault("N.Y", "M")
+                    .Attempts)
+                .Outcome);
+
+        byte[] brokenImage = BuildExtensionProjectionImage(
+            includeBrokenMethod: true);
+        ApiSurface brokenSurface = ExtractSurface(brokenImage);
+        ApiType brokenReceiver = brokenSurface.Types.Single(
+            type => type.DefinitionName?.ToMetadataFullName() == "N.Y");
+        Assert.DoesNotContain(
+            brokenReceiver.Members,
+            member => member.Name == "M");
+        Assert.Single(
+            brokenSurface.InspectionFailures,
+            failure =>
+                failure.OwningTypeDefinition?.ToMetadataFullName() == "N.X");
+
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                TargetFixture.Create(
+                        [(Occurrence(brokenImage), null, null)])
+                    .ResolveDefault("N.Y", "M")
+                    .Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
+            failed.Diagnostic.Kind);
+    }
+
+    [Fact]
     public void ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening()
     {
         // A reference-only input is never opened: its descriptor throws if it
@@ -2268,6 +2311,108 @@ public class ResearchTargetResolverTests
             image.AsSpan(typeNameOffset, sizeof(ushort)),
             ushort.MaxValue);
         return image;
+    }
+
+    static byte[] BuildExtensionProjectionImage(bool includeBrokenMethod)
+    {
+        MetadataBuilder metadata = CreatePartialSurfaceMetadata();
+        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        TypeReferenceHandle extensionAttribute = metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("ExtensionAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MemberReferenceHandle extensionConstructor =
+            metadata.AddMemberReference(
+                extensionAttribute,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(constructorSignature));
+        var attributeValue = new BlobBuilder();
+        attributeValue.WriteUInt16(1);
+        attributeValue.WriteUInt16(0);
+        BlobHandle extensionValue = metadata.GetOrAddBlob(attributeValue);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Y"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle extensionClass = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("X"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddCustomAttribute(
+            extensionClass,
+            extensionConstructor,
+            extensionValue);
+
+        var extensionSignature = new BlobBuilder();
+        new BlobEncoder(extensionSignature)
+            .MethodSignature(
+                SignatureCallingConvention.Default,
+                genericParameterCount: 0,
+                isInstanceMethod: false)
+            .Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters
+                    .AddParameter()
+                    .Type()
+                    .Type(
+                        MetadataTokens.TypeDefinitionHandle(2),
+                        isValueType: false));
+        MethodDefinitionHandle extensionMethod =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(extensionSignature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            sequenceNumber: 1);
+        metadata.AddCustomAttribute(
+            extensionMethod,
+            extensionConstructor,
+            extensionValue);
+
+        if (includeBrokenMethod)
+        {
+            var brokenSignature = new BlobBuilder();
+            brokenSignature.WriteByte(0xff);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Broken"),
+                metadata.GetOrAddBlob(brokenSignature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(2));
+        }
+
+        return Serialize(metadata);
     }
 
     static MetadataBuilder CreatePartialSurfaceMetadata()

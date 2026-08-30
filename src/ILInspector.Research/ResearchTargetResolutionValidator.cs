@@ -460,7 +460,8 @@ static class ResearchTargetResolutionValidator
 
             if (FindPotentiallyCoveringFailure(
                     surface,
-                    intent) is not null)
+                    intent,
+                    memberAbsence: false) is not null)
             {
                 RequireNoMetadataResolution(evidence);
                 RequireFailure(
@@ -514,7 +515,8 @@ static class ResearchTargetResolutionValidator
             if (expected == ResearchTargetOutcomeKind.NotFound
                 && FindPotentiallyCoveringFailure(
                     surface,
-                    intent) is not null)
+                    intent,
+                    memberAbsence: true) is not null)
             {
                 RequireFailure(
                     outcome,
@@ -925,7 +927,8 @@ static class ResearchTargetResolutionValidator
 
     static ApiSurfaceInspectionFailure? FindPotentiallyCoveringFailure(
         ApiSurface surface,
-        string declaringTypeFullName)
+        string declaringTypeFullName,
+        bool memberAbsence)
         => surface.InspectionFailures.FirstOrDefault(
             failure =>
                 failure.Operation
@@ -934,7 +937,9 @@ static class ResearchTargetResolutionValidator
                 && failure.Operation
                     != ApiSurfaceInspectionFailure
                         .EnumAttributeTypeIndexOperation
-                && MayAffectType(failure, declaringTypeFullName));
+                && ((memberAbsence
+                        && failure.OwningTypeDefinition is not null)
+                    || MayAffectType(failure, declaringTypeFullName)));
 
     static int CountFailedTypeDefinitions(
         ApiSurface surface,

@@ -600,7 +600,8 @@ public static class ResearchTargetResolver
 
             if (FindPotentiallyCoveringFailure(
                     surface,
-                    intent) is not null)
+                    intent,
+                    memberAbsence: false) is not null)
             {
                 return Failed(
                     ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
@@ -629,7 +630,8 @@ public static class ResearchTargetResolver
                     == ResearchTargetOutcomeKind.NotFound
                 && FindPotentiallyCoveringFailure(
                     surface,
-                    intent) is not null)
+                    intent,
+                    memberAbsence: true) is not null)
             {
                 return Failed(
                     ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
@@ -701,7 +703,8 @@ public static class ResearchTargetResolver
 
     static ApiSurfaceInspectionFailure? FindPotentiallyCoveringFailure(
         ApiSurface surface,
-        string declaringTypeFullName)
+        string declaringTypeFullName,
+        bool memberAbsence)
         => surface.InspectionFailures.FirstOrDefault(
             failure =>
                 failure.Operation
@@ -710,7 +713,9 @@ public static class ResearchTargetResolver
                 && failure.Operation
                     != ApiSurfaceInspectionFailure
                         .EnumAttributeTypeIndexOperation
-                && MayAffectType(failure, declaringTypeFullName));
+                && ((memberAbsence
+                        && failure.OwningTypeDefinition is not null)
+                    || MayAffectType(failure, declaringTypeFullName)));
 
     static int CountFailedTypeDefinitions(
         ApiSurface surface,
