@@ -1081,6 +1081,7 @@ public static partial class ResearchViews
         string csIndent = "";
         string memberIndent = AnnotationCaret.MemberIndent(
             [.. stream.Where(line => line.Kind == SourceLineKind.CSharp).Select(line => line.Text)]);
+        bool renderedCaret = false;
         foreach (var line in stream)
         {
             if (line.Kind == SourceLineKind.Il)
@@ -1101,11 +1102,17 @@ public static partial class ResearchViews
             if (side.Count > 0)
                 text = $"{text}  // {string.Join("; ", side.Select(a => AnnotationText.Format(a)))}";
             sb.AppendLf(text);
-            if (caret.Count > 0 && caretSignal is not null)
-                caretSignal.Value = true;
+            if (caret.Count > 0)
+                renderedCaret = true;
             foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents))
                 sb.AppendLf(caretLine);
         }
+        // Only report success to the caller's signal once the whole stream has
+        // rendered without throwing -- a caller-visible RunProjection catch
+        // must never see a "caret rendered" signal left over from a render
+        // this method didn't actually finish producing.
+        if (renderedCaret && caretSignal is not null)
+            caretSignal.Value = true;
         return sb.ToString().TrimEnd();
     }
 
@@ -1256,16 +1263,22 @@ public static partial class ResearchViews
 
         string memberIndent = AnnotationCaret.MemberIndent([.. stream.Select(line => line.Text)]);
         var lines = new List<string>(stream.Count);
+        bool renderedCaret = false;
         foreach (var line in stream)
         {
             var (side, caret) = SplitByGesture(line.Annotations, gestures);
             lines.Add(side.Count > 0
                 ? $"{line.Text.TrimEnd()}  // {AnnotationText.Format(side)}"
                 : line.Text);
-            if (caret.Count > 0 && caretSignal is not null)
-                caretSignal.Value = true;
+            if (caret.Count > 0)
+                renderedCaret = true;
             lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true, extents));
         }
+        // Same rule as RenderMixedStream: only report success once the whole
+        // stream has rendered without throwing, so a caught exception never
+        // leaves the caller's signal claiming a caret that never made it out.
+        if (renderedCaret && caretSignal is not null)
+            caretSignal.Value = true;
         return string.Join("\n", lines);
     }
 
