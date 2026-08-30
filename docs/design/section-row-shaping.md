@@ -21,6 +21,9 @@ Related designs:
   `Tail`, `Window`, and `Top` behavior over named sequences.
 - [Inspection layers](inspection-layers.md) assigns executable request and
   result binding to L2.
+- [Typed row-source execution](row-source-execution.md) owns source offer
+  negotiation, receipts, completion-evidence binding, and the equivalence gate
+  for accepted upstream Count.
 - [Item and line selection composition](item-and-line-limits.md) sequences L2
   with source execution and presentation without redefining either owner.
 
@@ -487,10 +490,11 @@ physical strategies may include ordinary L2 enumeration, provider count APIs,
 source aggregation, exact feed or index metadata, cached exact cardinality, or
 early termination.
 
-The source-execution design owns capability negotiation, proof shape, stopping
-rules, completion evidence, and the non-vacuous optimized-execution gate. L2
-accepts an optimized result only when it is observationally equivalent to the
-complete reference contracts in
+The
+[typed row-source execution design](row-source-execution.md) owns offer
+negotiation, source receipts, completion-evidence binding, and the non-vacuous
+optimized-execution gate. L2 accepts an optimized result only when it is
+observationally equivalent to the complete reference contracts in
 [Row query and ordering](row-query-order.md#logical-composition) and
 [Semantic row selection](semantic-row-selection.md#reference-semantics-and-optimized-execution).
 That includes their predicate, baseline-order, callback, exception-identity,

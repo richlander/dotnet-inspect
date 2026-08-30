@@ -1,0 +1,416 @@
+# Typed row-source execution
+
+## Status
+
+Focused cross-cutting L1 pattern proposal for
+[#5202](https://github.com/richlander/dotnet-inspect/issues/5202), following
+the L2 contract locked by
+[Section-row shaping](section-row-shaping.md).
+
+The current product has no general row-source execution contract and does not
+implement this proposal. All asserted behavior is unverified until the Release
+gates in [Required gates](#required-gates) land.
+
+This design uses two established evidence sources:
+
+- the complete L2 reference composition in
+  [Section-row shaping](section-row-shaping.md#reference-composition), plus the
+  row-query and semantic-selection contracts it composes; and
+- current typed planning, result, capability, and completion patterns in the
+  query, package-source, Finding, and metadata-projection components.
+
+The protocol below is deliberately linear and excludes concurrent execution
+and incremental result publication. A later adoption that introduces either
+must model its scheduling, cancellation, and publication interactions rather
+than claiming this state table covers them.
+
+Single-use acceptance and publication only after one terminal outcome make the
+current transition invariant by construction; this proposal makes no broader
+scheduling-model claim.
+
+Related designs:
+
+- [Inspection layers](inspection-layers.md) owns the L1/L2 dependency direction
+  and consumer-neutral handoff.
+- [Section-row shaping](section-row-shaping.md) owns declared-row-set binding,
+  Rows and Count meaning, residual L2 execution, and result binding.
+- [Row query and ordering](row-query-order.md) owns predicate, baseline-order,
+  ranking, and execution-observation semantics.
+- [Semantic row selection](semantic-row-selection.md) owns `Head`, `Tail`,
+  `Window`, and `Top` semantics and the complete-sequence reference oracle.
+- [Progressive disclosure](progressive-disclosure.md) owns user-visible
+  disclosure of non-semantic operational bounds.
+- [Untrusted data threat model](untrusted-data-threat-model.md) owns
+  containment of internet-origin data.
+- [Item and line selection composition](item-and-line-limits.md) sequences this
+  pattern with its callers and adopters.
+
+## Authority and scope
+
+The L1 typed row-source execution pattern is the authority for negotiating and
+recording one source-owned execution of one caller-formed row request offer.
+
+This design owns:
+
+- request, offer, capability, acceptance, receipt, and evidence identities;
+- pure deterministic offer planning;
+- the distinction between planning decline and accepted execution;
+- the closed logical execution outcomes;
+- binding source disposition and completion evidence to the accepted offer and
+  its ordered members;
+- the rule that fallback is allowed only before acceptance;
+- validation of source receipts and outcome membership; and
+- the source-pattern gates required before an optimized Count result may be
+  accepted.
+
+This design does not own:
+
+- construction, validation, ordering, or partitioning of the L2 logical plan;
+- the meaning of projection, predicates, baseline order, semantic stages,
+  Rows, or Count;
+- how a caller groups declared row sets or derives a residual request;
+- which operations any existing owner permits a source to execute;
+- source-specific acquisition, pagination, retries, caching, merge,
+  deduplication, authoritative count APIs, or proof construction;
+- CLI syntax, diagnostics, presentation, or disclosure wording;
+- source failure taxonomies or provenance lifetimes; or
+- concrete implementation APIs.
+
+The caller supplies already-resolved typed offers. This pattern neither reads
+the caller's plan nor invents an alternative partition.
+
+## Contract vocabulary
+
+The contract uses ten owner-issued identities:
+
+- **`RowSourceRequestIdentity`** identifies one immutable negotiation.
+- **`RowSourceOfferIdentity`** identifies one caller-formed execution
+  alternative within that request.
+- **`RowSourceInputIdentity`** identifies the immutable, already-authorized
+  source input or context to which the offer applies.
+- **`RowSourceExecutionGroupIdentity`** identifies the caller-defined ordered
+  group to which the offer applies.
+- **`RowSourceMemberIdentity`** identifies one ordered member binding within
+  the group.
+- **`RowSourceCapabilityIdentity`** identifies the source-owned capability
+  selected to satisfy an offer.
+- **`RowSourcePermitIdentity`** identifies one operation-owner permission
+  included by the caller.
+- **`RowSourceCompletionRequirementIdentity`** identifies the caller-owned
+  completion requirement the source result must satisfy.
+- **`RowSourceResidualIdentity`** identifies a caller-retained residual request
+  for a row handoff.
+- **`RowSourceAcceptanceReceiptIdentity`** identifies one accepted offer
+  execution.
+
+Equality is owner-issued token equality only. Display names, option spellings,
+provider names, URLs, pagination state, structural plan comparison, and
+sequence position do not participate.
+
+An implementation may use the caller's existing declared-row-set and shaping
+identities as member or group tokens when their owner explicitly adopts this
+pattern. This document does not redefine those identities or require a second
+parallel identity system.
+
+## Caller-formed offers
+
+One request contains an ordered, immutable list of execution offers. An offer
+contains:
+
+1. the request and offer identities;
+2. one immutable source-input identity;
+3. one caller-defined execution-group identity;
+4. the complete ordered member-identity list;
+5. the required source-capability identity;
+6. the exact owner-issued execution-permit identities the caller has attached;
+7. one completion-requirement identity; and
+8. exactly one output contract:
+   - **row handoff**, naming a caller-owned residual-request identity; or
+   - **exact Count**, naming the caller-owned Count terminal identity.
+
+The caller owns whether such an offer is semantically legal. An operation with
+no owner-issued source-execution permit cannot appear inside an offer merely
+because a source claims it can perform similar work. A capability identity is
+not permission to reinterpret another owner's operation.
+
+The residual identity is opaque to the source. It names a residual request the
+caller already constructed and retained. The source never returns executable
+operations, edits a plan, chooses a cursor, or synthesizes a residual suffix.
+
+An empty offer list means that no source delegation is available. Offer
+identities must be unique within one request; member identities and permit
+identities must each be unique within one offer. Group, input, capability,
+completion-requirement, and residual identities may be reused when the caller
+intentionally references the same owner-issued instance. Unknown or
+scope-mismatched identities reject request construction rather than selecting
+an arbitrary binding.
+
+## Pure offer planning
+
+Planning validates the complete request before source work begins, then visits
+offers in declaration order. It returns exactly one result:
+
+```text
+RowSourcePlanResult =
+    Declined
+  | Accepted(request identity,
+             offer identity,
+             capability identity,
+             acceptance receipt identity)
+```
+
+The first offer whose exact capability and permit set the source can honor is
+accepted. If none is supported, planning returns `Declined`.
+
+Planning is pure. It may inspect immutable capability declarations, but
+performs no network, filesystem, source-result cache lookup, provider,
+pagination, row-callback, comparer, or source-content work. A decline is a
+capability result, not a source failure. The caller may then use a later
+non-source strategy, including its complete reference path.
+
+An invalid request is not `Declined`. It returns a typed contract-validation
+failure and no offer is examined.
+
+## Acceptance is a point of no fallback
+
+Acceptance binds the exact request, offer, source input, capability, group,
+ordered member list, permit set, completion requirement, output contract, and
+acceptance receipt identity. Execution may begin only from that receipt and
+may begin at most once.
+
+After acceptance, the source returns one accepted-execution outcome or
+propagates an unexpected implementation exception. It cannot convert a runtime
+capability miss, provider failure, cancellation, or insufficient completion
+evidence into `Declined`. The caller cannot silently retry a different offer or
+the reference path after accepted work because source effects or delegated
+observations may already have occurred.
+
+A caller-owned row-handoff residual is not fallback. It is the continuation
+named by the accepted offer before source execution began.
+
+## Accepted execution outcomes
+
+The conceptual source result is:
+
+```text
+RowSourceExecutionOutcome =
+    RowHandoff(acceptance receipt,
+               ordered row-source member outcomes)
+  | ExactCount(acceptance receipt,
+               ordered member exact counts,
+               ordered member completion evidence)
+  | NotSatisfied(acceptance receipt,
+                 ordered member disposition and completion evidence)
+```
+
+A row-source member outcome is:
+
+```text
+RowSourceMemberOutcome =
+    RowValues(member identity,
+              caller-owned values,
+              owner-issued source disposition,
+              completion evidence)
+  | Unavailable(member identity,
+                owner-issued source disposition,
+                completion evidence)
+```
+
+All branches retain the exact request, offer, source input, group, and ordered
+member bindings through the acceptance receipt. Every member from the offer
+occurs exactly once and no unknown member occurs.
+
+`RowHandoff` is valid only for a row-handoff offer. Each `RowValues` entry is
+Rows-usable for the complete caller-formed offer and may enter the retained
+residual request. An `Unavailable` entry contains no row values. A row handoff
+preserves usable rows beside unavailable members because the L2 consumer owns
+that composition. An expected acquisition, absence, cancellation, or
+completion disposition attributable to one member uses that member's
+`Unavailable` outcome rather than failing the complete offer.
+
+`ExactCount` is valid only for an exact-Count offer. It contains one
+non-negative exact count and matching completion evidence for every offered
+member. It cannot contain rows, omit a member, publish a partial count map, or
+invent a total across members.
+
+`NotSatisfied` is valid for an exact-Count offer when any member is not exact.
+For a row-handoff offer, it is valid only for an offer-scoped expected failure
+that prevents the source from producing one complete ordered member map. It
+contains one ordered disposition-and-evidence entry per member and no row or
+Count payload. It does not replace an `Unavailable` member when the source can
+still determine every member outcome. Unexpected programming failures
+propagate according to their owning execution contract rather than being
+converted into an empty result.
+
+An offer-scoped failure retains that broader scope. Each affected member entry
+references the same scoped disposition and evidence so the ordered map remains
+complete, but the contract does not relabel the cause as a member-scoped
+failure. Because one offer binds exactly one execution group, a second
+group-level evidence scope would be redundant.
+
+Physical execution may stream or buffer internally, but no logical success or
+partial top-level result is published before one complete outcome validates.
+
+## Completion evidence
+
+Completion evidence is an immutable typed receipt bound to:
+
+- the request, offer, acceptance receipt, and execution-group identities;
+- the source-input identity;
+- the exact completion-requirement identity from the offer;
+- the source-capability identity actually used; and
+- exactly one typed evidence scope, either the complete offer or one member
+  identity; and
+- one source-owned evidence basis.
+
+The pattern recognizes three evidence-basis roles:
+
+- **logical exhaustion** — the adopted source contract proved that no further
+  value exists in the source domain named by the offer;
+- **requirement witness** — the source produced the typed witness required by
+  the offer's owner-issued completion requirement; or
+- **incomplete stop** — a provider, page, work, time, memory, or acquisition
+  bound, or cancellation, stopped execution without satisfying the
+  requirement.
+
+The first two may satisfy an offer only when the caller-owned completion
+requirement accepts that exact evidence basis. An `incomplete stop` never does.
+The pattern validates identity and basis compatibility; the adopting
+source owner defines how its evidence is constructed and proves the claim with
+its own non-vacuous gate.
+
+Evidence is not inferred from row or Count values. Returning exactly the
+requested number, returning fewer rows than a page size, receiving an empty
+page, or observing a provider-specific terminal token proves nothing unless
+the adopted source contract constructs the matching evidence.
+
+Stale evidence from another request, offer, receipt, input, group, scope,
+capability, or completion requirement rejects. Evidence cannot be transferred
+because two requests are structurally equal. The composite request/offer/receipt/input/group/scope/capability/requirement
+binding is the evidence key; two evidence values for the same key are
+duplicates even though evidence has no separate identity token.
+
+## Rows usability and Count sufficiency
+
+Rows usability and Count sufficiency are different conclusions:
+
+- `RowValues` means the values are usable for the complete accepted
+  row-handoff offer and its named residual request.
+- `ExactCount` means every count is sufficient for the complete accepted Count
+  offer.
+- `Unavailable` and `NotSatisfied` are neither.
+
+A row handoff may carry incomplete-stop evidence when the caller-formed
+Rows contract permits incomplete rows with disclosure. The same evidence is
+not thereby sufficient for Count.
+
+An exact Count requires evidence accepted by the offer's completion
+requirement for every member. One insufficient, failed, absent, or missing
+member forces `NotSatisfied`; successful-looking counts for the other members
+do not escape.
+
+## `Head(N) -> Count` as the canonical witness
+
+The `RowSelection` owner defines `Head(N)` as a lenient clamp. The L2 owner
+defines Count as the exact cardinality after that clamp. An adopting caller may
+therefore form an exact-Count offer whose completion requirement accepts
+either:
+
+- a requirement witness proving that N applicable ordered rows reached the
+  clamp; or
+- logical exhaustion proving that fewer than N applicable rows exist.
+
+The source may return N immediately after the first proof. It may return
+`k < N` only after the second. A provider or work cap equal to N is
+incomplete-stop evidence, not the required witness.
+
+This example applies the adjacent owner's locked semantics; it does not move
+`Head` or Count meaning into this pattern.
+
+## Other delegated observations
+
+An offer's permit set must cover every observation the delegated work can make,
+including any owner-defined callback invocation, exception identity, failure
+precedence, ordering, or all-or-failure boundary.
+
+The pattern does not decide which row-query or semantic operations are
+delegable. In particular:
+
+- an operation without a permit is a barrier;
+- a source capability cannot waive a required callback;
+- a completion witness cannot replace an earlier strict-stage requirement; and
+- an exact value cannot compensate for different failure or callback
+  observations.
+
+If the caller cannot form a permitted offer that preserves those observations,
+planning declines and the reference path remains authoritative.
+
+## Deterministic transition order
+
+The logical transition order is:
+
+1. validate request identity and the complete ordered offer list;
+2. validate every offer's identities, member map, permit set, completion
+   requirement, and output contract;
+3. visit offers in declaration order and accept the first exactly supported
+   offer, or decline all;
+4. when accepted, bind one immutable acceptance receipt;
+5. execute that receipt at most once;
+6. validate the returned receipt, branch, member order, evidence, and payload
+   invariants; and
+7. publish one complete outcome.
+
+The first validation failure wins. No later offer is examined after acceptance,
+and no alternative is tried after accepted execution fails.
+
+## Security and platform boundary
+
+Remote content does not mint request, offer, capability, permit, member,
+completion-requirement, or receipt identities. Source-specific remote text does
+not enter this pattern as a diagnostic string; an adopter carries only its
+owner-issued contained disposition and evidence types.
+
+The contract authorizes no source, endpoint, credential, cache, or filesystem
+path. Host and source owners perform that authorization before execution.
+
+The shared contract must remain host-neutral, NativeAOT-compatible,
+Browser/Wasm-compatible, reflection-free, and free of dedicated-thread,
+filesystem, network, console, process, or native-interop dependencies.
+Adopters may use platform capabilities in their own owning components only
+under those components' existing platform contracts.
+
+## Required gates
+
+The pattern implementation and each optimized adoption must add the applicable
+named Release gates:
+
+| Gate | Contract |
+| --- | --- |
+| `RowSourceIdentitiesAreOwnerIssued` | Request, offer, input, group, member, capability, permit, completion-requirement, residual, and receipt identities use owner-issued token equality; display and structurally equal plans do not bind. |
+| `RowSourceRequestValidationIsAtomic` | Duplicate offer identities, duplicate members or permits within one offer, and unknown, missing, empty, scope-mismatched, or incompatible identities, member maps, requirements, residuals, or output contracts return the deterministic first typed validation failure and examine no offer; intentional reuse of the same input, group, capability, requirement, or residual identity across offers remains valid. |
+| `RowSourcePlanningIsPure` | Planning inspects only immutable capability declarations and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
+| `RowSourceSelectsFirstSupportedOffer` | Offers are considered in declaration order; the first offer whose exact capability and permit set is supported is accepted, no later offer is inspected, and an all-declined request performs no execution. |
+| `RowSourceDeclineAllowsReferenceFallback` | A pure all-offers decline permits the caller's retained reference strategy and is never reported as a source failure. |
+| `RowSourceAcceptanceIsSingleUse` | One acceptance receipt binds the exact request and offer, executes at most once, and rejects replay or a receipt from any other negotiation. |
+| `RowSourceResidualIsCallerOwned` | A row handoff resolves only to the residual identity retained for its accepted offer; the source cannot return operations, replace the residual, or select a different caller plan. |
+| `RowSourceOutcomeMembershipIsExact` | Every outcome preserves offer member order, contains every member exactly once, rejects unknown or duplicate members, and never reconstructs identity from position or source labels. |
+| `RowSourceRowHandoffMatchesOffer` | `RowHandoff` occurs only for a row-handoff offer; every `RowValues` entry is usable for that complete offer and residual, every `Unavailable` entry carries no rows, and all entries retain their exact disposition and completion evidence. |
+| `RowSourceExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count offer, contains one non-negative exact value and accepted completion evidence per member, carries no rows, preserves order and identity, and publishes no partial map or invented total. |
+| `RowSourceNotSatisfiedCarriesEvidence` | An inexact accepted Count or an offer-scoped row-handoff failure that prevents a complete member map returns one disposition-and-evidence entry per member with no rows or Count payload; the broader failure retains offer scope across affected entries, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
+| `RowSourceAcceptedFailureNeverFallsBack` | Removing capability after acceptance, reaching an incomplete stop, or returning an accepted member- or offer-scoped source failure never tries a later offer or reference execution; the exact outcome is `Unavailable` within a complete row handoff or offer-wide `NotSatisfied` under the scope rules above. |
+| `RowSourceCompletionEvidenceIsBound` | Evidence matches the exact request, offer, receipt, source input, group, typed offer/member scope, capability, and completion-requirement identities; stale, transferred, missing, duplicate, or incompatible evidence rejects. |
+| `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete even when their numeric value equals a requested semantic bound or returned row count. |
+| `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff offer may return Rows-usable values with incomplete-stop evidence, while the corresponding exact-Count offer returns `NotSatisfied` and no cardinality. |
+| `DelegatedObservationsMatchPermits` | Every supported offer exercises all callback, ordering, exception-identity, failure-precedence, and atomic-publication obligations named by its exact permit set; removing any permit rejects planning rather than weakening an observation. |
+| `OptimizedCountMatchesSectionRowReference` | The optimized path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
+| `RowSourceOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete validated outcome. |
+| `RowSourceContractIsPresentationFree` | Requests, offers, receipts, outcomes, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label. |
+| `RowSourceContractHasOnlyFrameworkDependencies` | The shared contract's evaluated Release compile/runtime/native assets contain only framework references and the contract component. |
+| `RowSourceContractRunsOnNativeAotAndBrowser` | The request, planning, accepted execution, row-handoff, exact-Count, and not-satisfied reference matrix runs in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
+
+## Non-claims
+
+This design does not assert that any current source can accept an offer, define
+an L2 offer-construction policy, choose a source-specific proof, or change
+current product behavior. Every adoption remains a separate focused effort by
+the source or caller owner.
