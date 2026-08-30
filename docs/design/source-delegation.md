@@ -405,9 +405,11 @@ not escape.
 ## `Head(N) -> Count` as the canonical witness
 
 The `RowSelection` owner defines `Head(N)` as a lenient clamp. The L2 owner
-defines Count as the exact cardinality after that clamp. An adopting caller
-may therefore form an exact-Count candidate whose completion requirement
-accepts either:
+defines Count as the exact cardinality after that clamp. After the
+RowSelection owner separately declares `Head(N)` source-closed and proves that
+declaration with `SourceClosedDeclarationsMatchOwnerContracts`, an adopting
+caller may form an exact-Count candidate whose completion requirement accepts
+either:
 
 - a requirement witness proving that N applicable ordered rows reached the
   clamp; or
@@ -426,12 +428,13 @@ This section is illustrative, not normative. An OData-backed source shows
 both the opportunity and the discipline, because the provider protocol
 itself accepts delegated row and limit work:
 
-- `$top` can represent a source-closed `Head` clamp. `$filter` and `$orderby`
-  can enter the prefix only when their operation owners separately define
-  typed non-callback operations and declare them source-closed; the current
-  row-query callback and comparer operations remain outside the delegated
-  prefix. The adoption must also prove that the service honors each mapped
-  option, rather than trusting capability metadata alone.
+- `$top` can represent a `Head` clamp only after the RowSelection owner
+  separately declares that operation source-closed and its gate passes.
+  `$filter` and `$orderby` can enter the prefix only when their operation
+  owners separately define typed non-callback operations and declare them
+  source-closed; the current row-query callback and comparer operations remain
+  outside the delegated prefix. The adoption must also prove that the service
+  honors each mapped option, rather than trusting capability metadata alone.
 - `$count=true` returns a server-computed `@odata.count`; the adopted source
   contract may construct a requirement witness or exhaustion evidence from
   it under that service's documented semantics.
@@ -517,8 +520,8 @@ shape, not checks.
 | `SourceClosedDeclarationsMatchOwnerContracts` | Each operation owner's gate proves its source-closed declaration against its reference failure and invocation contract; an operation is delegable only under its owner's current declaration. |
 | `OwnerObservationsRemainReferenceBarriers` | An operation not declared source-closed never enters delegated work; retained in the residual or reference path, it preserves exact invocation, failure identity, scope, all-or-failure behavior, and precedence. |
 | `SourceDelegationRowHandoffIsComplete` | `RowHandoff` occurs only for a row-handoff candidate and contains exactly one outcome for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member. Every outcome is exactly one `RowValues` or `Unavailable` entry; only `RowValues` carries fully acquired rows. |
-| `SourceDelegationExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate, contains one non-negative exact value and accepted completion evidence per member, carries no rows, and publishes no partial map or invented total. |
-| `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns one disposition-and-evidence entry per member with no row or Count payload; the broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
+| `SourceDelegationExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate and contains exactly one non-negative exact value with accepted completion evidence for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member. It carries no rows and publishes no partial map or invented total. |
+| `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns exactly one disposition-and-evidence entry for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member and no row or Count payload. The broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
 | `SourceDelegationCompletionEvidenceBasisIsAccepted` | A result satisfies its completion requirement only through logical exhaustion or a requirement-witness basis that the requirement accepts; incomplete-stop and unavailable-outcome evidence never satisfy it. A member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, absence is not exhaustion, and exact Count requires proof of every member value. |
 | `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete-stop evidence even when their numeric value equals a requested semantic bound or returned row count. |
 | `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff candidate may return Rows-usable values with incomplete-stop evidence, while the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
