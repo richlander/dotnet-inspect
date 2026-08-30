@@ -55,15 +55,16 @@ or the work appears to need multiple normative owners.
 | Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-For ordinary non-Markdown attempts at rounds not divisible by three, one status
-attempt is enough: pending, missing, rate-limited, or transient status may
-remain pending and reviewer dispatch continues. This is the normal cadence, not
-a user-authorized parallel review exception. Every third ordinary non-Markdown
-attempt instead applies the bounded wait before dispatch. Conflict-recovery and
-Markdown-only attempts dispatch after their required local gate and status
-attempt without waiting on unresolved CI or mergeability. Fresh green
-current-head `ci-required` and positive mergeability remain mandatory at
-six-round boundaries and final merge.
+For status cadence, a **normal-cadence attempt** is a first attempt, ordinary
+subsequent attempt, or failed-gate restart for a non-Markdown PR. At rounds not
+divisible by three, one status attempt is enough: pending, missing, rate-limited,
+or transient status may remain pending and reviewer dispatch continues. This is
+the normal cadence, not a user-authorized parallel review exception. Every third
+normal-cadence attempt instead applies the bounded wait before dispatch.
+Conflict-recovery and Markdown-only attempts dispatch and may close after their
+required local gate and status attempt without waiting on unresolved CI or
+mergeability. Fresh green current-head `ci-required` and positive mergeability
+remain mandatory at six-round boundaries and final merge.
 
 ### Review-clean, and recovery
 
@@ -166,18 +167,21 @@ values.
 *This section defines repository policy, not GitHub timing guarantees.*
 
 Absent a standing adjustment in `AGENTS.md`, every round attempts one
-current-head snapshot. For ordinary non-Markdown attempts at rounds not
-divisible by three, pending, missing, rate-limited, or transient status does not
-block reviewer dispatch or round closure: record it and continue. Every third
-ordinary non-Markdown attempt, and any merge or readiness goal, instead enters a
-status budget of up to 60 minutes; expiry publishes the status report and stops
-without dispatch or goal completion. Conflict-recovery and Markdown-only
-attempts never enter that wait; after one snapshot, unresolved status does not
-block their reviewer dispatch. Every sixth round uses the budget, but fresh
-green current-head `ci-required` and positive mergeability remain prerequisites
-for the next-block approval prompt. A known conflict, required CI completed
-without success, or terminal query failure still takes its transition. Measure
-the budget from the first scheduled wait and publish `status-deadline=<UTC>`.
+current-head snapshot. For a normal-cadence attempt at a round not divisible by
+three, pending, missing, rate-limited, or transient status does not block
+reviewer dispatch or round closure: record it and continue. Every third
+normal-cadence attempt instead enters a status budget of up to 60 minutes;
+expiry publishes the status report and stops without dispatch. Conflict-recovery
+and Markdown-only attempts never enter that reviewer-dispatch wait; after one
+snapshot, unresolved status blocks neither dispatch nor closure.
+
+Any merge or readiness goal uses the same status budget and stops without goal
+completion if it expires. After every sixth completed round, the separate
+next-block approval goal uses that budget and requires fresh green current-head
+`ci-required` and positive mergeability before the prompt. A known conflict,
+required CI completed without success, or terminal query failure still takes
+its transition. Measure the budget from the first scheduled wait and publish
+`status-deadline=<UTC>`.
 
 Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
