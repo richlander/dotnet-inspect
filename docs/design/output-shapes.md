@@ -8,7 +8,8 @@ shared vocabulary for the output flags
 `--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
-The item-limit and multi-item print passages describe the approved
+The item-limit, projection-role, typed-L2 result, and multi-item print passages
+describe the approved
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
 released behavior. [Item and line limits](item-and-line-limits.md) records its
 implementation status and required gates.
@@ -112,8 +113,10 @@ Four families walk the shape ladder, and a fifth sits before it. A flag in one
 of the ladder families contributes in one of four ways:
 
 - **Shape selectors** narrow the requested data or shape (`-S`,
-  schema-resolved `--fields`/`--columns`, `--count`). L2 resolves field/column
-  intent as membership or cell projection before a renderer sees it.
+  `--fields`/`--columns`, `--count`). Under the target
+  [section-row-shaping contract](section-row-shaping.md#projection-kinds), L2
+  resolves field/column intent as membership or cell projection before a
+  renderer sees it.
 - **Item/range selectors** narrow the rows without changing the shape rung
   (`--where`, `--order-by`, `-n`, `--top`, `--rows`).
 - **Presentation modifiers** change how a selected payload is rendered without
@@ -181,8 +184,12 @@ it with a chosen **formatter**. The shapes map onto Markout concepts directly:
 | Vector | a table projected to one column, or a single-column `WriteList` |
 | Scalar | a single cell, a `CodeSection` payload, or a row count |
 
-After L2 row shaping, two Markout knobs handle remaining cell narrowing and
-formatting:
+The current product supplies raw field/column names to
+`MarkoutWriterOptions.Projection`, which applies both table-column projection
+and field-set inclusion during serialization. The target
+[section-row-shaping contract](section-row-shaping.md#projection-kinds) moves
+the membership-versus-cell decision into L2; after that adoption, two Markout
+knobs handle remaining cell narrowing and formatting:
 
 - **Projection** (`MarkoutWriterOptions.Projection`) applies an already-resolved
   cell projection — the Table → Vector step. It does not implement field-set
@@ -202,10 +209,13 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
-Formatters consume typed L2 row, Count, or failure results. They do not
-establish cardinality by intercepting rendering, and rendered Markdown is never
-parsed back into rows. Producers outside Markout, such as metadata tables,
-expose the same declared logical rows to L2 that their renderers consume.
+The current `CountProjectionFormatter` establishes cardinality by intercepting
+structured Markout rows without writing them. Under the target
+[section-row-shaping contract](section-row-shaping.md#result-binding-and-failure),
+formatters instead consume typed L2 Row-outcomes, Count, or failure results and
+do not establish cardinality. Rendered Markdown is never parsed back into rows.
+Producers outside Markout, such as metadata tables, expose the same declared
+logical rows to L2 that their renderers consume.
 
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
