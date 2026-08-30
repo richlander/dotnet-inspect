@@ -13,6 +13,7 @@ internal static class TypeScriptFacadeEmitter
     [
         "dotnet",
         "RuntimeAPI",
+        "then",
         "undefined",
         "initializeRuntime",
         "runEntryPoint",

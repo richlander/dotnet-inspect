@@ -27,6 +27,11 @@ const getNullableWidgetAsyncKey =
   facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
 const undefinedKey =
   facadeSource.match(/"(Undefined\.-?\d+)"/)?.[1];
+const thenMatch = facadeSource.match(
+  /export function (operation_[0-9a-f]+)\(value\) \{\n\s+return [^\n]*\["(Then\.-?\d+)"\]\(value\);\n\}/,
+);
+const thenOperationName = thenMatch?.[1];
+const thenKey = thenMatch?.[2];
 const undefinedOperationName =
   facadeSource.match(
     /export function (operation_[0-9a-f]+)\(value\)/,
@@ -71,6 +76,11 @@ assert.ok(
 assert.ok(
   undefinedOperationName,
   "The generated Undefined facade operation was not found.",
+);
+assert.ok(thenKey, "The generated Then runtime dispatch key was not found.");
+assert.ok(
+  thenOperationName,
+  "The generated Then facade operation was not found.",
 );
 let importSequence = 0;
 
@@ -119,6 +129,8 @@ function managedExports(methods = {}) {
               ?? (async (name) => JSON.stringify({ name, count: 1 })),
             [undefinedKey]:
               methods.undefinedOperation ?? ((value) => value),
+            [thenKey]:
+              methods.thenOperation ?? ((value) => value),
           },
         },
       },
@@ -172,6 +184,7 @@ async function freshFacade() {
     runMainResult: 37,
   });
   const facade = await freshFacade();
+  assert.equal("then" in facade, false);
 
   let notInitializedError;
   assert.throws(
@@ -244,6 +257,7 @@ async function freshFacade() {
     { name: "nullable", count: 1 },
   );
   assert.equal(facade[undefinedOperationName]("defined"), "defined");
+  assert.equal(facade[thenOperationName]("importable"), "importable");
   assert.equal(await facade.runEntryPoint("Main.dll", ["one", "two"]), 37);
   assert.deepEqual(
     scenario.runMainCalls,

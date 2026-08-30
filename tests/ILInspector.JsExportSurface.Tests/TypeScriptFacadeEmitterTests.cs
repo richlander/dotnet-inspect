@@ -355,7 +355,7 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
-    public void Emit_ReservesUndefinedAndParsesNullableJsonEnvelope()
+    public void Emit_ReservesModuleInteropNamesAndParsesNullableJsonEnvelope()
     {
         global::ILInspector.JsExportSurface.JsExportSurface surface =
             BuildSurface(
@@ -363,6 +363,8 @@ public sealed class TypeScriptFacadeEmitterTests
                     .TypeScriptFixtureExports).Assembly.Location);
         JsExportFunction undefined = surface.Functions.Single(
             function => function.Name == "Undefined");
+        JsExportFunction then = surface.Functions.Single(
+            function => function.Name == "Then");
         JsExportFunction nullable = surface.Functions.Single(
             function => function.Name == "GetNullableWidgetAsync");
 
@@ -374,12 +376,21 @@ public sealed class TypeScriptFacadeEmitterTests
             "export function undefined(",
             source,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export function then(",
+            source,
+            StringComparison.Ordinal);
         Assert.Contains(
             "export function operation_",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
             $"readonly \"{undefined.RuntimeDispatchKey}\": "
+                + "(value: string) => string;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"readonly \"{then.RuntimeDispatchKey}\": "
                 + "(value: string) => string;",
             source,
             StringComparison.Ordinal);
@@ -401,6 +412,63 @@ public sealed class TypeScriptFacadeEmitterTests
             "const $parsed: unknown = JSON.parse($result);",
             source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ReportsRejectedAsyncEnvelopeWithoutThrowing()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var dto = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "WidgetDto",
+            Kind = "class",
+        };
+        var function = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "GetWidgetAsync",
+            RuntimeDispatchKey = "GetWidgetAsync.1",
+            ReturnType = "System.Threading.Tasks.Task<string>",
+            ReturnTypeReferences =
+            [
+                new(
+                    new ApiAssemblyIdentity(
+                        "System.Threading.Tasks",
+                        new Version(1, 0, 0, 0),
+                        culture: null,
+                        publicKeyToken: "b03f5f7f11d50a3a"),
+                    "System.Threading.Tasks.Task`1"),
+            ],
+            ReturnWireType = "Fixture.WidgetDto",
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Functions = [function],
+                Records = [dto],
+                WireDirections =
+                    new Dictionary<ApiType, JsonWireDirection>
+                    {
+                        [dto] = JsonWireDirection.Serialize,
+                    },
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule,
+            diagnostics);
+
+        Assert.Contains(
+            "export function getWidgetAsync(): unknown",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "export async function getWidgetAsync",
+            source,
+            StringComparison.Ordinal);
+        Assert.NotEmpty(diagnostics.UnmappedTypes);
     }
 
     [Fact]

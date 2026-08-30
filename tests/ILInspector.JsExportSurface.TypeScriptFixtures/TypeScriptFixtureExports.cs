@@ -45,6 +45,9 @@ public static partial class TypeScriptFixtureExports
     public static string Undefined(string value) => value;
 
     [JSExport]
+    public static string Then(string value) => value;
+
+    [JSExport]
     public static async Task<string> GetWidgetAsync(
         string name,
         int count)

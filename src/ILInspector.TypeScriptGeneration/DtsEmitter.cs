@@ -233,16 +233,21 @@ static class DtsEmitter
                             typeEnvironment,
                             parameter.TypeReferences)))),
         ];
+        bool hasMappedReturn = publicReturnType != "unknown"
+            && rawReturnType != "unknown";
 
         return new TypeScriptFunctionSignature(
             CamelCase.FromPascalCase(function.Name),
             parameters,
             rawReturnType,
             publicReturnType,
-            TsTypeMapper.IsAsyncReturnType(function.ReturnType),
-            function.ReturnWireType is not null
+            hasMappedReturn
+                && TsTypeMapper.IsAsyncReturnType(function.ReturnType),
+            hasMappedReturn
+                && function.ReturnWireType is not null
                 && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType),
-            function.ReturnWireType is not null
+            hasMappedReturn
+                && function.ReturnWireType is not null
                 && TsTypeMapper.IsNullableJsonEnvelopeReturnType(
                     function.ReturnType));
     }
