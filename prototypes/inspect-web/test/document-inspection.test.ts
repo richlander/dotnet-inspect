@@ -819,3 +819,29 @@ test("closing resets every document surface and invalidates its sequence", () =>
   assert.equal(state.docViewerMeta, null);
   assert.equal(renders, 1);
 });
+
+test("clearing resets document state without rendering during route navigation", () => {
+  let renders = 0;
+  const state = inspectionState({
+    docViewerOpen: true,
+    docViewer: document,
+    docViewerLoading: true,
+    docViewerError: "old error",
+    docViewerHtml: "<p>old</p>",
+    docViewerSeq: 4,
+  });
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      render: () => renders++,
+    }));
+
+  coordinator.clear();
+
+  assert.equal(state.docViewerSeq, 5);
+  assert.equal(state.docViewerOpen, false);
+  assert.equal(state.docViewer, null);
+  assert.equal(state.docViewerLoading, false);
+  assert.equal(state.docViewerError, "");
+  assert.equal(state.docViewerHtml, "");
+  assert.equal(renders, 0);
+});

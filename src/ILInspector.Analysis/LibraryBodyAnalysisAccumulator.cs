@@ -14,6 +14,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
     readonly bool _includeLeakTriage;
+    readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
     internal LibraryBodyAnalysisAccumulator(
@@ -27,6 +28,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
             LibraryBodyAnalysisFeatures.MethodEvidence);
         _includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
+        _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
             : new HashSet<string>(StringComparer.Ordinal);
@@ -206,6 +208,24 @@ internal sealed class LibraryBodyAnalysisAccumulator
 
         var methodArray = methods.ToImmutable();
         var directCalls = calls.ToImmutable();
+        bool fieldAccessCensusComplete =
+            results.All(result =>
+                !result.RequiresCompleteFieldAccessCensus
+                || result.FieldAccessCensusComplete);
+        HashSet<TypeRef> typesWithCurrentInstanceMutations =
+        [
+            .. results
+                .Where(result =>
+                    result.Caller is not null
+                    && !result.CurrentInstanceMutations.IsDefaultOrEmpty)
+                .Select(result => result.Caller!.DeclaringType),
+        ];
+        RemoveExternallyStoredAsyncFieldSources(
+            resultSinks,
+            fieldStores,
+            fieldLoads,
+            typesWithCurrentInstanceMutations,
+            _isScoped || !fieldAccessCensusComplete);
         var nonHeapNewObjOperandTokens = _includeMethodEvidence
             ? ComputeNonHeapNewObjOperandTokens(directCalls)
             : new HashSet<int>();
@@ -253,6 +273,46 @@ internal sealed class LibraryBodyAnalysisAccumulator
             OwnershipFlow: new(ownershipFlow.ToImmutable()),
             Resources: new(leakTriageResult),
             Diagnostics: diagnostics.ToImmutable());
+    }
+
+    static void RemoveExternallyStoredAsyncFieldSources(
+        ImmutableArray<MethodResultSink>.Builder resultSinks,
+        ImmutableArray<FieldStoreFact>.Builder fieldStores,
+        ImmutableArray<FieldLoadFact>.Builder fieldLoads,
+        IReadOnlySet<TypeRef> typesWithCurrentInstanceMutations,
+        bool withholdWholeAssemblyProof)
+    {
+        for (int index = 0; index < resultSinks.Count; index++)
+        {
+            MethodResultSink sink = resultSinks[index];
+            if (sink.StateMachineFieldSource is not { } source)
+                continue;
+
+            bool hasExternalStore = fieldStores.Any(store =>
+                store.EvidenceMethod != sink.EvidenceMethod
+                && store.IsReachable != false
+                && source.Field.MightBeSameFieldAs(
+                    store.Identity));
+            bool hasExternalAddressEscape = fieldLoads.Any(load =>
+                load.EvidenceMethod != sink.EvidenceMethod
+                && load.IsAddress
+                && load.IsReachable != false
+                && source.Field.MightBeSameFieldAs(
+                    load.Identity));
+            if (!withholdWholeAssemblyProof
+                && !hasExternalStore
+                && !hasExternalAddressEscape
+                && !typesWithCurrentInstanceMutations.Contains(
+                    source.Field.DeclaringType))
+            {
+                continue;
+            }
+
+            resultSinks[index] = sink with
+            {
+                StateMachineFieldSource = null,
+            };
+        }
     }
 
     static MethodIdentity ResolveDeclaredMethod(
