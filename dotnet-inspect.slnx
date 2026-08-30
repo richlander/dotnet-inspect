@@ -42,6 +42,8 @@
     <Project Path="src/ILInspector.Analysis.FacadeFixtures/ILInspector.Analysis.FacadeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.LookalikeFixtures/ILInspector.Analysis.LookalikeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.MalformedOwnershipFixtures/ILInspector.Analysis.MalformedOwnershipFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures.csproj" />
+    <Project Path="src/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.OwnershipFlowFixtures/ILInspector.Analysis.OwnershipFlowFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.TopLevelAsyncFixtures/ILInspector.Analysis.TopLevelAsyncFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.TopLevelClassicAsyncFixtures/ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" />
