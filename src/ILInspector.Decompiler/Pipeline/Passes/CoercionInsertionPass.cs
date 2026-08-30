@@ -152,6 +152,22 @@ public static class CoercionSinks
         };
 
     /// <summary>
+    /// The semantic target that can recover a typed slot load's identity.
+    /// Property stores join the ordinary testimony sinks here because their
+    /// setter parameter is available even when the load still carries its
+    /// evaluation-stack storage type.
+    /// </summary>
+    public static TypeRef? SemanticLoadSinkTargetType(
+        LoadStackSlot load,
+        TypeRef? returnType,
+        IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => load.Parent is StoreProperty store
+            && ReferenceEquals(store.Value, load)
+            && store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter
+                ? setter[^1]
+                : LoadSinkTargetType(load, returnType, shapes);
+
+    /// <summary>
     /// The enum family a slot load contributes when it is an operand of a
     /// flags-enum bitwise op (<c>and</c>/<c>or</c>/<c>xor</c>) whose sibling
     /// operand is enum-typed. #3009: a spilled accumulator holding a bare

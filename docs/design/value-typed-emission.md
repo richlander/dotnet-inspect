@@ -500,9 +500,23 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    that boundary. `SlotMaterializationPass.Analyze` owns the overlapping veto
    attribution consumed by `--slot-residual-census`; each decision identifies
    its exact body scope and slot number, and the census fails unless those
-   identities equal the post-F2 and retained web sets. The C2 deletion and the
+   identities equal the post-F2 and retained web sets. The former
+   conditional-single-load veto is retired: the late expression-inlining pass
+   has already consumed every conditional store that it can safely move into
+   its sole consumer, while the remaining post-F2 stores render as standalone
+   assignments rather than through a printer-owned consumer fold. Decided
+   in-domain webs in that residual therefore materialize normally; their
+   declaration ordering may change, but no expression moves. One narrower
+   residual remains printer-owned: when integer storage testimony feeds a
+   typed boolean sink, the printer recovers boolean identity for the slot;
+   materializing the integer testimony would produce an invalid assignment.
+   `BooleanSinkIdentityRecovery` makes that boundary explicit until semantic
+   sink identity moves into product-owned testimony. The C2 deletion and the
    invariant extension follow once the residual census reaches the
    printer-owned floor.
+   `MaterializesSingleStoreConditionalWithSingleRead` and
+   `DefersIntegerTestimonyWhenConditionalFeedsBooleanProperty` gate both sides
+   of this boundary.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
