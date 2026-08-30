@@ -447,13 +447,13 @@ Three outcomes, deliberately distinct:
 
 **A skip fails.** It carries no quality opinion — nothing was compared — but
 exiting 0 on it would rebuild the defect this replaces one level up: a gate
-reporting success having measured nothing. The weekly caller makes that concrete.
-Its pool is resolved from current top-N package versions, so it *will* drift off
-the recorded manifest; on a green skip the job would pass forever in silence, and
-the silence would look exactly like health. Passing `--ratchet-baseline` is a
-demand for a verdict, and "none available" fails that demand. The remedy is a
-corpus refresh or a corrected baseline, never a product change. A run with no
-baseline to compare against simply does not pass the flag.
+reporting success having measured nothing. The scheduled caller makes that concrete.
+Its pool and corpus identities are explicit, so an unrecorded pin or methodology
+refresh can leave it without a comparable row; on a green skip the job would pass
+forever in silence, and the silence would look exactly like health. Passing
+`--ratchet-baseline` is a demand for a verdict, and "none available" fails that
+demand. The remedy is a corpus refresh or a corrected baseline, never a product
+change. A run with no baseline to compare against simply does not pass the flag.
 
 For the same reason a typo'd path is a hard error rather than "nothing to
 compare", and `--ratchet-baseline` without `--benchmark-authored-corpus` is
@@ -463,12 +463,12 @@ refused rather than ignored.
 makes **no quality claim at all**, for a lane that cannot yet ratchet. It is
 refused alongside `--ratchet-baseline`, since declining to judge quality and
 demanding a verdict on it are contradictory. Selecting a contract by *omission*
-is what this flag exists to prevent: the weekly lane was first wired by simply
+is what this flag exists to prevent: the scheduled lane was first wired by simply
 dropping `--ratchet-baseline`, which silently selected the historical
 `invalid == 0` contract that this corpus cannot satisfy, so the job would have
-failed every week forever. Both the run output and the JSON's `qualityContract`
-record which contract applied, so a green run cannot be misread as a quality
-pass.
+failed on every scheduled run forever. Both the run output and the JSON's
+`qualityContract` record which contract applied, so a green run cannot be
+misread as a quality pass.
 
 A **malformed corpus row** is an integrity failure, not a logged curiosity, for
 the same reason. Dropping one silently shrinks `evaluated`, which makes the run
@@ -619,13 +619,17 @@ branch is current before treating its run as a baseline.
   The test project takes a `ReferenceOutputAssembly="false"` reference on the
   harness so the binary is rebuilt with the tests, and a missing binary fails
   rather than skips.
-- **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
+- **Daily**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
   the vendored corpus, prepares the EVIL pool, and runs the benchmark. It is a
   *periodic* job — the corpus and the 100-package sweep are far too expensive for
   the PR lane. It passes `--ratchet-baseline`, so it judges the run by movement
   against the trend store; the measurement-integrity checks still apply
   underneath, and the lane remains the source of the run JSON that an append
   starts from.
+
+  The lane has its own daily scheduled workflow run, separate from the release
+  certification event. A ratchet failure therefore reports the scheduled
+  regression without invalidating otherwise successful publish evidence.
 
   The pool itself is now pinned: `docs/data/nuget-top-packages.lock.json`
   records the exact version, TFM, and SHA-256 of every swept package, and the
@@ -638,11 +642,19 @@ branch is current before treating its run as a baseline.
   cannot be used to drop a package out of the pool. A fresh sweep therefore
   reproduces the same assemblies, and its pool identity is stable.
 
-  Two rows measured over that pinned pool are now recorded, so the lane passes
-  `--ratchet-baseline` and judges the run by movement against the trend store.
+  Comparable rows measured over that pinned pool are recorded, so the lane
+  passes `--ratchet-baseline` and judges the run by movement against the trend
+  store.
+
+  The 2026-08-29 row records the accepted #4631 result: 21 formerly invalid
+  outcomes became `ValidDifferent`, while two `ValidMatch` outcomes became
+  compile-back-exact `ValidDifferent` source differences. No outcome became
+  invalid. The typed projector accepted that complete, clean-main run as the
+  newest baseline rather than weakening the zero-tolerance comparison.
+
   Note what it must *not* do instead: merely omitting `--ratchet-baseline`
   selects the historical `invalid == 0` contract, which this ~5,200-invalid
-  corpus cannot satisfy, so the job would fail every week and file a
+  corpus cannot satisfy, so the job would fail every night and file a
   scheduled-failure issue each time. `--integrity-only`, which this lane carried
   until the bootstrap was crossed, says only that the measurement was sound.
   Note the limitation it replaced was not new:

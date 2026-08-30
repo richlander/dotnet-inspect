@@ -1,4 +1,6 @@
 using DotnetInspector.Core;
+using System.CommandLine;
+using System.CommandLine.Parsing;
 
 namespace DotnetInspector.CommandLine;
 
@@ -139,40 +141,6 @@ public static class ArgumentPreprocessor
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
 
-        // Expand -NN shorthand (e.g., -30) into -n 30, like head -30
-        for (int i = 0; i < args.Length; i++)
-        {
-            if (args[i].Length >= 2 && args[i][0] == '-' && char.IsDigit(args[i][1])
-                && !IsFollowingOptionValue(args, i)
-                && int.TryParse(args[i].AsSpan(1), out var headN))
-            {
-                HeadLines = headN;
-                args = [.. args[..i], "-n", args[i][1..], .. args[(i + 1)..]];
-                break;
-            }
-        }
-
-        // Set HeadLines for explicit -n N (so -n 6 behaves like -6)
-        if (HeadLines == null)
-        {
-            for (int i = 0; i < args.Length - 1; i++)
-            {
-                if (args[i] == "-n" && int.TryParse(args[i + 1], out var n))
-                {
-                    HeadLines = n;
-                    break;
-                }
-            }
-        }
-
-        // --tail names the direction; the count comes from -n/-NN. Move the count
-        // across so the tail writer gets it and the head writer does not.
-        if (args.Any(static a => a == "--tail"))
-        {
-            TailLines = HeadLines;
-            HeadLines = null;
-        }
-
         // Find the first positional argument, skipping any leading options
         int firstPositional = -1;
         for (int i = 0; i < args.Length; i++)
@@ -185,6 +153,11 @@ public static class ArgumentPreprocessor
             }
 
             var optionName = token.Split('=', 2)[0];
+            if (TrySkipSeparatedDirectionValue(args, ref i, args.Length))
+            {
+                continue;
+            }
+
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
@@ -217,21 +190,255 @@ public static class ArgumentPreprocessor
         return args;
     }
 
-    private static bool IsFollowingOptionValue(string[] args, int index)
+    internal static string[] RewriteLineWindowShorthand(
+        ParseResult parseResult,
+        string[] args)
     {
-        if (index == 0)
+        var rewritten = new List<string>(args.Length);
+        bool changed = false;
+        for (var i = 0; i < args.Length; i++)
+        {
+            string token = args[i];
+            if (token == "--")
+            {
+                rewritten.AddRange(args[i..]);
+                break;
+            }
+
+            if (token.Length >= 2
+                && token[0] == '-'
+                && char.IsDigit(token[1])
+                && int.TryParse(token.AsSpan(1), out _)
+                && !IsClaimedByRequiredOption(parseResult, args, i))
+            {
+                rewritten.Add("-n");
+                rewritten.Add(token[1..]);
+                changed = true;
+                continue;
+            }
+
+            rewritten.Add(token);
+        }
+
+        return changed ? [.. rewritten] : args;
+    }
+
+    public static void ApplyParsedLineWindow(
+        ParseResult parseResult,
+        IReadOnlyList<string>? rawArgs = null)
+    {
+        HeadLines = null;
+        TailLines = null;
+
+        if (parseResult.Errors.Count > 0)
+            return;
+
+        int? count = null;
+        OptionResult? limit = FindOptionResult(parseResult, "-n");
+        if (limit is
+            {
+                Implicit: false,
+                Tokens.Count: > 0,
+            }
+            && int.TryParse(limit.Tokens[^1].Value, out var parsedCount)
+            && !IsClaimedByPrecedingRequiredOption(parseResult, limit))
+        {
+            count = parsedCount;
+        }
+
+        count ??= FindLineWindowCapturedByOptionalOption(parseResult, rawArgs);
+        if (count is null)
+            return;
+
+        if (FindOptionResult(parseResult, "--tail")?.GetValueOrDefault<bool>() == true)
+            TailLines = count.Value;
+        else
+            HeadLines = count.Value;
+    }
+
+    public static bool HasParsedOption(ParseResult parseResult, string alias)
+        => FindOptionResult(parseResult, alias) is { Implicit: false };
+
+    private static OptionResult? FindOptionResult(
+        ParseResult parseResult,
+        string alias)
+    {
+        foreach (OptionResult option in GetOptionResults(parseResult))
+        {
+            if (option.Option.Name == alias
+                || option.Option.Aliases.Contains(alias))
+            {
+                return option;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<OptionResult> GetOptionResults(
+        ParseResult parseResult)
+    {
+        for (SymbolResult? scope = parseResult.CommandResult;
+            scope is not null;
+            scope = scope.Parent)
+        {
+            if (scope is not CommandResult command)
+                continue;
+
+            foreach (OptionResult option in command.Children.OfType<OptionResult>())
+                yield return option;
+        }
+    }
+
+    private static bool IsClaimedByPrecedingRequiredOption(
+        ParseResult parseResult,
+        OptionResult limit)
+    {
+        IReadOnlyList<Token> tokens = parseResult.Tokens;
+        for (var i = 1; i < tokens.Count; i++)
+        {
+            if (!Equals(tokens[i], limit.IdentifierToken))
+                continue;
+
+            Token preceding = tokens[i - 1];
+            return GetOptionResults(parseResult).Any(
+                option => Equals(option.IdentifierToken, preceding)
+                    && option.Option.Arity.MinimumNumberOfValues > 0);
+        }
+
+        return false;
+    }
+
+    private static int? FindLineWindowCapturedByOptionalOption(
+        ParseResult parseResult,
+        IReadOnlyList<string>? rawArgs)
+    {
+        foreach (OptionResult option in GetOptionResults(parseResult))
+        {
+            string? identifier = option.IdentifierToken?.Value;
+            if (option.Option.Arity.MinimumNumberOfValues != 0
+                || identifier?.Contains('=', StringComparison.Ordinal) == true
+                || identifier?.Contains(':', StringComparison.Ordinal) == true)
+            {
+                continue;
+            }
+
+            foreach (Token token in option.Tokens)
+            {
+                if (!IsInlineOptionValue(rawArgs, option.Option, token.Value)
+                    && TryParseAttachedLineWindow(token.Value, out var count))
+                {
+                    return count;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsInlineOptionValue(
+        IReadOnlyList<string>? rawArgs,
+        Option option,
+        string value)
+    {
+        if (rawArgs is null)
             return false;
 
-        string precedingToken = args[index - 1];
-        string optionName = precedingToken.Split('=', 2)[0];
-        return !precedingToken.Contains('=', StringComparison.Ordinal)
-            && OptionsWithFollowingValue.Contains(optionName);
+        foreach (string alias in option.Aliases.Append(option.Name))
+        {
+            if (rawArgs.Any(arg => IsInlineOptionValue(arg, alias, value)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsInlineOptionValue(
+        string argument,
+        string alias,
+        string value)
+        => argument.Equals($"{alias}={value}", StringComparison.Ordinal)
+            || argument.Equals($"{alias}:{value}", StringComparison.Ordinal)
+            || alias is ['-', not '-']
+                && argument.Equals($"{alias}{value}", StringComparison.Ordinal);
+
+    private static bool TryParseAttachedLineWindow(
+        string token,
+        out int count)
+    {
+        count = 0;
+        if (!token.StartsWith("-n", StringComparison.Ordinal)
+            || token.Length <= 2)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> value = token.AsSpan(2);
+        if (value[0] is '=' or ':')
+            value = value[1..];
+        return int.TryParse(value, out count);
+    }
+
+    private static bool IsClaimedByRequiredOption(
+        ParseResult parseResult,
+        IReadOnlyList<string> args,
+        int index)
+    {
+        string value = args[index];
+        int occurrence = 0;
+        for (var i = 0; i <= index; i++)
+        {
+            string token = args[i];
+            if (token.Equals(value, StringComparison.Ordinal))
+            {
+                occurrence++;
+                continue;
+            }
+
+            if (GetOptionResults(parseResult).Any(
+                option => option.Tokens.Any(
+                        optionToken => optionToken.Value.Equals(
+                            value,
+                            StringComparison.Ordinal))
+                    && option.Option.Aliases
+                        .Append(option.Option.Name)
+                        .Any(alias => IsInlineOptionValue(
+                            token,
+                            alias,
+                            value))))
+            {
+                occurrence++;
+            }
+        }
+
+        Token? candidate = parseResult.Tokens
+            .Where(token => token.Value.Equals(value, StringComparison.Ordinal))
+            .Skip(occurrence - 1)
+            .FirstOrDefault();
+        return candidate is not null
+            && GetOptionResults(parseResult).Any(
+                option => option.Option.Arity.MinimumNumberOfValues > 0
+                    && option.Tokens.Any(token => ReferenceEquals(token, candidate)));
     }
 
     private static readonly string[] SelectAliases = ["-S", "-s", "--select", "--section"];
     private static readonly string[] ColumnsAliases = ["--columns"];
     private static readonly string[] FieldsAliases = ["--fields"];
     private static readonly string[] PathAliases = ["--path"];
+    private static readonly HashSet<string> OptionsWithOptionalFollowingValue =
+        new(
+            [
+                "-v", "-T", "--tips",
+                "-S", "-s", "--select", "--section",
+                "-D", "--discover", "--columns", "--fields",
+            ],
+            StringComparer.Ordinal);
+    private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
+        new(
+            ["--path", "--library", "--version", "--versions", "--versions-with-feed"],
+            StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -248,7 +455,8 @@ public static class ArgumentPreprocessor
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
-        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
+        "--tips", "-S", "-s", "--select", "--section", "-D", "--discover",
+        "--at", "--file", "--finding", "--readme", "--relationship", "--repo"
     };
     internal const string EscapedAtCategoryPrefix = "__dotnet_inspect_at__";
 
@@ -283,6 +491,9 @@ public static class ArgumentPreprocessor
             if (!token.StartsWith("-", StringComparison.Ordinal))
                 return SearchScopeCommands.Contains(token) ? i : -1;
 
+            if (TrySkipSeparatedDirectionValue(args, ref i, args.Length))
+                continue;
+
             var optionName = token.Split('=', 2)[0];
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
@@ -316,6 +527,9 @@ public static class ArgumentPreprocessor
             if (!token.StartsWith("-", StringComparison.Ordinal))
                 return true;
 
+            if (TrySkipSeparatedDirectionValue(args, ref i, platformIndex))
+                continue;
+
             var optionName = token.Split('=', 2)[0];
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
@@ -337,6 +551,9 @@ public static class ArgumentPreprocessor
             if (!token.StartsWith("-", StringComparison.Ordinal))
                 return true;
 
+            if (TrySkipSeparatedDirectionValue(args, ref i, args.Length))
+                continue;
+
             var optionName = token.Split('=', 2)[0];
             if (OptionsWithFollowingValue.Contains(optionName)
                 && !token.Contains('=', StringComparison.Ordinal)
@@ -348,6 +565,22 @@ public static class ArgumentPreprocessor
         }
 
         return false;
+    }
+
+    private static bool TrySkipSeparatedDirectionValue(
+        string[] args,
+        ref int index,
+        int end)
+    {
+        if (args[index] is not ("--head" or "--tail")
+            || index + 1 >= end
+            || !bool.TryParse(args[index + 1], out _))
+        {
+            return false;
+        }
+
+        index++;
+        return true;
     }
 
     // Both escape helpers are copy-on-write: the array is only cloned when a value actually
