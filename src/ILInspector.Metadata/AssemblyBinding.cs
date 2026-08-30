@@ -369,12 +369,14 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
             };
         }
         catch (Exception ex) when (
-            ex is IOException
+            ex is not UnsupportedMetadataFormatException
+                and not MalformedMetadataRootException
+                and (IOException
                 or UnauthorizedAccessException
                 or BadImageFormatException
                 or InvalidOperationException
                 or NotSupportedException
-                or ArgumentException)
+                or ArgumentException))
         {
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(

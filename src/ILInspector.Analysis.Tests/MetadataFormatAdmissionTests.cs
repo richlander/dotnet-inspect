@@ -60,6 +60,22 @@ public sealed class MetadataFormatAdmissionTests
                 MetadataTokens.MethodDefinitionHandle(2)));
     }
 
+    [Fact]
+    public void StructuralCloneModuleIdentity_RejectsWindowsMetadata()
+    {
+        using var unsupported = new PEReader(
+            ImmutableArray.Create(BuildManagedWindowsMetadata()));
+        using var validStream = File.OpenRead(
+            typeof(MetadataFormatAdmissionTests).Assembly.Location);
+        using var valid = new PEReader(validStream);
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => StructuralCloneModuleIdentity.Create(
+                "Unsupported.winmd",
+                unsupported,
+                valid.GetMetadataReader()));
+    }
+
     internal static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();

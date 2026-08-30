@@ -36,6 +36,66 @@ internal static class OwnedResourceCleanup
         }
     }
 
+    internal static TResult ReadAdmittedPeImage<TResult>(
+        Stream stream,
+        Func<PEReader, TResult> read,
+        TResult noMetadataResult) =>
+        ReadAdmittedPeImage(
+            () => stream,
+            read,
+            noMetadataResult);
+
+    internal static TResult ReadAdmittedPeImage<TResult>(
+        Func<Stream> openStream,
+        Func<PEReader, TResult> read,
+        TResult noMetadataResult,
+        Action<PEReader>? beforeAdmission = null)
+    {
+        ArgumentNullException.ThrowIfNull(openStream);
+        ArgumentNullException.ThrowIfNull(read);
+
+        Stream? stream = null;
+        PEReader? peReader = null;
+        bool noMetadataEstablished = false;
+        try
+        {
+            stream = openStream();
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            beforeAdmission?.Invoke(peReader);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            {
+                noMetadataEstablished = true;
+                return noMetadataResult;
+            }
+
+            return read(peReader);
+        }
+        catch (Exception ex)
+        {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
+        }
+        finally
+        {
+            if (noMetadataEstablished)
+            {
+                DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref stream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
+        }
+    }
+
     internal static void DisposeAfterFailure(
         IDisposable? resource,
         Exception primaryFailure)

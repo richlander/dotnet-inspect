@@ -263,6 +263,92 @@ public sealed class MetadataAdmissionCleanupTests
         Assert.Equal(1, opened!.DisposeCount);
     }
 
+    [Fact]
+    public void AssemblyInspector_NoMetadataCleanupCannotReplaceNoResult()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        var assembly = ResolvedAssemblyReference.Create(
+            Identity(),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                BuildNoMetadataImage()),
+            AssemblyResolutionProvenance.Local(
+                "format admission test"));
+
+        var (references, company) =
+            AssemblyInspector.ExtractReferenceIdentitiesAndCompany(
+                assembly);
+
+        Assert.Empty(references);
+        Assert.Null(company);
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void StreamScanners_CleanupCannotReplaceFormatRejection()
+    {
+        Action<Stream>[] scans =
+        [
+            stream => _ = ResourceScanner.Scan(stream),
+            stream => _ = ResourceScanner.ExtractAll(
+                stream,
+                Path.GetTempPath()),
+            stream => _ = MethodClassificationScanner.Scan(stream),
+            stream => _ = ExtensionMethodScanner.FindAllExtensions(
+                stream).ToList(),
+            stream => _ = ExtensionMethodScanner.FindExtensions(
+                stream,
+                "System.String").ToList(),
+        ];
+
+        foreach (Action<Stream> scan in scans)
+            AssertFormatRejectionSurvivesCleanup(scan);
+    }
+
+    [Fact]
+    public void StreamScanners_NoMetadataCleanupCannotReplaceNoResult()
+    {
+        Action<Stream>[] scans =
+        [
+            stream => Assert.Empty(ResourceScanner.Scan(stream)),
+            stream => Assert.Empty(ResourceScanner.ExtractAll(
+                stream,
+                Path.GetTempPath())),
+            stream => Assert.Empty(MethodClassificationScanner.Scan(stream)),
+            stream => Assert.Empty(
+                ExtensionMethodScanner.FindAllExtensions(stream)),
+            stream => Assert.Empty(
+                ExtensionMethodScanner.FindExtensions(
+                    stream,
+                    "System.String")),
+        ];
+
+        foreach (Action<Stream> scan in scans)
+            AssertNoMetadataResultSurvivesCleanup(scan);
+    }
+
+    static void AssertFormatRejectionSurvivesCleanup(
+        Action<Stream> scan)
+    {
+        var stream = new ThrowingDisposeMemoryStream(
+            BuildManagedWindowsMetadata());
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => scan(stream));
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    static void AssertNoMetadataResultSurvivesCleanup(
+        Action<Stream> scan)
+    {
+        var stream = new ThrowingDisposeMemoryStream(
+            BuildNoMetadataImage());
+
+        scan(stream);
+
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
     static void AssertFallback(byte[] image)
     {
         AssemblyReferenceIdentity fallback = Identity();

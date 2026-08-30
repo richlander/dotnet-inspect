@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
@@ -102,6 +103,52 @@ public class IlAssemblyDiffTests
                 "old.winmd",
                 newStream,
                 "new.winmd"));
+    }
+
+    [Fact]
+    public void ReaderTakingOverloads_RejectWindowsMetadata()
+    {
+        byte[] image = BuildManagedWindowsMetadata();
+        using var unsupportedPe = new PEReader(
+            new MemoryStream(image, writable: false));
+        using var validStream = File.OpenRead(
+            typeof(IlAssemblyDiffTests).Assembly.Location);
+        using var validPe = new PEReader(validStream);
+        MetadataReader validReader = validPe.GetMetadataReader();
+        MethodDefinitionHandle method = FindMethod(
+            validReader,
+            nameof(MemberA));
+        var subject = new FindingSubject("unsupported", "unsupported");
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => IlAssemblyDiff.Compare(
+                unsupportedPe,
+                validReader,
+                unsupportedPe,
+                validReader));
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => IlAssemblyDiff.CompareMembers(
+                unsupportedPe,
+                validReader,
+                method,
+                unsupportedPe,
+                validReader,
+                method));
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => IlFindings.Inspect(
+                unsupportedPe,
+                validReader,
+                method,
+                subject));
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => IlFindings.Compare(
+                unsupportedPe,
+                validReader,
+                method,
+                unsupportedPe,
+                validReader,
+                method,
+                subject));
     }
 
     [Fact]

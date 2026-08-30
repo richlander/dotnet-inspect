@@ -22,12 +22,11 @@ public static class AssemblyReader
     {
         try
         {
-            ApiSurface? surface = OwnedResourceCleanup.ReadPeImage(
+            ApiSurface? surface = OwnedResourceCleanup.ReadAdmittedPeImage(
                 () => File.OpenRead(path),
                 peReader =>
                 {
-                    if (!MetadataFormatAdmission.AdmitImage(peReader)
-                        || MetadataFormatAdmission.GetMetadataReader(peReader)
+                    if (MetadataFormatAdmission.GetMetadataReader(peReader)
                             .IsAssembly)
                     {
                         return null;
@@ -37,7 +36,8 @@ public static class AssemblyReader
                         peReader,
                         includeAll,
                         typesOnly);
-                });
+                },
+                noMetadataResult: null);
             if (surface is null)
                 return null;
 
@@ -252,17 +252,13 @@ public static class AssemblyReader
     {
         try
         {
-            return OwnedResourceCleanup.ReadPeImage(
+            return OwnedResourceCleanup.ReadAdmittedPeImage(
                 () => File.OpenRead(dllPath),
                 peReader =>
-                {
-                    if (!MetadataFormatAdmission.AdmitImage(peReader))
-                        return null;
-
-                    return FindUniquePublicType(
+                    FindUniquePublicType(
                         MetadataFormatAdmission.GetMetadataReader(peReader),
-                        typeName);
-                });
+                        typeName),
+                noMetadataResult: null);
         }
         catch (Exception ex)
             when (ex is not UnsupportedMetadataFormatException
@@ -331,14 +327,15 @@ public static class AssemblyReader
     {
         try
         {
-            return OwnedResourceCleanup.ReadPeImage(
+            return OwnedResourceCleanup.ReadAdmittedPeImage(
                 () => File.OpenRead(dllPath),
                 peReader =>
                     TypeHierarchyScanner.FindImplementers(
                             peReader,
                             targetType,
                             includeHidden)
-                        .ToList());
+                        .ToList(),
+                noMetadataResult: []);
         }
         catch (Exception ex)
             when (ex is not UnsupportedMetadataFormatException
@@ -356,13 +353,10 @@ public static class AssemblyReader
     {
         try
         {
-            return OwnedResourceCleanup.ReadPeImage(
+            return OwnedResourceCleanup.ReadAdmittedPeImage(
                 () => File.OpenRead(dllPath),
                 peReader =>
                 {
-                    if (!MetadataFormatAdmission.AdmitImage(peReader))
-                        return 0;
-
                     var reader =
                         MetadataFormatAdmission.GetMetadataReader(peReader);
                     int count = 0;
@@ -383,7 +377,8 @@ public static class AssemblyReader
                     }
 
                     return count;
-                });
+                },
+                noMetadataResult: 0);
         }
         catch (Exception ex)
             when (ex is not UnsupportedMetadataFormatException

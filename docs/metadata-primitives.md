@@ -256,12 +256,15 @@ wrapper state or portable-PDB readers as assembly-metadata admission sites.
 `MetadataSourceFormatAdmissionTests`, and
 `SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
 gate cleanup precedence across the stream-backed Metadata and Decompiler
-admission consumers. Typed snapshot and declaration-inventory receipts retain
-the classifier's exact malformed-root reason.
+admission consumers, including no-metadata results from Metadata scanners and
+descriptor-backed inspection. Typed snapshot, declaration-inventory, and
+structural-clone failure receipts retain the classifier's exact malformed-root
+reason.
 `MetadataFormatAdmissionTests` and `AnalysisIndexCacheAdmissionTests` gate
 Analysis and Research propagation.
-`IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata` and the Services
-`MetadataFormatAdmissionTests` gate ILDiff and Services propagation.
+`IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata`,
+`IlAssemblyDiffTests.ReaderTakingOverloads_RejectWindowsMetadata`, and the
+Services `MetadataFormatAdmissionTests` gate ILDiff and Services propagation.
 Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.

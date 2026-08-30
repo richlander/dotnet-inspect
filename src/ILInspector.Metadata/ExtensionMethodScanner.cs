@@ -198,10 +198,12 @@ public static class ExtensionMethodScanner
     /// </summary>
     public static IEnumerable<ExtensionMethodInfo> FindAllExtensions(
         Stream peStream, bool includeAll = false)
-    {
-        using var peReader = new PEReader(peStream);
-        return FindAllExtensions(peReader, includeAll).ToList();
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            peStream,
+            peReader => FindAllExtensions(
+                peReader,
+                includeAll).ToList(),
+            []);
 
     /// <summary>
     /// Finds all extension methods in an assembly (no target type filter).
@@ -302,11 +304,13 @@ public static class ExtensionMethodScanner
     /// </summary>
     public static IEnumerable<ExtensionMethodInfo> FindExtensions(
         Stream peStream, string targetType, bool includeAll = false)
-    {
-        using var peReader = new PEReader(peStream);
-        // Must materialize results before PEReader is disposed
-        return FindExtensions(peReader, targetType, includeAll).ToList();
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            peStream,
+            peReader => FindExtensions(
+                peReader,
+                targetType,
+                includeAll).ToList(),
+            []);
 
     /// <summary>
     /// Indexes type names without decoding their member signatures.
