@@ -35,6 +35,32 @@ public static partial class FixtureExports
     }
 
     [JSExport]
+    public static async Task<string>
+        GetWidgetSerializedBeforeAwait(string name)
+    {
+        string payload = JsonSerializer.Serialize(
+            new WidgetDto(name, 0, [], null),
+            FixtureJsonContext.Default.WidgetDto);
+        await Task.Yield();
+        await Task.Yield();
+        return payload;
+    }
+
+    [JSExport]
+    public static async Task<string>
+        GetWidgetConditionallySerializedBeforeAwait(string name)
+    {
+        if (name.Length > 3)
+        {
+            name = JsonSerializer.Serialize(
+                new WidgetDto(name, 0, [], null),
+                FixtureJsonContext.Default.WidgetDto);
+            await Task.Yield();
+        }
+        return name;
+    }
+
+    [JSExport]
     public static async Task<string> GetStringArrayAsyncAfterAwait(string value) =>
         JsonSerializer.Serialize(
             await GetStringArrayAsync(value),

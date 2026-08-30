@@ -136,22 +136,24 @@ For a direct serializer-to-completion contract, return JSON-wire facts are
 lowering-independent. A synchronous `string` export must return only
 authenticated source-generated `Serialize<T>` results. A compiler-async
 `Task<string>` export must feed those results into the authenticated `MoveNext`
-builder completion sink. A runtime-async `Task<string>` export must instead
-carry Analysis's explicit `Runtime` attribution on the exact exported physical
-method and return those same serializer results from that method's own `ret`.
+builder completion sink, either directly or through Analysis's typed proof of
+one exact state-machine field across suspension. A runtime-async `Task<string>`
+export must instead carry Analysis's explicit `Runtime` attribution on the
+exact exported physical method and return those same serializer results from
+that method's own `ret`.
 The resolver does not infer lowering from identity coincidences or recognize
 runtime-async IL shapes.
 Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
 declaration, or serializer evidence from a lifted local function or another
 method leaves `ReturnWireType` unset.
-When compiler lowering hoists a serialized value across a suspension,
-Analysis does not yet carry its call provenance through the state-machine
-field. Issue #5025 owns that prerequisite; this layer leaves the compiler form
-unresolved rather than reconstructing field flow or weakening the runtime
-form.
 `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
-gates equal owner-issued facts from paired compilations of the same genuinely
-awaited direct-result export.
+and
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension`
+gate equal owner-issued facts from paired compilations of genuinely awaited
+direct and field-carried exports.
+`Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings` gates the close
+negative where only one branch overwrites a kickoff-initialized parameter field
+with a serializer result.
 `RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata`,
 `Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns`,
 `Build_RuntimeAsyncRejectsIncompleteReturnCoverage`, and
