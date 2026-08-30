@@ -15966,6 +15966,41 @@ public partial class CommandExecutionTests
         Assert.Contains("every other fact family keeps the default trailing comment", error);
     }
 
+    [Fact]
+    public async Task Member_CostOverlay_FocusMatchesOnlyAnExcludedCategory_SaysNothing()
+    {
+        // Round-1 review (both reviewers, independently): matching against the
+        // whole-member fact collection is not proof a caret rendered. Pump has
+        // allocation facts, so a whole-member match would say "allocation"
+        // matched -- but Cost Overlay narrows to its own Cost-category facts
+        // before rendering, and Pump has none, so no caret appears here. The
+        // legend note must not claim otherwise.
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Cost Overlay", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("^^^^", output);
+        Assert.DoesNotContain("renders that fact family with a caret", error);
+        // Not the unmatched-focus note either: "allocation" is a real family on
+        // this member as a whole, so claiming a typo would be its own false
+        // statement.
+        Assert.DoesNotContain("matched no facts", error);
+    }
+
+    [Fact]
+    public async Task Member_FactsSection_MatchedFocus_SaysNothing()
+    {
+        // Round-1 review: Facts renders no caret at all -- it's a table, not an
+        // annotated body -- so a matched focus must not claim one rendered.
+        var (exit, _, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Facts", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("renders that fact family with a caret", error);
+    }
+
     /// <summary>
     /// Every projection that can carry a caret block, each through a different
     /// formatting call. Two properties per case: the caret actually renders (so

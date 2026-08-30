@@ -238,7 +238,7 @@ internal static class MemberCodeProvider
                         $"--focus '{request.CaretFocus}' matched no facts here; "
                         + $"available: {string.Join(", ", alternatives)}");
                 }
-                else if (request.CaretFocus is not null)
+                else if (request.CaretFocus is not null && researchProjection.FocusRenderedCaret)
                 {
                     // Issue #5022 item 8: --focus promotes only the requested fact
                     // family to the caret gesture; every other family still uses
@@ -246,6 +246,15 @@ internal static class MemberCodeProvider
                     // styling in the rendered body reads as if the caret'd fact
                     // were somehow "the one that changed," which isn't what
                     // --focus means -- it's purely a reporting choice.
+                    //
+                    // Round-1 review (both reviewers, independently): matching
+                    // against the whole-member fact collection is not proof a
+                    // caret actually rendered -- Cost/Semantics Overlay each
+                    // narrow to their own category first, and Facts/Annotated
+                    // Source Document render no caret at all. FocusRenderedCaret
+                    // is computed per requested section against its own
+                    // rendered subset, so this note only fires when a caret
+                    // genuinely appears in this run's output.
                     CommandError.WriteNote(
                         $"--focus '{request.CaretFocus}' renders that fact family with a caret "
                         + "underline beneath the statement; every other fact family keeps the "

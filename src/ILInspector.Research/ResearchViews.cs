@@ -72,6 +72,22 @@ public static partial class ResearchViews
         IReadOnlyList<string>? UnmatchedFocusAlternatives = null,
 
         /// <summary>
+        /// True when a caret focus was requested and actually promoted at
+        /// least one fact to the caret gesture within a requested
+        /// caret-capable section (Annotated Source, Cost Overlay, Semantics
+        /// Overlay). False for every other case a focus can be in: no focus
+        /// requested, an unmatched focus (see
+        /// <see cref="UnmatchedFocusAlternatives"/>), a focus that matches
+        /// only facts outside every requested section's own category filter
+        /// (Cost Overlay and Semantics Overlay each narrow to their own
+        /// category before rendering), or a request that asked for no
+        /// caret-capable section at all (Facts, Annotated Source Document).
+        /// Matching against the whole-member fact collection is not enough
+        /// to know a caret rendered — a caller must check this instead.
+        /// </summary>
+        bool FocusRenderedCaret = false,
+
+        /// <summary>
         /// Portable interleaved source, produced only when
         /// <see cref="MemberProjectionRequest.SourceDocument"/> is requested.
         /// </summary>
@@ -249,6 +265,19 @@ public static partial class ResearchViews
             if (request.FactRows)
                 factRows = BuildFactRows(request.Type, request.Method, imported, facts, headerFacts, request.Source);
 
+            // Each caret-capable section renders its own filtered fact subset
+            // (Cost/Semantics Overlay narrow to their own category before
+            // gestures are ever applied), so whether a caret actually rendered
+            // has to be checked per requested section against its own subset,
+            // not against the whole-member fact collection UnmatchedFocusAlternatives
+            // already checks.
+            bool focusRenderedCaret =
+                (request.AnnotatedSource && AnyCaretGesture(gestures, facts))
+                || (request.CostOverlay
+                    && AnyCaretGesture(gestures, facts.Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)))
+                || (request.SemanticsOverlay
+                    && AnyCaretGesture(gestures, facts.Where(fact => fact.Descriptor.Category == AnnotationCategory.Semantics)));
+
             return new MemberProjectionResult(
                 annotatedSource,
                 costOverlay,
@@ -256,6 +285,7 @@ public static partial class ResearchViews
                 factRows,
                 annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
                 UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts),
+                focusRenderedCaret,
                 sourceDocument,
                 sourceDocumentFailure,
                 imported.MetadataToken);
@@ -306,6 +336,22 @@ public static partial class ResearchViews
             families.Add(dot > 0 ? descriptor.Id[..dot] : descriptor.Id);
         }
         return [.. families];
+    }
+
+    /// <summary>
+    /// True when at least one of <paramref name="facts"/> is promoted to the
+    /// caret gesture by <paramref name="gestures"/>. Callers pass the exact
+    /// filtered subset a section renders from (e.g. Cost Overlay's own
+    /// category-narrowed facts), not the whole-member collection -- matching
+    /// against the full set would say a caret rendered even when the matching
+    /// fact was excluded from this particular section.
+    /// </summary>
+    static bool AnyCaretGesture(AnnotationGestureSelector gestures, IEnumerable<IAnnotation> facts)
+    {
+        foreach (var fact in facts)
+            if (gestures.For(fact) == AnnotationGesture.Caret)
+                return true;
+        return false;
     }
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
