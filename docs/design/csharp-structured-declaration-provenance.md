@@ -56,7 +56,11 @@ evidence cataloged below. Metadata issue
 [#5164](https://github.com/richlander/dotnet-inspect/issues/5164)
 owns the missing operator and complete accessor-aggregate handoff; issue
 [#5172](https://github.com/richlander/dotnet-inspect/issues/5172)
-owns typed non-enum constant values.
+owns typed non-enum constant values. Fixed-buffer attributes are currently
+decoded only through a reader-bound shell helper without an `ApiMember`
+handoff; issue
+[#5178](https://github.com/richlander/dotnet-inspect/issues/5178)
+owns that source-field evidence.
 
 The current writer sometimes composes those values structurally and sometimes
 rescans the resulting string with generic-parameter, qualified-keyword, member,
@@ -177,7 +181,9 @@ CSharp consumes Metadata-issued declaration facts:
 - Metadata-issued operator and complete accessor-aggregate evidence required
   to admit those forms, pending #5164; and
 - a Metadata-issued typed constant value required to admit non-enum constants,
-  pending #5172.
+  pending #5172; and
+- Metadata-issued fixed-buffer source-field identity, element-type evidence,
+  and length, pending #5178.
 
 These inputs remain owned by Metadata or the caller. The formatter validates
 the declaration context against exact definition-name segments but does not
@@ -429,11 +435,11 @@ options" handler does not satisfy the catalog.
 | Synthesized-obsolete presence | Closed syntax | `ApiMember.IsObsolete` |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
 | Enum-member name | Raw identifier | exact enum field name |
-| Fixed-buffer declaration kind | Closed syntax | validated fixed-buffer form rather than an ordinary field |
-| Fixed-buffer evidence | Declaration admission evidence | Metadata-issued source-field identity and decoded `FixedBufferAttribute` evidence |
-| Fixed-buffer element type | Type expression | typed element-type evidence from the validated fixed-buffer form |
+| Fixed-buffer declaration kind | Closed syntax | validated fixed-buffer form rather than an ordinary field, pending #5178 |
+| Fixed-buffer evidence | Declaration admission evidence | Metadata-issued source-field identity and decoded `FixedBufferAttribute` evidence, pending #5178 |
+| Fixed-buffer element type | Type expression | typed element-type evidence from the validated fixed-buffer form, pending #5178 |
 | Fixed-buffer name | Raw identifier | exact source-field name |
-| Fixed-buffer length | Raw literal value | validated positive fixed-buffer length |
+| Fixed-buffer length | Raw literal value | validated positive fixed-buffer length, pending #5178 |
 
 ### Compatibility slots
 
@@ -462,18 +468,18 @@ it; the arm also requires the complete contained declaration.
 | Finalizer with destructor spelling suppressed | Closed body-fidelity selector plus structured `void Finalize()` method head |
 | Ordinary or extension method | Return type, simple name, method generic parameters, parameters, and constraints; extension `this` is closed syntax |
 | Explicit-interface method | Separate qualifier type expression and simple member name; pending #5114, a combined dotted string is compatibility input |
-| Property | Property type, simple name, complete accessor aggregate, and accessor children; a representable outcome is pending #5164 |
-| Property or indexer head with accessors omitted | The corresponding property/indexer head slots, complete accessor aggregate, and a closed omission choice; accessor child slots are deliberately absent and a representable outcome is pending #5164 |
-| Indexer | Property type, closed `this` token, index parameters, complete accessor aggregate, and accessor children; a representable outcome is pending #5164 |
-| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, complete accessor aggregate, and accessor children; a representable outcome is pending #5114 and #5164 |
-| Event | Event type, simple name, complete accessor aggregate, and optional explicit-interface qualifier; a representable outcome is pending #5164, and explicit forms also require #5114 |
+| Property | Property type, simple name, complete accessor aggregate, and accessor children; a result-contract outcome is pending #5164 |
+| Property or indexer head with accessors omitted | The corresponding property/indexer head slots, complete accessor aggregate, and a closed omission choice; accessor child slots are deliberately absent and a result-contract outcome is pending #5164 |
+| Indexer | Property type, closed `this` token, index parameters, complete accessor aggregate, and accessor children; a result-contract outcome is pending #5164 |
+| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, complete accessor aggregate, and accessor children; a result-contract outcome is pending #5164, after which #5114 keeps combined explicit-interface text `FallbackRequired` until its separate handoff lands |
+| Event | Event type, simple name, complete accessor aggregate, and optional explicit-interface qualifier; a result-contract outcome is pending #5164, after which explicit forms also require #5114 |
 | Field | Field type and simple name |
 | Non-enum constant | Field type, simple name, typed constant kind/value, and fixed initializer syntax; a result-contract outcome is pending #5172 |
 | Enum member | Exact member name; initializer and trailing comma are separate composer children |
-| Fixed-buffer field | Validated fixed-buffer evidence, closed `fixed` form, typed element type, exact field name, and validated length |
-| Unary, binary, conversion, or checked operator | Neutral Metadata-issued operator candidate with exact identity, name, flags, and complete signature shape; CSharp validates `SpecialName`, staticness, form/arity, and its closed token catalog; a representable outcome is pending #5164 |
+| Fixed-buffer field | Validated fixed-buffer evidence, closed `fixed` form, typed element type, exact field name, and validated length; a result-contract outcome is pending #5178 |
+| Unary, binary, conversion, or checked operator | Neutral Metadata-issued operator candidate with exact identity, name, flags, and complete signature shape; CSharp validates `SpecialName`, staticness, form/arity, and its closed token catalog; a result-contract outcome is pending #5164 |
 | Delegate | Return type, exact type declaration name, typed root or parent/child placement, generic parameters, parameters, and constraints |
-| Standalone accessor head | Typed selection of one exact child in the complete aggregate, accessor return attributes, accessor-specific accessibility, and closed accessor kind; a representable outcome is pending #5164 |
+| Standalone accessor head | Typed selection of one exact child in the complete aggregate, accessor return attributes, accessor-specific accessibility, and closed accessor kind; a result-contract outcome is pending #5164 |
 | Abbreviated member declaration | The selected member head plus a closed abbreviation choice; omitted parameter-name, default, and accessor child slots are not treated as consumed |
 | Terminated member declaration | The selected member form plus a closed terminator choice |
 
@@ -555,7 +561,7 @@ pass:
 
 1. introduce the four result arms, text currencies, receipt, and slot catalog;
 2. route currently structured type, constructor, ordinary method, field,
-   enum-member, fixed-buffer, parameter, and constraint paths through plans;
+   enum-member, parameter, and constraint paths through plans;
 3. keep pre-#5164 operator and accessor-bearing string methods as legacy
    adapters outside `CSharpDeclarationResult`: their current projections cannot
    supply either representability evidence or the complete contained facts
@@ -565,11 +571,14 @@ pass:
 4. keep non-enum constant string methods outside `CSharpDeclarationResult`
    until #5172 supplies the typed Constant-row value, then make CSharp own its
    literal spelling and fixed initializer syntax;
-5. consume #5114's owner-issued explicit-interface handoff before promoting
+5. keep reader-bound fixed-buffer shell helpers outside
+   `CSharpDeclarationResult` until #5178 supplies exact source-field,
+   element-type, and length evidence;
+6. consume #5114's owner-issued explicit-interface handoff before promoting
    those forms;
-6. remove a compatibility repair only after its final form has representable
+7. remove a compatibility repair only after its final form has representable
    coverage and close negative cases; and
-7. address #5076 separately before claiming primitive/generic alias fidelity.
+8. address #5076 separately before claiming primitive/generic alias fidelity.
 
 Existing caller-visible text remains unchanged for ordinary metadata except for
 one explicit target correction: under `Qualified`, synthesized attribute
@@ -633,9 +642,10 @@ The implementation must add these named gates; until then the corresponding
 properties remain unverified:
 
 - `CSharpDeclarationSlotCatalogTests.DeclaredSlotsAndHandlersAgree` derives the
-  complete slot-to-value-class map and handler set from the normative code
-  catalog and fails for undefined classes, entries that mix value classes, and
-  missing or stale slots and handlers.
+  complete slot-to-value-class map, dependency tags, and active handler set from
+  the normative code catalog. It fails for undefined classes, entries that mix
+  value classes, missing or stale active handlers, and a handler that activates
+  a dependency-deferred slot before its owner-issued evidence exists.
 - `CSharpDeclarationSlotCatalogTests.PublicDeclarationInputsAndCatalogAgree`
   derives every output-affecting argument, option, typed context field, and
   body-to-declaration handoff from public methods that compose a declaration,
@@ -647,7 +657,8 @@ properties remain unverified:
   exclusions rather than silently absent inputs. Pre-#5164 operator and
   accessor-bearing branches are enumerated temporary legacy exclusions; their
   sibling representable forms still map through the result. Pre-#5172 non-enum
-  constant branches are likewise an enumerated temporary exclusion.
+  constant and pre-#5178 fixed-buffer branches are likewise enumerated temporary
+  exclusions.
 - `CSharpDeclarationSlotCatalogTests.ResultArmsRequireExactConsumedSlotSet`
   derives the expected slots for every admitted form from that catalog, compares
   them with the slots actually consumed by the public composition path, and
@@ -690,8 +701,9 @@ properties remain unverified:
   variance inclusion, enum-member and fixed-buffer form selection, and
   termination;
   each pair must change only its declared slot set and output syntax.
-  Dependency-deferred operator/accessor and non-enum constant selectors instead
-  prove that no result-contract entry point accepts them before #5164 or #5172.
+  Dependency-deferred operator/accessor, non-enum constant, and fixed-buffer
+  selectors instead prove that no result-contract entry point accepts them
+  before #5164, #5172, or #5178.
 - `CSharpDeclarationProvenanceTests.OperatorAdmissionValidatesMetadataCandidate`
   remains pending on #5164, then
   uses otherwise identical operator names with and without `SpecialName`,
@@ -795,10 +807,13 @@ properties remain unverified:
   varies body-required and formatter-forced `async`/`unsafe` independently and
   proves each public body-aware declaration result records both selectors
   without treating body text as a declaration slot.
-- `CSharpDeclarationProvenanceTests.EnumAndFixedBufferHeadsAreFormatterOwned`
-  proves exact enum-member names and fixed-buffer element types, names, and
-  lengths pass through declaration slots. Enum initializers and separators,
-  and fixed-buffer placement, remain separate composer children.
+- `CSharpDeclarationProvenanceTests.EnumMemberHeadsAreFormatterOwned`
+  proves exact enum-member names pass through declaration slots while enum
+  initializers and separators remain separate composer children.
+- `CSharpDeclarationProvenanceTests.FixedBufferHeadsAreFormatterOwned`
+  remains pending on #5178, then proves fixed-buffer element types, names, and
+  lengths pass through declaration slots while placement remains a separate
+  composer concern.
 
 The implementation PR must run the non-pending gates in Release and show the
 CSharp-owned demo's actual output beside a neighboring clean declaration. A
@@ -818,6 +833,7 @@ This owner does not define:
 - Decompiler body fidelity or compile-back admission;
 - the Metadata operator/accessor evidence tracked by #5164;
 - the Metadata non-enum constant-value evidence tracked by #5172;
+- the Metadata fixed-buffer declaration evidence tracked by #5178;
 - `CSharpTypePrinter` request-tree, compilation-unit, namespace/import, global
   attribute, initializer, body-fragment, or aggregate outcome mechanics tracked
   by #5142;
