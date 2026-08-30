@@ -1818,6 +1818,16 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     $"\"Integration\":\"{EcosystemIntegrationNames.AI}\"",
                     json);
                 Assert.DoesNotContain("\"Concept\":", json);
+                var reconstructed =
+                    new InspectionGraphIntegrationEvidence(
+                        evidence.Registration,
+                        evidence.Member,
+                        evidence.Integration,
+                        evidence.TargetType);
+                Assert.Equal(evidence, reconstructed);
+                Assert.Equal(
+                    evidence.GetHashCode(),
+                    reconstructed.GetHashCode());
                 Assert.Equal(
                     "AsIChatClient",
                     evidence.Member.MemberName);
@@ -1891,6 +1901,16 @@ public sealed class InspectionGraphIntegrationsQueryTests
             $"\"Integration\":\"{EcosystemIntegrationNames.AI}\"",
             opportunityJson);
         Assert.DoesNotContain("\"Concept\":", opportunityJson);
+        var reconstructedOpportunity =
+            new InspectionGraphOpportunityEvidence(
+                opportunityEvidence.SourceRegistration,
+                opportunityEvidence.SourceType,
+                opportunityEvidence.Integration,
+                opportunityEvidence.Target);
+        Assert.Equal(opportunityEvidence, reconstructedOpportunity);
+        Assert.Equal(
+            opportunityEvidence.GetHashCode(),
+            reconstructedOpportunity.GetHashCode());
         Assert.DoesNotContain(
             document.Edges,
             edge => edge.Relationship.Id == "call");

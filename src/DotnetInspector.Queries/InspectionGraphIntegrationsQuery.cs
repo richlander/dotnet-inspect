@@ -432,6 +432,32 @@ public sealed record InspectionGraphIntegrationEvidence(
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.IntegrationEvidence;
 
+    public bool Equals(InspectionGraphIntegrationEvidence? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && EqualityComparer<AssemblyAcquisitionRegistration>.Default.Equals(
+            Registration,
+            other.Registration)
+        && EqualityComparer<MemberAnchor>.Default.Equals(
+            Member,
+            other.Member)
+        && string.Equals(
+            Integration,
+            other.Integration,
+            StringComparison.Ordinal)
+        && EqualityComparer<MetadataNamedTypeReference>.Default.Equals(
+            TargetType,
+            other.TargetType);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(
+            EqualityContract,
+            Registration,
+            Member,
+            Integration,
+            TargetType);
+
     static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
         integration is not null
         && IntegrationConceptCatalog.TryGetByDisplayLabel(
@@ -490,6 +516,32 @@ public sealed record InspectionGraphOpportunityEvidence(
 
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.OpportunityEvidence;
+
+    public bool Equals(InspectionGraphOpportunityEvidence? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && EqualityComparer<AssemblyAcquisitionRegistration>.Default.Equals(
+            SourceRegistration,
+            other.SourceRegistration)
+        && EqualityComparer<MetadataTypeDefinitionName>.Default.Equals(
+            SourceType,
+            other.SourceType)
+        && string.Equals(
+            Integration,
+            other.Integration,
+            StringComparison.Ordinal)
+        && EqualityComparer<IntegrationOpportunityTarget>.Default.Equals(
+            Target,
+            other.Target);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(
+            EqualityContract,
+            SourceRegistration,
+            SourceType,
+            Integration,
+            Target);
 
     static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
         integration is not null
