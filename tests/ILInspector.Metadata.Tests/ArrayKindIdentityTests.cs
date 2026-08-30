@@ -71,6 +71,17 @@ public sealed class ArrayKindIdentityTests
             typeHandle,
             "Md2",
             "System.Int32[,]");
+        Assert.False(vector.IsUnsafe);
+        Assert.False(md1.IsUnsafe);
+        Assert.False(md2.IsUnsafe);
+        Assert.False(Member(type, "Nested").IsUnsafe);
+        Assert.False(Member(type, "ByRef").IsUnsafe);
+        Assert.False(Member(type, "Tuple").IsUnsafe);
+        Assert.False(Member(type, "Generic").IsUnsafe);
+        Assert.False(Member(type, "ModifiedVector").IsUnsafe);
+        Assert.False(Member(type, "ModifiedMd1").IsUnsafe);
+        Assert.False(Member(type, "ReturnMd1").IsUnsafe);
+        Assert.True(Member(type, "Pointer").IsUnsafe);
 
         AssertParameterIdentity(
             reader,
@@ -256,6 +267,31 @@ public sealed class ArrayKindIdentityTests
     }
 
     [Fact]
+    public void SyntheticImage_ResolvesEveryDeclaredSignatureTypeThroughClrLoader()
+    {
+        Assembly assembly = Assembly.Load(BuildArrayKindImage());
+        Type type = assembly.GetType(
+            "N.ArrayKinds",
+            throwOnError: true)!;
+        MethodInfo[] methods = type.GetMethods(
+            BindingFlags.Public
+                | BindingFlags.Instance
+                | BindingFlags.DeclaredOnly);
+
+        Assert.Equal(16, methods.Length);
+        foreach (MethodInfo method in methods)
+        {
+            _ = method.ReturnType;
+            _ = method.ReturnParameter.GetRequiredCustomModifiers();
+            foreach (ParameterInfo parameter in method.GetParameters())
+            {
+                _ = parameter.ParameterType;
+                _ = parameter.GetRequiredCustomModifiers();
+            }
+        }
+    }
+
+    [Fact]
     public void ExtractedArrayIdentity_SurvivesJsonRoundTrip()
     {
         byte[] image = BuildArrayKindImage();
@@ -428,8 +464,16 @@ public sealed class ArrayKindIdentityTests
             default,
             default,
             default);
+        AssemblyReferenceHandle systemCollections =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Collections"),
+                new Version(8, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
         TypeReferenceHandle list = metadata.AddTypeReference(
-            systemRuntime,
+            systemCollections,
             metadata.GetOrAddString("System.Collections.Generic"),
             metadata.GetOrAddString("List`1"));
         TypeReferenceHandle valueTuple = metadata.AddTypeReference(
