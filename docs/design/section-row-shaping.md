@@ -410,8 +410,8 @@ The execution and failure precedence after successful resolution is:
 5. Only after every entered cohort succeeds does L2 publish a result:
    1. Count returns exact entries for every participating set; or
    2. Row outcomes reassemble selected rows with their source dispositions and
-      completion evidence, plus disposition-only unavailable outcomes, in
-      original participating row-set order.
+      completion evidence, plus disposition-and-evidence-only unavailable
+      outcomes, in original participating row-set order.
 
 No partially assembled top-level result is published before step 5. Callbacks
 already reached remain observable, but successful rows from an earlier cohort
@@ -448,8 +448,8 @@ On non-exceptional completion, L2 returns exactly one typed result branch:
 
 - **Row outcomes** returns selected caller-owned values with validated cell
   projection plus opaque source disposition and completion evidence for
-  Rows-usable sets, and disposition-only outcomes for unavailable sets, all
-  under their declared row-set identities.
+  Rows-usable sets, and disposition-and-evidence-only outcomes with no row
+  values for unavailable sets, all under their declared row-set identities.
 - **Count** returns ordered row-set identities and exact cardinalities.
 - **Failure** binds a request-wide or row-set-scoped resolution failure,
   Count-blocking source outcomes, or one semantic failure to its explicit
@@ -541,7 +541,7 @@ The implementation must add these named Release gates:
 | `HeterogeneousSchemasFormOrderedCohorts` | Different cohort identities follow first participating declaration; cohorts with no admitted member invoke nothing; two entered schemas with different `Top` bindings use their own resolvers; a sentinel failure skips every later entered cohort without replaying or rolling back earlier callbacks; successful results reassemble in declared order. |
 | `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any participating source-failed, `Absent`, or Count-insufficient set prevents every residual cohort and Count; all and only entered residual cohorts execute in order, a Count satisfied upstream may enter none, and the first semantic failure among entered cohorts prevents every count entry. |
 | `EmptyFailedAndAbsentSetsStayDistinct` | A participating Count-sufficient empty set produces exact zero after semantic success; a Count-insufficient, failed, or owner-issued `Absent` disposition prevents Count and remains a typed source failure; an unrequested, undeclared, or projection-inapplicable set produces no entry. |
-| `RowsPreserveIndependentSourceOutcomes` | A Rows request shapes each Rows-usable set and binds its rows together with the exact owner-issued disposition and completion evidence; failed, `Absent`, or Rows-unavailable sets remain disposition-only outcomes and do not suppress usable companions. |
+| `RowsPreserveIndependentSourceOutcomes` | A Rows request shapes each Rows-usable set and binds its rows together with the exact owner-issued disposition and completion evidence; failed, `Absent`, or Rows-unavailable sets retain the exact disposition and completion evidence in disposition-and-evidence-only outcomes with no row values and do not suppress usable companions. |
 | `IncompleteRowsRemainVisibleWithoutBecomingCount` | A capped Rows-usable source result produces its shaped rows plus incompleteness evidence, while the same Count-insufficient evidence under Count returns `SourceForCount`, enters no cohort, and never reports the cap as exact cardinality. |
 | `CountSourceFailureBindingPreservesOutcomes` | A Count-blocking source failure retains one ordered participating-set entry with the exact owner-issued disposition and completion evidence for every success, failure, incompleteness, or absence outcome; it exposes no row values, Row-outcomes, or Count payload and invokes no residual shaping. |
 | `CohortExecutionFailureOrderIsDeterministic` | Entered cohorts execute in order; each prepares only its admitted row-bearing sets in declaration order before its one semantic invocation; competing row-query exceptions and semantic failures select the first reached cursor outcome and skip later work. |

@@ -263,8 +263,9 @@ presentation.
 
 The multi-row-set reduction is itself one table, so table, TSV, and JSONL
 formats accept a request that resolves to multiple row sets under `--count`.
-Their ordinary one-input-table restriction applies before reduction and does
-not reject this count-result table.
+Their ordinary one-input-table restriction evaluates the already-bound
+post-reduction shape and therefore accepts this one count-result table without
+inspecting how many declared row sets contributed entries.
 
 Target adoption must add the non-vacuous Release gate
 `TypedCountResultsRenderByShape`. It feeds already-bound typed results directly
@@ -279,8 +280,9 @@ to the output layer and requires:
   and object-per-row JSONL result, while the separately exercised Mermaid path
   rejects and the ordinary single-input-table restriction does not reject the
   count result;
-- a bound failure to render through the failure path with no Scalar or count
-  Table payload; and
+- a bound failure to exercise every Markdown, plain-text, pretty-table, TSV,
+  JSON, JSONL, and Mermaid route, each using its owner-defined failure
+  presentation with no Scalar or count Table payload; and
 - fixtures to prove that no tested output path reconstructs cardinality from
   rendered or intercepted rows.
 
