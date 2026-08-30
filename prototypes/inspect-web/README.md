@@ -931,16 +931,51 @@ exists to check them and finding none means the markup shape changed underneath
 it. Without that, every later refactor of `index.html` would quietly turn the
 weekly run into a green light for nothing.
 
+Both of those checks read markup, and that is also their limit. `require-sri`
+and the freshness check each look at `<script>` and `<link>` elements, so a
+library loaded by `import("https://cdn.example/lib.js")` is invisible to both --
+a dynamic import is not markup. Three runtime libraries used to load exactly
+that way: mermaid, marked, and DOMPurify. They carried no digest, and both
+checks reported clean, because neither could see them. That is a worse failure
+than a missing pin: the report says the CDN surface is fully covered while a
+third of it is unexamined, and the unexamined third included the sanitizer.
+
+The fix is not a third check that knows about dynamic imports. It is removing
+the condition those checks were trying to describe. The three libraries are
+ordinary npm dependencies, and Vite bundles them into same-origin chunks that
+load on demand, so no CDN sits in the runtime path for them at all. Lazy
+loading survives, and mermaid actually splits further: its per-diagram-type
+chunks are only fetched for the diagram kinds a page renders.
+
+Moving them into the lockfile is what makes them auditable. A version in a CDN
+URL is checked against nothing; a version in `package-lock.json` is checked
+against the advisory database. Installing these three unchanged surfaced 21
+advisories that had been invisible for as long as they were CDN URLs -- 19 of
+them against the pinned DOMPurify build, several of which defeat sanitization
+outright. The code comment asserting that DOMPurify makes package Markdown safe
+had been resting on that build. CI now runs `npm audit --omit=dev
+--audit-level=moderate`, so a future advisory against shipped code fails the
+build instead of waiting to be noticed. The audit is scoped to production
+dependencies deliberately: a build tool's advisory does not reach a browser, and
+failing unrelated pull requests over one trains people to ignore the signal.
+
+What remains on a CDN is the three Prism scripts in `index.html`. Those are
+markup, they carry digests, and the freshness check reads them -- so the
+coverage claim and the actual surface now describe the same set.
+
 A Content-Security-Policy is still outstanding, because the generated
 `<script type="importmap">` needs a per-build hash before `script-src` can be
 strict.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
-`knip.json` excludes only `engine/wwwroot/inspect-web-engine.js`: that generated
+`knip.json` excludes `engine/wwwroot/inspect-web-engine.js`: that generated
 publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
 publish. The exclusion is specific to Knip reachability; Oxlint still checks
-the generated module.
+the generated module. It also ignores `type-fest`, which nothing here imports:
+mermaid's shipped `.d.ts` files import it while declaring it only in mermaid's
+own `devDependencies`, so a consumer has to supply it for `tsc` to resolve
+mermaid's types. It is pinned to the range mermaid builds against.
 
 The tsgolint semantic backend publishes native binaries for x64 and arm64 hosts
 running macOS, Linux (glibc or musl), or Windows. Those are the supported

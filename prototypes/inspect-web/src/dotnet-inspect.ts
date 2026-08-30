@@ -1282,9 +1282,9 @@ function requireElement(selector: string): HTMLElement {
 }
 
 const app = requireElement("#app");
-type MermaidModule = typeof import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
-type MarkedModule = typeof import("https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.esm.js");
-type DomPurifyModule = typeof import("https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.es.mjs");
+type MermaidModule = typeof import("mermaid");
+type MarkedModule = typeof import("marked");
+type DomPurifyModule = typeof import("dompurify");
 let mermaidModule: Promise<MermaidModule> | undefined;
 let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
@@ -7199,7 +7199,7 @@ async function renderTypeGraph() {
   const graphNodeOf = new Map(
     (meta.graphNodes || []).map((node, index) => [`t${index}`, node]));
   try {
-    mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+    mermaidModule ??= import("mermaid");
     const { default: mermaid } = await mermaidModule;
     mermaid.initialize({
       startOnLoad: false,
@@ -7337,7 +7337,7 @@ async function renderDependencyGraph() {
   const seq = depGraphRenderSequence.begin();
   pending.begin(signature, seq);
   try {
-    mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+    mermaidModule ??= import("mermaid");
     const { default: mermaid } = await mermaidModule;
     if (!depGraphRenderSequence.isCurrent(seq)) return;
     mermaid.initialize({
@@ -7573,7 +7573,7 @@ async function renderMermaidCallGraph() {
   container.dataset.graphPending = active.mermaid;
   const seq = ++callGraphRenderSeq;
   try {
-    mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+    mermaidModule ??= import("mermaid");
     const { default: mermaid } = await mermaidModule;
     if (seq !== callGraphRenderSeq) return;
     mermaid.initialize({
@@ -8387,28 +8387,46 @@ function closeGraphSource() {
   sourceInspection.closeGraphSource();
 }
 
-// Lazily load marked + DOMPurify (mirrors the mermaid CDN-ESM pattern). marked renders GFM
-// (tables, fenced code); DOMPurify strips any embedded HTML/script so third-party package
-// Markdown can never inject active content into the app.
+// Lazily load marked + DOMPurify. Both are bundled dependencies, so Vite emits them as
+// same-origin chunks fetched on demand rather than loading them from a CDN. marked renders
+// GFM (tables, fenced code); DOMPurify strips embedded HTML/script so Markdown carried by a
+// third-party package cannot inject active content.
+//
+// That sanitization claim is only as good as the DOMPurify build behind it, and a CDN URL had
+// no gate at all: the pinned version was never checked against any advisory feed. The gate is
+// now the lockfile pin plus CI's `npm audit --omit=dev`, which fails the build when a shipped
+// dependency has a known vulnerability.
 async function markdownLibs() {
   markdownModule ??= Promise.all([
-    import("https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.esm.js"),
-    import("https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.es.mjs")
+    import("marked"),
+    import("dompurify")
   ]);
   const [{ marked }, { default: DOMPurify }] = await markdownModule;
   return { marked, DOMPurify };
 }
 
+// `MARKDOWN_SANITIZE_OPTIONS` is frozen so the allow list has one immutable definition, but
+// DOMPurify's config type is mutable and its hooks have historically written back through it.
+// Handing it a fresh copy each call keeps the frozen original as the single source of truth.
+function markdownSanitizeConfig() {
+  return {
+    ALLOWED_TAGS: [...MARKDOWN_SANITIZE_OPTIONS.ALLOWED_TAGS],
+    ALLOWED_ATTR: [...MARKDOWN_SANITIZE_OPTIONS.ALLOWED_ATTR],
+    ALLOW_ARIA_ATTR: MARKDOWN_SANITIZE_OPTIONS.ALLOW_ARIA_ATTR,
+    ALLOW_DATA_ATTR: MARKDOWN_SANITIZE_OPTIONS.ALLOW_DATA_ATTR,
+  };
+}
+
 async function renderMarkdown(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parse(text, { gfm: true, breaks: false });
-  return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
+  const html = marked.parse(text, { gfm: true, breaks: false, async: false });
+  return DOMPurify.sanitize(html, markdownSanitizeConfig());
 }
 
 async function renderMarkdownInline(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parseInline(text, { gfm: true });
-  return DOMPurify.sanitize(html, MARKDOWN_SANITIZE_OPTIONS);
+  const html = marked.parseInline(text, { gfm: true, async: false });
+  return DOMPurify.sanitize(html, markdownSanitizeConfig());
 }
 
 function openPackageDocument(path: string) {

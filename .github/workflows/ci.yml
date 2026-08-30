@@ -193,6 +193,13 @@ jobs:
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
+      - name: Audit shipped browser dependencies
+        working-directory: prototypes/inspect-web
+        # The runtime libraries are lockfile dependencies, so advisories against the code that
+        # actually reaches a user's browser are visible to `npm audit`. Scoped to production
+        # dependencies: a build-tool advisory is not shipped and should not fail unrelated PRs.
+        run: npm audit --omit=dev --audit-level=moderate
+
       - name: Check generated inspect-web-engine surface for drift
         run: eng/generate-inspect-web-engine-dts.sh --check
 
