@@ -449,8 +449,13 @@ internal static class MatchDiscoveryFormatter
 
         view.SeedBody = retrieval.Seed.Disposition.ToString();
         StructuralCloneRetrievalReceipt receipt = retrieval.Receipt;
+
+        // Input and processed are different numbers and the difference is the honest part: a
+        // limit rejects the population atomically, so nothing is scanned even though the input
+        // was large. Reporting the input count as "scanned" claims work the tool never did.
         view.Receipt =
-            $"{receipt.EligibleMethods} eligible of {receipt.InputMethods} scanned; "
+            $"{receipt.EligibleMethods} eligible of {receipt.ProcessedMethods} processed "
+                + $"({receipt.InputMethods} input); "
                 + $"{receipt.RankedCandidates} ranked, {receipt.ReturnedCandidates} returned "
                 + $"({receipt.UnsupportedMethods} unsupported, {receipt.LimitReachedMethods} limit-reached, "
                 + $"{receipt.FailedMethods} failed)";

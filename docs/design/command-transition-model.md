@@ -487,11 +487,20 @@ compared the way the host volume resolves that identity. The spelling arrives by
 three routes — a forwarded type's defining image, a resolved type's extraction
 path, and, for a token the projection cannot name, the caller's own `--library`
 spelling — and `./Foo.dll` and its absolute path are one file. Canonicalizing
-alone is not enough, because it preserves case while Windows and macOS resolve
-`Foo.dll` and `foo.dll` to the same file; hosts with case-sensitive volumes stay
-case-sensitive so two genuine case-only siblings are never conflated. Reporting
-one image as two both stops retrieval from suppressing its own seed and rejects
-a pairwise pair that the discovery output just told the caller to run.
+alone is not enough, because it preserves case while a case-insensitive volume
+opens `Foo.dll` and `foo.dll` as one file. Reporting one image as two both stops
+retrieval from suppressing its own seed and rejects a pairwise pair that the
+discovery output just told the caller to run.
+
+The case rule belongs to the volume rather than to the operating system. macOS
+and Windows both support case-sensitive volumes, on which two case-only siblings
+are two different assemblies; merging them is the more damaging error, because
+discovery then ranks candidates out of the seed's image, labels them with the
+candidate image's names, omits the candidate assembly, and emits the same-image
+disclosure — a wrong answer with no failure. So when two canonical spellings
+differ by case alone, and only then, identity is decided by whether both
+spellings open the same directory entry. A spelling that opens nothing is not
+the same image as one that opens a file.
 
 Containment is a property of the structured document, not of its callers. The
 Markout row gate covers views, and a JSON document is not one, so the document

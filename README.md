@@ -311,8 +311,9 @@ dotnet-inspect match Sample.Encode --similar --library ./old.dll..new.dll
 
 `--similar` ranks structural candidates for one seed method. It is a discovery
 step, not a verdict: a rank establishes no relation, no semantic equivalence,
-and no authorship or copying claim. Confirm a candidate by re-running the
-pairwise form on the selected pair.
+and no authorship or copying claim. Within one image, confirm a candidate by
+re-running the pairwise form on the selected pair; across a library range there
+is no such confirmation, as the cross-image paragraph below explains.
 
 The default candidate population is the seed's declaring type. `--assembly-wide`
 opts into whole-assembly retrieval, which costs materially more. `--top` bounds

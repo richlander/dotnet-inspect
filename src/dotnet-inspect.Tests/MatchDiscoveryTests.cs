@@ -1157,6 +1157,109 @@ public sealed class MatchDiscoveryTests
         Assert.DoesNotContain('\u202E', outcome.Member);
         Assert.DoesNotContain('\u202E', outcome.Token);
     }
+
+    // ---- Round 5 review findings ----
+
+    /// <summary>
+    /// Two spellings that differ only by case are one image exactly when the volume opens one
+    /// file, so the question belongs to the volume rather than to the operating system. An
+    /// OS-wide case rule answers it wrongly on case-sensitive macOS and Windows volumes, where
+    /// the two spellings name two different assemblies and merging them makes discovery rank
+    /// candidates out of the seed's image without reporting a failure. This gate asserts the
+    /// volume's own answer, so it is correct on either kind of volume.
+    /// </summary>
+    [Fact]
+    public void SameImage_AsksTheVolumeWhetherCaseOnlySiblingsAreOneFile()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"match-image-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string upper = Path.Combine(directory, "Image.dll");
+            string lower = Path.Combine(directory, "image.dll");
+            File.WriteAllText(upper, "upper");
+            File.WriteAllText(lower, "lower");
+
+            // A case-sensitive volume now holds two entries; a case-insensitive one holds one.
+            bool volumeKeptBothFiles = Directory.GetFiles(directory).Length == 2;
+            Assert.Equal(!volumeKeptBothFiles, MatchCommand.SameImage(upper, lower));
+
+            // A spelling that opens nothing is never the same image as one that opens a file.
+            string absent = Path.Combine(directory, "Missing.dll");
+            Assert.False(MatchCommand.SameImage(upper, absent));
+
+            // Neither spelling opens anything here, so there is no file for them to share. An
+            // OS-wide case rule answers this from the path strings alone and calls them one
+            // image on macOS and Windows; asking the volume is what makes the answer depend on
+            // what is actually there.
+            string emptyDirectory = Path.Combine(directory, "empty");
+            Directory.CreateDirectory(emptyDirectory);
+            Assert.False(MatchCommand.SameImage(
+                Path.Combine(emptyDirectory, "Absent.dll"),
+                Path.Combine(emptyDirectory, "absent.dll")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A limit rejects the candidate population atomically, so nothing is processed even though
+    /// the input was large. The receipt line must not report the input count as work performed.
+    /// </summary>
+    [Fact]
+    public async Task Similar_LimitReachedReceipt_DoesNotClaimUnprocessedMethodsWereProcessed()
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyWide = true,
+            MaximumMethods = 1,
+        };
+
+        var (exitCode, markdown, _) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("LimitReached", markdown);
+        Assert.Contains("0 processed", markdown);
+        Assert.DoesNotContain("scanned", markdown);
+    }
+
+    /// <summary>
+    /// On the ordinary path the seed itself is suppressed, so processed is smaller than input.
+    /// The receipt keeps both numbers rather than presenting one of them as the other.
+    /// </summary>
+    [Fact]
+    public async Task Similar_Receipt_ReportsProcessedAndInputSeparately()
+    {
+        MatchOptions options = Seeded(SampleSeed) with { AssemblyWide = true };
+
+        var (exitCode, markdown, _) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Matches(@"\d+ eligible of \d+ processed \(\d+ input\)", markdown);
+    }
+
+    /// <summary>
+    /// The README tells same-image callers to confirm a candidate with the pairwise form. That
+    /// instruction must stay scoped, because there is no cross-image confirmation to run.
+    /// </summary>
+    [Fact]
+    public void Readme_DoesNotPromiseCrossImagePairwiseConfirmation()
+    {
+        string readme = Path.Combine(CommandErrorOwnershipTests.RepositoryRoot(), "README.md");
+        string text = File.ReadAllText(readme);
+
+        int section = text.IndexOf("### Structural matching", StringComparison.Ordinal);
+        Assert.True(section >= 0, "README no longer has a Structural matching section.");
+        int end = text.IndexOf("\n### ", section + 1, StringComparison.Ordinal);
+        string structuralMatching = end < 0 ? text[section..] : text[section..end];
+
+        Assert.DoesNotContain(
+            "Confirm a candidate by re-running the pairwise form on the selected pair.",
+            structuralMatching);
+        Assert.Contains("Within one image, confirm a candidate", structuralMatching);
+    }
 }
 
 

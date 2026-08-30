@@ -190,29 +190,83 @@ public static class MatchCommand
     internal static string CanonicalImagePath(string path) => Path.GetFullPath(path);
 
     /// <summary>
-    /// Matches image identity the way the host volume does. <see cref="CanonicalImagePath"/> makes
-    /// two spellings of one file structurally comparable, but it preserves case, and Windows and
-    /// macOS resolve <c>Foo.dll</c> and <c>foo.dll</c> to the same file. Comparing those spellings
-    /// ordinally reports one image as two on exactly the hosts where they are one, which rejects a
-    /// valid pairwise pair and lets retrieval rank its own seed. Other hosts stay case-sensitive so
-    /// two genuinely distinct case-only siblings are never conflated. Same policy as
-    /// <c>ResourceExtractor.PathsEqual</c>.
+    /// Matches image identity the way the host volume actually resolves it.
+    /// <see cref="CanonicalImagePath"/> makes two spellings of one file structurally comparable,
+    /// but it preserves case, and a case-insensitive volume opens <c>Foo.dll</c> and
+    /// <c>foo.dll</c> as one file. Comparing those spellings ordinally reports one image as two,
+    /// which rejects a valid pairwise pair and lets retrieval rank its own seed. Choosing the
+    /// opposite rule from the operating system is wrong in the more damaging direction: macOS and
+    /// Windows both support case-sensitive volumes, where two case-only siblings are two different
+    /// assemblies, and merging them makes discovery rank candidates out of the seed's image while
+    /// labelling them with the candidate's names. Case-sensitivity is a property of the volume
+    /// rather than of the OS, so ask the volume — and only in the narrow branch where the two
+    /// spellings differ by nothing else.
     /// </summary>
     internal static bool SameImage(string? left, string? right)
     {
         if (left is null || right is null)
             return left is null && right is null;
 
-        return string.Equals(
-            Path.TrimEndingDirectorySeparator(CanonicalImagePath(left)),
-            Path.TrimEndingDirectorySeparator(CanonicalImagePath(right)),
-            ImagePathComparison);
+        string leftPath = Path.TrimEndingDirectorySeparator(CanonicalImagePath(left));
+        string rightPath = Path.TrimEndingDirectorySeparator(CanonicalImagePath(right));
+
+        if (string.Equals(leftPath, rightPath, StringComparison.Ordinal))
+            return true;
+
+        if (!string.Equals(leftPath, rightPath, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string? leftEntry = OpenedEntryName(leftPath);
+        string? rightEntry = OpenedEntryName(rightPath);
+        return leftEntry is not null
+            && rightEntry is not null
+            && string.Equals(leftEntry, rightEntry, StringComparison.Ordinal);
     }
 
-    static StringComparison ImagePathComparison { get; } =
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
+    /// <summary>
+    /// Names the directory entry a spelling actually opens, or <c>null</c> when it opens nothing.
+    /// A case-insensitive volume answers both spellings with the single entry it holds, so the two
+    /// spellings agree; a case-sensitive volume answers each spelling with its own entry or with
+    /// nothing, so they disagree. Enumerating instead of passing the name as a search pattern
+    /// keeps a literal <c>*</c> or <c>?</c> in a file name from matching a sibling.
+    /// </summary>
+    static string? OpenedEntryName(string fullPath)
+    {
+        if (!File.Exists(fullPath))
+            return null;
+
+        string? directory = Path.GetDirectoryName(fullPath);
+        string name = Path.GetFileName(fullPath);
+        if (directory is null || name.Length == 0)
+            return null;
+
+        string? caseInsensitiveMatch = null;
+        try
+        {
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
+            {
+                string entryName = Path.GetFileName(entry);
+                if (string.Equals(entryName, name, StringComparison.Ordinal))
+                    return entryName;
+
+                if (caseInsensitiveMatch is null
+                    && string.Equals(entryName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    caseInsensitiveMatch = entryName;
+                }
+            }
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        return caseInsensitiveMatch;
+    }
 
     /// <summary>
     /// Names two distinct images so the reader can tell them apart. File names alone are the
@@ -223,7 +277,7 @@ public static class MatchCommand
     {
         string leftName = Path.GetFileName(left) ?? "";
         string rightName = Path.GetFileName(right) ?? "";
-        return string.Equals(leftName, rightName, ImagePathComparison)
+        return string.Equals(leftName, rightName, StringComparison.OrdinalIgnoreCase)
             ? $"{CanonicalImagePath(left!)} vs {CanonicalImagePath(right!)}"
             : $"{leftName} vs {rightName}";
     }
