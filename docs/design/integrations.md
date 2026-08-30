@@ -944,8 +944,9 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensus_ProducerCompletedEvidenceRejectsMismatches`
 - `IntegrationCensus_UnavailableOrFailedProducerYieldsNoCandidatesAndIncompleteness`
 - `IntegrationCensus_DuplicateEvidenceCoalescesRetainingProducerCorrespondence`
+- `IntegrationCensus_CanonicalizesShuffledReceiptProducts`
 - `IntegrationCensus_CandidateAttemptsCoverCoalescedCandidatesByContext`
-- `IntegrationCensus_LargeContextProductUsesHashBackedAddressing`
+- `IntegrationCensus_SemanticContextProductUsesHashBackedAddressing`
 - `IntegrationCensus_EmptyHealthyUniverseIsCompleteAndSuccessful`
 - `IntegrationCensus_ClassifiedInRequiresSelectedTerminalPeer`
 - `IntegrationCensus_ClassifiedOutRequiresUnselectedTerminalPeer`
@@ -958,7 +959,8 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensus_AddingOrRemovingSelectedPeerPreservesIdentityWhileFlippingDisposition`
 - `IntegrationCensus_RemovingSelectedSourceMembershipRejectsStaleCandidate`
 - `IntegrationCensus_SuppressionRequiresSameContextClassifiedObservedOfSameConcept`
-- `IntegrationCensus_SuppressionRejectsSelfCrossContextAndMissingFulfiller`
+- `IntegrationCensus_SuppressionRejectsSelfAndMissingFulfiller`
+- `IntegrationCensus_SuppressionRejectsCrossContextFulfiller`
 - `IntegrationCensus_SuppressionRejectsOpportunityFulfillingOpportunity`
 - `IntegrationCensus_SuppressionRejectsWrongConceptFulfiller`
 - `IntegrationCensus_SuppressionRejectsUnclassifiedFulfiller`
