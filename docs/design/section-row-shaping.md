@@ -21,7 +21,7 @@ Related designs:
   `Tail`, `Window`, and `Top` behavior over named sequences.
 - [Inspection layers](inspection-layers.md) assigns executable request and
   result binding to L2.
-- [Row-source execution](row-source-execution.md) owns source delegation, the
+- [Source delegation](source-delegation.md) owns delegation planning, the
   delegated result contract, completion-evidence binding, and the equivalence
   gates for accepted upstream Count and row handoff.
 - [Item and line selection composition](item-and-line-limits.md) sequences L2
@@ -491,7 +491,7 @@ source aggregation, exact feed or index metadata, cached exact cardinality, or
 early termination.
 
 The
-[row-source execution design](row-source-execution.md) owns delegation
+[source delegation design](source-delegation.md) owns delegation
 planning, the delegated result contract, completion-evidence binding, and the
 non-vacuous optimized-execution gates. L2 accepts an optimized result only
 when it is observationally equivalent to the complete reference contracts in

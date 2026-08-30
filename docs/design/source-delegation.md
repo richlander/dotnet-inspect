@@ -1,4 +1,4 @@
-# Row-source execution
+# Source delegation
 
 ## Problem
 
@@ -21,6 +21,18 @@ completion evidence, and that result substitutes for the reference
 computation only when the evidence proves the substitution exact. Everything
 else in this document serves that sentence.
 
+Both directions of this arrangement are delegations. The default composition
+already delegates in the natural direction: every source hands raw member
+values to one centralized result-construction path, hardened by and serving
+all sources at once. This contract governs the reverse direction — a source
+taking over a prefix of result construction — which carries a naturally
+higher bar, because each reverse-delegating source re-implements observable
+semantics the centralized path provides once. The contract makes that bar
+explicit: delegated work stays behind the source-closed barrier, satisfaction
+is proven with completion evidence rather than asserted, accepted work never
+falls back silently, and every adoption passes an equivalence gate against
+the centralized reference.
+
 ## Status
 
 Focused cross-cutting L1 pattern proposal for
@@ -35,7 +47,7 @@ independently-adoptable-tier proof for the row and limit systems; this
 contract is written to be adoptable through its public surface alone, without
 dotnet-inspect's layer names, section rendering, or CLI.
 
-The current product has no general row-source execution contract and does not
+The current product has no general source delegation contract and does not
 implement this proposal. All asserted behavior is unverified until the Release
 gates in [Required gates](#required-gates) land.
 
@@ -107,7 +119,7 @@ contract, gated, and applies to every adoption.
 
 ## Authority and scope
 
-The L1 row-source execution pattern is the authority for one source-owned
+The L1 source delegation pattern is the authority for one source-owned
 execution of one caller-formed delegation and for acceptance of its result.
 
 This design owns:
@@ -226,7 +238,7 @@ Count execute under their owner-defined observation and failure contract.
 The caller owns constructing these partitions and proving them against its
 reference plan; the source receives only the candidate. The proof is the
 caller's adoption gate
-([`RowSourcePartitionMatchesReference`](#required-gates)), applied before a
+([`SourceDelegationPartitionMatchesReference`](#required-gates)), applied before a
 candidate is ever presented to planning.
 
 ## Effect protocol
@@ -262,7 +274,7 @@ candidate is ever presented to planning.
 A source result answers exactly the accepted plan it was constructed from:
 
 ```text
-RowSourceResult =
+SourceDelegationResult =
     RowHandoff(ordered member outcomes)
   | ExactCount(ordered member counts)
   | NotSatisfied(ordered member dispositions)
@@ -408,27 +420,33 @@ components only under those components' existing platform contracts.
 ## Required gates
 
 The pattern implementation and each optimized adoption must add the
-applicable named Release gates:
+applicable named Release gates. Gates are executable evidence in the Release
+test suites — reference-equivalence fixtures, static closure checks, and
+dependency assertions — not product runtime validation. The product runtime
+carries only the semantic decisions the contract itself defines, such as
+evidence-basis acceptance and result-shape validity; the guarantees in
+[By construction, not by gate](#by-construction-not-by-gate) ship as type
+shape, not checks.
 
 | Gate | Contract |
 | --- | --- |
-| `RowSourcePlanningIsPure` | Planning inspects only immutable capability declarations and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
-| `RowSourceDeclineAllowsReferenceFallback` | A pure all-candidates decline permits the caller's retained reference strategy and is never reported as a source failure. |
-| `RowSourceAcceptedFailureNeverFallsBack` | After acceptance, a capability miss, incomplete stop, member- or candidate-scoped failure, exception, or defective result never tries a later candidate, reference execution, or the row-handoff residual; only a validated `RowHandoff` enters its retained residual. |
-| `RowSourceOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete outcome. |
-| `RowSourcePartitionMatchesReference` | The caller's adoption gate proves every row-handoff candidate delegates one contiguous reference-order prefix (possibly empty) and retains the exact disjoint suffix in its residual, with complete coverage and no duplicated operation for every member; it rejects a non-prefix partition before presenting the candidate. Every exact-Count candidate covers the complete resolved plan. |
+| `SourceDelegationPlanningIsPure` | Planning inspects only immutable capability declarations and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
+| `SourceDelegationDeclineAllowsReferenceFallback` | A pure all-candidates decline permits the caller's retained reference strategy and is never reported as a source failure. |
+| `SourceDelegationAcceptedFailureNeverFallsBack` | After acceptance, a capability miss, incomplete stop, member- or candidate-scoped failure, exception, or defective result never tries a later candidate, reference execution, or the row-handoff residual; only a validated `RowHandoff` enters its retained residual. |
+| `SourceDelegationOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete outcome. |
+| `SourceDelegationPartitionMatchesReference` | The caller's adoption gate proves every row-handoff candidate delegates one contiguous reference-order prefix (possibly empty) and retains the exact disjoint suffix in its residual, with complete coverage and no duplicated operation for every member; it rejects a non-prefix partition before presenting the candidate. Every exact-Count candidate covers the complete resolved plan. |
 | `SourceClosedDeclarationsMatchOwnerContracts` | Each operation owner's gate proves its source-closed declaration against its reference failure and invocation contract; an operation is delegable only under its owner's current declaration. |
 | `OwnerObservationsRemainReferenceBarriers` | An operation not declared source-closed never enters delegated work; retained in the residual or reference path, it preserves exact invocation, failure identity, scope, all-or-failure behavior, and precedence. |
-| `RowSourceExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate, contains one non-negative exact value and accepted completion evidence per member, carries no rows, and publishes no partial map or invented total. |
-| `RowSourceNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns one disposition-and-evidence entry per member with no row or Count payload; the broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
-| `RowSourceCompletionEvidenceBasisIsAccepted` | A result satisfies its completion requirement only through an evidence basis that requirement accepts; a member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, and exact Count requires proof of every member value. |
+| `SourceDelegationExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate, contains one non-negative exact value and accepted completion evidence per member, carries no rows, and publishes no partial map or invented total. |
+| `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns one disposition-and-evidence entry per member with no row or Count payload; the broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
+| `SourceDelegationCompletionEvidenceBasisIsAccepted` | A result satisfies its completion requirement only through an evidence basis that requirement accepts; a member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, and exact Count requires proof of every member value. |
 | `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete-stop evidence even when their numeric value equals a requested semantic bound or returned row count. |
 | `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff candidate may return Rows-usable values with incomplete-stop evidence, while the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
 | `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after its retained residual, matches the complete section-row reference result for surviving values, order, member identity, unavailable-member composition, source evidence, owner-observable invocation, and terminal failure. Fixtures exercise a typed strict-window residual failure, an exact sentinel callback/comparer/resolver exception, and a case where both are reachable with reference precedence preserved; none publishes partial rows. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized Count path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
-| `RowSourceContractIsPresentationFree` | Candidates, plans, results, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label. |
-| `RowSourceContractHasOnlyFrameworkDependencies` | The shared contract's evaluated Release compile/runtime/native assets contain only framework references and the contract component. |
-| `RowSourceContractForbidsHostApis` | A static product-closure gate rejects reflection, inspected-assembly loading, filesystem, network, console, process, native-interop, parallel-loop, and dedicated-thread APIs even when they are framework APIs. |
+| `SourceDelegationContractIsPresentationFree` | Candidates, plans, results, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label. |
+| `SourceDelegationContractHasOnlyFrameworkDependencies` | The shared contract's evaluated Release compile/runtime/native assets contain only framework references and the contract component. |
+| `SourceDelegationContractForbidsHostApis` | A static product-closure gate rejects reflection, inspected-assembly loading, filesystem, network, console, process, native-interop, parallel-loop, and dedicated-thread APIs even when they are framework APIs. |
 
 ## Non-claims
 

@@ -28,7 +28,7 @@ Related designs:
   [#5162](https://github.com/richlander/dotnet-inspect/issues/5162).
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
-- [Row-source execution](row-source-execution.md) owns source delegation and
+- [Source delegation](source-delegation.md) owns delegation planning and
   completion-evidence binding for any permitted optimized execution.
 - [Semantic row-selection interaction model](../models/semantic-row-selection/SemanticRowSelection.tla)
   checks bounded stage, failure, publication, and resolver interactions.
@@ -90,7 +90,7 @@ presentation text.
 The reference executor evaluates a complete logical input sequence. A source
 optimizer may avoid acquiring that complete sequence only when it can prove the
 same selected values, order, and strict-window outcome. The
-[row-source execution](row-source-execution.md) design owns how that
+[source delegation](source-delegation.md) design owns how that
 proof is represented, bound, and accepted. Each adopting source owns how it
 obtains and constructs the proof.
 
@@ -521,8 +521,8 @@ those choices are observationally equivalent only when they preserve:
 
 Comparer call count and pair order are not equivalence dimensions for a valid
 deterministic comparer. The
-[row-source execution](row-source-execution.md) contract applies its
-[source-closed boundary](row-source-execution.md#source-closed-operations);
+[source delegation](source-delegation.md) contract applies its
+[source-closed boundary](source-delegation.md#source-closed-operations);
 operations this design does not declare source-closed remain in the reference
 or row-handoff residual path. A later observation-transport extension must
 still preserve this complete callback contract.
@@ -655,11 +655,11 @@ The implementation must add these named Release gates:
 | `RowSelectionRunsOnNativeAotAndBrowser` | The reference stage matrix executes in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
 
 The
-[row-source execution](row-source-execution.md) contract owns the
+[source delegation](source-delegation.md) contract owns the
 required equivalence gate comparing every optimized delegation it supports
 with this complete-sequence reference executor. Delegation follows that
 owner's
-[source-closed boundary](row-source-execution.md#source-closed-operations):
+[source-closed boundary](source-delegation.md#source-closed-operations):
 operations this design does not declare source-closed remain in the reference
 or row-handoff residual path. Any later extension that transports those
 failures must also compare strict windows before and after lenient stages,

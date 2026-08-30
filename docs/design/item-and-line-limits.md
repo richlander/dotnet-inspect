@@ -36,7 +36,7 @@ This table identifies authority; it does not define a participant's behavior.
 | Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | [Row query and ordering](row-query-order.md) |
 | Declared row units and the Document-to-Scalar shape ladder | L2 `DotnetInspector.Sections` | [Output shapes](output-shapes.md#the-shape-ladder) |
 | Declared-row-set binding, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | [Section-row shaping](section-row-shaping.md) |
-| Row-source delegation planning, the delegated result contract, completion-evidence binding, and exact upstream Count acceptance | Cross-cutting L1 source-execution pattern | [Row-source execution](row-source-execution.md) |
+| Source-delegation planning, the delegated result contract, completion-evidence binding, and exact upstream Count acceptance | Cross-cutting L1 source-delegation pattern | [Source delegation](source-delegation.md) |
 | CLI aliases, argv lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | Pending focused design |
 | Source-specific acquisition, pagination, retries, caching, merge, deduplication, and proof construction | Each adopting L1 query or source owner | Pending focused adoptions |
 | Post-selection payload acquisition | L1 query or source-owning component | Pending focused design |
@@ -101,7 +101,7 @@ does not choose which logical rows or values survive.
 2. This document locks only owner sequencing and typed handoffs.
 3. Lock L2 row-query and section-row-shaping contracts.
 4. Lock the
-   [row-source execution](row-source-execution.md) pattern against that
+   [source delegation](source-delegation.md) pattern against that
    L2 contract.
 5. Define L3 CLI grammar and lowering against the locked typed contracts.
 6. Define payload projection, post-selection acquisition, export, and

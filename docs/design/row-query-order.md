@@ -21,7 +21,7 @@ Related designs:
   Document-to-Scalar shape ladder.
 - [Section-row shaping](section-row-shaping.md) owns declared-row-set binding,
   projection roles, terminal Count, and typed result binding.
-- [Row-source execution](row-source-execution.md) owns source delegation and
+- [Source delegation](source-delegation.md) owns delegation planning and
   completion-evidence binding without changing this design's query
   semantics.
 - [Schema query](schema-query.md) owns section and projection discovery. Its
@@ -231,10 +231,10 @@ meaning of the baseline-order binding.
 
 This reference order defines observable row-query meaning. A source owner may
 execute predicates, ordering, or semantic selection elsewhere only through the
-[row-source execution](row-source-execution.md) contract's delegation,
-exact-equivalence, and honest-completion rules. This design does not
+[source delegation](source-delegation.md) contract's exact-equivalence and
+honest-completion rules. This design does not
 define that optimization or its evidence. Delegation follows that owner's
-[source-closed boundary](row-source-execution.md#source-closed-operations);
+[source-closed boundary](source-delegation.md#source-closed-operations);
 operations this design does not declare source-closed remain on the reference
 or row-handoff residual path.
 
