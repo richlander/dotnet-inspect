@@ -894,7 +894,7 @@ exact-member, extension-member, and token selection, ambiguity, limit
 separation, unsupported bodies, seed-before-candidate failure precedence,
 malformed acquisition and metadata-neighbor isolation, and same-MVID
 independent-reader handling. Its virtual-token, repeated-long-leaf,
-repeated-long-unequal-leaf, near-limit-member-anchor,
+repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
 repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary.
 

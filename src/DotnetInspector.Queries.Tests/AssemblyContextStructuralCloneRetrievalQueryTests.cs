@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -664,6 +665,52 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Contains(
             "structural-name work budget",
             failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildRepeatedMalformedTypeNameAssembly(
+                    typeCount: 100_000));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        long allocatedBefore =
+            GC.GetAllocatedBytesForCurrentThread();
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(0x06000001),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Missing")))));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread()
+            - allocatedBefore;
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+        Assert.Contains(
+            "type-name decode failure budget",
+            failed.Failure.Detail);
+        Assert.True(
+            allocated < 2 * 1024 * 1024,
+            $"Malformed TypeDef lookup allocated {allocated:N0} bytes.");
     }
 
     [Fact]
@@ -1494,6 +1541,51 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         var encoder = new MethodBodyStreamEncoder(bodies);
         AddSyntheticMethod(metadata, encoder, "Seed");
         return Serialize(metadata, bodies);
+    }
+
+    static byte[] BuildRepeatedMalformedTypeNameAssembly(
+        int typeCount)
+    {
+        byte[] image =
+            BuildRepeatedTypeNameAssembly(
+                "N",
+                "Malformed",
+                typeCount);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        int typeDefinitionTableOffset =
+            peReader.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.TypeDef);
+        int typeDefinitionRowSize =
+            reader.GetTableRowSize(TableIndex.TypeDef);
+        int stringIndexSize =
+            reader.GetHeapSize(HeapIndex.String)
+                <= ushort.MaxValue
+                ? sizeof(ushort)
+                : sizeof(uint);
+
+        for (int index = 0; index < typeCount; index++)
+        {
+            int nameOffset =
+                typeDefinitionTableOffset
+                + ((index + 2) * typeDefinitionRowSize)
+                + sizeof(uint);
+            if (stringIndexSize == sizeof(ushort))
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    image.AsSpan(nameOffset, sizeof(ushort)),
+                    ushort.MaxValue);
+            }
+            else
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    image.AsSpan(nameOffset, sizeof(uint)),
+                    uint.MaxValue);
+            }
+        }
+
+        return image;
     }
 
     static byte[] BuildHostileMemberIdentityAssembly(
