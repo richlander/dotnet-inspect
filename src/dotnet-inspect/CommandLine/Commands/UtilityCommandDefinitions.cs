@@ -134,7 +134,17 @@ public static class UtilityCommandDefinitions
     {
         var skillCommand = new Command("skill", "Show skill definition (router to focused skills)");
         skillCommand.Options.Add(opts.Limit);
-        skillCommand.SetAction((parseResult) => SkillCommand.Execute());
+        skillCommand.Options.Add(opts.Lines);
+        skillCommand.Options.Add(opts.TailLines);
+        skillCommand.Options.Add(opts.Head);
+        skillCommand.Options.Add(opts.Tail);
+        opts.AddRowWindowValidators(skillCommand);
+        skillCommand.SetAction((parseResult) =>
+        {
+            if (RejectUtilityItemWindow(opts, parseResult, "skill list") is { } exitCode)
+                return exitCode;
+            return SkillCommand.Execute();
+        });
 
         // Subcommand: list (supports the standard output formats)
         var listCommand = new Command("list", "List available focused skills");
@@ -158,7 +168,12 @@ public static class UtilityCommandDefinitions
             var name = skill.Name;
             var focusedCommand = new Command(name, skill.Description);
             focusedCommand.Options.Add(opts.Limit);
-            focusedCommand.SetAction((parseResult) => SkillCommand.ExecuteSkill(name));
+            focusedCommand.SetAction((parseResult) =>
+            {
+                if (RejectUtilityItemWindow(opts, parseResult, "skill list") is { } exitCode)
+                    return exitCode;
+                return SkillCommand.ExecuteSkill(name);
+            });
             skillCommand.Subcommands.Add(focusedCommand);
         }
 
@@ -182,6 +197,11 @@ public static class UtilityCommandDefinitions
         demoCommand.Options.Add(opts.Mermaid);
         opts.AddTableOptionsTo(demoCommand);
         demoCommand.Options.Add(opts.Limit);
+        demoCommand.Options.Add(opts.Lines);
+        demoCommand.Options.Add(opts.TailLines);
+        demoCommand.Options.Add(opts.Head);
+        demoCommand.Options.Add(opts.Tail);
+        opts.AddRowWindowValidators(demoCommand);
 
         var listCommand = new Command("list", "List product home demos");
         listCommand.Options.Add(opts.Json);
@@ -221,12 +241,35 @@ public static class UtilityCommandDefinitions
             var mermaid = parseResult.GetValue(opts.Mermaid);
             var scenario = parseResult.GetValue(scenarioArg);
             if (string.IsNullOrWhiteSpace(scenario))
-                return DemoCommand.ExecuteList(format, noHeader, mermaidRequested: mermaid);
+            {
+                return DemoCommand.ExecuteList(
+                    format,
+                    noHeader,
+                    mermaidRequested: mermaid,
+                    rows: opts.ParseRows(parseResult));
+            }
+
+            if (RejectUtilityItemWindow(opts, parseResult, "demo list") is { } exitCode)
+                return exitCode;
 
             return await DemoCommand.ExecuteScenarioAsync(scenario, format, noHeader, embeddedMermaid);
         });
 
         return demoCommand;
+    }
+
+    private static int? RejectUtilityItemWindow(
+        SharedOptions opts,
+        ParseResult parseResult,
+        string supportedCommand)
+    {
+        if (opts.ParseRows(parseResult) is null)
+            return null;
+
+        CommandError.Write(
+            $"-n item windows apply to '{supportedCommand}'. "
+            + "Use --lines with -n for rendered output.");
+        return 1;
     }
 
     /// <summary>

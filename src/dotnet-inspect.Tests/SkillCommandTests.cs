@@ -74,6 +74,26 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public async Task FocusedSkill_RejectsItemWindow()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+                ["skill", "query", "-n", "1"]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "-n item windows apply to 'skill list'",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BaselineSkill_IsAtMostFiftyLines()
     {
         var assembly = typeof(SkillCommand).Assembly;

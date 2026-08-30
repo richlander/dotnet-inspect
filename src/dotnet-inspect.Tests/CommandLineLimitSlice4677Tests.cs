@@ -333,6 +333,33 @@ public class CommandLineLimitSlice4677Tests
     }
 
     [Theory]
+    [InlineData("-n", "2")]
+    [InlineData("-2")]
+    [InlineData("-n", "2", "--lines")]
+    [InlineData("--top", "2")]
+    [InlineData("--rows", "2..3")]
+    [InlineData("--row", "2")]
+    public void CountRejectsWindowSelectors(params string[] windowArguments)
+    {
+        string[] args =
+        [
+            "library",
+            "System.Text.Json",
+            "--count",
+            .. windowArguments,
+        ];
+
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(CommandLineBuilder.PreprocessArgs(args));
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--count cannot be combined",
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("-n", "invalid")]
     [InlineData("-n", "2147483648")]
     [InlineData("-n", "1", "-n", "2")]

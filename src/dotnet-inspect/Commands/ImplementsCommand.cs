@@ -95,6 +95,13 @@ public class ImplementsCommand
             {
                 if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "implements"))
+                {
+                    return 1;
+                }
 
                 WriteJsonOutput(results, options.CompactJson);
             }

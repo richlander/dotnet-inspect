@@ -91,6 +91,32 @@ public class DemoCommandTests
     }
 
     [Fact]
+    public async Task RootCommand_AppliesItemWindowWhenListing()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync("demo", "-n", "1", "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task ScenarioCommand_RejectsItemWindow()
+    {
+        var (exitCode, output, error) =
+            await RunCliAsync("demo", "stj-serializer", "-n", "1");
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "-n item windows apply to 'demo list'",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ExecuteScenario_UnknownId_FailsWithCatalog()
     {
         var (exitCode, _, error) = await ConsoleCapture.RunAsync(

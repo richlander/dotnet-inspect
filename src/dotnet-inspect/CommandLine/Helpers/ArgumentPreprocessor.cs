@@ -642,9 +642,10 @@ public static class ArgumentPreprocessor
                     rootCommand,
                     command,
                     optionName) is { } option
-                && CommandLineModel.CanConsumeFollowingValue(option)
                 && i + 1 < platformIndex
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                && CommandLineModel.CanConsumeFollowingToken(
+                    option,
+                    args[i + 1]))
             {
                 i++;
             }
@@ -672,9 +673,10 @@ public static class ArgumentPreprocessor
                     rootCommand,
                     command,
                     optionName) is { } option
-                && CommandLineModel.CanConsumeFollowingValue(option)
                 && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                && CommandLineModel.CanConsumeFollowingToken(
+                    option,
+                    args[i + 1]))
             {
                 i++;
             }

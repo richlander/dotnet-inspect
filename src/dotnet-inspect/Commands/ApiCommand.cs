@@ -906,10 +906,17 @@ public class ApiCommand
                 $"{optionName} cannot be combined with --count or --print.");
             return false;
         }
+        if (options.Rows is { Kind: RowWindowKind.Range })
+        {
+            CommandError.Write(
+                $"--rows cannot be combined with {optionName}; use -n N to limit projected items or --row N|first|last to select a projected row.");
+            return false;
+        }
         if (options.Rows is not null)
         {
             CommandError.Write(
-                $"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                $"-n item windows are not yet supported with {optionName}; "
+                + "omit -n or use --row N|first|last to select a projected row.");
             return false;
         }
 
@@ -934,10 +941,17 @@ public class ApiCommand
             return false;
         }
 
-        if (options.Print && options.Rows is not null)
+        if (options.Print && options.Rows is { Kind: RowWindowKind.Range })
         {
             CommandError.Write(
                 "--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            return false;
+        }
+        if (options.Print && options.Rows is not null)
+        {
+            CommandError.Write(
+                "-n item windows are not yet supported with --print; "
+                + "use --row N|first|last to choose one row, or add --lines for a rendered-line window.");
             return false;
         }
 
@@ -1495,6 +1509,13 @@ public class ApiCommand
             // facility, so the combination is rejected rather than silently dropped.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
+            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    options,
+                    options.JsonOutput,
+                    "type"))
+            {
+                return 1;
+            }
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
             return successExitCode;
         }

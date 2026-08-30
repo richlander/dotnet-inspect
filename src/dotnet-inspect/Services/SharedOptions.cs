@@ -278,6 +278,8 @@ public class SharedOptions
             bool linesRequested = IsLinesRequested(result);
             bool headRequested = result.GetValue(Head);
             bool tailRequested = IsTailRequested(result);
+            bool countOutputRequested =
+                result.GetResult(Count) is { Implicit: false };
 
             if (headRequested && tailRequested)
                 result.AddError("--head and --tail select opposite ends; choose one.");
@@ -314,6 +316,20 @@ public class SharedOptions
 
             if (topSpecified && result.GetResult(Rows) is { Implicit: false })
                 result.AddError("--top cannot be combined with --rows in this slice.");
+
+            if (countOutputRequested
+                && (countSpecified
+                    || topSpecified
+                    || result.GetResult(Rows) is { Implicit: false }
+                    || result.GetResult(Row) is { Implicit: false }
+                    || headRequested
+                    || tailRequested
+                    || linesRequested))
+            {
+                result.AddError(
+                    "--count cannot be combined with -n, --top, --rows, --row, "
+                    + "--head, --tail, --lines, or --tail-lines.");
+            }
         });
 
         if (!supportsRowWindows)
@@ -452,8 +468,10 @@ public class SharedOptions
         if (rows is not null)
             return BuildRowWindow(rows, fromEnd: false);
 
-        if (!parseResult.GetValue(Count)
-            && parseResult.GetResult(PerformanceTriageTop) is { Implicit: false } topResult
+        if (parseResult.GetValue(Count))
+            return null;
+
+        if (parseResult.GetResult(PerformanceTriageTop) is { Implicit: false } topResult
             && topResult.Tokens.Count > 0
             && parseResult.GetValue(PerformanceTriageTop) is int top
             && top > 0)
@@ -515,12 +533,21 @@ public class SharedOptions
         parseResult.GetValue(Tail) || parseResult.GetValue(TailLines);
 
     private bool IsLinesRequested(CommandResult commandResult) =>
-        commandResult.GetValue(Lines) || commandResult.GetValue(TailLines);
+        GetBooleanValue(commandResult, Lines)
+        || GetBooleanValue(commandResult, TailLines);
 
     private bool IsTailRequested(CommandResult commandResult) =>
-        commandResult.GetValue(Tail) || commandResult.GetValue(TailLines);
+        GetBooleanValue(commandResult, Tail)
+        || GetBooleanValue(commandResult, TailLines);
 
-
+    private static bool GetBooleanValue(
+        CommandResult commandResult,
+        Option<bool> option)
+    {
+        OptionResult? result = commandResult.GetResult(option);
+        return result is { Tokens.Count: <= 1 }
+            && result.GetValueOrDefault<bool>();
+    }
 
     public bool TryValidateTopRanking(
         ParseResult parseResult,
@@ -543,6 +570,12 @@ public class SharedOptions
 
         if (autoSelectsRankingSection)
             return true;
+
+        if (select is { Length: 1 }
+            && IsRankingSelectorAlias(select[0]))
+        {
+            return true;
+        }
 
         var resolvedSelection = ResolveSelectedSections(
             select,
@@ -698,6 +731,12 @@ public class SharedOptions
         => section.Equals(SectionNames.PerformanceTriage, StringComparison.Ordinal)
            || section.Equals(SectionNames.TopLeverage, StringComparison.Ordinal)
            || PerformanceKinds.Sections.Contains(section, StringComparer.Ordinal);
+
+    private static bool IsRankingSelectorAlias(string selector)
+        => selector.Equals(SectionNames.PerformanceTriage, StringComparison.OrdinalIgnoreCase)
+           || selector.Equals("Performance", StringComparison.OrdinalIgnoreCase)
+           || selector.Equals("Optimization Opportunities", StringComparison.OrdinalIgnoreCase)
+           || selector.Equals(SectionCategoryNames.Performance, StringComparison.OrdinalIgnoreCase);
 
     public RowSelector? ParsePrintRow(ParseResult parseResult)
         => RowSelector.TryParse(parseResult.GetValue(Row), out var selector) ? selector : null;

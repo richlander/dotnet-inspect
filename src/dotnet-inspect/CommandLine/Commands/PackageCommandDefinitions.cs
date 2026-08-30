@@ -237,9 +237,6 @@ public static class PackageCommandDefinitions
             if (resultLimit is null)
                 return;
 
-            if (result.GetValue(opts.Count))
-                result.AddError("--count cannot be combined with -n.");
-
             if (result.GetValue(opts.Tail))
             {
                 result.AddError(

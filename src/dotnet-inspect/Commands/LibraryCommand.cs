@@ -425,9 +425,16 @@ public class LibraryCommand
                 CommandError.Write($"{optionName} cannot be combined with --count or --print.");
                 return 1;
             }
+            if (options.Rows is { Kind: RowWindowKind.Range })
+            {
+                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected items or --row N|first|last to select a projected row.");
+                return 1;
+            }
             if (options.Rows is not null)
             {
-                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+                CommandError.Write(
+                    $"-n item windows are not yet supported with {optionName}; "
+                    + "omit -n or use --row N|first|last to select a projected row.");
                 return 1;
             }
         }
@@ -447,9 +454,16 @@ public class LibraryCommand
         if (options.Print && !rendersOwnPayload && !ValidateLibraryPrintSelection(options.IncludeSections))
             return 1;
 
-        if (options.Print && options.Rows is not null)
+        if (options.Print && options.Rows is { Kind: RowWindowKind.Range })
         {
             CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            return 1;
+        }
+        if (options.Print && options.Rows is not null)
+        {
+            CommandError.Write(
+                "-n item windows are not yet supported with --print; "
+                + "use --row N|first|last to choose one row, or add --lines for a rendered-line window.");
             return 1;
         }
 

@@ -85,8 +85,17 @@ public static class ProjectionAudit
         IProjectionOptions options,
         bool jsonOutput,
         string commandName)
+        => RejectUnsupportedDocumentJsonRowWindow(
+            options.Rows,
+            jsonOutput,
+            commandName);
+
+    public static bool RejectUnsupportedDocumentJsonRowWindow(
+        RowWindow? rows,
+        bool jsonOutput,
+        string commandName)
     {
-        if (!jsonOutput || options.Rows is null)
+        if (!jsonOutput || rows is null)
             return false;
 
         CommandError.Write(

@@ -63,6 +63,13 @@ public class ExtensionsCommand
             {
                 if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "extensions"))
+                {
+                    return 1;
+                }
 
                 WriteJsonOutput(results, options.CompactJson);
             }

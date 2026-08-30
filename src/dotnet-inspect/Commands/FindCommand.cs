@@ -111,6 +111,14 @@ public class FindCommand
                 }
                 else
                 {
+                    if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                            options,
+                            options.JsonOutput,
+                            "find"))
+                    {
+                        return 1;
+                    }
+
                     JsonOutputHelper.Write(
                         results,
                         TypeFindResultJsonContext.Default.ListTypeFindResult,
@@ -362,6 +370,14 @@ public class FindCommand
             }
             else
             {
+                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                        options,
+                        options.JsonOutput,
+                        "find"))
+                {
+                    return 1;
+                }
+
                 JsonOutputHelper.Write(
                     results,
                     MemberFindResultJsonContext.Default.ListMemberFindResult,

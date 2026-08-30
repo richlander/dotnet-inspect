@@ -104,8 +104,8 @@ internal static class CommandLineModel
         string.Equals(
             option.Name,
             optionName,
-            StringComparison.OrdinalIgnoreCase)
+            StringComparison.Ordinal)
         || option.Aliases.Contains(
             optionName,
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
 }

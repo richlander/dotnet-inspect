@@ -108,7 +108,7 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
-    public async Task LibraryKindPredicate_CountAppliesTheRenderedRowWindow()
+    public async Task LibraryKindPredicate_CountRejectsTheRenderedRowWindow()
     {
         var root = CommandLineBuilder.CreateRootCommand();
 
@@ -125,8 +125,11 @@ public sealed class BodyShapesSectionTests
                 ])
                 .InvokeAsync());
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("2", result.Output.Trim());
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains(
+            "--count cannot be combined",
+            result.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]

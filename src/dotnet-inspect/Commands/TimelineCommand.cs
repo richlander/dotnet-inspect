@@ -1361,6 +1361,13 @@ public static class TimelineCommand
         {
             if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                 return 1;
+            if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    options,
+                    options.JsonOutput,
+                    "timeline"))
+            {
+                return 1;
+            }
 
             Console.WriteLine(JsonSerializer.Serialize(
                 view,

@@ -1897,7 +1897,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", SectionNames.PerformanceBoxing,
             "--where", "Finding=analysis.allocation",
             "--where", "Operation=box",
             "--top", "1",
@@ -2138,8 +2138,9 @@ public partial class CommandExecutionTests
     {
         var baseline = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", SectionNames.PerformanceBoxing,
             "--where", "Finding=analysis.allocation",
+            "--where", "Operation=box",
             "--top", "1",
             "--json",
             "--tips", "q");
@@ -2151,7 +2152,7 @@ public partial class CommandExecutionTests
 
         var filtered = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", SectionNames.PerformanceBoxing,
             "--where", $"Token={unpaddedToken}",
             "--json",
             "--tips", "q");

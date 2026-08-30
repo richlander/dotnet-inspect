@@ -215,6 +215,14 @@ public class DiffCommand
 
                 if (options.JsonOutput || options.IncludeSections is { Count: > 1 })
                 {
+                    if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                            options.Rows,
+                            options.JsonOutput,
+                            "diff"))
+                    {
+                        return 1;
+                    }
+
                     bool inspectionIncomplete =
                         await WriteSelectedDocumentAsync(
                         inputs,
