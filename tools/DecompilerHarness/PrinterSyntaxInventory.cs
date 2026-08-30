@@ -85,6 +85,10 @@ static class PrinterSyntaxInventory
                 case SpreadElementSyntax:
                     Features.Add("expression.collection-spread");
                     break;
+                case IdentifierNameSyntax identifier
+                    when IsValueExpression(identifier):
+                    Add("expression", identifier.Kind(), "Expression");
+                    break;
                 case ExpressionSyntax and not TypeSyntax
                     and not OmittedArraySizeExpressionSyntax:
                     Add("expression", node.Kind(), "Expression");
@@ -195,6 +199,15 @@ static class PrinterSyntaxInventory
 
             base.Visit(node);
         }
+
+        static bool IsValueExpression(IdentifierNameSyntax identifier) =>
+            ReferenceEquals(
+                SyntaxFactory.GetStandaloneExpression(identifier),
+                identifier)
+            && !SyntaxFacts.IsInNamespaceOrTypeContext(identifier)
+            && !SyntaxFacts.IsAliasQualifier(identifier)
+            && !SyntaxFacts.IsNamedArgumentName(identifier)
+            && identifier.Parent is not NameEqualsSyntax;
 
         void AddParameterModifiers(SyntaxTokenList modifiers)
         {

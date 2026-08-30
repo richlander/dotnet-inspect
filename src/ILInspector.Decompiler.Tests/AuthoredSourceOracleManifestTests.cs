@@ -218,6 +218,7 @@ public sealed class AuthoredSourceOracleManifestTests
                 "expression.default-literal",
                 "expression.element-access",
                 "expression.greater-than",
+                "expression.identifier-name",
                 "expression.numeric-literal",
                 "expression.object-creation",
                 "expression.simple-member-access",
@@ -253,6 +254,7 @@ public sealed class AuthoredSourceOracleManifestTests
                 "clause.switch-case-pattern",
                 "clause.switch-expression-arm",
                 "clause.when",
+                "expression.identifier-name",
                 "expression.numeric-literal",
                 "expression.switch",
                 "pattern.declaration",
@@ -279,6 +281,7 @@ public sealed class AuthoredSourceOracleManifestTests
         Assert.Equal(
             [
                 "declaration.local.explicit-type",
+                "expression.identifier-name",
                 "expression.interpolated-string",
                 "expression.numeric-literal",
                 "expression.simple-member-access",
@@ -319,6 +322,7 @@ public sealed class AuthoredSourceOracleManifestTests
         Assert.Equal(
             [
                 "expression.declaration",
+                "expression.identifier-name",
                 "statement.await-foreach",
                 "statement.for-each-variable",
             ],
@@ -348,6 +352,74 @@ public sealed class AuthoredSourceOracleManifestTests
             out error),
             error);
         Assert.DoesNotContain("expression.collection-spread", elementFeatures);
+    }
+
+    [Theory]
+    [InlineData("return;", "return value;")]
+    [InlineData("throw;", "throw error;")]
+    [InlineData("int local;", "int local = value;")]
+    public void SyntaxInventory_DistinguishesIdentifierValueExpressions(
+        string absentBody,
+        string valueBody)
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            absentBody,
+            out IReadOnlyList<string> absentFeatures,
+            out string? error),
+            error);
+        Assert.DoesNotContain("expression.identifier-name", absentFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            valueBody,
+            out IReadOnlyList<string> valueFeatures,
+            out error),
+            error);
+        Assert.Contains("expression.identifier-name", valueFeatures);
+    }
+
+    [Theory]
+    [InlineData("Widget local;")]
+    [InlineData("List<Widget> local;")]
+    [InlineData("return (Widget)1;")]
+    [InlineData("return null as Widget;")]
+    [InlineData("return 1 is Widget;")]
+    [InlineData("return typeof(Widget);")]
+    [InlineData("return default(Widget);")]
+    [InlineData("return new Widget();")]
+    [InlineData("return this.Member;")]
+    [InlineData("return this?.Member;")]
+    [InlineData("this.M(name: 1);")]
+    [InlineData("return (name: 1, 2);")]
+    [InlineData("return 1 is Widget { Name: 2 };")]
+    [InlineData("return new { Name = 1 };")]
+    [InlineData("return global::System.String.Empty;")]
+    public void SyntaxInventory_DoesNotTreatTypeOrNameIdentifiersAsValues(
+        string body)
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            body,
+            out IReadOnlyList<string> features,
+            out string? error),
+            error);
+        Assert.DoesNotContain("expression.identifier-name", features);
+    }
+
+    [Theory]
+    [InlineData("return obj.Member;")]
+    [InlineData("return obj?.Member;")]
+    [InlineData("return values[index];")]
+    [InlineData("M(value);")]
+    [InlineData("return new { value };")]
+    [InlineData("return value => value;")]
+    public void SyntaxInventory_TracksIdentifiersInNeighboringValuePositions(
+        string body)
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            body,
+            out IReadOnlyList<string> features,
+            out string? error),
+            error);
+        Assert.Contains("expression.identifier-name", features);
     }
 
     [Fact]
@@ -530,6 +602,7 @@ public sealed class AuthoredSourceOracleManifestTests
             ExpectedFeatures =
             [
                 "expression.add",
+                "expression.identifier-name",
                 "expression.numeric-literal",
                 "statement.return",
             ],
@@ -581,6 +654,7 @@ public sealed class AuthoredSourceOracleManifestTests
         Assert.Equal(
             [
                 "expression.add",
+                "expression.identifier-name",
                 "expression.numeric-literal",
                 "statement.return",
             ],
