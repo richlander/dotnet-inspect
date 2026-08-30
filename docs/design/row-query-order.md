@@ -231,11 +231,13 @@ owner may execute predicates, ordering, or semantic selection elsewhere only
 under the composition contract's exact-equivalence and honest-completion rule.
 This design does not define that optimization or its evidence.
 
-Field and column projection, Count, and payload operations are intentionally
-absent from this sequence.
+Membership projection is outside this owner and supplies the rows entering this
+sequence. Cell projection, Count, and payload operations are also outside this
+owner.
 [Section-row shaping](section-row-shaping.md#reference-composition) defines
-where L2 projection and Count observe its result without changing predicate or
-order semantics; the focused payload design remains separate.
+those two projection positions and where Count observes the result without
+changing predicate or order semantics; the focused payload design remains
+separate.
 
 ## Failure model
 

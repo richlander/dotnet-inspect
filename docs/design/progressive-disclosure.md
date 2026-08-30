@@ -242,7 +242,11 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   windows. An upstream-bounded source may return Count only when it proves
   exact completion for the logical request; a provider, work, page, time, or
   memory cap is not semantic selection and must remain disclosed rather than
-  becoming a corpus total.
+  becoming a corpus total. Bare `package search`'s default provider and merged
+  caps remain non-semantic, so Count requires exact completion evidence for the
+  full candidate set rather than reporting `20`; an explicit `-n 20` is
+  semantic `Head(20)` and may prove the exact result `20` without exhausting
+  the tail.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
   within each row set after filtering and ordering. Bare `package search` uses
   a default provider and global merged-row cap of 20; an explicit N sets both

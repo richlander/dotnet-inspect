@@ -231,11 +231,11 @@ Count is the terminal logical reduction defined by
 membership projection, filtering, effective baseline order, and every
 preceding semantic row-selection stage.
 
-- A field-set projection that selects field-entry rows changes the count.
-  Selecting table columns does not create or remove rows. Every projection
-  request still resolves before reduction; unsupported, unmatched, or
-  inapplicable requests reject rather than leaving the unprojected count
-  unchanged.
+- Projection applicability resolves across all selected row schemas. A name
+  resolving in any selected schema succeeds; a nonmatching set contributes no
+  Count entry, and a request resolving nowhere rejects. Within a participating
+  set, field-entry membership projection changes the count, while selecting
+  table columns does not create or remove rows.
 
 - One exact declared-row-set outcome produces a culture-invariant decimal
   scalar. The scalar is the complete payload in every format: JSON emits a JSON
@@ -247,9 +247,9 @@ preceding semantic row-selection stage.
   JSONL emits one object per row; JSON emits an array of objects. JSON and JSONL
   counts are numbers rather than numeric strings. Standalone Mermaid is
   rejected because a count map is a table, not a graph.
-- Any selected failed or incomplete row set prevents the successful Count
-  shape. Failure presentation belongs to the consuming output owner; it is not
-  encoded as a zero count.
+- Any participating failed or request-incomplete row set prevents the
+  successful Count shape. Failure presentation belongs to the consuming output
+  owner; it is not encoded as a zero count.
 
 The multi-row-set reduction is itself one table, so table, TSV, and JSONL
 formats accept a request that resolves to multiple row sets under `--count`.
