@@ -2439,7 +2439,7 @@ public sealed class WorkspaceContextLoaderTests
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(
-                ("lib/net10.0/Native.dll", "not a portable executable"u8.ToArray()),
+                ("lib/net10.0/Native.dll", CreateNoMetadataImage()),
                 ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
                     File.ReadAllBytes(TargetPath))));
         using var client = new HttpClient(new FailingHandler());
@@ -3861,6 +3861,18 @@ public sealed class WorkspaceContextLoaderTests
                 File.ReadAllBytes(CallerPath)),
             ($"runtimes/linux-x64/lib/{Framework}/{Path.GetFileName(TargetPath)}",
                 File.ReadAllBytes(TargetPath)));
+
+    static byte[] CreateNoMetadataImage()
+    {
+        byte[] image = File.ReadAllBytes(TargetPath);
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
+    }
 
     static byte[] CreateUnsupportedMetadataImage()
     {
