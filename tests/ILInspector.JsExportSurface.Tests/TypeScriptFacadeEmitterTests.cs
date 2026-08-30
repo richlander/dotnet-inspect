@@ -94,6 +94,10 @@ public sealed class TypeScriptFacadeEmitterTests
             "export declare function",
             source,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "}\n\nexport async function getWidgetAsync",
+            source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -119,6 +123,12 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "return $requireRuntime().runMain(mainAssemblyName, args);",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            """
+            const exports: unknown = await runtime.getAssemblyExports("Fixture");
+            """,
             source,
             StringComparison.Ordinal);
         int validate = source.IndexOf(

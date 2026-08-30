@@ -278,9 +278,9 @@ internal static class TypeScriptFacadeEmitter
               const exports: unknown = await runtime.getAssemblyExports(
             """)
             .Append(Quote(assemblyName))
+            .Append(");\n")
             .Append(
                 """
-                );
               $validateManagedExports(exports);
               $runtime = runtime;
               $managedExports = exports;
@@ -304,8 +304,8 @@ internal static class TypeScriptFacadeEmitter
             ): Promise<number> {
               return $requireRuntime().runMain(mainAssemblyName, args);
             }
-
-            """);
+            """)
+            .Append("\n\n");
     }
 
     static void EmitFunction(
