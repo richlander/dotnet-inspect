@@ -1073,7 +1073,9 @@ name and relative flag from that handle. Relative targets are resolved and
 normalized under the rule above; absolute targets preserve their namespace for
 final-target syntax classification. A stable ancestor or final-component link
 cycle consumes the same bounded traversal budget and is rejected as an
-unsupported entry. Classification is tag-semantic rather than based only on the
+unsupported entry. A direct-cycle shortcut compares path spellings ordinally;
+it does not case-fold distinct coordinates on a case-sensitive Windows
+directory. Classification is tag-semantic rather than based only on the
 name-surrogate bit:
 
 - symbolic-link and mount-point tags are supported links, so their final target
@@ -1097,6 +1099,10 @@ Before returning it, the adapter classifies the handle again:
 - non-Windows hosts use `SystemNative_FStat` and require regular-file mode; and
 - Windows requires `GetFileType` to report `FILE_TYPE_DISK` and handle-based
   attributes not to report a directory.
+
+A `FILE_TYPE_UNKNOWN` result with a nonzero captured last error is an admission
+failure, not a kind mismatch. A successful non-disk result remains a rejected
+kind mismatch.
 
 A post-open kind mismatch is rejected and the handle is disposed. The explicit
 file and future directory-entry copy therefore consume the same verified open
@@ -1173,8 +1179,12 @@ These properties are represented by
 `LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
 `LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
 `LocalPathAdmission_WindowsAncestorLinkLoopIsRejected` gates run in Deep
-Inspect's `platform-test` lane. Together these gates enforce the shared
-classifier and explicit-file admission contract. The bounded-directory
+Inspect's `platform-test` lane, together with
+`LocalPathAdmission_WindowsCaseDistinctLinkTargetIsNotCycle` and
+`LocalPathAdmission_WindowsGetFileTypeFailureIsFailed`. The change-detection
+suite requires a local-path product change to select the Browser/Wasm lane that
+runs its executable probe. Together these gates enforce the shared classifier
+and explicit-file admission contract. The bounded-directory
 implementation must exercise the same contract through its public root and
 selected-entry outcomes rather than adding another classifier.
 

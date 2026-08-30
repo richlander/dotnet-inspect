@@ -187,6 +187,7 @@ internal static partial class LocalPathAdmission
     private const int BrowserErrorNotDirectory = 54;
     private const int BrowserErrorSymbolicLinkLoop = 32;
 
+    private const uint WindowsFileTypeUnknown = 0x0000;
     private const uint WindowsFileTypeDisk = 0x0001;
     private const uint WindowsOpenExisting = 3;
     private const uint WindowsFileFlagBackupSemantics = 0x02000000;
@@ -743,7 +744,7 @@ internal static partial class LocalPathAdmission
                     if (string.Equals(
                         targetPath,
                         inspectedPath,
-                        StringComparison.OrdinalIgnoreCase))
+                        StringComparison.Ordinal))
                     {
                         return LocalPathClassification.Rejected(
                             LocalPathReason.UnsupportedEntry,
@@ -946,18 +947,7 @@ internal static partial class LocalPathAdmission
         SafeFileHandle handle)
     {
         if (OperatingSystem.IsWindows())
-        {
-            if (GetFileType(handle) != WindowsFileTypeDisk
-                || (File.GetAttributes(handle) & FileAttributes.Directory) != 0)
-            {
-                return LocalPathClassification.Rejected(
-                    LocalPathReason.KindMismatch,
-                    classification.RequestedPath,
-                    classification.CanonicalPath);
-            }
-
-            return classification;
-        }
+            return VerifyWindowsRegularFileHandle(classification, handle);
 
         try
         {
@@ -983,6 +973,32 @@ internal static partial class LocalPathAdmission
                 classification.RequestedPath,
                 classification.CanonicalPath);
         }
+    }
+
+    internal static LocalPathClassification VerifyWindowsRegularFileHandle(
+        LocalPathClassification classification,
+        SafeFileHandle handle)
+    {
+        uint fileType = GetFileType(handle);
+        if (fileType == WindowsFileTypeUnknown
+            && Marshal.GetLastPInvokeError() != 0)
+        {
+            return LocalPathClassification.Failed(
+                LocalPathReason.AdmissionFailed,
+                classification.RequestedPath,
+                classification.CanonicalPath);
+        }
+
+        if (fileType != WindowsFileTypeDisk
+            || (File.GetAttributes(handle) & FileAttributes.Directory) != 0)
+        {
+            return LocalPathClassification.Rejected(
+                LocalPathReason.KindMismatch,
+                classification.RequestedPath,
+                classification.CanonicalPath);
+        }
+
+        return classification;
     }
 
     private static bool IsMissing(Exception exception) =>

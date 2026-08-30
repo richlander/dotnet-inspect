@@ -620,6 +620,19 @@ internal static class DetectionTestSuite
                 "Local-path platform-probe source did not select code and web: "
                 + FormatValues(localPathProbeSource));
         }
+        Dictionary<string, string> localPathProbeProduct = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/DotnetInspector.Artifacts.Local/LocalPathAdmission.cs",
+            outputs);
+        if (localPathProbeProduct["code"] != "true"
+            || localPathProbeProduct["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Local-path probe product dependency did not select code and web: "
+                + FormatValues(localPathProbeProduct));
+        }
         foreach (string promotionInput in new[]
         {
             ".github/workflows/deploy-inspect-web.yml",

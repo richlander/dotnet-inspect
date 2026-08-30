@@ -8,6 +8,7 @@ internal static class InspectWebProjectGraphPolicy
     [
         "prototypes/inspect-web/engine/InspectWeb.Engine.csproj",
         "src/tsbindgen/tsbindgen.csproj",
+        "tests/DotnetInspector.Artifacts.Local.PlatformProbe/LocalPathAdmissionBrowserProbe.csproj",
         "tests/ILInspector.MetadataPrimitives.PlatformProbe/MethodSemanticsBrowserProbe.csproj",
     ];
 

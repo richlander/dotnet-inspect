@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using DotnetInspector.Artifacts.Local;
 using DotnetInspector.Artifacts.Workspaces;
+using Microsoft.Win32.SafeHandles;
 
 namespace DotnetInspector.Artifacts.Tests;
 
@@ -594,6 +595,61 @@ public sealed class LocalArtifactSourceTests
     }
 
     [Fact]
+    public void LocalPathAdmission_WindowsCaseDistinctLinkTargetIsNotCycle()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Case-sensitive directory coverage requires Windows.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string target = Path.Combine(root, "evidence.dll");
+        string link = Path.Combine(root, "Evidence.dll");
+        try
+        {
+            EnableCaseSensitiveDirectory(root);
+            File.WriteAllBytes(target, [1]);
+            File.CreateSymbolicLink(link, "evidence.dll");
+
+            LocalPathClassification classification =
+                LocalPathAdmission.Classify(link, cancellationToken);
+            Assert.Equal(
+                LocalPathOutcome.Classified,
+                classification.Outcome);
+            Assert.Equal(
+                LocalPathKind.RegularFile,
+                classification.Kind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LocalPathAdmission_WindowsGetFileTypeFailureIsFailed()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "GetFileType failure coverage requires Windows.");
+        LocalPathClassification classified =
+            LocalPathClassification.Classified(
+                "requested",
+                "canonical",
+                LocalPathKind.RegularFile);
+        using var invalidHandle = new SafeFileHandle(
+            new IntPtr(-1),
+            ownsHandle: false);
+
+        LocalPathClassification result =
+            LocalPathAdmission.VerifyWindowsRegularFileHandle(
+                classified,
+                invalidHandle);
+        Assert.Equal(LocalPathOutcome.Failed, result.Outcome);
+        Assert.Equal(LocalPathReason.AdmissionFailed, result.Reason);
+    }
+
+    [Fact]
     public async Task LocalArtifactSnapshot_MutationCannotChangeInspectionBytes()
     {
         CancellationToken cancellationToken =
@@ -763,6 +819,31 @@ public sealed class LocalArtifactSourceTests
             $"dotnet-inspect-local-artifact-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static void EnableCaseSensitiveDirectory(string directory)
+    {
+        var startInfo = new ProcessStartInfo("fsutil.exe")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("file");
+        startInfo.ArgumentList.Add("SetCaseSensitiveInfo");
+        startInfo.ArgumentList.Add(directory);
+        startInfo.ArgumentList.Add("enable");
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                "Could not start fsutil.exe.");
+        string standardOutput = process.StandardOutput.ReadToEnd();
+        string standardError = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(
+            process.ExitCode == 0,
+            $"Could not enable case sensitivity for '{directory}'.\n" +
+            $"stdout:\n{standardOutput}\nstderr:\n{standardError}");
     }
 
     private static async ValueTask<ArtifactAcquisitionOutcome> AcquireAsync(
