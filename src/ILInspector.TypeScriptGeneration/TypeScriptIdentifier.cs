@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace tsbindgen;
+namespace ILInspector.TypeScriptGeneration;
 
 static class TypeScriptIdentifier
 {

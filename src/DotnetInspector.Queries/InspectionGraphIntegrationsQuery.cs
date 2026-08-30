@@ -187,13 +187,15 @@ public static class InspectionGraphIntegrationsCatalog
                     new NamedTypeOccurrenceIdentity(
                         extension.Registration,
                         extension.Member,
-                        integration: null,
+                        concept: null,
                         extension.ExtendedType),
                 InspectionGraphIntegrationEvidence integration =>
                     new NamedTypeOccurrenceIdentity(
                         integration.Registration,
                         integration.Member,
-                        integration.Integration,
+                        RequireConcept(
+                            integration.Integration,
+                            integration.GetConcept()),
                         integration.TargetType),
                 InspectionGraphReferenceEvidence reference =>
                     new ReferenceOccurrenceIdentity(
@@ -203,30 +205,39 @@ public static class InspectionGraphIntegrationsCatalog
                     (
                         opportunity.SourceRegistration,
                         opportunity.SourceType,
-                        opportunity.Integration,
+                        RequireConcept(
+                            opportunity.Integration,
+                            opportunity.GetConcept()),
                         opportunity.Target),
                 _ => throw new ArgumentException(
                     "Unsupported Integration graph occurrence evidence.",
                     nameof(occurrence)),
             };
 
+        static IntegrationConceptDescriptor RequireConcept(
+            string integration,
+            IntegrationConceptDescriptor? concept) =>
+            concept
+            ?? throw new InspectionQueryException(
+                $"Integration evidence '{integration}' is not configured.");
+
         sealed class NamedTypeOccurrenceIdentity :
             IEquatable<NamedTypeOccurrenceIdentity>
         {
             readonly AssemblyAcquisitionRegistration _registration;
             readonly MemberAnchor _member;
-            readonly string? _integration;
+            readonly IntegrationConceptDescriptor? _concept;
             readonly MetadataNamedTypeReference _reference;
 
             internal NamedTypeOccurrenceIdentity(
                 AssemblyAcquisitionRegistration registration,
                 MemberAnchor member,
-                string? integration,
+                IntegrationConceptDescriptor? concept,
                 MetadataNamedTypeReference reference)
             {
                 _registration = registration;
                 _member = member;
-                _integration = integration;
+                _concept = concept;
                 _reference = reference;
             }
 
@@ -236,10 +247,7 @@ public static class InspectionGraphIntegrationsCatalog
                     _registration,
                     other._registration)
                 && _member == other._member
-                && string.Equals(
-                    _integration,
-                    other._integration,
-                    StringComparison.Ordinal)
+                && ReferenceEquals(_concept, other._concept)
                 && NamedTypeReferencesAreEquivalent(
                     _reference,
                     other._reference);
@@ -252,7 +260,7 @@ public static class InspectionGraphIntegrationsCatalog
                 HashCode.Combine(
                     _registration,
                     _member,
-                    _integration,
+                    _concept,
                     NamedTypeReferenceHashCode(_reference));
         }
 
@@ -392,8 +400,75 @@ public sealed record InspectionGraphIntegrationEvidence(
     MetadataNamedTypeReference TargetType)
     : IInspectionGraphOccurrenceEvidence
 {
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public AssemblyAcquisitionRegistration Registration { get; init; } =
+        Registration;
+    public MemberAnchor Member { get; init; } = Member;
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
+    public MetadataNamedTypeReference TargetType { get; init; } = TargetType;
+
+    internal InspectionGraphIntegrationEvidence(
+        AssemblyAcquisitionRegistration registration,
+        MemberAnchor member,
+        IntegrationConceptDescriptor concept,
+        MetadataNamedTypeReference targetType)
+        : this(
+            registration,
+            member,
+            concept.DisplayLabel,
+            targetType)
+    {
+        _concept = concept;
+    }
+
+    public IntegrationConceptDescriptor? GetConcept() => _concept;
+
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.IntegrationEvidence;
+
+    public bool Equals(InspectionGraphIntegrationEvidence? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && EqualityComparer<AssemblyAcquisitionRegistration>.Default.Equals(
+            Registration,
+            other.Registration)
+        && EqualityComparer<MemberAnchor>.Default.Equals(
+            Member,
+            other.Member)
+        && string.Equals(
+            Integration,
+            other.Integration,
+            StringComparison.Ordinal)
+        && EqualityComparer<MetadataNamedTypeReference>.Default.Equals(
+            TargetType,
+            other.TargetType);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(
+            EqualityContract,
+            Registration,
+            Member,
+            Integration,
+            TargetType);
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 }
 
 /// <summary>Typed evidence for one direct metadata assembly reference.</summary>
@@ -414,8 +489,75 @@ public sealed record InspectionGraphOpportunityEvidence(
     IntegrationOpportunityTarget Target)
     : IInspectionGraphOccurrenceEvidence
 {
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public AssemblyAcquisitionRegistration SourceRegistration { get; init; } =
+        SourceRegistration;
+    public MetadataTypeDefinitionName SourceType { get; init; } = SourceType;
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
+    public IntegrationOpportunityTarget Target { get; init; } = Target;
+
+    internal InspectionGraphOpportunityEvidence(
+        AssemblyAcquisitionRegistration sourceRegistration,
+        MetadataTypeDefinitionName sourceType,
+        IntegrationConceptDescriptor concept,
+        IntegrationOpportunityTarget target)
+        : this(
+            sourceRegistration,
+            sourceType,
+            concept.DisplayLabel,
+            target)
+    {
+        _concept = concept;
+    }
+
+    public IntegrationConceptDescriptor? GetConcept() => _concept;
+
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.OpportunityEvidence;
+
+    public bool Equals(InspectionGraphOpportunityEvidence? other) =>
+        ReferenceEquals(this, other)
+        || other is not null
+        && EqualityContract == other.EqualityContract
+        && EqualityComparer<AssemblyAcquisitionRegistration>.Default.Equals(
+            SourceRegistration,
+            other.SourceRegistration)
+        && EqualityComparer<MetadataTypeDefinitionName>.Default.Equals(
+            SourceType,
+            other.SourceType)
+        && string.Equals(
+            Integration,
+            other.Integration,
+            StringComparison.Ordinal)
+        && EqualityComparer<IntegrationOpportunityTarget>.Default.Equals(
+            Target,
+            other.Target);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(
+            EqualityContract,
+            SourceRegistration,
+            SourceType,
+            Integration,
+            Target);
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 }
 
 /// <summary>Why available workspace evidence could not enter the graph.</summary>
@@ -1251,6 +1393,10 @@ public static class InspectionGraphIntegrationsQuery
                 EcosystemIntegrationSignalInfo signal,
                 EcosystemIntegrationApiEvidence api)
             {
+                IntegrationConceptDescriptor concept =
+                    signal.GetConcept()
+                    ?? throw new InspectionQueryException(
+                        $"Integration signal '{signal.Integration}' is not configured.");
                 if (api.ReturnType is not { } targetType)
                 {
                     AddFailure(
@@ -1285,7 +1431,7 @@ public static class InspectionGraphIntegrationsQuery
                     _fulfilledOpportunities.Add(
                         new OpportunityFulfillmentKey(
                             receiver,
-                            signal.Integration,
+                            concept,
                             target));
                 }
                 AddOccurrence(
@@ -1297,7 +1443,7 @@ public static class InspectionGraphIntegrationsQuery
                     new InspectionGraphIntegrationEvidence(
                         registration,
                         api.Member,
-                        signal.Integration,
+                        concept,
                         targetType));
             }
         }
@@ -1393,6 +1539,10 @@ public static class InspectionGraphIntegrationsQuery
                         foreach (IntegrationOpportunityInfo opportunity
                             in available.Opportunities)
                         {
+                            IntegrationConceptDescriptor concept =
+                                opportunity.GetConcept()
+                                ?? throw new InspectionQueryException(
+                                    $"Integration opportunity '{opportunity.Integration}' is not configured.");
                             if (opportunity.GetTarget() is not { } targetSpec)
                                 continue;
                             if (opportunity.GetSourceTypeDefinition()
@@ -1425,7 +1575,7 @@ public static class InspectionGraphIntegrationsQuery
                             if (_fulfilledOpportunities.Contains(
                                     new OpportunityFulfillmentKey(
                                         occurrenceSource,
-                                        opportunity.Integration,
+                                        concept,
                                         target)))
                             {
                                 continue;
@@ -1445,7 +1595,7 @@ public static class InspectionGraphIntegrationsQuery
                                 new InspectionGraphOpportunityEvidence(
                                     available.Subject.Registration,
                                     sourceType,
-                                    opportunity.Integration,
+                                    concept,
                                     targetSpec));
                         }
                         break;
@@ -2027,7 +2177,7 @@ public static class InspectionGraphIntegrationsQuery
 
         readonly record struct OpportunityFulfillmentKey(
             InspectionGraphSubject.TypeSubject Source,
-            string Integration,
+            IntegrationConceptDescriptor Concept,
             InspectionGraphSubject.TypeSubject Target);
     }
 }
