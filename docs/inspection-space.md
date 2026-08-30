@@ -925,7 +925,7 @@ repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary. Its
 type-name decode-failure case gates the decode-failure ceiling, paired with a
 below-ceiling case that proves isolated malformed neighbors remain tolerable.
-Fourteen cases gate whole-image method ownership across the type-scoped,
+Fifteen cases gate whole-image method ownership across the type-scoped,
 whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
 covering duplicate, out-of-range, cross-type aliased, and silently empty
 projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
@@ -939,12 +939,15 @@ range. Each of these fixtures pins its per-row range lengths, so the shape it
 claims to exercise is gated rather than asserted in prose. A further case starts
 the column past MethodDef row 1 while every range keeps a non-negative length,
 so it is rejected by coverage alone and pins the half of the ordering proof the
-range-length check cannot supply. Those fourteen are all rejections; a
-fifteenth case gates that a null
+range-length check cannot supply. A further case carries a null start *after* a
+populated run, which ECMA-335 II.22.37 cannot express because each run is
+delimited by the following start, so the negative length lands on the preceding
+row. Those fifteen are all rejections; a
+sixteenth case gates that a null
 `MethodList`, which ECMA-335 permits and the runtime reader projects as an
-empty run, is accepted rather than reported as malformed. A sixteenth gates
+empty run, is accepted rather than reported as malformed. A seventeenth gates
 uniqueness of the exact seed member, which a rejected sibling leaves unproven,
-and a seventeenth gates that matching a candidate leaf charges the
+and an eighteenth gates that matching a candidate leaf charges the
 declaring-chain traversal it performs rather than only the names it compares;
 that case pins its fixture's declaring depth, because a shallow fixture would
 exhaust the same budget while leaving the traversal unexercised.

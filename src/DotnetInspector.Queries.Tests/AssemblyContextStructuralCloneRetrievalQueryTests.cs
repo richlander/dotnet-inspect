@@ -1594,6 +1594,53 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildNullMethodListAfterPopulatedRunAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // A *leading* null is legal, but a null after a populated run is
+        // not: ECMA-335 II.22.37 ends each run where the next TypeDef's
+        // run begins, so a null start at row i+1 would end row i's run
+        // before it began. The damage lands on the preceding row, which
+        // is why the negative length appears at row 0 rather than at the
+        // null itself.
+        Assert.Equal(
+            [-1, 0],
+            MeasureMethodRangeLengths(image));
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
     public void Execute_NullMethodListIsNotRejected()
     {
         ImmutableArray<byte> image =
@@ -3430,6 +3477,19 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Builds a column carrying a null start *after* a populated run.
+    /// ECMA-335 II.22.37 delimits each run by the following TypeDef's
+    /// start, so a null there truncates the preceding run rather than
+    /// describing an empty one. Only a leading null is expressible.
+    /// </summary>
+    static byte[] BuildNullMethodListAfterPopulatedRunAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 0);
+        return bytes;
     }
 
     static byte[] BuildNullMethodListAssembly()

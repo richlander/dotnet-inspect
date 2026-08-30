@@ -862,7 +862,13 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     /// <c>projectionRows + 1</c>. A null start is not part of that
     /// chain: ECMA-335 II.22.37 permits it and SRM reports its range as
     /// length zero rather than as the difference to the next start, so
-    /// leading nulls neither rise nor break the ordering. Neither check
+    /// leading nulls neither rise nor break the ordering. Only a
+    /// *leading* null is expressible, though. Because each run is
+    /// delimited by the following TypeDef's start, a null after a
+    /// populated run would end the preceding run before it began, and
+    /// the negative length lands on that preceding row rather than on
+    /// the null itself. Such a column is malformed and is rejected.
+    /// Neither check
     /// is redundant: a descending column passes coverage, and a column
     /// starting past row 1 passes the length check.
     /// </para>

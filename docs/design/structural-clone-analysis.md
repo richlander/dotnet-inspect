@@ -321,7 +321,8 @@ The
 `Execute_DescendingMethodListIsAVisibleRejection`,
 `Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection`,
 `Execute_DescendingReorderedMethodPtrIsAVisibleRejection`,
-`Execute_MethodListStartPastProjectedTableIsAVisibleRejection`, and
+`Execute_MethodListStartPastProjectedTableIsAVisibleRejection`,
+`Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection`, and
 `Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` gates cover those
 boundaries.
 Removing the range-length check fails the three descending cases and the
@@ -362,6 +363,14 @@ A *null* start is not part of that chain: ECMA-335 II.22.37 permits it and SRM
 reports its range as length zero rather than as the difference to the next
 start, so leading nulls neither rise nor break the ordering.
 `Execute_NullMethodListIsNotRejected` pins that shape, measuring `[0, 2]`.
+Only a *leading* null is expressible. Each run is delimited by the following
+TypeDef's start, so a null after a populated run would end the preceding run
+before it began; that column is malformed, and the negative length lands on the
+preceding row rather than on the null itself.
+`Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection` pins that
+distinction, measuring `[-1, 0]`. A sweep of 7,058 real assemblies found no
+image carrying a null after a populated run, and none reporting a negative
+range length at all.
 A descending column passes
 coverage, and a column starting past row 1 passes the length check, so removing
 either check leaves a malformed column accepted.
