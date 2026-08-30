@@ -139,13 +139,25 @@ internal static class StructuralReview
         return
         [
             .. correspondence.UnmatchedBefore
-            .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+            .Where(static node => !HasVerdict(node.Reason))
             .Select(static node => (CSharpStructuralSide.Before, Node: node))
             .Concat(correspondence.UnmatchedAfter
-                .Where(static node => node.Reason != CSharpUnmatchedNodeReason.NoCounterpart)
+                .Where(static node => !HasVerdict(node.Reason))
                 .Select(static node => (CSharpStructuralSide.After, Node: node)))
         ];
     }
+
+    /// <summary>
+    /// Whether an unmatched node's reason resolved to an actual structural
+    /// verdict (a real Added/Removed row) rather than being a correspondence
+    /// gap: evidence-backed <see cref="CSharpUnmatchedNodeReason.NoCounterpart"/>,
+    /// or the narrow, honestly-scoped
+    /// <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/> carve-out
+    /// (issue #5022 item 5).
+    /// </summary>
+    static bool HasVerdict(CSharpUnmatchedNodeReason reason)
+        => reason is CSharpUnmatchedNodeReason.NoCounterpart
+            or CSharpUnmatchedNodeReason.InferredDeclaration;
 
     static void WriteCorrespondenceGaps(
         StringWriter output,

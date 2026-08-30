@@ -87,6 +87,18 @@ public enum CSharpUnmatchedNodeReason
 
     /// <summary>The unique evidence key exists on this side only.</summary>
     NoCounterpart,
+
+    /// <summary>
+    /// The node has no IL provenance of its own (a declaration header, e.g. a
+    /// local-function signature, whose only IL-bearing content is its body),
+    /// but it is the sole such declaration in its document, alongside a
+    /// matched call-site rewrite. Identity here is inferred from structural
+    /// uniqueness, not IL evidence — this is <em>not</em> an evidence-backed
+    /// match, and must not be treated as equivalent in strength to
+    /// <see cref="NoCounterpart"/> for any claim beyond "this declaration
+    /// participates in the diff instead of being silently dropped."
+    /// </summary>
+    InferredDeclaration,
 }
 
 /// <summary>One product-issued cross-document node match.</summary>
@@ -201,10 +213,12 @@ public sealed record CSharpStructuralComparison(
 
     /// <summary>Whether every C# node had enough unique evidence for a verdict.</summary>
     public bool IsCorrespondenceComplete => Correspondence is null
-        || Correspondence.UnmatchedBefore.All(static node =>
-            node.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
-        && Correspondence.UnmatchedAfter.All(static node =>
-            node.Reason == CSharpUnmatchedNodeReason.NoCounterpart);
+        || Correspondence.UnmatchedBefore.All(static node => HasVerdict(node.Reason))
+        && Correspondence.UnmatchedAfter.All(static node => HasVerdict(node.Reason));
+
+    static bool HasVerdict(CSharpUnmatchedNodeReason reason)
+        => reason is CSharpUnmatchedNodeReason.NoCounterpart
+            or CSharpUnmatchedNodeReason.InferredDeclaration;
 }
 
 public static partial class CSharpBodyDiff
@@ -251,7 +265,11 @@ public static partial class CSharpBodyDiff
             var identity = new CSharpDocumentNodeIdentity(beforeRevision, node.Id);
             if (node.Provenance is null)
             {
-                unmatchedBefore.Add(new(identity, CSharpUnmatchedNodeReason.Unsupported));
+                // Classified in a later pass, once every match below is known:
+                // whether this qualifies as an honestly-scoped inferred
+                // declaration (see ClassifyUnprovenancedDeclarations) depends
+                // on whether a call-site rewrite elsewhere in this document
+                // matched, which is not yet decided partway through this loop.
                 continue;
             }
 
@@ -286,7 +304,7 @@ public static partial class CSharpBodyDiff
             var identity = new CSharpDocumentNodeIdentity(afterRevision, node.Id);
             if (node.Provenance is null)
             {
-                unmatchedAfter.Add(new(identity, CSharpUnmatchedNodeReason.Unsupported));
+                // See the matching comment in the before-nodes loop above.
                 continue;
             }
 
@@ -307,6 +325,17 @@ public static partial class CSharpBodyDiff
                 node.Provenance));
         }
 
+        ClassifyUnprovenancedDeclarations(
+            before,
+            after,
+            beforeNodes,
+            afterNodes,
+            beforeRevision,
+            afterRevision,
+            matches,
+            unmatchedBefore,
+            unmatchedAfter);
+
         return new CSharpNodeCorrespondenceResult(
             before.Source.Subject,
             before,
@@ -320,6 +349,212 @@ public static partial class CSharpBodyDiff
             unmatchedAfter
                 .OrderBy(static unmatched => unmatched.Node.NodeId)
                 .ToImmutableArray());
+    }
+
+    /// <summary>
+    /// Declaration-shaped node kind eligible for the <see cref="CSharpUnmatchedNodeReason.InferredDeclaration"/>
+    /// carve-out: a local-function signature legitimately has no IL provenance
+    /// of its own (only its body statements do), so it is <c>Unsupported</c>
+    /// by construction, not by a matching failure (issue #5022 item 5,
+    /// evidence #3902 and #4116).
+    /// </summary>
+    const string InferredDeclarationKind = "LocalFunctionStatement";
+
+    /// <summary>
+    /// Classifies null-provenance nodes deferred by the two matching loops
+    /// above. Most remain <see cref="CSharpUnmatchedNodeReason.Unsupported"/>;
+    /// a narrow exception is honestly inferred, not evidence-backed: a
+    /// declaration-shaped node (see <see cref="InferredDeclarationKind"/>)
+    /// that is present as the <em>sole</em> such null-provenance declaration
+    /// on one side and entirely absent -- with any or no provenance -- on
+    /// the other (a genuine appear/disappear, not a declaration retained
+    /// unchanged on both sides, nor one side's copy merely carrying IL
+    /// provenance the other side's copy lacks), alongside a call-site
+    /// rewrite: a matched <c>InvocationExpression</c> pair whose selected
+    /// C# text actually differs between before and after, not merely an
+    /// unrelated call whose IL evidence happens to still match. All three
+    /// conditions must hold, or the node stays <c>Unsupported</c> like any
+    /// other correspondence gap.
+    /// </summary>
+    /// <remarks>
+    /// Every current document this comparison sees describes exactly one
+    /// member body, so "its document" already is the narrowest enclosing
+    /// scope for these fixtures; a document spanning multiple independent
+    /// scopes would need this narrowed further to a genuine per-scope check
+    /// before this carve-out could keep the same honesty guarantee. Even at
+    /// this granularity, this remains a heuristic, not a proof: two
+    /// independent, unrelated changes in the same member body (an unrelated
+    /// call rewrite alongside an unrelated new/removed declaration) could
+    /// still coincidentally satisfy it. This is the same residual risk
+    /// inherent to any evidence short of full IL provenance, and is why this
+    /// carve-out stays scoped to the single declaration-shaped kind actually
+    /// evidenced by #3902 and #4116, rather than generalizing further.
+    /// The call-site rewrite check compares projected (IL-lines-removed) C#
+    /// text, matching how every other structural-diff text comparison in
+    /// this file works, and only when both sides' matched invocation is one
+    /// contiguous projected span: interleaved IL rendering is free to split
+    /// an unchanged C# construct's spans differently on each side, and
+    /// <see cref="SelectedTextEqual(AnnotatedSourceDocument, AnnotatedSourceNode, AnnotatedSourceDocument, AnnotatedSourceNode)"/>
+    /// compares spans pairwise by position rather than by full concatenation,
+    /// so a multi-span pairing is not reliable evidence of a rewrite either
+    /// way; this carve-out declines to guess in that case instead of risking
+    /// a false rewrite signal. Building that projection is not free -- it
+    /// demands every IL-medium node be exactly one contiguous span, a
+    /// narrower contract than <see cref="AnnotatedSourceNode"/> itself
+    /// enforces -- so it only runs once the cheap, projection-free presence
+    /// counts show a declaration could plausibly be promoted, and only when
+    /// some matched pair is even shaped like the rewrite being looked for.
+    /// Even then, a projection attempt can still fail on an unrelated
+    /// structural IL node elsewhere in the same document: that failure is
+    /// caught and treated the same as "no rewrite found" rather than allowed
+    /// to propagate, since a document is never required to satisfy an
+    /// invariant this narrow, internal carve-out happens to need.
+    /// </remarks>
+    static void ClassifyUnprovenancedDeclarations(
+        AnnotatedSourceDocument beforeDocument,
+        AnnotatedSourceDocument afterDocument,
+        IReadOnlyList<AnnotatedSourceNode> beforeNodes,
+        IReadOnlyList<AnnotatedSourceNode> afterNodes,
+        CSharpDocumentRevision beforeRevision,
+        CSharpDocumentRevision afterRevision,
+        ImmutableArray<CSharpNodeMatch>.Builder matches,
+        ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedBefore,
+        ImmutableArray<CSharpUnmatchedNode>.Builder unmatchedAfter)
+    {
+        // Total presence (any provenance) proves genuine absence from a
+        // side; a copy that merely carries different IL provenance than its
+        // counterpart is still a copy, not an appear/disappear. These counts
+        // need no document projection, so they run first and unconditionally:
+        // the overwhelming majority of documents have no null-provenance
+        // declaration candidate at all, and must not pay -- or risk failing --
+        // a projection they will never use.
+        int beforeDeclarationTotal = beforeNodes.Count(static node =>
+            string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
+        int afterDeclarationTotal = afterNodes.Count(static node =>
+            string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
+        int beforeDeclarationCandidates = beforeNodes.Count(static node =>
+            node.Provenance is null
+            && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
+        int afterDeclarationCandidates = afterNodes.Count(static node =>
+            node.Provenance is null
+            && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal));
+
+        // A declaration retained unchanged on both sides has one candidate on
+        // each side, and qualifies for neither direction below -- it must not
+        // be reported as simultaneously Added and Removed.
+        bool declarationAdded =
+            afterDeclarationCandidates == 1
+            && afterDeclarationTotal == 1
+            && beforeDeclarationTotal == 0;
+        bool declarationRemoved =
+            beforeDeclarationCandidates == 1
+            && beforeDeclarationTotal == 1
+            && afterDeclarationTotal == 0;
+
+        // The call-site rewrite check requires a document projection, which
+        // -- unlike the counts above -- is not free: it demands every IL-medium
+        // node be exactly one contiguous rendered span, a narrower contract
+        // than AnnotatedSourceNode itself enforces (a non-instruction
+        // IL-medium node, such as a structural "Block", may legitimately span
+        // several rendered lines). Build it only when a declaration could
+        // plausibly be promoted, and only when some matched pair is even
+        // shaped like the call-site rewrite this carve-out looks for; a
+        // document with no such candidate must not newly fail to satisfy an
+        // invariant it never needed. Even then, an unrelated structural IL
+        // node elsewhere in the same document can still violate that
+        // invariant (round-1 review, reviewers A and B): the projection is
+        // an aid to this narrow carve-out, not something this document was
+        // ever required to support, so a failure here must fall back to the
+        // conservative Unsupported verdict rather than propagate.
+        bool callSiteRewriteMatched = false;
+        if (declarationAdded || declarationRemoved)
+        {
+            var beforeById = beforeNodes.ToDictionary(static node => node.Id);
+            var afterById = afterNodes.ToDictionary(static node => node.Id);
+            bool hasInvocationMatch = matches.Any(match =>
+                beforeById.TryGetValue(match.Before.NodeId, out var beforeMatched)
+                && afterById.TryGetValue(match.After.NodeId, out var afterMatched)
+                && string.Equals(beforeMatched.Kind, "InvocationExpression", StringComparison.Ordinal)
+                && string.Equals(afterMatched.Kind, "InvocationExpression", StringComparison.Ordinal));
+
+            if (hasInvocationMatch)
+            {
+                try
+                {
+                    var beforeProjection = CSharpAnnotatedSourceProjection.Create(beforeDocument);
+                    var afterProjection = CSharpAnnotatedSourceProjection.Create(afterDocument);
+                    var beforeProjectedById = beforeProjection.Document.Nodes.ToDictionary(static node => node.Id);
+                    var afterProjectedById = afterProjection.Document.Nodes.ToDictionary(static node => node.Id);
+
+                    // A genuine call-site rewrite: both sides are InvocationExpression
+                    // nodes rendered as one contiguous projected span each (so the
+                    // rewrite check has a single, unambiguous run of characters to
+                    // compare) whose *callee* text genuinely differs. Comparing only
+                    // the callee -- not the full invocation text -- matters: an
+                    // argument-only edit (round-7 review, reviewers A and B), such as
+                    // `Log(oldValue)` becoming `Log(newValue)`, must not itself license
+                    // an unrelated declaration elsewhere in the document as an inferred
+                    // rewrite target, since the call's target never changed. An
+                    // unchanged call that merely happens to retain matching IL evidence
+                    // does not count either -- that is not evidence that anything was
+                    // rewritten alongside it. Nor does an invocation that still spans
+                    // multiple projected pieces on either side after removing IL lines:
+                    // this carve-out declines to guess at such a call's true callee
+                    // text rather than risk treating a merely differently-interleaved,
+                    // unchanged multi-line call as a rewrite.
+                    callSiteRewriteMatched = matches.Any(match =>
+                        beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
+                        && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
+                        && beforeProjectedById.TryGetValue(beforeProjectedId, out var beforeCallNode)
+                        && afterProjectedById.TryGetValue(afterProjectedId, out var afterCallNode)
+                        && string.Equals(beforeCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+                        && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
+                        && beforeCallNode.Spans.Count == 1
+                        && afterCallNode.Spans.Count == 1
+                        && InvocationCalleeGenuinelyDiffers(
+                            beforeProjection.Document,
+                            beforeCallNode,
+                            afterProjection.Document,
+                            afterCallNode));
+                }
+                catch (ArgumentException)
+                {
+                    // A structural IL node elsewhere in the document does not
+                    // fit CSharpAnnotatedSourceProjection.Create's narrower
+                    // contract. This carve-out has no evidence either way in
+                    // that case, so it declines to guess rather than let an
+                    // unrelated shape it was never asked to verify surface as
+                    // a thrown exception from a public correspondence API.
+                    callSiteRewriteMatched = false;
+                }
+            }
+        }
+
+        foreach (var node in beforeNodes)
+        {
+            if (node.Provenance is not null)
+                continue;
+
+            bool inferred = declarationRemoved
+                && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
+                && callSiteRewriteMatched;
+            unmatchedBefore.Add(new(
+                new CSharpDocumentNodeIdentity(beforeRevision, node.Id),
+                inferred ? CSharpUnmatchedNodeReason.InferredDeclaration : CSharpUnmatchedNodeReason.Unsupported));
+        }
+
+        foreach (var node in afterNodes)
+        {
+            if (node.Provenance is not null)
+                continue;
+
+            bool inferred = declarationAdded
+                && string.Equals(node.Kind, InferredDeclarationKind, StringComparison.Ordinal)
+                && callSiteRewriteMatched;
+            unmatchedAfter.Add(new(
+                new CSharpDocumentNodeIdentity(afterRevision, node.Id),
+                inferred ? CSharpUnmatchedNodeReason.InferredDeclaration : CSharpUnmatchedNodeReason.Unsupported));
+        }
     }
 
     static ImmutableArray<CSharpNodeMatch> ClassifyMovement(
@@ -387,14 +622,14 @@ public static partial class CSharpBodyDiff
         [
             .. correspondence.Matches.Select(match => before.NodeIds[match.Before.NodeId]),
             .. correspondence.UnmatchedBefore
-                .Where(static unmatched => unmatched.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
+                .Where(static unmatched => IsSelected(unmatched.Reason))
                 .Select(unmatched => before.NodeIds[unmatched.Node.NodeId])
         ];
         int[] afterNodeIds =
         [
             .. correspondence.Matches.Select(match => after.NodeIds[match.After.NodeId]),
             .. correspondence.UnmatchedAfter
-                .Where(static unmatched => unmatched.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
+                .Where(static unmatched => IsSelected(unmatched.Reason))
                 .Select(unmatched => after.NodeIds[unmatched.Node.NodeId])
         ];
         CSharpNodeCorrespondence[] matches =
@@ -415,6 +650,16 @@ public static partial class CSharpBodyDiff
             fidelity));
         return comparison with { Correspondence = correspondence };
     }
+
+    /// <summary>
+    /// Whether an unmatched node carries enough of a verdict — evidence-backed
+    /// or the narrow, honestly-scoped declaration inference — to participate
+    /// in Added/Removed row generation below, instead of being dropped as a
+    /// correspondence gap.
+    /// </summary>
+    static bool IsSelected(CSharpUnmatchedNodeReason reason)
+        => reason is CSharpUnmatchedNodeReason.NoCounterpart
+            or CSharpUnmatchedNodeReason.InferredDeclaration;
 
     /// <summary>
     /// Compares selected C# nodes using owner-issued cross-document
@@ -652,6 +897,93 @@ public static partial class CSharpBodyDiff
             beforeNode.Spans,
             afterDocument,
             afterNode.Spans);
+
+    // Determines whether an InvocationExpression node pair's callee --
+    // everything before the argument list's *outer* opening parenthesis --
+    // genuinely differs. An argument-only edit (e.g. `Log(oldValue)` ->
+    // `Log(newValue)`) must not read as a call-site rewrite: the call's
+    // target never changed, so it is not evidence that some other
+    // declaration in the document was introduced or removed alongside it.
+    // Returns false (not evidence of a rewrite) both when the callees are
+    // equal and when either side's callee cannot be reliably identified --
+    // "inconclusive" must never be treated as "differs". Callers guarantee
+    // a single span.
+    static bool InvocationCalleeGenuinelyDiffers(
+        AnnotatedSourceDocument beforeDocument,
+        AnnotatedSourceNode beforeNode,
+        AnnotatedSourceDocument afterDocument,
+        AnnotatedSourceNode afterNode)
+        => TryGetInvocationCalleeText(beforeDocument, beforeNode, out var beforeCallee)
+            && TryGetInvocationCalleeText(afterDocument, afterNode, out var afterCallee)
+            && !beforeCallee.SequenceEqual(afterCallee);
+
+    // An InvocationExpression's own text always ends with the closing
+    // parenthesis of its argument list, so a balanced backward scan from
+    // that closing paren finds the argument list's true opening paren --
+    // unlike naively taking the *first* '(' in the text, which
+    // misidentifies the split for a callee that itself contains balanced
+    // parentheses (round-8 review, reviewers A and B), such as a
+    // parenthesized cast receiver (`((IFoo)x).Old()`) or a call-returning
+    // receiver (`GetReceiver().Old()`).
+    //
+    // The scan declines (returns false) rather than guess whenever a quote,
+    // apostrophe, or comment-start character is present anywhere in the
+    // text (round-9 review, reviewers A and B): a string/char literal or a
+    // comment can itself contain unbalanced or misleading parentheses (e.g.
+    // `Log("(")`), which would otherwise make a plain paren-depth count
+    // misidentify the argument list's true boundary -- either by stopping
+    // at a paren inside literal text, or by never finding a balanced match
+    // at all and falling back to comparing the full invocation text
+    // (reintroducing the exact argument-only false positive round 7
+    // fixed). This is not a full C# lexer; it simply refuses to trust the
+    // scan once literal/comment content becomes possible, which is a
+    // strictly narrower, always-safe subset of "confidently found the true
+    // split".
+    //
+    // This disqualifying check is a dedicated upfront pass over the whole
+    // text, not interleaved into the backward paren scan below (round-10
+    // review, reviewer A): a `//` line comment's content is scanned
+    // *before* its own leading `/` characters in backward order, so a
+    // misleading paren inside a comment (e.g. `Log(1 // (\n)`) could
+    // otherwise reach depth zero and return a wrong "match" before the
+    // scan ever reached the disqualifying `/`. Checking the full text
+    // first closes that ordering gap.
+    static bool TryGetInvocationCalleeText(
+        AnnotatedSourceDocument document, AnnotatedSourceNode node, out ReadOnlySpan<char> calleeText)
+    {
+        var span = node.Spans[0];
+        var text = document.Text.AsSpan(span.Start, span.Length).TrimEnd();
+        calleeText = default;
+        if (text.Length == 0 || text[^1] != ')')
+            return false;
+
+        foreach (char guard in text)
+        {
+            if (guard is '"' or '\'' or '/')
+                return false;
+        }
+
+        int depth = 0;
+        for (int index = text.Length - 1; index >= 0; index--)
+        {
+            char current = text[index];
+            if (current == ')')
+            {
+                depth++;
+            }
+            else if (current == '(')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    calleeText = text[..index].TrimEnd();
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 
     internal static bool SelectedTextEqual(
         AnnotatedSourceDocument beforeDocument,
