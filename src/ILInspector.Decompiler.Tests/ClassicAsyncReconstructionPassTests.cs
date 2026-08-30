@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Decompiler.Pipeline;
@@ -10,6 +12,8 @@ namespace ILInspector.Decompiler.Tests;
 public class ClassicAsyncReconstructionPassTests
 {
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");
+    static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Task = TypeRef.CoreLib(
         "System.Threading.Tasks",
         "Task");
@@ -406,6 +410,245 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
+    public void ForeignCreateMakesKickoffNonNarrow()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = PreparedKickoff(source, "AwaitVoid");
+        Call create = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            static call => call.Callee.Name == "Create");
+
+        ReplaceCallee(
+            create,
+            create.Callee with
+            {
+                DeclaringType = ForeignBuilderFactory(),
+            });
+
+        AssertKickoffIsNonNarrow(function);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ForeignStartMakesKickoffNonNarrow()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = PreparedKickoff(source, "AwaitVoid");
+        Call start = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            static call => call.Callee.Name == "Start");
+
+        ReplaceCallee(
+            start,
+            start.Callee with
+            {
+                DeclaringType = ForeignBuilderFactory(),
+            });
+
+        AssertKickoffIsNonNarrow(function);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ForeignTaskAccessorMakesKickoffNonNarrow()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = PreparedKickoff(source, "AwaitVoid");
+        LoadProperty task = Assert.Single(
+            function.Descendants.OfType<LoadProperty>(),
+            static property => property.PropertyName == "Task");
+        IrExpression instance = Assert.IsAssignableFrom<IrExpression>(
+            task.Instance);
+        instance.Detach();
+        var replacement = new LoadProperty(
+            task.Accessor with
+            {
+                DeclaringType = ForeignBuilderFactory(),
+            },
+            instance,
+            [])
+        {
+            IsVirtual = task.IsVirtual,
+        };
+        task.ReplaceWith(replacement);
+
+        AssertKickoffIsNonNarrow(function);
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("Create")]
+    [InlineData("Start")]
+    [InlineData("get_Task")]
+    public void CustomModifiedBuilderMemberMakesKickoffNonNarrow(
+        string memberName)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = PreparedKickoff(source, "AwaitVoid");
+        TypeRef modifier = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "IsVolatile");
+
+        ReplaceBuilderMember(
+            function,
+            memberName,
+            method => memberName switch
+            {
+                "Start" => method with
+                {
+                    ParameterTypes =
+                    [
+                        method.ParameterTypes[0]
+                            .WithCustomModifier(
+                                modifier,
+                                isRequired: true),
+                    ],
+                },
+                _ => method with
+                {
+                    ReturnType = method.ReturnType
+                        .WithCustomModifier(
+                            modifier,
+                            isRequired: true),
+                },
+            });
+
+        AssertKickoffIsNonNarrow(function);
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("Create")]
+    [InlineData("Start")]
+    [InlineData("get_Task")]
+    public void ExactAddressedBuilderMemberMakesKickoffNonNarrow(
+        string memberName)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = PreparedKickoff(source, "AwaitVoid");
+
+        ReplaceBuilderMember(
+            function,
+            memberName,
+            method => method with
+            {
+                ExactDefinitionAddress = new(
+                    source.ModuleVersionId,
+                    MetadataTokens.MethodDefinitionHandle(1)),
+                ExactDefinitionAcquisitionGuard = new object(),
+            });
+
+        AssertKickoffIsNonNarrow(function);
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void InconsistentBuilderMemberProvenanceMakesKickoffNonNarrow(
+        bool hasAddress,
+        bool hasGuard)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = PreparedKickoff(source, "AwaitVoid");
+
+        ReplaceBuilderMember(
+            function,
+            "Create",
+            method => method with
+            {
+                ExactDefinitionAddress = hasAddress
+                    ? new(
+                        source.ModuleVersionId,
+                        MetadataTokens.MethodDefinitionHandle(1))
+                    : null,
+                ExactDefinitionAcquisitionGuard =
+                    hasGuard ? new object() : null,
+            });
+
+        AssertKickoffIsNonNarrow(function);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SameExactTypeIncludesOrderedRecursiveCustomModifiers()
+    {
+        TypeRef firstModifier = TypeRef.Definition(
+            "Synthetic",
+            "ReviewRepro",
+            "FirstModifier");
+        TypeRef secondModifier = TypeRef.Definition(
+            "Synthetic",
+            "ReviewRepro",
+            "SecondModifier");
+        TypeRef required = TypeRef.ByRef(
+            Int32.WithCustomModifier(
+                firstModifier,
+                isRequired: true));
+        TypeRef optional = TypeRef.ByRef(
+            Int32.WithCustomModifier(
+                firstModifier,
+                isRequired: false));
+        TypeRef ordered = Int32
+            .WithCustomModifier(
+                firstModifier,
+                isRequired: true)
+            .WithCustomModifier(
+                secondModifier,
+                isRequired: false);
+        TypeRef reversed = Int32
+            .WithCustomModifier(
+                secondModifier,
+                isRequired: false)
+            .WithCustomModifier(
+                firstModifier,
+                isRequired: true);
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "ReviewRepro",
+                    ["ExactModifier"]))
+                .Name;
+        TypeRef exactModifier = ExactModifier(Guid.NewGuid());
+        TypeRef foreignExactModifier = ExactModifier(Guid.NewGuid());
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.SameExactType(
+                required,
+                required));
+        Assert.False(
+            ClassicAsyncReconstructionPass.SameExactType(
+                required,
+                optional));
+        Assert.False(
+            ClassicAsyncReconstructionPass.SameExactType(
+                ordered,
+                reversed));
+        Assert.False(
+            ClassicAsyncReconstructionPass.SameExactType(
+                Int32.WithCustomModifier(
+                    exactModifier,
+                    isRequired: true),
+                Int32.WithCustomModifier(
+                    foreignExactModifier,
+                    isRequired: true)));
+
+        TypeRef ExactModifier(Guid moduleVersionId)
+            => TypeRef.DefinitionWithResolution(
+                "Synthetic",
+                "ReviewRepro",
+                "ExactModifier",
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.Unknown,
+                enclosingType: null,
+                definitionName: exactName,
+                resolutionAssembly: null,
+                definitionHandle:
+                    MetadataTokens.TypeDefinitionHandle(1),
+                definitionModuleVersionId: moduleVersionId);
+    }
+
+    [Fact]
     public void CompetingAwaiterDefinitionsDecline()
     {
         using var source = OpenClassicFixture();
@@ -457,6 +700,799 @@ public class ClassicAsyncReconstructionPassTests
                 getResult,
                 out _,
                 out _));
+    }
+
+    [Fact]
+    public void AwaitSourceReachingDefinitionsRejectBackedgeAfterUse()
+    {
+        TypeRef awaiter = TypeRef.Definition(
+            "Synthetic",
+            "Samples",
+            "TaskAwaiter");
+        var getAwaiter = new MethodRef(
+            Task,
+            "GetAwaiter",
+            awaiter,
+            [Task],
+            HasThis: false);
+        var firstStore = new StoreLocal(
+            0,
+            awaiter,
+            new Call(
+                getAwaiter,
+                isVirtual: false,
+                [new LoadArgument(0, "a", Task)]));
+        var alternateStore = new StoreLocal(
+            0,
+            awaiter,
+            new Call(
+                getAwaiter,
+                isVirtual: false,
+                [new LoadArgument(1, "b", Task)]));
+        var getResult = new Call(
+            new MethodRef(
+                awaiter,
+                "GetResult",
+                Int32,
+                [],
+                HasThis: true),
+            isVirtual: false,
+            [new LoadLocalAddress(0, awaiter)]);
+        var entry = new Block(0);
+        entry.Add(firstStore);
+        entry.Add(new Branch(4));
+        var header = new Block(4);
+        header.Add(new ExpressionStatement(getResult));
+        header.Add(new ConditionalBranch(
+            new Constant(true, Boolean),
+            targetOffset: 12));
+        var exit = new Block(8);
+        exit.Add(new Return(null));
+        var backedge = new Block(12);
+        backedge.Add(alternateStore);
+        backedge.Add(new Branch(4));
+        var body = new BlockContainer();
+        foreach (Block block in
+            (Block[])[entry, header, exit, backedge])
+        {
+            body.Add(block);
+        }
+        var function = new IrFunction(
+            "MoveNext",
+            StateMachine,
+            new MethodSignature(
+                Void,
+                [
+                    new Parameter("a", Task),
+                    new Parameter("b", Task),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [awaiter],
+            body);
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.TryGetAwaitSource(
+                function,
+                getResult,
+                out _,
+                out _));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SequentialAwaiterLocalReuseHasUniqueReachingSources()
+    {
+        using var source = OpenClassicFixture();
+        MethodRef request = CaptureMoveNextRequest(
+            source,
+            "TwoSequentialAwaits");
+        IrFunction moveNext = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, request));
+        IrPasses.Run(
+            moveNext,
+            IrPasses.ForReconstruction<
+                ClassicAsyncReconstructionPass>(),
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        Call[] getResults =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>()
+                .Where(static call =>
+                    call.Callee.Name == "GetResult"),
+        ];
+        Assert.Equal(2, getResults.Length);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetAwaitSource(
+                moveNext,
+                getResults[0],
+                out _,
+                out IrExpression first));
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetAwaitSource(
+                moveNext,
+                getResults[1],
+                out _,
+                out IrExpression second));
+        Assert.Equal("a", Assert.IsType<LoadField>(first).Field.Name);
+        Assert.Equal("b", Assert.IsType<LoadField>(second).Field.Name);
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void AwaitSourceRejectsDiamondWithTwoResumeDefinitions()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction original = PreparedMoveNext(source, "AwaitVoid");
+        Call originalGetResult = Assert.Single(
+            original.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "GetResult");
+        var getResultAddress = Assert.IsType<LoadLocalAddress>(
+            Assert.Single(originalGetResult.Arguments));
+        StoreLocal candidate = Assert.Single(
+            original.DescendantsOutsideNestedFunctions
+                .OfType<StoreLocal>(),
+            store => store.Index == getResultAddress.Index
+                && store.Value is Call
+                {
+                    Callee.Name: "GetAwaiter",
+                });
+        StoreLocal resume = Assert.Single(
+            original.DescendantsOutsideNestedFunctions
+                .OfType<StoreLocal>(),
+            store => store.Index == getResultAddress.Index
+                && store.Value is LoadField
+                {
+                    Field.Name: var name,
+                }
+                && name.StartsWith(
+                    "<>u__",
+                    StringComparison.Ordinal));
+        StoreField spill = Assert.Single(
+            original.DescendantsOutsideNestedFunctions
+                .OfType<StoreField>(),
+            store => store.Value is LoadLocal
+                {
+                    Index: var index,
+                }
+                && index == getResultAddress.Index
+                && store.Field.Name.StartsWith(
+                    "<>u__",
+                    StringComparison.Ordinal));
+        ExpressionStatement callback = Assert.Single(
+            original.DescendantsOutsideNestedFunctions
+                .OfType<ExpressionStatement>(),
+            static statement => statement.Expression is Call
+            {
+                Callee.Name:
+                    "AwaitUnsafeOnCompleted"
+                    or "AwaitOnCompleted",
+            });
+
+        var dispatch = new Block(0);
+        dispatch.Add(new ConditionalBranch(
+            new Constant(true, Boolean),
+            targetOffset: 8));
+        var splitResumes = new Block(4);
+        splitResumes.Add(new ConditionalBranch(
+            new Constant(true, Boolean),
+            targetOffset: 16));
+        var firstResume = new Block(12);
+        firstResume.Add((StoreLocal)resume.Clone());
+        firstResume.Add(new Branch(24));
+        var secondResume = new Block(16);
+        secondResume.Add((StoreLocal)resume.Clone());
+        secondResume.Add(new Branch(24));
+        var sourcePath = new Block(8);
+        sourcePath.Add((StoreLocal)candidate.Clone());
+        sourcePath.Add(new ConditionalBranch(
+            new Constant(true, Boolean),
+            targetOffset: 24));
+        var suspension = new Block(20);
+        suspension.Add((StoreField)spill.Clone());
+        suspension.Add((ExpressionStatement)callback.Clone());
+        suspension.Add(new Return(null));
+        var use = new Block(24);
+        var getResultStatement = new ExpressionStatement(
+            (Call)originalGetResult.Clone());
+        use.Add(getResultStatement);
+        use.Add(new Return(null));
+        var body = new BlockContainer();
+        foreach (Block block in
+            (Block[])
+            [
+                dispatch,
+                splitResumes,
+                firstResume,
+                secondResume,
+                sourcePath,
+                suspension,
+                use,
+            ])
+        {
+            body.Add(block);
+        }
+        var function = new IrFunction(
+            original.Name,
+            original.DeclaringType,
+            original.Signature,
+            original.Locals,
+            body);
+        Call getResult =
+            Assert.IsType<Call>(getResultStatement.Expression);
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.TryGetAwaitSource(
+                function,
+                getResult,
+                out _,
+                out _));
+        function.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("AwaitVoid", 1)]
+    [InlineData("AwaitGeneric", 1)]
+    [InlineData("TwoSequentialAwaits", 2)]
+    [InlineData("AwaitInLoop", 1)]
+    public void AcceptedRecipesOwnEveryCompletionCallback(
+        string methodName,
+        int suspensionCount)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext = PreparedMoveNext(source, methodName);
+        List<(ExpressionStatement Statement, Call Call)> callbacks =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<ExpressionStatement>()
+                .Where(static statement =>
+                    statement.Expression is Call)
+                .Select(static statement =>
+                    (statement, (Call)statement.Expression))
+                .Where(static pair => pair.Item2.Callee.Name is
+                    "AwaitUnsafeOnCompleted"
+                    or "AwaitOnCompleted"
+                    or "SetException"
+                    or "SetResult"),
+        ];
+        Assert.Single(
+            callbacks,
+            static pair => pair.Call.Callee.Name == "SetResult");
+        Assert.Single(
+            callbacks,
+            static pair => pair.Call.Callee.Name == "SetException");
+        Assert.Equal(
+            suspensionCount,
+            callbacks.Count(static pair =>
+                pair.Call.Callee.Name is
+                    "AwaitUnsafeOnCompleted"
+                    or "AwaitOnCompleted"));
+        Assert.All(
+            callbacks.Where(static pair =>
+                pair.Call.Callee.Name is
+                    "AwaitUnsafeOnCompleted"
+                    or "AwaitOnCompleted"),
+            static pair =>
+            {
+                Assert.Collection(
+                    pair.Call.Arguments,
+                    static receiver =>
+                        Assert.IsType<LoadFieldAddress>(receiver),
+                    static awaiter =>
+                        Assert.IsType<LoadLocalAddress>(awaiter),
+                    static machine =>
+                        Assert.IsType<LoadArgument>(machine));
+                Assert.Equal(2, pair.Call.Callee.TypeArguments.Length);
+                Assert.Equal(2, pair.Call.Callee.ParameterTypes.Length);
+            });
+        Call[] getResults =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>()
+                .Where(static call =>
+                    call.Callee.Name == "GetResult"),
+        ];
+        Assert.Equal(suspensionCount, getResults.Length);
+        Assert.Equal(suspensionCount + 2, callbacks.Count);
+        IrFunction kickoff = ImportClassicFixture(source, methodName);
+        var plan = Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+            PublishedDecision(
+                Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                    kickoff.ClassicAsyncRelationship))).Plan;
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryCaptureRegionIds(
+                moveNext,
+                ClassicAsyncRegionHost.Execution,
+                plan.Machine.Execution,
+                callbacks.Select(static pair =>
+                    (IrNode)pair.Statement),
+                out List<ClassicAsyncPhysicalRegionId> callbackRegions));
+        Assert.All(
+            callbackRegions,
+            region => Assert.Contains(
+                region,
+                plan.RegionLedger.ConsumedRegions));
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void ExtraExactMachineSetResultIsRejected()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext = PreparedMoveNext(source, "AwaitVoid");
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+        var statement = Assert.IsType<ExpressionStatement>(
+            setResult.Parent);
+        var block = Assert.IsType<Block>(statement.Parent);
+        IReadOnlyList<IrNode> statements = block.DetachChildren();
+        foreach (IrNode current in statements)
+        {
+            if (ReferenceEquals(current, statement))
+                block.Add(statement.Clone());
+            block.Add(current);
+        }
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    ExpectedStateMachineType(source, "AwaitVoid"),
+                    setResult,
+                    [
+                        .. moveNext
+                            .DescendantsOutsideNestedFunctions
+                            .OfType<Call>()
+                            .Where(static call =>
+                                call.Callee.Name == "GetResult"),
+                    ],
+                    out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("foreign-machine-type")]
+    [InlineData("foreign-machine-argument")]
+    [InlineData("foreign-awaiter-type")]
+    [InlineData("foreign-awaiter-address")]
+    [InlineData("custom-modifier")]
+    [InlineData("exact-address")]
+    public void AwaitCallbackRequiresExactAwaitPointCorrelation(
+        string mutation)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext = PreparedMoveNext(source, "AwaitVoid");
+        Call callback = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name is
+                "AwaitUnsafeOnCompleted"
+                or "AwaitOnCompleted");
+        var awaiterAddress = Assert.IsType<LoadLocalAddress>(
+            callback.Arguments[1]);
+        TypeRef foreign = TypeRef.Definition(
+            "Foreign",
+            "ReviewRepro",
+            "Other");
+        switch (mutation)
+        {
+            case "foreign-machine-type":
+                ReplaceCallee(
+                    callback,
+                    callback.Callee with
+                    {
+                        TypeArguments =
+                            callback.Callee.TypeArguments.SetItem(
+                                1,
+                                foreign),
+                    });
+                break;
+            case "foreign-machine-argument":
+                callback.Arguments[2].ReplaceWith(
+                    new LoadArgument(0, "this", foreign));
+                break;
+            case "foreign-awaiter-type":
+                callback.Arguments[1].ReplaceWith(
+                    new LoadLocalAddress(
+                        awaiterAddress.Index,
+                        foreign));
+                break;
+            case "foreign-awaiter-address":
+                int foreignIndex = moveNext.Locals.Length;
+                moveNext.ResetLocals(
+                    moveNext.Locals.Add(awaiterAddress.Type),
+                    moveNext.LocalNames.Add(null));
+                callback.Arguments[1].ReplaceWith(
+                    new LoadLocalAddress(
+                        foreignIndex,
+                        awaiterAddress.Type));
+                break;
+            case "custom-modifier":
+                TypeRef modifier = TypeRef.CoreLib(
+                    "System.Runtime.CompilerServices",
+                    "IsVolatile");
+                ReplaceCallee(
+                    callback,
+                    callback.Callee with
+                    {
+                        ParameterTypes =
+                            callback.Callee.ParameterTypes.SetItem(
+                                0,
+                                callback.Callee.ParameterTypes[0]
+                                    .WithCustomModifier(
+                                        modifier,
+                                        isRequired: true)),
+                    });
+                break;
+            case "exact-address":
+                ReplaceCallee(
+                    callback,
+                    callback.Callee with
+                    {
+                        ExactDefinitionAddress = new(
+                            source.ModuleVersionId,
+                            MetadataTokens.MethodDefinitionHandle(1)),
+                        ExactDefinitionAcquisitionGuard =
+                            new object(),
+                    });
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(mutation));
+        }
+
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+        Call[] getResults =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>()
+                .Where(static call =>
+                    call.Callee.Name == "GetResult"),
+        ];
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    ExpectedStateMachineType(source, "AwaitVoid"),
+                    setResult,
+                    getResults,
+                    out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("SetResult", false)]
+    [InlineData("SetResult", true)]
+    [InlineData("SetException", false)]
+    [InlineData("SetException", true)]
+    public void CompletionCallbackRequiresExactExternalMemberIdentity(
+        string callbackName,
+        bool exactAddress)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext = PreparedMoveNext(source, "AwaitValue");
+        Call callback = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            call => call.Callee.Name == callbackName);
+        MethodRef mutation;
+        if (exactAddress)
+        {
+            mutation = callback.Callee with
+            {
+                ExactDefinitionAddress = new(
+                    source.ModuleVersionId,
+                    MetadataTokens.MethodDefinitionHandle(1)),
+                ExactDefinitionAcquisitionGuard = new object(),
+            };
+        }
+        else
+        {
+            TypeRef modifier = TypeRef.CoreLib(
+                "System.Runtime.CompilerServices",
+                "IsVolatile");
+            mutation = callback.Callee with
+            {
+                ReturnType = callback.Callee.ReturnType
+                    .WithCustomModifier(
+                        modifier,
+                        isRequired: false),
+            };
+        }
+        callback = ReplaceCallee(callback, mutation);
+
+        Call setResult = callbackName == "SetResult"
+            ? callback
+            : Assert.Single(
+                moveNext.DescendantsOutsideNestedFunctions
+                    .OfType<Call>(),
+                static call => call.Callee.Name == "SetResult");
+        Call[] getResults =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>()
+                .Where(static call =>
+                    call.Callee.Name == "GetResult"),
+        ];
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    ExpectedStateMachineType(source, "AwaitValue"),
+                    setResult,
+                    getResults,
+                    out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void PostAwaitInvocationNodesAreUnverified()
+    {
+        TypeRef awaiter = TypeRef.Definition(
+            "Synthetic",
+            "ReviewRepro",
+            "Awaiter");
+
+        Call NewGetResult() => new(
+            new MethodRef(
+                awaiter,
+                "GetResult",
+                Int32,
+                [],
+                HasThis: true),
+            isVirtual: false,
+            [new LoadLocalAddress(0, awaiter)]);
+
+        IrExpression[] invocations =
+        [
+            new NewObject(
+                new MethodRef(
+                    TypeRef.Definition(
+                        "Synthetic",
+                        "ReviewRepro",
+                        "Result"),
+                    ".ctor",
+                    Void,
+                    [Int32],
+                    HasThis: true),
+                [NewGetResult()]),
+            new CallIndirect(
+                new Constant(
+                    0,
+                    TypeRef.Pointer(Void)),
+                [NewGetResult()],
+                Int32,
+                [Int32]),
+            new LocalFunctionInvocation(
+                "Consume",
+                Int32,
+                [NewGetResult()],
+                [Int32],
+                [ArgumentRefKind.Value]),
+        ];
+        foreach (IrExpression invocation in invocations)
+        {
+            Call getResult = Assert.Single(
+                invocation.Descendants.Prepend(invocation)
+                    .OfType<Call>());
+            Assert.True(
+                ClassicAsyncReconstructionPass
+                    .HasUnverifiedPostAwaitResultUse(
+                        invocation,
+                        [getResult]));
+        }
+
+        var resultType = TypeRef.Definition(
+            "Synthetic",
+            "ReviewRepro",
+            "Result");
+        var constructor = new MethodRef(
+            resultType,
+            ".ctor",
+            Void,
+            [Int32],
+            HasThis: true);
+        var consume = new MethodRef(
+            TypeRef.Definition(
+                "Synthetic",
+                "ReviewRepro",
+                "Effects"),
+            "Consume",
+            Int32,
+            [Int32],
+            HasThis: false);
+        IrExpression[] siblingInvocations =
+        [
+            new NewObject(
+                constructor,
+                [new Constant(1, Int32)]),
+            new CallIndirect(
+                new Constant(
+                    0,
+                    TypeRef.Pointer(Void)),
+                [new Constant(1, Int32)],
+                Int32,
+                [Int32]),
+            new LocalFunctionInvocation(
+                "Consume",
+                Int32,
+                [new Constant(1, Int32)],
+                [Int32],
+                [ArgumentRefKind.Value]),
+            new DelegateCreation(
+                TypeRef.Definition(
+                    "Synthetic",
+                    "ReviewRepro",
+                    "Consumer"),
+                consume,
+                isVirtual: false,
+                new Constant(
+                    null,
+                    TypeRef.CoreLib("System", "Object"))),
+            new ObjectInitializerExpression(
+                new NewObject(
+                    constructor,
+                    [new Constant(1, Int32)]),
+                isCollection: false,
+                []),
+            new DynamicGetMember(
+                new Constant(
+                    null,
+                    TypeRef.CoreLib("System", "Object")),
+                "Value"),
+        ];
+        foreach (IrExpression invocation in siblingInvocations)
+        {
+            Call getResult = NewGetResult();
+            var tuple = new TupleExpression(
+                TypeRef.Definition(
+                    "Synthetic",
+                    "ReviewRepro",
+                    "ResultTuple"),
+                [getResult, invocation]);
+            Assert.True(
+                ClassicAsyncReconstructionPass
+                    .HasUnverifiedPostAwaitResultUse(
+                        tuple,
+                        [getResult]));
+        }
+
+        Call direct = NewGetResult();
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .HasUnverifiedPostAwaitResultUse(
+                    direct,
+                    [direct]));
+        Call convertedResult = NewGetResult();
+        var conversion =
+            new ILInspector.Decompiler.Pipeline.Convert(
+            Int32,
+            isChecked: false,
+            isUnsigned: false,
+            operand: convertedResult);
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .HasUnverifiedPostAwaitResultUse(
+                    conversion,
+                    [convertedResult]));
+        Call binaryResult = NewGetResult();
+        var binary = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            left: binaryResult,
+            right: new Constant(1, Int32));
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .HasUnverifiedPostAwaitResultUse(
+                    binary,
+                    [binaryResult]));
+    }
+
+    [Theory]
+    [InlineData("ConstructorAfterAwait")]
+    [InlineData("ConstructorSiblingAfterAwait")]
+    public void CompilerConstructorResultUseDeclines(string methodName)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, methodName);
+        Assert.NotEmpty(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<NewObject>());
+        IrFunction kickoff = ImportClassicFixture(
+            source,
+            methodName);
+
+        IrPasses.Run(
+            kickoff,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+
+        var outcome = Assert.IsType<ClassicAsyncOutcome.Declined>(
+            kickoff.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
+            outcome.Reason);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.OmitAsync,
+            kickoff.ClassicAsyncDeclarationDisposition);
+    }
+
+    [Fact]
+    public void CompilerProducedAcceptedPopulationIsExact()
+    {
+        using var source = OpenClassicFixture();
+        var actual = new List<string>();
+        foreach (var imported in IrImporter.ImportAssembly(source))
+        {
+            IrFunction function = imported.Function;
+            if (function.ClassicAsyncRelationship is not
+                {
+                    HostRole: ClassicAsyncHostRole.DeclaredKickoff,
+                    Relationship:
+                        StateMachineRelationshipResult.Resolved
+                        {
+                            Relationship.Kind:
+                                StateMachineClaimKind.ClassicAsync,
+                        },
+                })
+            {
+                continue;
+            }
+
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            if (function.ClassicAsyncOutcome is
+                ClassicAsyncOutcome.Reconstructed)
+            {
+                string methodName = function.Name.StartsWith(
+                    "<CallsClassicLocal>g__ClassicLocal|",
+                    StringComparison.Ordinal)
+                        ? "<CallsClassicLocal>g__ClassicLocal"
+                        : function.Name;
+                actual.Add(
+                    $"{function.DeclaringType.ToDisplayString()}"
+                    + $"::{methodName}");
+            }
+        }
+
+        Assert.Equal(
+            [
+                "AsyncFixtures::<CallsClassicLocal>g__ClassicLocal",
+                "AsyncFixtures::AwaitConditional",
+                "AsyncFixtures::AwaitDelayConstant",
+                "AsyncFixtures::AwaitGeneric",
+                "AsyncFixtures::AwaitInLoop",
+                "AsyncFixtures::AwaitInLoopChecked",
+                "AsyncFixtures::AwaitInTryFinally",
+                "AsyncFixtures::AwaitOrdinarySetMethod",
+                "AsyncFixtures::AwaitValue",
+                "AsyncFixtures::AwaitValueTask",
+                "AsyncFixtures::AwaitVoid",
+                "AsyncFixtures::DynamicArrayReferenceIdentity",
+                "AsyncFixtures::DynamicReferenceIdentity",
+                "AsyncFixtures::ObjectArrayReferenceIdentity",
+                "AsyncFixtures::SequentialWithImplicitConversion",
+                "AsyncFixtures::SequentialWithRealizedInitializer",
+                "AsyncFixtures::SequentialWithRealizedWithExpression",
+                "AsyncFixtures::TwoSequentialAwaits",
+                "AsyncFixtures::TwoSequentialNamedAwaits",
+                "GenericAsyncFixtures::AwaitGeneric",
+            ],
+            actual.Order(StringComparer.Ordinal));
     }
 
     [Theory]
@@ -629,21 +1665,142 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
-    public void RejectedKickoffEvidenceIsNotOverwrittenByImplementationLookup()
+    public void MixedRejectedClaimsClassifyEachKickoffExactly()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction classic = ImportClassicFixture(
+            source,
+            "RejectedClassicClaim");
+        IrFunction iterator = ImportClassicFixture(
+            source,
+            "RejectedIteratorClaim");
+        var classicEvidence =
+            Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                classic.ClassicAsyncRelationship);
+        var iteratorHandle = source.Reader.MethodDefinitions.Single(
+            handle => source.Reader.GetString(
+                source.Reader.GetMethodDefinition(handle).Name)
+                == "RejectedIteratorClaim");
+        ClassicAsyncRelationshipEvidence iteratorEvidence =
+            source.ClassicAsyncRelationship(
+                iteratorHandle,
+                asyncClassification: null);
+        iterator.ClassicAsyncRelationship = iteratorEvidence;
+
+        var rejected =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                classicEvidence.Relationship);
+        var iteratorRejected =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                iteratorEvidence.Relationship);
+        Assert.Same(rejected.Failure, iteratorRejected.Failure);
+        Assert.Equal(
+            [
+                new StateMachineRelationshipClaim(
+                    classicEvidence.RequestedHost,
+                    StateMachineClaimKind.ClassicAsync),
+                new StateMachineRelationshipClaim(
+                    iteratorEvidence.RequestedHost,
+                    StateMachineClaimKind.Iterator),
+            ],
+            rejected.Failure.Claims);
+        Assert.Equal(
+            [
+                StateMachineClaimKind.ClassicAsync,
+                StateMachineClaimKind.Iterator,
+            ],
+            rejected.Failure.ClaimKinds);
+        Assert.Equal(
+            ClassicAsyncHostRole.DeclaredKickoff,
+            classicEvidence.HostRole);
+        Assert.Equal(
+            ClassicAsyncHostRole.Ordinary,
+            iteratorEvidence.HostRole);
+
+        IrPasses.Run(
+            classic,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        IrPasses.Run(
+            iterator,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+
+        Assert.IsType<ClassicAsyncStageResult.Applied>(
+            classic.ClassicAsyncStageResult);
+        var outcome = Assert.IsType<ClassicAsyncOutcome.Declined>(
+            classic.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclineReason.RejectedRelationship,
+            outcome.Reason);
+        Assert.Equal(
+            ClassicAsyncKickoffDisposition.PreservedOriginal,
+            outcome.KickoffDisposition);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.OmitAsync,
+            classic.ClassicAsyncDeclarationDisposition);
+        Assert.False(classic.RequiresAsyncBodyModifier);
+        Assert.Contains(
+            "owner rejected the classic state-machine relationship",
+            CSharpPrinter.Print(classic).Output,
+            StringComparison.Ordinal);
+        Assert.IsType<ClassicAsyncStageResult.NotApplicable>(
+            iterator.ClassicAsyncStageResult);
+        Assert.Null(iterator.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.NoOpinion,
+            iterator.ClassicAsyncDeclarationDisposition);
+    }
+
+    [Fact]
+    public void BudgetFailureWithClassicClaimRemainsInputFailure()
     {
         using var source = OpenClassicFixture();
         IrFunction function = ImportClassicFixture(
             source,
-            "RejectedClassicClaim");
+            "AwaitVoid");
         var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
             function.ClassicAsyncRelationship);
+        // Keep relationship construction Metadata-owned while injecting the
+        // exact budget-plus-claim boundary that this consumer must prioritize.
+        var failure =
+            Assert.IsType<StateMachineRelationshipFailure>(
+                Activator.CreateInstance(
+                    typeof(StateMachineRelationshipFailure),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    [
+                        StateMachineRelationshipFailureKind.BudgetExceeded,
+                        "focused budget boundary",
+                        ImmutableArray.Create(evidence.RequestedHost),
+                        ImmutableArray<
+                            MetadataTypeDefinitionAddress>.Empty,
+                        ImmutableArray<
+                            MetadataTypeDefinitionName>.Empty,
+                        ImmutableArray.Create(
+                            new StateMachineRelationshipClaim(
+                                evidence.RequestedHost,
+                                StateMachineClaimKind.ClassicAsync)),
+                    ],
+                    culture: null));
+        var rejected =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                Activator.CreateInstance(
+                    typeof(
+                        StateMachineRelationshipResult.Rejected),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    [failure],
+                    culture: null));
+        function.ClassicAsyncRelationship = evidence with
+        {
+            Relationship = rejected,
+        };
 
-        Assert.IsType<StateMachineRelationshipResult.Rejected>(
-            evidence.Relationship);
-
-        IrPasses.Run(
+        new ClassicAsyncReconstructionPass().Run(
             function,
-            IrPasses.Default,
             PassContext.ForImport(
                 method => IrImporter.Import(source, method)));
 
@@ -653,6 +1810,7 @@ public class ClassicAsyncReconstructionPassTests
         Assert.Equal(
             ClassicAsyncDeclarationDisposition.NoOpinion,
             function.ClassicAsyncDeclarationDisposition);
+        Assert.False(function.RequiresAsyncBodyModifier);
     }
 
     [Fact]
@@ -1661,6 +2819,157 @@ public class ClassicAsyncReconstructionPassTests
             ExactDefinitionAcquisitionGuard =
                 machine.AcquisitionGuard,
         };
+    }
+
+    static IrFunction PreparedKickoff(
+        MetadataSource source,
+        string methodName)
+    {
+        IrFunction function = ImportClassicFixture(source, methodName);
+        RunBeforeClassicAsync(
+            function,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        return function;
+    }
+
+    static TypeRef ExpectedStateMachineType(
+        MetadataSource source,
+        string methodName)
+    {
+        IrFunction kickoffFunction =
+            PreparedKickoff(source, methodName);
+        var relationship =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                    kickoffFunction.ClassicAsyncRelationship)
+                    .Relationship)
+                .Relationship;
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetKickoff(
+                kickoffFunction,
+                relationship.StateMachineType,
+                relationship.StateMachineName,
+                out ClassicAsyncReconstructionPass.Kickoff kickoff,
+                out _,
+                out _));
+        return kickoff.StateMachineType;
+    }
+
+    static IrFunction PreparedMoveNext(
+        MetadataSource source,
+        string methodName)
+    {
+        IrFunction kickoffFunction =
+            PreparedKickoff(source, methodName);
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            kickoffFunction.ClassicAsyncRelationship);
+        var relationship =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                evidence.Relationship).Relationship;
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetKickoff(
+                kickoffFunction,
+                relationship.StateMachineType,
+                relationship.StateMachineName,
+                out ClassicAsyncReconstructionPass.Kickoff kickoff,
+                out _,
+                out _));
+        Assert.True(relationship.TryGetMethod(
+            StateMachineMethodRole.MoveNext,
+            out MetadataMethodAddress execution));
+        var request = new MethodRef(
+            kickoff.StateMachineType,
+            "MoveNext",
+            Void,
+            [],
+            HasThis: true)
+        {
+            ExactDefinitionAddress = execution,
+            ExactDefinitionAcquisitionGuard =
+                evidence.AcquisitionGuard,
+        };
+        IrFunction function = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, request));
+        IrPasses.Run(
+            function,
+            IrPasses.ForReconstruction<
+                ClassicAsyncReconstructionPass>(),
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        return function;
+    }
+
+    static void AssertKickoffIsNonNarrow(IrFunction function)
+    {
+        var evidence = Assert.IsType<ClassicAsyncRelationshipEvidence>(
+            function.ClassicAsyncRelationship);
+        var resolved =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                evidence.Relationship);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetKickoff(
+                function,
+                resolved.Relationship.StateMachineType,
+                resolved.Relationship.StateMachineName,
+                out _,
+                out _,
+                out bool narrow));
+        Assert.False(narrow);
+    }
+
+    static TypeRef ForeignBuilderFactory()
+        => TypeRef.Definition(
+            "Foreign",
+            "ReviewRepro",
+            "SideEffectingBuilderFactory");
+
+    static void ReplaceBuilderMember(
+        IrFunction function,
+        string memberName,
+        Func<MethodRef, MethodRef> mutate)
+    {
+        if (memberName != "get_Task")
+        {
+            Call call = Assert.Single(
+                function.Descendants.OfType<Call>(),
+                candidate => candidate.Callee.Name == memberName);
+            ReplaceCallee(call, mutate(call.Callee));
+            return;
+        }
+
+        LoadProperty property = Assert.Single(
+            function.Descendants.OfType<LoadProperty>(),
+            static candidate =>
+                candidate.Accessor.Name == "get_Task");
+        IrExpression instance = Assert.IsAssignableFrom<IrExpression>(
+            property.Instance);
+        instance.Detach();
+        var replacement = new LoadProperty(
+            mutate(property.Accessor),
+            instance,
+            [])
+        {
+            IsVirtual = property.IsVirtual,
+        };
+        property.ReplaceWith(replacement);
+    }
+
+    static Call ReplaceCallee(Call call, MethodRef callee)
+    {
+        List<IrExpression> arguments = [.. call.Arguments];
+        foreach (IrExpression argument in arguments)
+            argument.Detach();
+        var replacement = new Call(
+            callee,
+            call.IsVirtual,
+            arguments)
+        {
+            ConstrainedTo = call.ConstrainedTo,
+        };
+        call.ReplaceWith(replacement);
+        return replacement;
     }
 
     static ClassicAsyncPlanningSession PlanningSession(

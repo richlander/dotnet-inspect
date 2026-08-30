@@ -33,6 +33,7 @@ internal enum ClassicAsyncStage
 public enum ClassicAsyncDeclineReason
 {
     NoExecutionMethod,
+    RejectedRelationship,
     KickoffMachineMismatch,
     NonNarrowKickoffHandoff,
     UnsupportedBuilder,

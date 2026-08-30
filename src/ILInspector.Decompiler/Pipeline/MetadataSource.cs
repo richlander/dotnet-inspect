@@ -125,13 +125,18 @@ public sealed class MetadataSource : IDisposable
 
         if (kickoff is StateMachineRelationshipResult.Rejected)
         {
-            // The owner has rejected a kickoff claim, but its current result
-            // does not retain classic-versus-iterator kind. Preserve the
-            // rejection without electing a classic declared host; #4804 owns
-            // the typed distinction needed to make that decision.
+            var rejected =
+                (StateMachineRelationshipResult.Rejected)kickoff;
+            bool isDeclaredClassic =
+                rejected.Failure.Claims.Any(claim =>
+                    claim.Kickoff == address
+                    && claim.Kind
+                        == StateMachineClaimKind.ClassicAsync);
             return new(
                 address,
-                ClassicAsyncHostRole.Ordinary,
+                isDeclaredClassic
+                    ? ClassicAsyncHostRole.DeclaredKickoff
+                    : ClassicAsyncHostRole.Ordinary,
                 asyncClassification,
                 kickoff,
                 _acquisitionGuard,

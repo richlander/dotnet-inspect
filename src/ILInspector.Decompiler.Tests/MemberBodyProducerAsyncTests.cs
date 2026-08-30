@@ -59,6 +59,9 @@ public sealed class MemberBodyProducerAsyncTests
         MemberBodyProductionResult declined = Produce(
             source,
             "AwaitVoidThenReturn");
+        MemberBodyProductionResult rejected = Produce(
+            source,
+            "RejectedClassicClaim");
 
         Assert.IsType<ClassicAsyncOutcome.Reconstructed>(
             reconstructed.ClassicAsyncOutcome);
@@ -78,6 +81,20 @@ public sealed class MemberBodyProducerAsyncTests
         Assert.Contains(
             "unsupported classic async state machine",
             declined.Body?.Source,
+            StringComparison.Ordinal);
+        var rejectedOutcome =
+            Assert.IsType<ClassicAsyncOutcome.Declined>(
+                rejected.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclineReason.RejectedRelationship,
+            rejectedOutcome.Reason);
+        Assert.Equal(
+            ClassicAsyncDeclarationDisposition.OmitAsync,
+            rejected.ClassicAsyncDeclarationDisposition);
+        Assert.False(rejected.Body?.RequiresAsyncModifier);
+        Assert.Contains(
+            "return Task.CompletedTask;",
+            rejected.Body?.Source,
             StringComparison.Ordinal);
     }
 
@@ -108,6 +125,18 @@ public sealed class MemberBodyProducerAsyncTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "public static async Task<int> AwaitVoidThenReturn(",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "public static Task RejectedClassicClaim()",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "public static async Task RejectedClassicClaim()",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return Task.CompletedTask;",
             output,
             StringComparison.Ordinal);
         Assert.Contains(

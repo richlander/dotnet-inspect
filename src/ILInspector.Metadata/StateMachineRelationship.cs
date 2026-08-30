@@ -12,6 +12,11 @@ public enum StateMachineClaimKind
     Iterator,
 }
 
+/// <summary>One exact kickoff and the state-machine contract it claims.</summary>
+public sealed record StateMachineRelationshipClaim(
+    MetadataMethodAddress Kickoff,
+    StateMachineClaimKind Kind);
+
 /// <summary>An exact interface role implemented by a state-machine MethodDef.</summary>
 public enum StateMachineMethodRole
 {
@@ -96,7 +101,8 @@ public sealed record StateMachineRelationshipFailure
         string detail,
         ImmutableArray<MetadataMethodAddress> kickoffCandidates,
         ImmutableArray<MetadataTypeDefinitionAddress> stateMachineCandidates,
-        ImmutableArray<MetadataTypeDefinitionName> claimedTypes)
+        ImmutableArray<MetadataTypeDefinitionName> claimedTypes,
+        ImmutableArray<StateMachineRelationshipClaim> claims)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(detail);
         Kind = kind;
@@ -110,6 +116,15 @@ public sealed record StateMachineRelationshipFailure
         ClaimedTypes = claimedTypes.IsDefault
             ? []
             : claimedTypes;
+        Claims = claims.IsDefault
+            ? []
+            : claims;
+        ClaimKinds =
+        [
+            .. Claims
+                .Select(static claim => claim.Kind)
+                .Distinct(),
+        ];
     }
 
     public StateMachineRelationshipFailureKind Kind { get; }
@@ -118,6 +133,14 @@ public sealed record StateMachineRelationshipFailure
     public ImmutableArray<MetadataTypeDefinitionAddress>
         StateMachineCandidates { get; }
     public ImmutableArray<MetadataTypeDefinitionName> ClaimedTypes { get; }
+    /// <summary>
+    /// Exact kickoff/kind claims contributing to this rejection. Empty means
+    /// the owner could not complete enough acquisition or decoding to classify
+    /// a claim.
+    /// </summary>
+    public ImmutableArray<StateMachineRelationshipClaim> Claims { get; }
+    /// <summary>Distinct kinds projected from <see cref="Claims"/>.</summary>
+    public ImmutableArray<StateMachineClaimKind> ClaimKinds { get; }
 }
 
 /// <summary>

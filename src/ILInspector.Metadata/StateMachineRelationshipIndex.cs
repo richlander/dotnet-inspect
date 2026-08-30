@@ -215,14 +215,16 @@ public sealed class StateMachineRelationshipIndex
         string detail,
         ImmutableArray<MetadataMethodAddress> kickoffs = default,
         ImmutableArray<MetadataTypeDefinitionAddress> stateMachines = default,
-        ImmutableArray<MetadataTypeDefinitionName> claimedTypes = default)
+        ImmutableArray<MetadataTypeDefinitionName> claimedTypes = default,
+        ImmutableArray<StateMachineRelationshipClaim> claims = default)
         => new(
             new StateMachineRelationshipFailure(
                 kind,
                 detail,
                 kickoffs,
                 stateMachines,
-                claimedTypes));
+                claimedTypes,
+                claims));
 
     sealed class Builder
     {
@@ -402,7 +404,15 @@ public sealed class StateMachineRelationshipIndex
                         [],
                         [MetadataTokens.GetToken(kickoff)],
                         [],
-                        []);
+                        [],
+                        [.. candidates
+                            .Select(static candidate => candidate.Kind)
+                            .Append(classification.Kind)
+                            .Distinct()
+                            .Select(kind =>
+                                new StateMachineRelationshipClaim(
+                                    Address(kickoff),
+                                    kind))]);
                     return;
                 }
 
@@ -451,7 +461,8 @@ public sealed class StateMachineRelationshipIndex
                     [],
                     [MetadataTokens.GetToken(kickoff)],
                     [],
-                    []);
+                    [],
+                    [new(Address(kickoff), candidate.Kind)]);
                 return;
             }
 
@@ -787,7 +798,13 @@ public sealed class StateMachineRelationshipIndex
                 [MetadataTokens.GetToken(kickoff)],
                 [.. stateMachineEvidence.Select(
                     stateMachine => stateMachine.Definition.Value)],
-                []);
+                [],
+                [.. candidates
+                    .Select(candidate =>
+                        new StateMachineRelationshipClaim(
+                            Address(kickoff),
+                            candidate.Kind))
+                    .Distinct()]);
 
             if (expandedNames is not null)
             {
@@ -829,7 +846,8 @@ public sealed class StateMachineRelationshipIndex
                         [claim.StateMachineName],
                         [kickoff.Token],
                         [stateMachineAddress.Definition.Value],
-                        []);
+                        [],
+                        [new(kickoff, claim.Kind)]);
                     return;
                 }
 
@@ -854,7 +872,11 @@ public sealed class StateMachineRelationshipIndex
                         stateMachineAddress.Definition.Value,
                     ],
                     [.. previous.Methods.Select(
-                        method => method.Method.Token)]);
+                        method => method.Method.Token)],
+                    [
+                        new(previous.Kickoff, previous.Kind),
+                        new(kickoff, claim.Kind),
+                    ]);
                 return;
             }
             if (!HasManagedIlBody(
@@ -868,7 +890,8 @@ public sealed class StateMachineRelationshipIndex
                     [claim.StateMachineName],
                     [kickoff.Token],
                     [stateMachineAddress.Definition.Value],
-                    []);
+                    [],
+                    [new(kickoff, claim.Kind)]);
                 return;
             }
 
@@ -913,7 +936,8 @@ public sealed class StateMachineRelationshipIndex
                         [claim.StateMachineName],
                         [kickoff.Token],
                         [stateMachineAddress.Definition.Value],
-                        []);
+                        [],
+                        [new(kickoff, claim.Kind)]);
                     return;
                 }
 
@@ -948,7 +972,10 @@ public sealed class StateMachineRelationshipIndex
                         [relationship.StateMachineName],
                         [relationship.Kickoff.Token],
                         [relationship.StateMachineType.Definition.Value],
-                        [.. implementationTokens]);
+                        [.. implementationTokens],
+                        [new(
+                            relationship.Kickoff,
+                            relationship.Kind)]);
                     return;
                 }
 
@@ -998,7 +1025,10 @@ public sealed class StateMachineRelationshipIndex
                     [relationship.StateMachineName],
                     [relationship.Kickoff.Token],
                     [relationship.StateMachineType.Definition.Value],
-                    currentImplementations);
+                    currentImplementations,
+                    [new(
+                        relationship.Kickoff,
+                        relationship.Kind)]);
                 return;
             }
 
@@ -1026,7 +1056,11 @@ public sealed class StateMachineRelationshipIndex
                     .Select(method => method.Method.Token)
                     .Concat(currentImplementations)
                     .Append(implementationToken)
-                    .Distinct()]);
+                    .Distinct()],
+                [
+                    new(previous.Kickoff, previous.Kind),
+                    new(relationship.Kickoff, relationship.Kind),
+                ]);
         }
 
         void RemoveResolved(StateMachineRelationship relationship)
@@ -1255,7 +1289,13 @@ public sealed class StateMachineRelationshipIndex
                         claim.Kickoff))],
                 [.. stateMachineAddresses.Select(
                     stateMachine => stateMachine.Definition.Value)],
-                []);
+                [],
+                [.. claims
+                    .Select(claim =>
+                        new StateMachineRelationshipClaim(
+                            Address(claim.Kickoff),
+                            claim.Kind))
+                    .Distinct()]);
         }
 
         RejectionComponent PublishRejection(
@@ -1266,14 +1306,16 @@ public sealed class StateMachineRelationshipIndex
             ImmutableArray<MetadataTypeDefinitionName> claimedTypes,
             ImmutableArray<int> kickoffTokens,
             ImmutableArray<int> stateMachineTokens,
-            ImmutableArray<int> implementationTokens)
+            ImmutableArray<int> implementationTokens,
+            ImmutableArray<StateMachineRelationshipClaim> claims = default)
         {
             var component = new RejectionComponent(
                 kind,
                 detail,
                 kickoffs,
                 stateMachines,
-                claimedTypes);
+                claimedTypes,
+                claims);
             ObserveRejectionWork();
             _rejectionComponents.Add(component);
             MergeExisting(
@@ -1405,7 +1447,8 @@ public sealed class StateMachineRelationshipIndex
                 string detail,
                 ImmutableArray<MetadataMethodAddress> kickoffs,
                 ImmutableArray<MetadataTypeDefinitionAddress> stateMachines,
-                ImmutableArray<MetadataTypeDefinitionName> claimedTypes)
+                ImmutableArray<MetadataTypeDefinitionName> claimedTypes,
+                ImmutableArray<StateMachineRelationshipClaim> claims)
             {
                 _parent = this;
                 Kind = kind;
@@ -1413,6 +1456,7 @@ public sealed class StateMachineRelationshipIndex
                 Kickoffs = kickoffs;
                 StateMachines = stateMachines;
                 ClaimedTypes = claimedTypes;
+                Claims = claims.IsDefault ? [] : claims;
             }
 
             internal StateMachineRelationshipFailureKind Kind { get; }
@@ -1422,6 +1466,10 @@ public sealed class StateMachineRelationshipIndex
                 StateMachines { get; }
             internal ImmutableArray<MetadataTypeDefinitionName>
                 ClaimedTypes { get; }
+            internal ImmutableArray<StateMachineRelationshipClaim> Claims
+            {
+                get;
+            }
 
             internal RejectionComponent Find()
             {
@@ -1461,12 +1509,15 @@ public sealed class StateMachineRelationshipIndex
                 _stateMachines = new();
             readonly OrderedEvidence<MetadataTypeDefinitionName>
                 _claimedTypes = new();
+            readonly OrderedEvidence<StateMachineRelationshipClaim> _claims =
+                new();
 
             internal void Add(RejectionComponent component)
             {
                 _kickoffs.AddRange(component.Kickoffs);
                 _stateMachines.AddRange(component.StateMachines);
                 _claimedTypes.AddRange(component.ClaimedTypes);
+                _claims.AddRange(component.Claims);
             }
 
             internal StateMachineRelationshipResult.Rejected Freeze() =>
@@ -1475,7 +1526,8 @@ public sealed class StateMachineRelationshipIndex
                     detail,
                     _kickoffs.Freeze(),
                     _stateMachines.Freeze(),
-                    _claimedTypes.Freeze());
+                    _claimedTypes.Freeze(),
+                    _claims.Freeze());
         }
 
         sealed class OrderedEvidence<T>

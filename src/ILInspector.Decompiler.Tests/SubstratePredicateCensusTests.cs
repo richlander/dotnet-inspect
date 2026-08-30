@@ -14,6 +14,10 @@ public class SubstratePredicateCensusTests
             "Constructor diagnostics compare the declaring type with the current/base type; this is diagnostic routing, not a reusable rewrite gate.",
         [new("ClassicAsyncReconstructionPass.cs", "SameStateTransitionValue")] =
             "Classic-async guard authentication compares one adjacent protocol local/field transition; this pass-owned constant-or-stack-slot shape is not reusable place identity.",
+        [new("ClassicAsyncReconstructionPass.cs", "SameAwaiterField")] =
+            "Classic-async resume authentication compares one exact-machine awaiter spill/load pair inside the bounded protocol CFG; it is not general field or place identity.",
+        [new("ClassicAsyncReconstructionPass.cs", "SameExactType")] =
+            "Classic-async protocol authentication requires semantic type equality plus every available resolution/definition provenance field and ordered required/optional custom modifier recursively; this stronger pass boundary is not the pipeline's general TypeRef equality.",
         [new("EhStructuringPass.cs", "SameZone")] =
             "Control-flow legality check over EH constructs and branch offsets, not a place/member identity predicate.",
         [new("IncrementDecrementPass.cs", "SameField")] =

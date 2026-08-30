@@ -206,6 +206,11 @@ public class ClassicAsyncReconstructionHonestyTests
     [InlineData(
         "SequentialWithImplicitConversion",
         "long beta = await b;")]
+    [InlineData("AwaitValue", "return await a + b;")]
+    [InlineData("AwaitValueTask", "return await a;")]
+    [InlineData(
+        "DynamicReferenceIdentity",
+        "return (object)(await value) == (object)right;")]
     [InlineData("AwaitDelayConstant", "await Task.Delay(1);")]
     public void FaithfulLegacyRecipeRemainsFullyReconstructed(
         string methodName,
@@ -223,6 +228,34 @@ public class ClassicAsyncReconstructionHonestyTests
             node => node.Opcode == "classic async");
         Assert.Contains(
             expectedOutput,
+            result.Output,
+            StringComparison.Ordinal);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void PostAwaitResultReceiverCallDeclinesAtPartialFidelity()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(
+            source,
+            "InterfaceReceiver");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        var decline = Assert.IsType<ClassicAsyncOutcome.Declined>(
+            function.ClassicAsyncOutcome);
+        Assert.Equal(
+            ClassicAsyncDeclineReason.UnrecognizedAwaiterProtocol,
+            decline.Reason);
+        Assert.Contains(
+            ".Start<",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "return ((IInterfaceValue)(await value)).GetValue();",
             result.Output,
             StringComparison.Ordinal);
         function.CheckInvariant();

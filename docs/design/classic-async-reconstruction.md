@@ -197,14 +197,21 @@ The boundary is total:
 - execution and support hosts are `NotApplicable` and retain their pristine
   snapshots;
 - a complete negative owner relationship such as missing, malformed,
-  cross-kind, or ambiguous becomes a named healthy decline only for a
-  classic declared kickoff;
-- owner acquisition, budget, or decode failure is preserved as
-  `InputUnavailable` with its original typed reason;
+  cross-kind, or ambiguous becomes a named healthy decline only when its
+  owner-issued rejected claims contain the exact requested kickoff address
+  paired with `ClassicAsync`; another kickoff's classic claim in the same
+  rejection component cannot classify this kickoff;
+- `BudgetExceeded` is always preserved as `InputUnavailable` with its original
+  typed reason, even when the failure also carries an exact classic claim;
+- owner acquisition or decode failure without a complete claim is likewise
+  preserved as `InputUnavailable`;
 - failure to import an exact owner-selected kickoff, execution, or support
   MethodDef is `ImportFailed` with the role and diagnostics;
 - an internal planning failure is `PlanningFailed`, never a plausible decline;
 - every healthy classic input produces exactly one decision.
+
+The `Owner-result preservation` gate enforces the per-kickoff association and
+budget precedence.
 
 The adapter that invokes this component decides how its own larger lifecycle
 represents `NotApplicable`, owner failure, or import failure. This design does
@@ -346,10 +353,35 @@ conversions, element access, and other cloned operand forms instead of
 narrowing reconstruction to calls over parameters. Await order is global
 within the root function, and nested-function awaits cannot be silently counted
 as part of that root realization. For a reused awaiter local, each `GetResult`
-is paired with exactly one non-resume `GetAwaiter` store after the preceding
-`GetResult` on that local. Competing definitions, including alternate
-predecessor stores, decline; tree traversal order is not reaching-definition
-evidence.
+is paired with exactly one non-resume `GetAwaiter` store reaching the use
+through the owning root-function `BlockContainer`. The bounded dataflow resets
+at each same-local `GetResult`, joins predecessor definitions, and admits a
+compiler resume load only when one same-field suspension spill is reached from
+the same unique source definition. Exactly one non-resume source and at most
+one authenticated resume definition may reach a `GetResult`; a diamond that
+joins two resume stores declines even when both load the same spill field.
+Missing, alternate, backedge-introduced, cross-container, unmodeled, or
+nested-function definitions also decline. This is container-local structural
+evidence for the supported compiler protocol, not a claim of generally sound
+CLR reaching-definition or exception-flow semantics. Tree traversal order is
+never reaching-definition evidence. The `Await source uniqueness` gate
+enforces these bounds.
+
+The completion protocol is execution ownership, not preserved scaffolding.
+Every exact-machine `SetResult`, `SetException`, `AwaitOnCompleted`, and
+`AwaitUnsafeOnCompleted` statement in an accepted recipe is authenticated and
+claimed. The selected final result callback, one exception callback, and one
+suspension callback per accepted await point are the complete callback
+inventory. An extra callback declines; it cannot enter the preserved physical
+set because replacing the kickoff makes that physical execution unreachable.
+Completion members obey the same external-core-library provenance and exact
+custom-modifier boundary as kickoff members. Each suspension callback's closed
+type arguments must equal its instantiated by-ref parameter element types; its
+first pair must name the accepted await point's exact awaiter local and type,
+and its second pair must name the exact closed state-machine type and actual
+`this` argument. The generic definition placeholders must be exact as well.
+The `Completion callback ownership` gate independently inventories the
+compiler positives and exercises each correlation decline.
 
 The first predicate realization gate covers the accepted conditional recipe.
 Only a condition carrying the field-to-kickoff-parameter mapping required by
@@ -485,6 +517,22 @@ mapped to the same machine makes the kickoff non-narrow. The map records
 `<>4__this` for kickoff ownership, but the current recipes do not realize
 instance receivers and therefore still decline when execution requires it.
 
+`Create`, `Start<TStateMachine>`, and the Task/ValueTask accessor are protocol
+members, not name-shaped calls. Their static/instance and virtual shape,
+declaring builder storage identity, return and parameter types, generic
+definition shape, closed type arguments, and receiver/argument instantiation
+must match the supported core-library builder contract exactly, including the
+ordered required/optional custom modifiers and exact modifier-type identity at
+every nested type position. The supported compiler handoff reaches those
+members as external core-library `MemberRef`s, for which both the exact
+definition address and acquisition guard are absent. A member carrying either
+value is declined: this component has no owner-issued expected member identity
+against which it could authenticate that definition, and same-module MVID/row
+resemblance is not a substitute. A foreign same-signature member likewise
+makes the handoff non-narrow; Decompiler neither resolves a replacement
+relationship nor broadens the supported builder set. The `Narrow ownership
+non-vacuity` gate enforces this conservative member boundary.
+
 When the decline is about the handoff itself and the kickoff is proven narrow,
 application may replace it with one `UnsupportedNode` carrying
 `ReplacedNarrowHandoff`. An execution-recipe decline preserves the original
@@ -617,6 +665,20 @@ unverified. Until each family has input-derived regions, exact output
 realizations, compiler-produced positives, and close declines, its presence
 prevents reconstruction.
 
+For the current result recipes, the exact `GetResult` protocol call may be
+surrounded only by already verified structural conversions and operators.
+Any unverified invocation/effect node anywhere in the cloned result expression
+declines, including ordinary calls, constructors, indirect calls,
+local-function invocations, delegate creation, dynamic member access, and
+raised construction/initializer forms. This includes sibling effects that do
+not enclose `GetResult`. A field/property receiver rooted in the post-await
+result also declines.
+Calls in the separately inventoried awaited operand remain eligible; they
+supply the await source and are not post-await result use. The `Result-use
+boundary` gate covers compiler-produced enclosing and sibling construction,
+synthetic enclosing and sibling invocation forms, and the accepted
+direct/conversion/operator neighbors.
+
 ### New raises
 
 Each new raise names one compiler lowering family and its close negatives.
@@ -632,22 +694,24 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Gate | Evidence | Fails when |
 | --- | --- | --- |
 | Focused owner boundary | `ClassicAsyncArchitectureTests` source inventory | Classic code scans Metadata relationships, imports by name/ordinal, defines physical diff/Research/CLI/harness policy, or references #4716–#4719 implementation types |
-| Owner-result preservation | Metadata fixture adapters over every #4669 result arm | A complete negative relationship loses its typed reason before decline; an acquisition/budget/decode failure becomes decline; or either becomes empty success or a guessed candidate |
+| Owner-result preservation | Metadata fixture adapters over every #4669 result arm plus `StateMachineRelationshipIndex_PreservesClaimKindPerKickoff`, `StateMachineRelationshipIndex_BudgetFailureRetainsExactClaim`, `MixedRejectedClaimsClassifyEachKickoffExactly`, and `BudgetFailureWithClassicClaimRemainsInputFailure` | A merged rejection loses the exact kickoff/kind association; another kickoff's claim produces `RejectedRelationship`/`OmitAsync`; `BudgetExceeded` becomes decline despite exact claim evidence; or failure becomes empty success or a guessed candidate |
 | Exact host identity | Kickoff/execution/support fixtures with same-name, same-token, and byte-distinct same-MVID/same-row decoys, plus `KickoffLocalWithoutExactDefinitionIdentityDeclines` | Planning or application drops the owner guard, changes the requested host role, accepts a same-name foreign machine local, or uses another acquired module or MethodDef |
 | Planning totality | Healthy classic, non-classic, owner-failure, import-failure, and injected planner-failure fixtures | A request has no terminal result; failure becomes decline; or classic health is inferred from rendered text |
 | Stage-neutral plan | Raised/Lowered fixtures in both request orders | Recognition runs twice; decisions differ by request order; a plan retains stage-owned nodes/locals; or stage snapshots alias |
 | Registered pipeline preservation | Independent exact pass-list baselines plus accepted classic fixtures | The registered `IrPasses.Default` or `IrPasses.Lowered` sequence or required relative order changes without an intentional baseline update |
 | Planning-sequence derivation | Set/order equality against the registered prefix before `ClassicAsyncReconstructionPass` for kickoff planning and `ForReconstruction<ClassicAsyncReconstructionPass>()` for execution planning | Planning uses a copied list, omits a registered prerequisite, includes the requesting/application pass, replays a post-classic pass over the kickoff, or changes order |
-| Bounded population equality | Existing accepted classic fixture set plus close negatives | A semantic gate unintentionally adds or removes an accepted reconstruction |
+| Bounded population equality | `CompilerProducedAcceptedPopulationIsExact` over the complete healthy classic fixture kickoff inventory, plus close negatives | A semantic gate unintentionally adds or removes one of the 20 accepted compiler-produced reconstructions |
 | Plan-region partition | Accepted compiler fixtures plus injected extra-region, external-entry, duplicate-consumption, overlap, and unconsumed-use negatives | A physical kickoff/execution region is neither consumed nor preserved, appears in both sets, is consumed twice, has an unmodeled entry/use, or is rewritten while preserved |
 | User-region realization | `CheckedRegionHasOnePrimaryRealization`, `AwaitedOperandsHaveOnePrimaryRealization`, `PredicateRegionHasOnePrimaryRealization`, `GuardedEffectRegionHasOnePrimaryRealization`, and the `RegionLedgerRejects*` negatives | A modeled user region has no realization or more than one, its typed semantics or position changes, or preserved physical material supplies reconstructed semantics |
 | Decline honesty | Narrow and non-narrow classic kickoff fixtures for every decline category | A healthy decline lacks a marker/reason; a narrow handoff survives; a non-narrow statement changes or disappears; or a failure fabricates a marker-only success |
-| Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, and `SwappedKickoffParameterCopiesDecline` negatives | Shape resemblance or a set of valid source arguments establishes ownership without an exact field-to-argument correlation |
-| Await source uniqueness | Sequential compiler positives plus `CompetingAwaiterDefinitionsDecline` | A `GetResult` selects a source by tree order, accepts zero or multiple candidate definitions in its local interval, or rejects ordinary sequential reuse |
+| Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, `SwappedKickoffParameterCopiesDecline`, the foreign Create/Start/Task-accessor negatives, `SameExactTypeIncludesOrderedRecursiveCustomModifiers`, `CustomModifiedBuilderMemberMakesKickoffNonNarrow`, `ExactAddressedBuilderMemberMakesKickoffNonNarrow`, and `InconsistentBuilderMemberProvenanceMakesKickoffNonNarrow` | Shape resemblance, member names, custom-modifier loss, unauthenticated definition coordinates, inconsistent provenance, or a set of valid source arguments establishes ownership without exact builder protocol and field-to-argument identity |
+| Await source uniqueness | `SequentialAwaiterLocalReuseHasUniqueReachingSources`, `CompetingAwaiterDefinitionsDecline`, `AwaitSourceReachingDefinitionsRejectBackedgeAfterUse`, and `AwaitSourceRejectsDiamondWithTwoResumeDefinitions` | A `GetResult` selects a source by tree order, accepts a missing/alternate/backedge/cross-container definition or multiple resume definitions, fails to authenticate one resume spill, or rejects ordinary sequential reuse |
+| Result-use boundary | `PostAwaitResultReceiverCallDeclinesAtPartialFidelity`, `PostAwaitInvocationNodesAreUnverified`, `CompilerConstructorAfterAwaitDeclines`, and the direct/conversion cases in `FaithfulLegacyRecipeRemainsFullyReconstructed` | A post-await receiver or invocation/effect node is cloned without a region and realization, a call in the separately inventoried awaited operand is rejected, or a verified direct/conversion/operator result is rejected |
+| Completion callback ownership | `AcceptedRecipesOwnEveryCompletionCallback`, `ExtraExactMachineSetResultIsRejected`, `AwaitCallbackRequiresExactAwaitPointCorrelation`, and `CompletionCallbackRequiresExactExternalMemberIdentity` | An accepted recipe leaves a completion/suspension callback preserved, accepts an extra callback, loses custom-modifier/member provenance, mismatches an awaiter or machine argument/type, or derives the compiler-positive inventory from the same permissive matcher |
 | Finally-state transition correlation | Compiler-produced `AwaitInTryFinally` positives plus `FinallyStateGuardRequiresExactMachineStateAndNoElse` | A guard accepts a foreign state field, else arm, user assignment, direct constant assignment, or uncoupled stack-slot transition |
 | Support preservation | Classic, runtime, iterator, custom-builder, and unrelated support-like methods | An Execution/Support host is not `NotApplicable`, broad builder-name recognition edits a method, or any support body/local changes |
 | Declaration disposition | Reconstructed, declined, not-applicable, owner/import/planner failure matrix | Reconstructed omits `IncludeAsync`, declined does not return `OmitAsync`, or a non-decision invents classic modifier policy |
-| Declaration disposition wiring | `ClassicAsyncDeclarationDispositionFlowsThroughDecompilerBodyResults` over direct member and whole-type production | `DecompilerResult` or `MemberBodyProductionResult` drops the value; either body path rederives a decided classic modifier from Metadata; or the final Decompiler body fact disagrees |
+| Declaration disposition wiring | `ClassicAsyncDeclarationDispositionFlowsThroughDecompilerBodyResults`, `WholeTypeUsesDecidedClassicAsyncDeclarationDisposition`, and `RejectedClassicClaimRendersAsNonAsyncTaskMethod` over direct member, whole-type, and CLI production | `DecompilerResult` or `MemberBodyProductionResult` drops the value; either body path rederives a decided classic modifier from Metadata; a rejected classic body renders `async`; or the final Decompiler body fact disagrees |
 | Foreign-context isolation | Nested local/lambda/iterator/classic fixtures with pass stepping on and off | Parent classic state reaches a foreign pipeline or a foreign host borrows parent identity |
 | Embedding honesty | Await-bearing/await-free local and lambda fixtures plus failure/marker negatives | A foreign result needing an async carrier, carrying unsupported output, or failing is embedded as plausible synchronous source |
 | Value semantics | Equality/hash/clone tests for every decision and result arm | A behavior-affecting field is omitted or a mutable plan is shared |

@@ -248,6 +248,9 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Equal(
             "The state-machine attribute constructor is malformed.",
             result.Failure.Detail);
+        Assert.Equal(
+            [StateMachineClaimKind.ClassicAsync],
+            result.Failure.ClaimKinds);
     }
 
     [Fact]
@@ -304,6 +307,38 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Equal(
             StateMachineRelationshipFailureKind.BudgetExceeded,
             result.Failure.Kind);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_BudgetFailureRetainsExactClaim()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                Enumerable.Repeat(
+                        StateMachineClaimKind.ClassicAsync,
+                        MetadataSafetyPolicy.MaxRelationshipNodes + 1)
+                    .ToArray()));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var failure =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)))
+                .Failure;
+
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.BudgetExceeded,
+            failure.Kind);
+        var claim = Assert.Single(failure.Claims);
+        Assert.Equal(
+            MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(1)),
+            claim.Kickoff.Token);
+        Assert.Equal(
+            StateMachineClaimKind.ClassicAsync,
+            claim.Kind);
     }
 
     [Theory]
@@ -486,6 +521,46 @@ public sealed class StateMachineRelationshipIndexTests
 
     [Fact]
     public void
+        StateMachineRelationshipIndex_PreservesClaimKindPerKickoff()
+    {
+        using var image = new LoadedImage(
+            BuildClaimImage(
+                [StateMachineClaimKind.ClassicAsync],
+                secondKickoffClaim:
+                    StateMachineClaimKind.Iterator));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var failure =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)))
+                .Failure;
+
+        Assert.Equal(
+            [
+                new StateMachineRelationshipClaim(
+                    new(
+                        failure.KickoffCandidates[0].ModuleVersionId,
+                        MetadataTokens.MethodDefinitionHandle(1)),
+                    StateMachineClaimKind.ClassicAsync),
+                new StateMachineRelationshipClaim(
+                    new(
+                        failure.KickoffCandidates[0].ModuleVersionId,
+                        MetadataTokens.MethodDefinitionHandle(2)),
+                    StateMachineClaimKind.Iterator),
+            ],
+            failure.Claims);
+        Assert.Equal(
+            [
+                StateMachineClaimKind.ClassicAsync,
+                StateMachineClaimKind.Iterator,
+            ],
+            failure.ClaimKinds);
+    }
+
+    [Fact]
+    public void
         StateMachineRelationshipIndex_MergesEveryOverlappingRejection()
     {
         using var image = new LoadedImage(
@@ -526,6 +601,15 @@ public sealed class StateMachineRelationshipIndexTests
             [0x06000001, 0x06000002, 0x06000003],
             first.Failure.KickoffCandidates.Select(
                 candidate => candidate.Token));
+        Assert.Equal(
+            [0x06000001, 0x06000002, 0x06000003],
+            first.Failure.Claims.Select(
+                claim => claim.Kickoff.Token));
+        Assert.All(
+            first.Failure.Claims,
+            claim => Assert.Equal(
+                StateMachineClaimKind.ClassicAsync,
+                claim.Kind));
     }
 
     [Fact]

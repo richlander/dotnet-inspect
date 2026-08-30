@@ -478,6 +478,18 @@ public static class AsyncFixtures
     public static Task RejectedClassicClaim()
         => Task.CompletedTask;
 
+    [IteratorStateMachine(typeof(NotAStateMachine))]
+    public static IEnumerable<int> RejectedIteratorClaim()
+        => [];
+
+    public static async Task<Snapshot> ConstructorAfterAwait(
+        Task<int> value)
+        => new(await value);
+
+    public static async Task<int> ConstructorSiblingAfterAwait(
+        Task<int> value)
+        => await value + new Snapshot(3).Value;
+
     public static async Task<bool> DynamicReferenceIdentity(
         Task<ReferenceIdentityPlain> value,
         dynamic right)

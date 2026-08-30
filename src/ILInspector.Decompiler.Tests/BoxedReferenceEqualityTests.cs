@@ -169,12 +169,19 @@ public class BoxedReferenceEqualityTests
     }
 
     [Fact]
-    public void ClassicAsyncBodyOnlyInterfaceFact_ReachesKickoffPrinter()
+    public void ClassicAsyncInterfaceResultReceiverDeclinesHonestly()
     {
         string output = PrintClassicAsync("InterfaceReceiver");
 
-        Assert.Contains("return ((IInterfaceValue)(await value)).GetValue();", output);
-        Assert.DoesNotContain("return (await value).GetValue();", output);
+        Assert.Contains(
+            "unsupported classic async state machine",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(".Start<", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "return ((IInterfaceValue)(await value)).GetValue();",
+            output,
+            StringComparison.Ordinal);
     }
 
     [Fact]
