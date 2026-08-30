@@ -34,9 +34,9 @@ consumer picks a depth instead of re-deriving a rule.
 ## The layers
 
 ```text
-dotnet-inspect L3 ---------+
-  |                        |
-  v                        |
+dotnet-inspect L3
+  |
+  v
 DotnetInspector.Sections --+----> DotnetInspector.RowSelection
   L2                       |       shared dependency-free leaf
   |                        |
@@ -60,12 +60,12 @@ A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
 `DotnetInspector.RowSelection` is an orthogonal leaf utility rather than a new
-layer. L3 lowers typed operation intent, L2 resolves owner-issued identities
-and constructs the executable plan and source request, and L1 or source owners
-may analyze that request for equivalent execution and return a typed result
-with completion evidence. The
+layer. L3 does not reach the leaf directly; its boundary output is typed
+operation intent. L2 owns resolution into the executable plan and typed source
+request. L1 or source owners may analyze that request for equivalent execution
+and return a typed result with completion evidence. The
 [composition map](item-and-line-limits.md#composition) owns the exact sequence.
-None takes a dependency on another consumer merely to reach the leaf.
+L2 and L1/source owners reach the leaf without depending on one another.
 
 ## Implementation status
 
@@ -282,13 +282,11 @@ are integrated with Markout serialization.
 L2 binds declared typed row sets to the consumer-neutral
 `DotnetInspector.RowSelection` leaf component.
 [Semantic row selection](semantic-row-selection.md) defines that component's
-ordered stage plan, strictness, stage-local positions, and pure output. L3
-hands L2 typed operation intent rather than constructing the executable plan.
-L2 resolves the owner-issued identities, constructs the typed source request,
-consumes the typed source result and completion evidence, completes its
-owner-defined residual work, and reconnects selected values to their row-set
-identity before Markout receives them. This layer contract does not define the
-relative order of L2's internal row operations.
+ordered stage plan, strictness, stage-local positions, and pure output. At this
+boundary, L3 supplies typed operation intent. L2 owns its resolution into the
+executable plan and typed source request, and binds the typed source result and
+completion evidence back to declared row sets. This layer contract does not
+define the relative order of L2's internal row operations.
 
 Categories are consumer-neutral. `@Surface`, `@Performance`, `@Audit`,
 `@Integrations`, and `@SourceLink` are topical groupings, not terminal
