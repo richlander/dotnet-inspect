@@ -51,19 +51,24 @@ wasm site rebuild is sequenced behind it.
 **Workspace Definitions** is the sole owner of the portable committed-view
 shape, definition and packet version boundaries, legacy lowering, projection
 classification, and complete-restoration coordination defined here. Its
-immediate inputs are product-issued acquisition coordinates, structural
-subject selectors, View Facet Registry IDs, query presets and their portable
-payload codecs, and owner-issued body or source-target identities carried by
-those query payloads. Its output is a canonical definition composition or
-packet, a typed projection refusal, or one complete restoration result.
+immediate inputs are an owner-authorized activation demand, product-issued
+acquisition coordinates, structural subject selectors, View Facet Registry
+IDs, query presets and their portable payload codecs, and owner-issued body or
+source-target identities carried by those query payloads. Its output is a
+canonical definition composition or packet, a typed projection refusal, or
+one complete restoration result.
 
 Adjacent owners remain independent:
 
 - [View Facet Registry](view-facet-registry.md) issues and resolves facet IDs,
-  descriptors, applicability, availability, and execution bindings.
+  descriptors, applicability, and availability, and owns its private execution
+  bindings.
 - [Inspection Subject Navigation](inspection-subject-navigation.md) prepares
   one exact subject-plus-facet participant and owns its recommendation,
   reconciliation, retained snapshot, and effect authority.
+- [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
+  owns admission, realization, roles, lifetime, and publication for each
+  supported coordinate composition.
 - Query owners define each query ID, payload shape, selector requirements, and
   portable payload codec.
 - [Inspect Web UI](inspect-web-ui.md) renders owner-issued state and owns focus,
@@ -306,14 +311,16 @@ Field semantics:
   `memberKey`, `section`, and library scope — each field individually optional;
   member selectors require `type`, and `memberAnchor` and `memberSignature`
   are mutually exclusive). The singular `library` string is the compatible
-  representation for exactly one legacy Browser Library key; `libraries` is
+  representation for exactly one assembly-filename-stem key; `libraries` is
   the unique, ascending-ordinal string array for two or more keys. They are
   mutually exclusive, and both are omitted for an unscoped view. Library scope
-  is a view concern, because scoping is a lens on a context, not a different
-  context. These are compatibility selectors, not version-2 identities:
-  `type` may be an owner-issued Browser v1 Type key, members use an anchor,
-  signature, or definition-only group key, and Library values are assembly
-  filename stems. The legacy lowerer below owns their conversion.
+  is a view concern, because scoping is a lens on the scenario's selected
+  context, not a different context. These are compatibility selectors, not
+  version-2 identities: `type` is exactly the legacy
+  `MetadataTypeDefinitionName.ToMetadataFullName()` projection, members use an
+  anchor, signature, or definition-only group key, and Library values are
+  assembly filename stems. Browser-issued Type and Library keys belong only to
+  packet v1. The legacy lowerer below owns both sources' conversion.
 - `navigation` records — named ordered tab sets plus one focused tab id. Each
   tab has a record-local stable id and exactly one source: either a kinded
   acquisition coordinate or a group subscription. A group source also carries
@@ -434,9 +441,9 @@ Each state has these fields:
   reinterpret its fields.
 - `libraries` is an optional unique, canonically ordered list of
   `PortableLibraryIdentity` values used as query scope. It is not the active
-  Library subject and does not select one. It is valid only when the selected
-  facet's execution binding or one referenced query descriptor declares
-  multi-Library scope.
+  Library subject and does not select one. It requires at least one referenced
+  query whose public owner-issued descriptor declares that it consumes
+  state-level multi-Library scope; it is invalid without such a query.
 
 Every result-affecting committed value is therefore either structural state
 spelled here or typed query state. Presentation-only disclosure, focus, hover,
@@ -535,15 +542,16 @@ their Registry evidence; the coordinator does not choose another facet.
 When `facet` is absent, Navigation owns recommendation and its complete
 evidence.
 
-Every query reference resolves one version-2 query record. The selected
-facet's private execution binding and each query descriptor jointly declare
-whether that query participates in the view. Unknown query IDs, duplicate
-query purposes, missing required selectors, extra payload fields, a payload
-whose owner codec is unavailable, a query incompatible with the exact subject
-or facet, and `libraries` supplied to a query without multi-Library scope all
-fail closed. A query-free facet is valid only when its execution binding
-requires no persisted query state. A state whose visible result depends on a
-filter, body, or source target that lacks a portable query payload is
+Every query reference resolves one version-2 query record. Its public
+owner-issued descriptor declares the exact structural inputs and facet IDs it
+accepts, whether it consumes state-level Library scope, and its payload codec.
+Unknown query IDs, duplicate query purposes, missing required selectors, extra
+payload fields, a payload whose owner codec is unavailable, a query
+incompatible with the exact subject or facet, and `libraries` consumed by no
+referenced query all fail closed. Descriptors that do not declare Library
+scope do not receive it. A state with no query reference denotes the
+owner-defined unrefined facet state. A visible result that depends on a filter,
+body, source target, or other query state without a portable query payload is
 non-projectable rather than silently restored with a default.
 
 A query descriptor may require the state coordinate, the scenario's selected
@@ -559,8 +567,8 @@ spellings**. The Registry owns stable human-writable spelling, title, summary,
 structural applicability, and order; this owner consumes those IDs without
 minting another identity space. CLI commands, Browser lenses, and Member
 sections remain projections that may rename their own surfaces. A section is
-not intrinsically Member-scoped; the facet descriptor's structural kind and
-execution binding decide the subject.
+not intrinsically Member-scoped; the facet descriptor's structural kind
+determines its subject kind.
 
 This is load-bearing because definitions persist: a bundled demo must resolve
 years after a flag or chip label changed. Every bound facet ID is therefore a
@@ -692,8 +700,8 @@ they are not a home-demo entry (home catalog is package- and graph-shaped
 scenarios).
 
 A schema-version-2 home demo persists only `ViewState.Facet` and version-2
-query records. The facet's product execution binding reaches the ordinary
-section pipeline; `ProductDemoSections`, `View.Section`, display labels, and
+query records. The resolved facet and query owners reach their ordinary
+product pipeline; `ProductDemoSections`, `View.Section`, display labels, and
 CLI `-S` spellings do not enter the version-2 record. The two existing display
 names are accepted only by the schema-version-1 lowerer and must round-trip to
 their exact canonical facet IDs before Registry resolution.
@@ -1147,8 +1155,8 @@ optional `l`:
   order.
 - `l` is a nonempty array of unique compact `PortableLibraryIdentity` tuples
   in ascending lexicographic order by their four canonical components, with
-  `null` sorting before a string. The selected facet's execution binding or
-  one referenced query descriptor must explicitly accept multi-Library scope.
+  `null` sorting before a string. At least one referenced query descriptor must
+  explicitly declare that it consumes state-level multi-Library scope.
 
 `q`, when present, is a table of packet-local query states. Each tuple is
 `[queryId,payload]`: `queryId` is the exact product query identity and
@@ -1325,6 +1333,13 @@ Navigation intent. Applying a submitted source uses one
 Workspace-Definitions-owned coordinator because strict decode, legacy
 resolution, coordinate realization, Navigation preparation, and query or
 target preparation may finish, fail, or be superseded independently.
+
+A packet or definition remains inert data and cannot authorize acquisition.
+Restoration consumes the current owner-authorized activation demand required
+by each coordinate realizer and query owner. The coordinator carries that
+demand to those owners without widening or reconstructing it; absent, stale,
+revoked, or incompatible authority fails visibly before the affected owner
+reserves budget, acquires, or publishes.
 
 One restoration attempt proceeds in this order:
 
@@ -1722,8 +1737,10 @@ Implementation must add, at minimum:
   missing, ambiguous, extra, duplicate-purpose, and incompatible inputs fail
   closed. It must derive subject-kind, exact-facet, query, Library-scope, and
   portable-payload combinations from owner-issued descriptors rather than a
-  second host table, and classify a non-portable result-affecting filter, body,
-  or source target as `NonProjectable`;
+  second host table; prove Library scope without a consuming query is invalid;
+  never inspect a Registry-private execution binding; and classify a
+  non-portable result-affecting filter, body, or source target as
+  `NonProjectable`;
 - a navigation gate proving ordered tabs and record-local focus round-trip,
   duplicate ids or normalized sources fail, target-distinct group sources
   remain distinct, group and coordinate sources resolve in at least one
@@ -1742,23 +1759,25 @@ Implementation must add, at minimum:
   outcome there;
 - a complete-restoration conformance gate with controllable workspace,
   Navigation, query, and canonical-projection participants. It must cover
-  a distinct token-admission transition before preflight starts, stale decode
-  success and failure after newer intent, out-of-order readiness, one failure
-  after peers become ready, exact and replacement commit, projectable and
-  validly non-projectable commit, projection failure, supersession before and
-  after all peers are ready, late completion, and an initial failure with no
-  prior snapshot. Every failure publication must carry its exact token,
-  source-identifying `RestorationFailure`, request kind, and current
-  Navigation prerequisite-abort or result disposition even when participant
-  evidence is empty. It must distinguish a ready Navigation replacement
-  carrying semantic unavailable or failed Registry evidence from a Navigation
-  preparation `NonSuccess` that carries no fragment. Every non-commit case
-  retains the complete prior snapshot and revision; a commit publishes every
-  fragment in one revision; exact packet restoration retains the requested
-  packet basis; exact definition restoration retains definition basis plus its
-  derived projectable or non-projectable outcome; replacement carries the
-  installed snapshot's projectable or non-projectable outcome; and only current
-  opaque Navigation authority can reach the consumer;
+  inert packet/definition input with absent, stale, revoked, and incompatible
+  activation authority; a distinct token-admission transition before
+  preflight starts; stale decode success and failure after newer intent;
+  out-of-order readiness; one failure after peers become ready; exact and
+  replacement commit; projectable and validly non-projectable commit;
+  projection failure; supersession before and after all peers are ready; late
+  completion; and an initial failure with no prior snapshot. Unauthorized
+  input must reserve, acquire, and publish nothing. Every failure publication
+  must carry its exact token, source-identifying `RestorationFailure`, request
+  kind, and current Navigation prerequisite-abort or result disposition even
+  when participant evidence is empty. It must distinguish a ready Navigation
+  replacement carrying semantic unavailable or failed Registry evidence from
+  a Navigation preparation `NonSuccess` that carries no fragment. Every
+  non-commit case retains the complete prior snapshot and revision; a commit
+  publishes every fragment in one revision; exact packet restoration retains
+  the requested packet basis; exact definition restoration retains definition
+  basis plus its derived projectable or non-projectable outcome; replacement
+  carries the installed snapshot's projectable or non-projectable outcome; and
+  only current opaque Navigation authority can reach the consumer;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
