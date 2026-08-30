@@ -739,11 +739,6 @@ internal static partial class LocalPathAdmission
                         inspectedPath.AsSpan(remainderStart);
                     if (!remainder.IsEmpty)
                         targetPath = Path.Join(targetPath, remainder);
-                    if (IsWindowsDirectorySeparator(inspectedPath[^1])
-                        && !IsWindowsDirectorySeparator(targetPath[^1]))
-                    {
-                        targetPath += '\\';
-                    }
 
                     if (string.Equals(
                         targetPath,

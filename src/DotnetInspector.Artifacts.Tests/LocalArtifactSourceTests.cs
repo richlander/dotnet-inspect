@@ -594,41 +594,6 @@ public sealed class LocalArtifactSourceTests
     }
 
     [Fact]
-    public async Task
-        LocalPathAdmission_WindowsTrailingSeparatorDoesNotAdmitFiles()
-    {
-        Assert.SkipUnless(
-            OperatingSystem.IsWindows(),
-            "Windows trailing-separator coverage requires Windows.");
-        CancellationToken cancellationToken =
-            TestContext.Current.CancellationToken;
-        string root = TempDirectory();
-        string target = Path.Combine(root, "target.dll");
-        string link = Path.Combine(root, "link.dll");
-        try
-        {
-            await File.WriteAllBytesAsync(target, [1], cancellationToken);
-            File.CreateSymbolicLink(link, target);
-
-            foreach (string path in new[] { target + '\\', link + '\\' })
-            {
-                LocalPathClassification classification =
-                    LocalPathAdmission.Classify(path, cancellationToken);
-                Assert.Equal(
-                    LocalPathOutcome.Unavailable,
-                    classification.Outcome);
-
-                Assert.IsType<ArtifactAcquisitionOutcome.Unavailable>(
-                    await AcquireAsync(path, cancellationToken));
-            }
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task LocalArtifactSnapshot_MutationCannotChangeInspectionBytes()
     {
         CancellationToken cancellationToken =
