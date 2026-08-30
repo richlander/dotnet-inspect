@@ -49,7 +49,7 @@ public class SignatureSpellabilityBudgetBoundaryTests
     [Fact]
     public void ProviderMaterializesMetadataOnlyInsideChargedMethods()
     {
-        ClassDeclarationSyntax provider = Provider();
+        TypeDeclarationSyntax provider = Provider();
         var violations = new List<string>();
         foreach (MethodDeclarationSyntax method in
             provider.Members.OfType<MethodDeclarationSyntax>())
@@ -76,22 +76,125 @@ public class SignatureSpellabilityBudgetBoundaryTests
         Assert.Empty(violations);
     }
 
-    [Fact]
-    public void ChargingMethodsChargeBeforeMaterializing()
+    // Members of an AssemblyReference whose value is stored inline in the
+    // table row rather than in a heap. Reading one copies no author-sized
+    // storage, so it needs no charge. Every other member the identity
+    // materializes must be charged; a newly added heap member fails the gate
+    // below until it is either charged or declared here deliberately.
+    static readonly string[] FixedWidthReferenceMembers =
     {
-        ClassDeclarationSyntax provider = Provider();
-        foreach (string name in new[] { "ProjectScope", "ModuleScope" })
-        {
-            MethodDeclarationSyntax method = Assert.Single(
-                provider.Members.OfType<MethodDeclarationSyntax>(),
-                candidate => candidate.Identifier.ValueText == name);
-            Assert.Contains(
-                method.DescendantNodes().OfType<InvocationExpressionSyntax>(),
-                invocation =>
-                    invocation.Expression is IdentifierNameSyntax identifier
-                    && identifier.Identifier.ValueText == "ChargeStorage");
-        }
+        "Version",
+        "Flags",
+    };
+
+    [Fact]
+    public void ScopeProjectionChargesEveryHeapMemberTheIdentityReads()
+    {
+        // ProjectScope charges, then hands the handle to
+        // AssemblyReferenceIdentity, which performs the actual materialization
+        // in another type. The deny-by-default census above cannot see across
+        // that call, which is why ProjectScope is exempt from it -- and an
+        // exemption checked only by "some ChargeStorage call exists somewhere
+        // in the method" let a missing charge for one of three members ship
+        // green.
+        //
+        // Derive the requirement from the consumer instead: whatever the
+        // identity reads out of a heap, the projection must have charged. A
+        // removed charge and a newly materialized member both fail here.
+        var expected = new SortedSet<string>(
+            MaterializedReferenceMembers()
+                .Except(FixedWidthReferenceMembers));
+        var charged = new SortedSet<string>(ChargedReferenceMembers());
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, charged);
     }
+
+    [Fact]
+    public void ModuleScopeChargesEachHandleBeforeMaterializingIt()
+    {
+        // ModuleScope materializes directly rather than delegating, so the
+        // pairing is checkable here: every materializing read must be preceded
+        // by a charge naming the same handle. Requiring the charge to come
+        // first is the point -- charging afterwards prices work already done.
+        MethodDeclarationSyntax method = ProviderMethod("ModuleScope");
+        var violations = new List<string>();
+        foreach (InvocationExpressionSyntax invocation in
+            method.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            if (invocation.Expression is not MemberAccessExpressionSyntax access
+                || !MaterializingMembers.Contains(
+                    access.Name.Identifier.ValueText)
+                || invocation.ArgumentList.Arguments.Count != 1)
+            {
+                continue;
+            }
+
+            string handle =
+                invocation.ArgumentList.Arguments[0].Expression.ToString();
+            bool chargedFirst = method
+                .DescendantNodes()
+                .OfType<InvocationExpressionSyntax>()
+                .Any(candidate =>
+                    candidate.Expression is IdentifierNameSyntax identifier
+                    && identifier.Identifier.ValueText == "ChargeStorage"
+                    && candidate.ArgumentList.Arguments.Count == 2
+                    && candidate.ArgumentList.Arguments[1].Expression
+                        .ToString() == handle
+                    && candidate.SpanStart < invocation.SpanStart);
+            if (!chargedFirst)
+            {
+                violations.Add(
+                    $"{access.Name.Identifier.ValueText}({handle})");
+            }
+        }
+
+        Assert.Empty(violations);
+    }
+
+    // Every `reference.X` the identity touches while building itself from a
+    // reader, taken from its source rather than restated here.
+    static IEnumerable<string> MaterializedReferenceMembers()
+    {
+        TypeDeclarationSyntax identity = Declaration(
+            "AssemblyReferenceIdentity",
+            "AssemblyReferenceIdentity.cs");
+        return identity
+            .Members
+            .OfType<MethodDeclarationSyntax>()
+            .Where(method =>
+                method.Identifier.ValueText is "From" or "Create")
+            .SelectMany(method =>
+                method.DescendantNodes()
+                    .OfType<MemberAccessExpressionSyntax>())
+            .Where(access =>
+                access.Expression is IdentifierNameSyntax identifier
+                && identifier.Identifier.ValueText == "reference")
+            .Select(access => access.Name.Identifier.ValueText)
+            .Distinct();
+    }
+
+    static IEnumerable<string> ChargedReferenceMembers() =>
+        ProviderMethod("ProjectScope")
+            .DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Where(invocation =>
+                invocation.Expression is IdentifierNameSyntax identifier
+                && identifier.Identifier.ValueText == "ChargeStorage"
+                && invocation.ArgumentList.Arguments.Count == 2)
+            .Select(invocation =>
+                invocation.ArgumentList.Arguments[1].Expression)
+            .OfType<MemberAccessExpressionSyntax>()
+            .Where(access =>
+                access.Expression is IdentifierNameSyntax identifier
+                && identifier.Identifier.ValueText == "reference")
+            .Select(access => access.Name.Identifier.ValueText)
+            .Distinct();
+
+    static MethodDeclarationSyntax ProviderMethod(string name) =>
+        Assert.Single(
+            Provider().Members.OfType<MethodDeclarationSyntax>(),
+            candidate => candidate.Identifier.ValueText == name);
 
     // MetadataTypeDefinitionNameReader.Read walks a chain before it
     // materializes any segment, and that walk is charged work. There is exactly
@@ -110,7 +213,7 @@ public class SignatureSpellabilityBudgetBoundaryTests
     [Fact]
     public void NameReadsChargeTheChainTheyWalk()
     {
-        ClassDeclarationSyntax provider = Provider();
+        TypeDeclarationSyntax provider = Provider();
         var reads = new List<(string Method, bool ChargesChain)>();
         foreach (MethodDeclarationSyntax method in
             provider.Members.OfType<MethodDeclarationSyntax>())
@@ -181,7 +284,7 @@ public class SignatureSpellabilityBudgetBoundaryTests
     [Fact]
     public void ChainChargeDelegateChargesItsOwnArgument()
     {
-        ClassDeclarationSyntax provider = Provider();
+        TypeDeclarationSyntax provider = Provider();
         SimpleLambdaExpressionSyntax lambda = Assert.Single(
             provider
                 .DescendantNodes()
@@ -212,7 +315,7 @@ public class SignatureSpellabilityBudgetBoundaryTests
     [Fact]
     public void ChainChargeIsNotPassedAsTheMaterializationHook()
     {
-        ClassDeclarationSyntax provider = Provider();
+        TypeDeclarationSyntax provider = Provider();
         foreach (InvocationExpressionSyntax invocation in provider
             .DescendantNodes()
             .OfType<InvocationExpressionSyntax>())
@@ -246,23 +349,26 @@ public class SignatureSpellabilityBudgetBoundaryTests
         }
     }
 
-    static ClassDeclarationSyntax Provider()
+    static TypeDeclarationSyntax Provider() =>
+        Declaration(
+            "SignatureOccurrenceProvider",
+            "SignatureSpellabilityAggregate.cs");
+
+    static TypeDeclarationSyntax Declaration(string name, string fileName)
     {
         string file = Path.Combine(
             FindRepoRoot(),
             "src",
             "ILInspector.Metadata",
-            "SignatureSpellabilityAggregate.cs");
+            fileName);
         Assert.True(File.Exists(file), file);
         CancellationToken token = TestContext.Current.CancellationToken;
         SyntaxNode root = CSharpSyntaxTree
             .ParseText(File.ReadAllText(file), cancellationToken: token)
             .GetRoot(token);
         return Assert.Single(
-            root.DescendantNodes().OfType<ClassDeclarationSyntax>(),
-            declaration =>
-                declaration.Identifier.ValueText
-                    == "SignatureOccurrenceProvider");
+            root.DescendantNodes().OfType<TypeDeclarationSyntax>(),
+            declaration => declaration.Identifier.ValueText == name);
     }
 
     static string FindRepoRoot()
