@@ -1869,7 +1869,13 @@ public class LibraryCommand
 
         return ShapeProjectionOutput.Write(
             rows,
-            new ShapeProjectionOptions(kind, options.ProjectionRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+            new ShapeProjectionOptions(
+                kind,
+                options.ProjectionRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private static async Task<int> WriteLibraryPrintProjectionAsync(LibraryInspection inspection, LibraryOptions options)
@@ -1900,7 +1906,7 @@ public class LibraryCommand
                 options.Jsonl,
                 options.JsonArray,
                 Bare: false,
-                OutputPath: null));
+                Destination: new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private sealed record PrintProjectionResult(IReadOnlyList<PrintableDocument> Documents, string? Error = null);
