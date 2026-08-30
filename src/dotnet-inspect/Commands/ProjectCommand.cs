@@ -8,6 +8,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using InertText;
 using Markout;
 
 using ILInspector.CSharp;
@@ -409,11 +410,22 @@ public class ProjectCommand
             file.Version,
             file.Path,
             new FileInfo(file.FullPath).Length,
-            name,
-            description ?? "",
+            ContainSkillMetadata(name),
+            ContainSkillMetadata(FoldSkillDescriptionLineEndings(description ?? "")),
             file.FullPath);
         return ProjectSkillReadFailure.None;
     }
+
+    private static string FoldSkillDescriptionLineEndings(string value)
+        => value
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Replace('\n', ' ');
+
+    private static string ContainSkillMetadata(string value)
+        => new InertString(TextPolicy.Field, value)
+            .ReplaceIfContainmentRequired(InertString.ContainmentRequiredPlaceholder)
+            .ToString();
 
     private static bool TryGetSkillName(
         string packagePath,
@@ -616,15 +628,17 @@ public class ProjectCommand
         };
     }
 
-    private static string ReadPrintableSkillContent(
+    private static PrintableContent ReadPrintableSkillContent(
         ProjectSkillRow row,
         ProjectOptions options)
     {
         string fullPath = row.FullPath
             ?? throw new InvalidOperationException(
                 $"The selected skill '{row.Path}' has no content path.");
-        return GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(
-            MarkdownContent.ApplyScope(File.ReadAllText(fullPath), options.ContentScope));
+        var selected = AgentSkillDocument.PrepareForOutput(
+            MarkdownContent.ApplyScope(File.ReadAllText(fullPath), options.ContentScope),
+            normalizeGithubLinksToRaw: true);
+        return PrintableContent.FromContainmentSelection(selected);
     }
 
     private static bool ValidateProjectProjectionOptions()

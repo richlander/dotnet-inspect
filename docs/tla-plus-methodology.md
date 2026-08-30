@@ -1,7 +1,7 @@
 # TLA+ methodology
 
 TLA+ is used per
-[`AGENTS.md`](../AGENTS.md#keep-specifications-readable-model-interactions) to
+[`docs/design-scope.md`](design-scope.md#keep-specifications-readable-model-interactions) to
 check stateful or concurrent interactions that are hard to reason about in
 prose alone.
 

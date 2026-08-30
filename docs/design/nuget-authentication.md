@@ -145,8 +145,14 @@ Two details are easy to get wrong:
 
 - **The handshake is symmetric.** The plugin sends its *own* handshake request at the same time
   as the host sends one. A host that only waits for a reply, without answering, deadlocks.
-  `ReadyRequiresSymmetricHandshake` checks the design interaction; implementation correspondence
-  for the host's response remains unverified.
+  This client requires protocol 2.0.0 because its source-agnostic `GetOperationClaims` request is
+  only valid in that protocol version.
+  `ReadyRequiresSymmetricHandshake` checks the design interaction;
+  `PluginProtocolTests.CompatibleInboundHandshakeUsesProtocolTwo` and
+  `PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` enforce the
+  inbound response, while
+  `PluginProtocolTests.InvalidOrUnsupportedOutboundHandshakeStopsInitialization` enforces the
+  plugin response.
 - **`Progress` messages restart the request timer.** They are the plugin saying "still working"
   during a slow sign-in. A host that ignores them times out a request that is progressing fine.
   `ProgressRenewsOnlyItsRequest` checks the design interaction; implementation correspondence is
@@ -161,26 +167,53 @@ closes request admission before the read loop collects and settles pending reque
 `RequestAdmissionHasLiveReceiver` and `ShutdownSettlementIsComplete`. A malformed
 plugin-originated request receives an error response or the connection terminates; it never becomes
 abandoned work, checked by `InboundFailureIsContained` and
-`MalformedInboundEventuallySettles`. The current implementation does not yet enforce the
-stalled-write or shutdown-admission rules, and malformed inbound payload handling remains tracked
-by #3551.
+`MalformedInboundEventuallySettles`. Active-writer timeout, cancellation, response, and write-fault
+containment are enforced by
+`PluginProtocolTests.AStalledWriterTimeoutTerminatesTheConnectionAndSettlesQueuedRequests`,
+`PluginProtocolTests.CallerCancellationOfAStalledWriterRemainsCancellation`,
+`PluginProtocolTests.AResponseCannotLeaveItsRequestWriterStalled`, and
+`PluginProtocolTests.CallerCancellationWinsAConcurrentWriteFailure`. Connection resources remain
+alive until admitted requests and inbound response writers have unwound, enforced by
+`PluginProtocolTests.ConnectionResourcesWaitForInterruptedRequestsToQuiesce` and
+`PluginProtocolTests.ConnectionResourcesWaitForInboundResponseWritersToQuiesce`; if a terminated
+transport write cannot be observed completing, its resources remain retained, enforced by
+`PluginProtocolTests.AnUnfinishedInterruptedWriteRetainsConnectionResources`. Terminal admission
+and pending settlement are enforced by
+`PluginProtocolTests.ARequestAfterReceiverLossIsRejectedWithoutWaitingForItsTimeout` and
+`PluginProtocolTests.ReceiverLossSettlesARequestAdmittedBeforeThePendingSnapshot`, with the
+atomic overlap enforced by
+`PluginProtocolTests.AdmissionCannotRegisterDuringTheTerminalPendingSnapshot`. Malformed inbound
+Handshake and Log payload handling is enforced by
+`PluginProtocolTests.InvalidOrUnsupportedInboundHandshakeReceivesAnErrorResponse` and
+`PluginProtocolTests.MalformedInboundLogReceivesAnErrorResponse`.
 
 Implementation: [`PluginConnection`](../../src/NuGetFetch/Plugins/PluginConnection.cs) and
 [`PluginCredentialProvider`](../../src/NuGetFetch/Plugins/PluginCredentialProvider.cs).
 The concurrent conversation and shutdown rules are checked by the
 [NuGet credential-plugin session lifecycle model](models/nuget-plugin-session-lifecycle/README.md).
-The model checks the design under finite bounds; implementation correspondence
-for progress renewal, concurrent correlation, and pipe-loss admission remains
-unverified.
+The model checks the design under finite bounds; implementation correspondence for progress
+renewal and concurrent correlation remains unverified. Writer preemption, terminal admission, and
+pending settlement are enforced by the gates named above.
 
-Plugins are started lazily and kept for the process lifetime, because a launch costs a process
-start plus five round trips. A plugin that fails to start, or that does not claim the
-`Authentication` operation, is remembered as unusable rather than retried.
+Plugins are started lazily and kept until their connection closes, because a launch costs a process
+start plus five round trips. A request that loses a race with terminal publication retries once on
+a replacement connection, and later requests likewise replace a cached terminal connection. These
+rules are enforced by
+`PluginProtocolTests.ARequestRacingTerminalPublicationRetriesOnAReplacementConnection` and
+`PluginProtocolTests.AClosedCachedPluginConnectionIsRestartedOnTheNextRequest`. A plugin that fails
+to start, or that does not claim the `Authentication` operation, is remembered as unusable rather
+than retried.
 
 A plugin process or pipe that dies during a request is likewise treated as no credential from
 that plugin. Timeouts, malformed responses, I/O failures, disposed pipes, and invalid process
 state are contained at the request boundary so another provider can answer or the feed's 401 can
-surface normally. Caller cancellation is not a plugin fault and continues to propagate.
+surface normally. Caller cancellation is not a plugin fault and continues to propagate, enforced
+before and after receiver loss by `PluginProtocolTests.CallerCancellationContinuesToPropagate` and
+`PluginProtocolTests.CanceledRequestAfterReceiverLossRemainsCancellation`, including the
+admission-monitor race checked by
+`PluginProtocolTests.CancellationWhileWaitingForClosedAdmissionRemainsCancellation`.
+Cancellation while a terminal cached connection is being replaced likewise propagates, enforced by
+`PluginProtocolTests.CancellationWhileReplacingAClosedConnectionRemainsCancellation`.
 
 ### Unattended by default
 

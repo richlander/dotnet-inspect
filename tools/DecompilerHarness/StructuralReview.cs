@@ -90,13 +90,20 @@ internal static class StructuralReview
         }
         else
         {
+            bool includeDetail = rows.Any(static row => row.Detail.Length > 0);
             bool includeFidelity = rows.Any(static row => row.Fidelity.Length > 0);
-            output.WriteLine(includeFidelity
-                ? "| Change | Structure | Region | Fidelity |"
-                : "| Change | Structure | Region |");
-            output.WriteLine(includeFidelity
-                ? "| --- | --- | --- | --- |"
-                : "| --- | --- | --- |");
+            output.Write("| Change | Structure | Region");
+            if (includeDetail)
+                output.Write(" | Detail");
+            if (includeFidelity)
+                output.Write(" | Fidelity");
+            output.WriteLine(" |");
+            output.Write("| --- | --- | ---");
+            if (includeDetail)
+                output.Write(" | ---");
+            if (includeFidelity)
+                output.Write(" | ---");
+            output.WriteLine(" |");
             foreach (var row in rows)
             {
                 output.Write("| ");
@@ -105,6 +112,11 @@ internal static class StructuralReview
                 output.Write(TableCell(row.Structure));
                 output.Write(" | ");
                 output.Write(TableCell(row.Region));
+                if (includeDetail)
+                {
+                    output.Write(" | ");
+                    output.Write(TableCell(row.Detail));
+                }
                 if (includeFidelity)
                 {
                     output.Write(" | ");

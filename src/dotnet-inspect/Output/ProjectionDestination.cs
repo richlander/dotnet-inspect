@@ -1,3 +1,4 @@
+using DotnetInspector.Models;
 using InertText;
 
 namespace DotnetInspector.Output;
@@ -41,6 +42,11 @@ internal static class ProjectionDestinationWriter
         => WriteText(
             destination,
             new InertString(TextPolicy.Prose, output).ToString());
+
+    public static void WriteSelectedText(
+        ProjectionDestination destination,
+        ContainmentSelectedText output)
+        => WriteText(destination, output.ToString());
 
     public static void WriteText(
         ProjectionDestination destination,

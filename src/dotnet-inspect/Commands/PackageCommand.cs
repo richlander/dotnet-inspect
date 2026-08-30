@@ -2320,7 +2320,9 @@ public class PackageCommand
                     normalizeGithubLinksToRaw: !options.BrowsableUrls,
                     includeExactContent: HasUnstructuredOutputPath(options)
                         && options.ContentScope == PackageFileContentScope.Full);
-                return new PrintableContent(content.Content, content.ExactContent);
+                return content.SelectedContent is { } selected
+                    ? PrintableContent.FromContainmentSelection(selected)
+                    : new PrintableContent(content.Content, content.ExactContent);
             },
             new PrintProjectionOptions(
                 options.PrintRow,
@@ -3452,6 +3454,23 @@ public class PackageCommand
         var content = MarkdownContent.ApplyScope(
             ReadText(exactContent),
             scope);
+        if (PackageFileFamily.IsSkillDocument(file))
+        {
+            ContainmentSelectedText selected = AgentSkillDocument.PrepareForOutput(
+                content,
+                normalizeGithubLinksToRaw);
+            return new PackageFileContent(
+                packageName,
+                version,
+                file.Path,
+                file.Size,
+                Found: true,
+                selected.ToString(),
+                file.IsReadme,
+                ExactContent: null,
+                SelectedContent: selected);
+        }
+
         if (normalizeGithubLinksToRaw)
             content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
@@ -3571,7 +3590,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(found[0].Content, new ProjectionDestination(null));
+        return WriteBarePackageContent(found[0], destination);
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -3632,9 +3651,14 @@ public class PackageCommand
                 continue;
             }
 
-            builder.Append(row.EncodedContent);
+            builder.Append(row.RenderedContent);
             if (row.Content.Length == 0 || row.Content[^1] != '\n')
-                builder.AppendLine();
+            {
+                if (row.IsContainmentSelected)
+                    builder.Append('\n');
+                else
+                    builder.AppendLine();
+            }
         }
 
         return builder.ToString();
@@ -3869,7 +3893,7 @@ public class PackageCommand
             return 0;
         }
 
-        return WriteBarePackageText(content.Content, new ProjectionDestination(null));
+        return WriteBarePackageContent(content, destination);
     }
 
     private static int PrintBarePackageUrlColumn(
@@ -3898,12 +3922,32 @@ public class PackageCommand
         return 0;
     }
 
+    private static int WriteBarePackageContent(
+        PackageFileContent content,
+        ProjectionDestination destination)
+    {
+        if (content.SelectedContent is not { } selected)
+            return WriteBarePackageText(content.Content, destination);
+
+        ProjectionDestinationWriter.WriteText(
+            destination,
+            writer =>
+            {
+                writer.Write(selected.ToString());
+                if (!content.Content.EndsWith('\n'))
+                    writer.Write('\n');
+            });
+        return 0;
+    }
+
     private static void WritePackageFileExport(
         PackageFileContent content,
         ProjectionDestination destination)
     {
         if (content.ExactContent is { } exact)
             ProjectionDestinationWriter.WriteExactBytes(destination, exact);
+        else if (content.SelectedContent is { } selected)
+            ProjectionDestinationWriter.WriteSelectedText(destination, selected);
         else
             ProjectionDestinationWriter.WriteRenderedText(destination, content.Content);
     }
@@ -4314,15 +4358,21 @@ public class PackageCommand
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
             libraryOptions.FixedOverview);
-        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        List<HostQueryDemand> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
-            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        {
+            commandQueryDemand.Add(
+                new HostQueryDemand(
+                    "reference tree",
+                    AssemblyReferencesQuery.Definition));
+        }
         if (sectionPlan.Queries.Contains(BodyShapesQuery.Definition)
             && libraryOptions.BodyKindQuery.HasFilter
             && libraryOptions.PerformanceTriage.HasCandidateFilters)
         {
             commandQueryDemand.Add(
-                ("Body Shapes performance predicates",
+                new HostQueryDemand(
+                    "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
         HashSet<InspectionQueryDefinition> queries =
