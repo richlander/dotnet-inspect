@@ -24,9 +24,9 @@ documentation.
   push, and open its PR without separate approval. Once eligible, round 1 and
   replacements inside the current six-round block dispatch automatically; only
   a new block requires approval. Merge remains separately authorized.
-- **Review normally runs alongside CI.** Normally each round tries status;
-  ordinary rounds continue if unavailable, every third may wait 60 minutes, and
-  every sixth needs green CI/mergeability. Markdown-only review never waits.
+- **Review normally runs alongside CI.** Each round normally tries status; ordinary
+  non-Markdown rounds continue if unavailable, every third may wait 60 minutes,
+  and every sixth needs green CI/mergeability. Recovery and Markdown review never wait.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -395,8 +395,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
 6. **A round closes only when reconciled, its applicable local gates are green,
    and its status cadence is satisfied.** Absent a standing adjustment, every
    round tries current-head status. Required CI failure blocks; unresolved
-   status does not block ordinary closure. Every third round follows
-   [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
+   status does not block ordinary closure. Every third ordinary non-Markdown round
+   follows [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
    At non-boundary rounds, a Markdown-only PR's gate is pre-commit
    `markdownlint`; its final CI gate follows the detailed transition. A gate
    failure requiring an author change restarts the *same* round.
@@ -557,7 +557,7 @@ Put it under `## Demo` above validation in the PR body.
 - For non-Markdown-only PRs, run the focused gate, push promptly, and start
   eligible local suites and CI concurrently. Follow the round's status cadence:
   pending or unavailable status does not block an ordinary round, while every
-  third round uses the bounded wait. Follow
+  third ordinary attempt uses the bounded wait; conflict recovery does not. Follow
   [GitHub status queries](docs/github-status-queries.md) instead of polling. If
   an hour passes without an authored change while an independent gate hasn't
   started, fix the sequencing or record the blocker.

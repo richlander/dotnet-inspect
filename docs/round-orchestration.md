@@ -55,12 +55,13 @@ or the work appears to need multiple normative owners.
 | Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-At rounds not divisible by three, one status attempt is enough: pending,
-missing, rate-limited, or transient status may remain pending and reviewer
-dispatch continues. This is the normal cadence, not a user-authorized parallel
-review exception. Every third round instead applies the bounded wait before
-dispatch. A Markdown-only candidate (every changed file is `*.md`) substitutes
-pre-commit `markdownlint` and never waits for CI before review. Fresh green
+For ordinary non-Markdown attempts at rounds not divisible by three, one status
+attempt is enough: pending, missing, rate-limited, or transient status may
+remain pending and reviewer dispatch continues. This is the normal cadence, not
+a user-authorized parallel review exception. Every third ordinary non-Markdown
+attempt instead applies the bounded wait before dispatch. Conflict-recovery and
+Markdown-only attempts dispatch after their required local gate and status
+attempt without waiting on unresolved CI or mergeability. Fresh green
 current-head `ci-required` and positive mergeability remain mandatory at
 six-round boundaries and final merge.
 
@@ -165,16 +166,18 @@ values.
 *This section defines repository policy, not GitHub timing guarantees.*
 
 Absent a standing adjustment in `AGENTS.md`, every round attempts one
-current-head snapshot. At rounds not divisible by three, pending, missing,
-rate-limited, or transient status does not block reviewer dispatch or round
-closure: record it and continue. Every third round, and any merge or readiness
-goal, instead enters a status budget of up to 60 minutes; expiry publishes the
-status report and stops without dispatch or goal completion. Every sixth round
-uses that budget, but fresh green current-head `ci-required` and positive
-mergeability remain prerequisites for the next-block approval prompt. A known
-conflict, required CI completed without success, or terminal query failure
-still takes its transition. Measure the budget from the first scheduled wait
-and publish `status-deadline=<UTC>`.
+current-head snapshot. For ordinary non-Markdown attempts at rounds not
+divisible by three, pending, missing, rate-limited, or transient status does not
+block reviewer dispatch or round closure: record it and continue. Every third
+ordinary non-Markdown attempt, and any merge or readiness goal, instead enters a
+status budget of up to 60 minutes; expiry publishes the status report and stops
+without dispatch or goal completion. Conflict-recovery and Markdown-only
+attempts never enter that wait; after one snapshot, unresolved status does not
+block their reviewer dispatch. Every sixth round uses the budget, but fresh
+green current-head `ci-required` and positive mergeability remain prerequisites
+for the next-block approval prompt. A known conflict, required CI completed
+without success, or terminal query failure still takes its transition. Measure
+the budget from the first scheduled wait and publish `status-deadline=<UTC>`.
 
 Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
