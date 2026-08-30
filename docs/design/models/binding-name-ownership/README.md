@@ -64,8 +64,11 @@ Release tests enforce the corresponding product behavior:
 gate: target validation leaves selected, ambiguous, unavailable, rejected, and
 valid assembly-reference miss answers unchanged. The concrete
 `AssemblyDependencyResolver` ownership attestations are covered by
-`Select_CompleteInventoryWithoutNameOwnerReportsNoNameOwner` and
-`Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback`.
+`KnownInventoryBindingPolicy_DistinguishesNameAbsenceFromIdentityMiss` and
+`AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition`.
+`ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults` and
+`BindingPolicyResolver_PreservesDelegatedNonSelectedResults` gate that Analysis
+and Queries wrappers preserve the same terminal policy currency.
 `AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition`
 proves that a new observed policy version refreshes the frozen disposition;
 issue #5213 still owns composite child-version propagation and atomic

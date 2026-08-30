@@ -3724,6 +3724,13 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - `AssemblyReferenceBindingPolicy_NullRemainsUndifferentiated` proves the
   nullable resolver adapter neither invents ownership nor permits
   fallthrough.
+- `ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults` and
+  `ScopeFirstBindingPolicy_NoNameOwnerRequiresIdentityPolicy` prove the
+  caller-scope wrapper preserves every delegated terminal result and reaches
+  its local identity-policy outcome only after `NoNameOwner`.
+- `BindingPolicyResolver_PreservesDelegatedNonSelectedResults` proves the
+  Queries-to-Analysis bridge retains the structured policy channel and does
+  not collapse a typed miss or failure through nullable resolution.
 - `KnownInventoryBindingPolicy_DistinguishesNameAbsenceFromIdentityMiss`
   proves a complete frozen inventory reports `NoNameOwner` when the requested
   name is absent and `NameOwnedNoMatch` when its owner-issued name domain

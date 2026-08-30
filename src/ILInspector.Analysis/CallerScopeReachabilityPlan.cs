@@ -549,7 +549,7 @@ public sealed class CallerScopeReachabilityPlan
                 []);
     }
 
-    sealed class ScopeFirstBindingPolicy : IAssemblyBindingPolicy
+    internal sealed class ScopeFirstBindingPolicy : IAssemblyBindingPolicy
     {
         readonly IAssemblyBindingPolicy _fallback;
         readonly ResolvedAssemblyReference _target;
@@ -594,6 +594,16 @@ public sealed class CallerScopeReachabilityPlan
                 if (fallback
                         is AssemblyBindingSelection.Selected selected
                     && selected.Assembly.Identity == _target.Identity)
+                {
+                    return fallback;
+                }
+
+                if (fallback
+                    is not AssemblyBindingSelection.Missing
+                    {
+                        Disposition:
+                            AssemblyBindingMissDisposition.NoNameOwner,
+                    })
                 {
                     return fallback;
                 }
