@@ -64,6 +64,15 @@ contract findings. Ignore style preferences and speculative hardening. A clean
 result is successful: if no qualifying findings remain, report **CLEAN** and
 name the exact reviewed head.
 
+Do not begin review if the candidate context contains unresolved placeholders,
+names multiple normative owners, or cannot connect the supported input to the
+claimed consequence. Return the framing defect instead of inventing a broader
+review property.
+
+Treat the assigned review worktree as read-only. Do not run `git reset`,
+`git add`, or `git commit`; do not rebase or checkout another revision. Put
+scratch files under `/tmp/`. Do not modify tracked files.
+
 ## Report contract
 
 For every finding, provide:
