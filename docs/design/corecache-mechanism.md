@@ -43,8 +43,14 @@ docs-only change.
   guarantee stays inside the hash bucket), but collision resistance is a
   claim about well-formed Unicode input, not every .NET string;
 - read, write, and background-maintenance operations whose *filesystem-access*
-  failures are swallowed and observed only as a miss or as maintenance making
-  no progress. This is not a blanket best-effort guarantee, and it is not
+  failures are swallowed. A read failure is observed as a miss (a `null`
+  result), and a maintenance failure is observed as no progress recorded for
+  that directory — but a write failure has no comparable observable outcome
+  at all: `Set`/`SetBytes` simply return, silently discarding the failure,
+  and a subsequent read can still be a hit if an existing entry from a prior
+  successful write is still in place (a failed write does not delete or
+  invalidate whatever was already stored under that key). This is not a
+  blanket best-effort guarantee, and it is not
   symmetric between reads and writes: on the read path, path construction
   (which reads `AppName`, throwing before initialization) and miss-side
   telemetry both run outside the guarded region and propagate; on the write
@@ -809,7 +815,18 @@ task it returns is only an aggregate of whatever was in `s_maintenanceTasks`
 *at the moment that call constructed it* (`AwaitMaintenanceAsync([..
 s_maintenanceTasks.Values], ...)` is a one-time array snapshot, not a live
 view), memoized in `s_maintenanceTask` so repeated calls return the same
-task instance. A later `RegisterVersionedCategory` call, after this method
+task instance *only while the maintenance generation and the resolved set of
+cleanup keys stay unchanged* — the method itself re-invokes
+`ScheduleVersionedCategoryCleanup` for every registered category on every
+call, before returning the memoized task, so a repeated call can still
+observe a fresh (non-memoized) task within its own invocation: if the
+current base root has changed since the last call (producing a new
+`(root, prefix, currentVersion)` key not yet in `s_maintenanceTasks`), or if
+the current generation was canceled and gets restarted
+(`StartNewMaintenanceGenerationIfCanceled`), either path resets
+`s_maintenanceTask` to `null` before the memoized return, and that same call
+builds and returns a new aggregate task rather than the previous one. A
+later `RegisterVersionedCategory` call, after this method
 has released `s_maintenanceLock` and returned, can schedule a new cleanup
 task and reset `s_maintenanceTask` to `null` — but that clears the memoized
 field for the *next* caller of `RequestVersionedCategoryCleanupAsync`; it
@@ -1032,8 +1049,7 @@ overload observed it:
   whether the *hit* telemetry subscriber itself is what throws:
   `InfoTracker.RecordCacheHit()` runs, unconditionally, *before*
   `CacheTelemetry.Record(..., Hit)` inside the same `try`; if that
-  `CacheTelemetry.Record` call throws for any reason (a hit subscriber, or
-  the `Activity.Current?.AddEvent` call itself), the already-incremented hit
+  `CacheTelemetry.Record` call throws, the already-incremented hit
   counter is not rolled back, and control falls through to the shared
   miss-path code below, which unconditionally calls
   `InfoTracker.RecordCacheMiss()` too — so one logical read increments both
