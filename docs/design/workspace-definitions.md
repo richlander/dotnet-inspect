@@ -961,7 +961,10 @@ The normative v1 decoded shape is:
 v1 Browser Type key, including its owner-issued assembly qualifier when the
 surface required one. `l` contains unique assembly-filename-stem keys in
 ascending ordinal order. These values are compatibility selectors, not
-version-2 identities. Unknown properties and any other `l` order are invalid.
+version-2 identities. Because format 1 has no query field, present `l` also
+requires the public query-owner legacy Library-scope migration for the exact
+lowered facet described below. Unknown properties and any other `l` order are
+invalid.
 The compact serializer emits properties in the order above, adding optional
 view fields in their listed order, with no insignificant whitespace. String
 values preserve their scalar sequence without
@@ -1298,6 +1301,20 @@ exact Registry resolution and query-owner migration, ordinary version-2
 combination validation decides whether the selected facet and query owners
 accept the resulting scope. No private facet binding participates in
 legacy-key resolution.
+
+A packet-v1 `l` value also represents an unresolved legacy query plan because
+format 1 cannot reference a query record. After resolving its Library keys and
+the exact legacy facet, the adapter requires one public query-owner
+Library-scope migration registered for that source format and facet. The
+migration returns an owner-issued version-2 query ID and canonical payload
+whose public descriptor accepts the exact subject and facet and declares that
+it consumes state-level multi-Library scope. The adapter creates or reuses that
+query record and attaches it to state `a` before ordinary version-2 validation.
+No migration, several matching migrations, owner rejection, or a returned
+descriptor that does not consume the resolved scope is
+`LegacyLoweringFailed`. The adapter does not infer a query from Registry's
+private execution binding. This path preserves format-1 packets such as the
+canonical API view whose `l` has no peer query field.
 
 A referenced version-1 query record is also an unresolved legacy plan. For a
 coordinate-backed scenario, its output attaches only to the state for `a`; for
@@ -1712,13 +1729,16 @@ Implementation must add, at minimum:
   resolve in the selected context; every legacy Library key resolves
   independently to one portable identity; and a paired `memberKey` agrees
   before being discarded.
-  It must also prove query migration attaches only to `a` for
-  coordinate-backed scenarios, no legacy token is submitted to the Registry,
-  no private facet binding is consulted for legacy scope, final composition
-  validation follows exact Registry and query-owner resolution, inactive
-  format-1 coordinates become explicit recommendation states, exact format-1
-  packet restoration retains its byte basis, and every changed or newly
-  captured state emits format 2 rather than a legacy token;
+  It must also prove packet-v1 Library scope invokes exactly one public
+  facet-specific query-owner migration, creates or reuses a query whose
+  descriptor consumes that scope, and attaches it only to `a`; definition-v1
+  query migration likewise attaches only to `a` for coordinate-backed
+  scenarios. No legacy token is submitted to the Registry, no private facet
+  binding is consulted for legacy scope, final composition validation follows
+  exact Registry and query-owner resolution, inactive format-1 coordinates
+  become explicit recommendation states, exact format-1 packet restoration
+  retains its byte basis, and every changed or newly captured state emits
+  format 2 rather than a legacy token;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
   inactive-coordinate views, all structural subjects, package-root facets,
@@ -1809,13 +1829,13 @@ The complete-restoration coordinator is model-checked by
 Its positive configuration checks complete readiness, exact request
 correlation, admission-before-preflight-start, projectable and non-projectable
 atomic publication, projection-failure retention, supersession, stale
-completion, and per-attempt progress. Nine mutation configurations
-independently demonstrate that the named safety properties reject preflight
-without admission, early commit, partial commit, failed or superseded commit,
-abort mutation, stale installation, wrong exact/replacement relation, and
-cross-request publication. The model does not prove codec, Registry, query
-payload, Navigation, or UI implementation conformance; the gates above remain
-required.
+completion, and per-attempt progress. Ten mutation configurations independently
+demonstrate that the named safety properties reject preflight without
+admission, early commit, partial commit, failed or superseded commit, abort
+mutation, stale installation, preparation-time installation, wrong
+exact/replacement relation, and cross-request publication. The model does not
+prove codec, Registry, query payload, Navigation, or UI implementation
+conformance; the gates above remain required.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified

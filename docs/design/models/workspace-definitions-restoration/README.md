@@ -84,7 +84,7 @@ to the implementation gates in the owning document.
 | A failed attempt never commits | `FailedAttemptNeverCommits` |
 | A superseded attempt never commits | `SupersededAttemptNeverCommits` |
 | A projection-failed candidate never commits | `ProjectionFailureNeverCommits` |
-| Preparation publishes no partial result | `PreparationIsInvisibleUntilCommit` |
+| Preparation publishes no partial result or installed snapshot | `PreparationIsInvisibleUntilCommit` |
 | Abort retains the exact prior snapshot and revision | `AbortRetainsInstalledSnapshotAndRevision` |
 | Completion after settlement cannot install | `StaleCompletionCannotInstall` |
 | Every started attempt settles | `EveryAttemptSettles` |
@@ -127,7 +127,7 @@ applicable progress requirements directly.
 
 ## Counterexample mutations
 
-Nine opt-in configurations each enable one incorrect coordinator transition
+Ten opt-in configurations each enable one incorrect coordinator transition
 and must fail with the named invariant:
 
 | Configuration | Deliberate defect | Expected violation |
@@ -141,6 +141,7 @@ and must fail with the named invariant:
 | `StaleCompletionInstalls.cfg` | Lets a completion for a settled token replace installed state | `StaleCompletionCannotInstall` |
 | `WrongRelation.cfg` | Swaps exact and replacement result classification | `CommitRelationMatchesPreparedCandidate` |
 | `WrongRequest.cfg` | Publishes the other request's payload | `CommittedSnapshotCorrelatesExactRequest` |
+| `PreparationInstalls.cfg` | Replaces installed state while participant preparation is still working | `PreparationIsInvisibleUntilCommit` |
 
 Run a mutation by substituting its configuration name in the command above and
 adding `-noGenerateSpecTE`. Each mutation was checked with one worker and

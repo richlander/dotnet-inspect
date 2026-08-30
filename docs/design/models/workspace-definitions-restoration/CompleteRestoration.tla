@@ -44,6 +44,7 @@ AbortChangesInstalled == "AbortChangesInstalled"
 StaleCompletionInstalls == "StaleCompletionInstalls"
 WrongRelation == "WrongRelation"
 WrongRequest == "WrongRequest"
+PreparationInstalls == "PreparationInstalls"
 
 Mutations ==
   { NoMutation,
@@ -55,7 +56,8 @@ Mutations ==
     AbortChangesInstalled,
     StaleCompletionInstalls,
     WrongRelation,
-    WrongRequest }
+    WrongRequest,
+    PreparationInstalls }
 
 PreflightPhases == {"none", "working", "ready", "failed"}
 ParticipantPhases == {"none", "working", "ready", "failed"}
@@ -399,6 +401,34 @@ ParticipantFailed(t, p) ==
           abortRetentionWitness,
           staleCompletionWitness >>
 
+InstallDuringPreparation(t) ==
+  /\ Mutation = PreparationInstalls
+  /\ t \in liveAttempts
+  /\ preflight[t] = "ready"
+  /\ AnyWorking(t)
+  /\ installed' =
+       [ token            |-> t,
+         revision         |-> installed.revision + 1,
+         sourcePayload    |-> requests[t].payload,
+         changed          |-> FALSE,
+         participantToken |-> [p \in Participants |-> t] ]
+  /\ UNCHANGED
+       << intent,
+          requests,
+          preflight,
+          preparation,
+          liveAttempts,
+          candidate,
+          results,
+          supersededAttempts,
+          failedAttempts,
+          staleCompletions,
+          commitGuardWitness,
+          requestCorrelationWitness,
+          relationWitness,
+          abortRetentionWitness,
+          staleCompletionWitness >>
+
 BuildCandidate(t) ==
   /\ t \in liveAttempts
   /\ AllReady(t)
@@ -729,6 +759,7 @@ Next ==
   \/ \E t \in Tokens : BeginPreflight(t)
   \/ \E t \in Tokens : ResolvePreflight(t)
   \/ \E t \in Tokens, p \in Participants : ResolveParticipant(t, p)
+  \/ \E t \in Tokens : InstallDuringPreparation(t)
   \/ \E t \in Tokens : BuildCandidate(t)
   \/ \E t \in Tokens : ClassifyCandidateProjection(t)
   \/ \E t \in Tokens : SettleAttempt(t)
@@ -796,8 +827,16 @@ ProjectionFailureNeverCommits ==
       results[t].outcome \in {"none", "aborted", "discarded"}
 
 PreparationIsInvisibleUntilCommit ==
-  \A t \in Tokens :
-    t \in liveAttempts => results[t].outcome = "none"
+  /\ \A t \in Tokens :
+       t \in liveAttempts => results[t].outcome = "none"
+  /\ \/ installed = InitialInstalled
+     \/ \E t \in Tokens :
+          /\ results[t].outcome = "committed"
+          /\ installed.token = t
+          /\ installed.revision = results[t].installedRevision
+          /\ installed.sourcePayload = results[t].installedPayload
+          /\ installed.changed = results[t].installedChanged
+          /\ installed.participantToken = results[t].participantToken
 
 AbortRetainsInstalledSnapshotAndRevision ==
   /\ abortRetentionWitness
