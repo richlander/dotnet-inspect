@@ -1521,6 +1521,605 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_InfersAddedLocalFunctionDeclarationAlongsideMatchedCallSite()
+    {
+        // #4116's shape (issue #5022 item 5): an undeclared synthesized call
+        // is rewritten to call a declared local function. The call site keeps
+        // the same IL origin on both sides (matched, Changed); the new
+        // declaration header has no IL origin of its own (only its body
+        // would), and is the only such declaration in the document.
+        var before = TrustedDocument(
+            "return __NoTypeParameter_g__Own_0_0(value);",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]));
+        var after = TrustedDocument(
+            "return Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.InferredDeclaration, declaration.Reason);
+
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.True(comparison.IsCorrespondenceComplete);
+        Assert.Equal(2, comparison.Rows.Length);
+        var changed = Assert.Single(comparison.Rows, row => row.Change == CSharpStructuralChangeKind.Changed);
+        Assert.Equal("InvocationExpression", changed.BeforeKind);
+        var added = Assert.Single(comparison.Rows, row => row.Change == CSharpStructuralChangeKind.Added);
+        Assert.Equal("LocalFunctionStatement", added.AfterKind);
+
+        // End-to-end: the declaration gets its own Added display row and
+        // detail, instead of being silently dropped (#3902's "zero matched
+        // structural-diff rows" / #4116's "declaration falls into the gap
+        // bucket" problem).
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+        Assert.Contains(display, row =>
+            row.Change == "Added" && row.Detail == "+ static int Own(int input) => input + 1;");
+
+        // Matching #4952's corpus mockup for this exact PR shape: the added
+        // declaration now gets its own caret in the rendered After body,
+        // instead of appearing with no annotation at all.
+        string renderedAfter = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison, CSharpStructuralSide.After);
+        Assert.Contains(
+            "static int Own(int input) => input + 1;\n"
+            + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+            + "raise: LocalFunctionStatement",
+            renderedAfter);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_InfersRemovedLocalFunctionDeclarationAlongsideMatchedCallSite()
+    {
+        // Symmetric removal direction: a declared local function is inlined
+        // back to an undeclared synthesized call. The declaration disappears
+        // from the before side with no IL origin of its own.
+        var before = TrustedDocument(
+            "F();\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+        var after = TrustedDocument(
+            "__CallsEmpty_g__F_0_0();",
+            new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedBefore);
+        Assert.Equal(CSharpUnmatchedNodeReason.InferredDeclaration, declaration.Reason);
+        Assert.Empty(issued.UnmatchedAfter);
+
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+        Assert.True(comparison.IsCorrespondenceComplete);
+        Assert.Equal(2, comparison.Rows.Length);
+        var removed = Assert.Single(comparison.Rows, row => row.Change == CSharpStructuralChangeKind.Removed);
+        Assert.Equal("LocalFunctionStatement", removed.BeforeKind);
+
+        // Symmetric to the Added case: the removed declaration gets its own
+        // caret in the rendered Before body, instead of falling through with
+        // no annotation at all.
+        string renderedBefore = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
+            comparison, CSharpStructuralSide.Before);
+        Assert.Contains(
+            "static void F()\n"
+            + "^^^^^^^^^^^^^^^\n"
+            + "raise: LocalFunctionStatement",
+            renderedBefore);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
+    {
+        // Close negative: a new local-function declaration with no IL origin
+        // of its own, but with no matched InvocationExpression call-site
+        // rewrite anywhere in the document. This is the general "declaration
+        // appears out of nowhere" case item 5 deliberately excludes (no
+        // paired call-site evidence to key structural uniqueness off of), so
+        // it must stay Unsupported like any other correspondence gap.
+        var before = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var after = TrustedDocument(
+            "return;\nstatic void F()\n{\n}",
+            new NodeSpec("ReturnStatement", "return;", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotTreatArgumentOnlyInvocationChangeAsCallSiteRewrite()
+    {
+        // Close negative (round-7 review, reviewers A and B): a matched
+        // InvocationExpression pair whose callee is unchanged but whose
+        // arguments differ (Log(1) -> Log(2)) must not itself license an
+        // unrelated new local-function declaration elsewhere in the document
+        // as an inferred rewrite target. The call's target never changed, so
+        // this is not evidence that anything was rewritten alongside it.
+        var before = TrustedDocument(
+            "Log(1);",
+            new NodeSpec("InvocationExpression", "Log(1)", [0x10]));
+        var after = TrustedDocument(
+            "Log(2);\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log(2)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_InfersDeclarationWhenCalleeRewriteHasParenthesizedReceiver()
+    {
+        // Close positive (round-8 review, reviewers A and B): a matched
+        // InvocationExpression pair whose receiver itself contains balanced
+        // parentheses (a cast, `((IFoo)value)`) must still have its true
+        // callee correctly compared. A naive "first '(' in the text" split
+        // would misidentify the callee split point -- the text starts with
+        // '(' -- and wrongly decline to detect this as a genuine rewrite.
+        var before = TrustedDocument(
+            "return ((IFoo)value).Old();",
+            new NodeSpec("InvocationExpression", "((IFoo)value).Old()", [0x10]));
+        var after = TrustedDocument(
+            "return ((IFoo)value).New();\nstatic int New()\n{\n    return 1;\n}",
+            new NodeSpec("InvocationExpression", "((IFoo)value).New()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int New()\n{\n    return 1;\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.InferredDeclaration, declaration.Reason);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotTreatUnchangedCalleeWithNestedInvocationReceiverAsRewrite()
+    {
+        // Close negative, symmetric to the parenthesized-receiver positive
+        // above: a call-returning receiver (`GetReceiver()`) also contains a
+        // balanced paren pair before the true callee's own argument list.
+        // The callee (`GetReceiver().Log`) is unchanged here -- only the
+        // argument differs -- so this must not license an unrelated
+        // declaration as a rewrite target, proving the balanced scan finds
+        // the correct split rather than merely the first or last paren.
+        var before = TrustedDocument(
+            "GetReceiver().Log(1);",
+            new NodeSpec("InvocationExpression", "GetReceiver().Log(1)", [0x10]));
+        var after = TrustedDocument(
+            "GetReceiver().Log(2);\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "GetReceiver().Log(2)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotTreatArgumentLiteralParenthesesAsCalleeRewrite()
+    {
+        // Close negative (round-9 review, reviewers A and B): an
+        // argument-only edit where the changed argument is a string literal
+        // that itself contains a '(' character (Log("(") -> Log("changed("))
+        // must decline callee comparison entirely rather than let the
+        // literal's unbalanced paren either masquerade as the argument
+        // list's true boundary or make the scan fail to find a balanced
+        // match at all (which would otherwise silently fall back to
+        // comparing full invocation text -- reintroducing the exact
+        // argument-only false positive round 7 fixed). The callee ("Log")
+        // is unchanged, so this must not license an unrelated declaration.
+        var before = TrustedDocument(
+            "Log(\"(\");",
+            new NodeSpec("InvocationExpression", "Log(\"(\")", [0x10]));
+        var after = TrustedDocument(
+            "Log(\"changed(\");\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log(\"changed(\")", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotTreatCommentParenthesesAsCalleeRewrite()
+    {
+        // Close negative (round-10 review, reviewer A): an argument-only
+        // edit where a `//` line comment inside the invocation's own text
+        // contains a misleading '(' character must still decline callee
+        // comparison. Scanning backward, the comment's '(' is reached
+        // *before* its own leading '/' characters, so checking for the
+        // disqualifying character only as the scan reaches it (rather than
+        // as a dedicated upfront pass over the whole text) would let this
+        // paren reach depth zero and return a wrong "match" before the scan
+        // ever saw the '/' that should have disqualified it. The callee
+        // ("Log") is unchanged, so this must not license an unrelated
+        // declaration.
+        var before = TrustedDocument(
+            "Log(1 // (\n);",
+            new NodeSpec("InvocationExpression", "Log(1 // (\n)", [0x10]));
+        var after = TrustedDocument(
+            "Log(2 // (\n);\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log(2 // (\n)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationWhenMultipleCandidatesShareScope()
+    {
+        // Close negative: two new local-function declarations with no IL
+        // origin, in the same document. Structural uniqueness is the only
+        // thing this carve-out keys identity off of, so ambiguity between
+        // multiple candidates must leave both Unsupported rather than
+        // guessing which is "the" added declaration.
+        var before = TrustedDocument(
+            "F(); G();",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("InvocationExpression", "G()", [0x20]));
+        var after = TrustedDocument(
+            "F(); G();\nstatic void F()\n{\n}\nstatic void G()\n{\n}",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("InvocationExpression", "G()", [0x20]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null),
+            new NodeSpec("LocalFunctionStatement", "static void G()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Equal(2, issued.Matches.Length);
+        Assert.All(
+            issued.UnmatchedAfter,
+            node => Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, node.Reason));
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationRetainedUnchangedOnBothSides()
+    {
+        // Close negative (round-1 review, both reviewers, same root cause): a
+        // local-function declaration with no IL origin of its own is present
+        // on both sides, unchanged. Before this fix, "only such declaration
+        // on its own side" was checked independently per side, so this
+        // unrelated retained declaration would wrongly qualify as both
+        // Removed (from the before-side check) and Added (from the
+        // after-side check) merely because some unrelated call-site elsewhere
+        // in the document was rewritten. The declaration must stay
+        // Unsupported on both sides: presence must be genuinely asymmetric
+        // (absent from one side entirely), not merely "the only one on its
+        // own side."
+        var before = TrustedDocument(
+            "__NoTypeParameter_g__Own_0_0(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+        var after = TrustedDocument(
+            "Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.Unsupported,
+            Assert.Single(issued.UnmatchedBefore).Reason);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.Unsupported,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationFromUnrelatedUnchangedCallSite()
+    {
+        // Close negative (round-1 review, both reviewers, same root cause): a
+        // new local-function declaration with no IL origin appears alongside
+        // a matched InvocationExpression call site elsewhere in the document
+        // whose selected text is unchanged (an unrelated, pre-existing call).
+        // Before this fix, "any matched InvocationExpression anywhere in the
+        // document" was enough to satisfy the call-site-rewrite check, so
+        // this unrelated unchanged call would wrongly license inferring the
+        // new declaration. The matched call site must actually be rewritten
+        // (its selected text differs before/after), not merely present.
+        var before = TrustedDocument(
+            "Log();",
+            new NodeSpec("InvocationExpression", "Log()", [0x10]));
+        var after = TrustedDocument(
+            "Log();\nstatic void Unrelated()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void Unrelated()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotInferDeclarationWhenRetainedCopyGainsProvenance()
+    {
+        // Close negative (round-1 review, reviewer A): the same declaration
+        // is present on both sides, but the before copy happens to carry IL
+        // provenance of its own (e.g. a single-expression body sharing a
+        // sequence point with its header) while the after copy does not.
+        // Before this fix, "the only null-provenance candidate on its own
+        // side" counted only null-provenance nodes, so the before copy
+        // (excluded by its provenance) made beforeDeclarationCandidates == 0
+        // while afterDeclarationCandidates == 1 -- looking asymmetric even
+        // though the declaration is genuinely retained. Presence must be
+        // judged by total declarations on a side (any provenance), not just
+        // null-provenance candidates, to prove genuine absence.
+        var before = TrustedDocument(
+            "__NoTypeParameter_g__Own_0_0(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", [0x20]));
+        var after = TrustedDocument(
+            "Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotTreatDifferentlyInterleavedUnchangedCallAsRewrite()
+    {
+        // Close negative (round-1 review, reviewer B): a matched invocation
+        // renders identically as C# on both sides -- "Log(" and "value);" on
+        // two consecutive lines -- but the before document has a real
+        // interleaved IL line woven between those two rendered pieces while
+        // the after document has none. Per the real producer's own
+        // convention (ResearchViews.cs), a C# span that continues onto a
+        // later line keeps its trailing line break as part of the span, so
+        // the before side's raw spans are (0,5)="Log(\n" and (18,7)="value);"
+        // -- two spans purely because of the interleaved IL -- while the
+        // after side, with nothing interleaved, is naturally already one
+        // span covering the identical text "Log(\nvalue);". Comparing raw
+        // spans makes the differing span *count* alone (2 vs. 1) look like a
+        // rewrite even though the reconstructed text is character-for-
+        // character identical, which would wrongly license inferring an
+        // unrelated new declaration elsewhere in the document. Only once the
+        // interleaved IL line is projected away does the before side's two
+        // pieces coalesce back into the same single span, at which point the
+        // projected text comparison correctly finds no difference. This is
+        // the genuine regression case for "compare projected, not raw,
+        // text" -- unlike a hand-built fixture that never lets the spans
+        // coalesce, this one only passes because the projected comparison
+        // itself reports equal text, not merely because of the multi-span
+        // guard.
+        const string beforeCall1 = "Log(";
+        const string beforeIl = "IL_0000: nop";
+        const string beforeCall2 = "value);";
+        const string declarationText = "static void Unrelated()\n{\n}";
+        string beforeText = $"{beforeCall1}\n{beforeIl}\n{beforeCall2}";
+        int call1Start = beforeText.IndexOf(beforeCall1, StringComparison.Ordinal);
+        int ilStart = beforeText.IndexOf(beforeIl, StringComparison.Ordinal);
+        int call2Start = beforeText.IndexOf(beforeCall2, StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [
+                        // Includes the trailing '\n': the construct continues
+                        // onto "value);" on a later line, so the line break
+                        // is the construct's own text, per the real
+                        // producer's convention.
+                        new AnnotatedSourceSpan(call1Start, beforeCall1.Length + 1),
+                        new AnnotatedSourceSpan(call2Start, beforeCall2.Length),
+                    ],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                new AnnotatedSourceNode(
+                    1,
+                    AnnotatedSourceNode.InstructionKind,
+                    SourceLineKind.Il,
+                    [new AnnotatedSourceSpan(ilStart, beforeIl.Length)],
+                    IlOffset: 0),
+            ],
+            [],
+            [],
+            [],
+            Source());
+
+        const string afterCall = "Log(\nvalue);";
+        string afterText = $"{afterCall}\n{declarationText}";
+        int afterCallStart = afterText.IndexOf(afterCall, StringComparison.Ordinal);
+        int afterDeclarationStart = afterText.IndexOf(declarationText, StringComparison.Ordinal);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                // No interleaved IL splits this call on the after side, so
+                // it is naturally already one contiguous span covering the
+                // same two rendered lines as the before side.
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterCallStart, afterCall.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                new AnnotatedSourceNode(
+                    1,
+                    "LocalFunctionStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterDeclarationStart, declarationText.Length)],
+                    Provenance: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotProjectWhenNoDeclarationCandidateExists()
+    {
+        // Close negative (round-1 review, reviewer B): CSharpAnnotatedSourceProjection.Create
+        // requires every IL-medium node to be exactly one contiguous rendered
+        // line, but AnnotatedSourceNode itself permits a structural
+        // (non-instruction) IL-medium node -- a "Block", say -- with several
+        // spans and no IlOffset. Before this fix, ClassifyUnprovenancedDeclarations
+        // built a projection of every document unconditionally, so
+        // IssueCorrespondence would throw on such a document even though it
+        // has no null-provenance declaration candidate that could ever be
+        // promoted. The declaration-count checks must run first, and the
+        // projection must stay unbuilt when they already rule out a
+        // promotion, so this document -- which has no LocalFunctionStatement
+        // node at all -- must not throw.
+        var before = TrustedDocument(
+            "A();",
+            new NodeSpec("InvocationExpression", "A()", [0x10]));
+        var beforeWithBlock = new AnnotatedSourceDocument(
+            before.Text,
+            [
+                .. before.Nodes,
+                new AnnotatedSourceNode(
+                    before.Nodes.Count,
+                    "Block",
+                    SourceLineKind.Il,
+                    [
+                        new AnnotatedSourceSpan(0, 1),
+                        new AnnotatedSourceSpan(2, 1),
+                    ],
+                    IlOffset: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+        var after = TrustedDocument(
+            "A();",
+            new NodeSpec("InvocationExpression", "A()", [0x10]));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(beforeWithBlock, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        Assert.Empty(issued.UnmatchedAfter);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotThrowWhenDeclarationCandidateCoexistsWithMultiSpanIlNode()
+    {
+        // Close negative (round-1 review, reviewers A and B, on the previous
+        // fix): a sole null-provenance LocalFunctionStatement makes
+        // declarationAdded true, so the call-site rewrite check does build a
+        // projection -- but a wholly unrelated structural "Block" IL node
+        // elsewhere in the same document still violates
+        // CSharpAnnotatedSourceProjection.Create's one-contiguous-span
+        // requirement. The declaration-count gate alone cannot rule this out,
+        // since it says nothing about the document's IL node shapes. The
+        // projection attempt must fail conservatively -- leaving the
+        // declaration Unsupported -- rather than let the document's
+        // unrelated shape surface as a thrown exception from
+        // IssueCorrespondence.
+        const string invocationText = "A();";
+        const string declarationText = "static void Own()\n{\n}";
+        string afterText = $"{invocationText}\n{declarationText}";
+        int afterInvocationStart = afterText.IndexOf(invocationText, StringComparison.Ordinal);
+        int afterDeclarationStart = afterText.IndexOf(declarationText, StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            invocationText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(0, invocationText.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                // Unrelated to the invocation or the declaration below: a
+                // structural, offsetless IL node spanning two disjoint
+                // pieces, which AnnotatedSourceNode permits but
+                // CSharpAnnotatedSourceProjection.Create does not.
+                new AnnotatedSourceNode(
+                    1,
+                    "Block",
+                    SourceLineKind.Il,
+                    [
+                        new AnnotatedSourceSpan(0, 1),
+                        new AnnotatedSourceSpan(2, 1),
+                    ],
+                    IlOffset: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [
+                new AnnotatedSourceNode(
+                    0,
+                    "InvocationExpression",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterInvocationStart, invocationText.Length)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10])),
+                new AnnotatedSourceNode(
+                    1,
+                    "LocalFunctionStatement",
+                    SourceLineKind.CSharp,
+                    [new AnnotatedSourceSpan(afterDeclarationStart, declarationText.Length)],
+                    Provenance: null),
+            ],
+            [],
+            [],
+            [],
+            Source());
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        Assert.Empty(issued.UnmatchedBefore);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        // CompareStructure's own projection (pre-existing, unconditional, and
+        // out of scope for this carve-out) would itself reject this
+        // document's unrelated Block node; this test verifies only that
+        // IssueCorrespondence -- the narrower surface this carve-out owns --
+        // does not throw and classifies the declaration conservatively.
+    }
+
+    [Fact]
     public void IssuedCorrespondence_RoundTripsDocumentNodeProvenanceAndUnmatchedNodes()
     {
         var before = TrustedDocument(
@@ -1546,6 +2145,39 @@ public class CSharpStructuralComparisonTests
         Assert.Equal(issued.UnmatchedBefore, replayed.UnmatchedBefore);
         Assert.Equal(issued.UnmatchedAfter, replayed.UnmatchedAfter);
         Assert.Single(CSharpBodyDiff.CompareStructure(replayed).Rows);
+    }
+
+    [Fact]
+    public void IssuedCorrespondence_RoundTripsInferredDeclarationReason()
+    {
+        // Regression: the strict JSON converter for CSharpUnmatchedNodeReason
+        // must know about InferredDeclaration too, or serializing it throws
+        // (AnnotatedSourceContractJsonException) instead of round-tripping.
+        var before = TrustedDocument(
+            "__CallsEmpty_g__F_0_0();",
+            new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
+        var after = TrustedDocument(
+            "F();\nstatic void F() { }",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F() { }", null));
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.InferredDeclaration,
+            Assert.Single(issued.UnmatchedAfter).Reason);
+
+        string json = JsonSerializer.Serialize(
+            issued,
+            AnnotatedSourceDocumentJsonContext.Default.CSharpNodeCorrespondenceResult);
+        var replayed = JsonSerializer.Deserialize(
+            json,
+            AnnotatedSourceDocumentJsonContext.Default.CSharpNodeCorrespondenceResult);
+
+        Assert.NotNull(replayed);
+        Assert.Equal(issued.UnmatchedAfter, replayed.UnmatchedAfter);
+        Assert.Equal(
+            CSharpUnmatchedNodeReason.InferredDeclaration,
+            Assert.Single(replayed.UnmatchedAfter).Reason);
+        Assert.Equal(2, CSharpBodyDiff.CompareStructure(replayed).Rows.Length);
     }
 
     [Fact]
@@ -2068,7 +2700,9 @@ public class CSharpStructuralComparisonTests
                     node.Kind,
                     SourceLineKind.CSharp,
                     [new AnnotatedSourceSpan(start, node.Text.Length)],
-                    Provenance: new AnnotatedSourceNodeProvenance(node.IlOffsets));
+                    Provenance: node.IlOffsets is null
+                        ? null
+                        : new AnnotatedSourceNodeProvenance(node.IlOffsets));
             })
             .ToArray();
         return new AnnotatedSourceDocument(text, sourceNodes, [], [], [], Source());
@@ -2085,7 +2719,7 @@ public class CSharpStructuralComparisonTests
     readonly record struct NodeSpec(
         string Kind,
         string Text,
-        IReadOnlyList<int> IlOffsets,
+        IReadOnlyList<int>? IlOffsets,
         int Occurrence = 0);
 
     static void AppendFingerprintBytes(IncrementalHash hash, ReadOnlySpan<byte> bytes)

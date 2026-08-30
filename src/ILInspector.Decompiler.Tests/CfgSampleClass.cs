@@ -5407,19 +5407,6 @@ public interface CfgDimFace
 
 public readonly struct CfgDimStructConsumer : CfgDimFace { }
 
-public enum CfgTerminalSwitchKind
-{
-    Value25 = 25,
-    Value30 = 30,
-    Value31 = 31,
-    Value32 = 32,
-    Value33 = 33,
-    Value35 = 35,
-    Value36 = 36,
-    Value37 = 37,
-    Value40 = 40,
-}
-
 public enum CfgLongPriority : long { Low = 0, High = 2 }
 public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }
 
