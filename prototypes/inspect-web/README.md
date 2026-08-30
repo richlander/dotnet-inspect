@@ -655,6 +655,13 @@ and its ordering in the Vite bundle and SDK-published site. Other application
 routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
+Search also exposes a `Package query` action that opens the routed `/query`
+surface. It runs the product-issued nuspec-only facet catalog against
+nuget.org, streams rows and visible partial failures from Browser Wasm, and
+hands an exact result coordinate to the normal Workspace package-opening path.
+The route keeps request and result state in the current session rather than in
+the URL; a direct load starts with an empty prefix.
+
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
@@ -868,6 +875,72 @@ including the action — a different rule, a second entry, or a wider action all
 fail.
 
 CSS is not linted. Adopting Stylelint is tracked separately.
+
+### Protections the linters cannot provide
+
+Everything above reads source text at build time. Two properties matter here that
+no amount of reading source text can establish.
+
+The first is what a browser is allowed to do with the page once it ships.
+
+`staticwebapp.config.json` sets four response headers globally —
+`X-Content-Type-Options: nosniff`, which stops content-type guessing on the JSON,
+TSV and wasm this site serves, plus `Referrer-Policy`, `X-Frame-Options` and
+`Strict-Transport-Security`. Azure Static Web Apps returns the union of
+`globalHeaders` and a matching route's `headers`, with the route winning per key,
+so a route that names one of these keys replaces the global value for its own
+paths and the file still reads as though the protection is global. A toolchain
+test pins the header set and requires the route keys to stay disjoint from it,
+compared case-insensitively because HTTP header names are — a route spelling
+`x-frame-options` overrides a global `X-Frame-Options` on the wire. It also
+rejects any route using `redirect`: Azure omits `globalHeaders` entirely on
+redirect responses ([Azure/static-web-apps#739][swa-739], open since 2022), so
+such a route names none of the four keys and still answers without them.
+Together those two properties are what make "every static response" true rather
+than merely intended. CI re-checks the headers in the published artifact,
+because the site is deployed from that copy rather than from the source file.
+
+[swa-739]: https://github.com/Azure/static-web-apps/issues/739
+
+The word "static" there is a real boundary, not hedging. Azure Static Web Apps
+does not apply `globalHeaders` to responses produced by the managed functions
+under `/api/*`, which carry whatever headers the function sets for itself. The
+MSDL proxy is such a function, so these four headers do not cover its responses.
+Giving the proxy its own headers is tracked in #5119.
+
+The second property is whether the third-party digests in `index.html` still
+describe what the CDN serves. `require-sri` enforces that a cross-origin
+subresource *carries* a digest, and that is the whole of what a linter can see;
+whether the digest is still current lives on the network and changes without any
+commit here. `scripts/check-sri-freshness.ts` re-fetches each pinned URL and
+compares hashes, reading the pins out of the document so they cannot drift from
+what the site actually loads.
+
+Be precise about what that buys, because it is not a security control. SRI is
+the security control and the browser enforces it: a stale pin means the browser
+*refuses* the bytes, so nothing unexpected runs. What goes wrong is that the
+subresource silently disappears — on this site, syntax highlighting stops
+working — with nothing to say why. This is a maintenance signal, and it is
+scheduled weekly rather than gating pull requests, because reaching jsDelivr is
+required and an outage there is not a defect in somebody's change.
+
+It reads the document with html-validate's own parser — the same parser that
+lints the file — rather than with a pattern, so the two cannot disagree about
+what the markup contains. It resolves URLs the way a browser does and follows
+the SRI metadata grammar, so valid markup does not produce false drift. It also
+separates the two ways it can fail: a stale pin is fixed by re-pinning, an
+unreachable CDN is not a pin problem at all, and filing the second under the
+first sends somebody looking for drift that is not there.
+
+The check that matters most is the cheapest one. Finding *no* pinned
+subresources exits as inconclusive rather than as success, because this script
+exists to check them and finding none means the markup shape changed underneath
+it. Without that, every later refactor of `index.html` would quietly turn the
+weekly run into a green light for nothing.
+
+A Content-Security-Policy is still outstanding, because the generated
+`<script type="importmap">` needs a per-build hash before `script-src` can be
+strict.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.

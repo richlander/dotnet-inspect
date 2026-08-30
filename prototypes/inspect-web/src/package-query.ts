@@ -2,34 +2,24 @@
 //
 // This module owns the request/outcome contract and pure state transitions for a
 // wide, streaming query over a package source (nuget.org today; other feeds
-// possible later), narrowed by facets, and evaluated in two tiers:
-//
-//   "nuspec"   — answerable from search metadata + .nuspec alone (bounded by
-//                #4551's nuspec-only manifest profile once it lands).
-//   "promoted" — requires opening the assembly/IL for an explicitly selected,
-//                bounded subset of rows ("Deepen").
+// possible later), narrowed by product-issued nuspec facets.
 //
 // It is deliberately data-source-agnostic: `PackageQueryDataSource` is supplied
 // by the caller so this module can be built and tested against fake sources
-// before the real #4551-backed source client exists and the shell wiring
-// lands. Swapping in the real source for whatever satisfies this interface at
-// wiring time is *expected* to be the whole integration step, but that
-// expectation is unverified until it actually happens — see the design doc's
-// Landing sequence for the same caveat.
+// independently from the Browser engine adapter.
 
-/** A single named predicate a facet contributes to the request (1:1 with a
- * CLI-shipped profile flag; see the design doc's v1 non-goals). */
+/** One product-issued package-query facet descriptor. */
 export interface QueryFacetTerm {
   key: string;
   label: string;
-  tier: "nuspec" | "promoted";
+  summary?: string;
+  weight?: number;
+  tier: "nuspec";
+  selectionGroupId?: string | null;
 }
 
-/** The re-runnable unit intended to become shareable via the persisted form
- * (see design doc's Sharing section; the conversion itself is not yet
- * implemented). Never encodes a resolved outcome. */
+/** One rerunnable in-memory request. Never encodes a resolved outcome. */
 export interface QueryRequest {
-  scopeLabel: string;
   scopeQuery: string;
   facets: readonly QueryFacetTerm[];
   /** Declared cap communicated to the source. The bounded-complete footer
@@ -38,13 +28,28 @@ export interface QueryRequest {
    * that text consistent with the cap it was given, but nothing here
    * enforces that. */
   requestedLimit: number;
+  requestedMatchLimit: number;
 }
 
 export function createQueryRequest(
-  scopeLabel: string,
   scopeQuery: string,
 ): QueryRequest {
-  return { scopeLabel, scopeQuery, facets: [], requestedLimit: 200 };
+  return {
+    scopeQuery,
+    facets: [],
+    requestedLimit: 200,
+    requestedMatchLimit: 100,
+  };
+}
+
+export function withScopeQuery(
+  request: QueryRequest,
+  scopeQuery: string,
+): QueryRequest {
+  return {
+    ...request,
+    scopeQuery,
+  };
 }
 
 export function withFacet(
@@ -62,6 +67,21 @@ export function withoutFacet(
   return { ...request, facets: request.facets.filter(f => f.key !== facetKey) };
 }
 
+export function toggleFacet(
+  request: QueryRequest,
+  facet: QueryFacetTerm,
+): QueryRequest {
+  if (request.facets.some(existing => existing.key === facet.key)) {
+    return withoutFacet(request, facet.key);
+  }
+
+  const compatible = facet.selectionGroupId
+    ? request.facets.filter(existing =>
+        existing.selectionGroupId !== facet.selectionGroupId)
+    : request.facets;
+  return withFacet({ ...request, facets: compatible }, facet);
+}
+
 /** One package's projection plus which predicate terms matched and why. Never
  * a bare pass/fail — the evidence is the point (see package-opportunities.ts
  * for the existing "evidence over checkmark" convention this follows). The
@@ -71,9 +91,10 @@ export function withoutFacet(
 export interface QueryResultRow {
   packageId: string;
   version: string;
-  tier: "nuspec" | "promoted";
+  tier: "nuspec";
   evidence: readonly [string, ...string[]];
   totalDownloads: number;
+  producer?: string;
 }
 
 export type QueryCompletion =
@@ -128,9 +149,7 @@ export function withCompletion(
   return { ...outcome, completion };
 }
 
-/** Supplies pages of rows for a request. The real implementation streams from
- * the #4551 nuspec-only source client; a stub (see package-query.stub.ts,
- * added when wiring begins) can satisfy this for demos before that lands. */
+/** Supplies product-projected pages and failures for a request. */
 export interface PackageQueryDataSource {
   run(
     request: QueryRequest,
@@ -146,18 +165,15 @@ export interface PackageQueryDataSource {
 export interface PackageQueryState {
   request: QueryRequest | null;
   outcome: QueryOutcome;
-  selected: ReadonlySet<string>;
 }
 
 export function initialQueryState(): PackageQueryState {
-  return { request: null, outcome: emptyOutcome(), selected: new Set() };
+  return { request: null, outcome: emptyOutcome() };
 }
 
 export interface PackageQueryController {
   run(request: QueryRequest): Promise<void>;
   cancel(): void;
-  toggleSelection(packageId: string): void;
-  clearSelection(): void;
 }
 
 /** Owns one in-flight generation counter so a superseded request's late pages
@@ -179,7 +195,6 @@ export function createPackageQueryController(
       const requestGeneration = ++generation;
       state.request = request;
       state.outcome = emptyOutcome();
-      state.selected = new Set();
       // Capture this run's own signal before onUpdate() runs: onUpdate() is
       // caller-supplied and may reentrantly call run() again synchronously
       // (e.g. a state-change handler that immediately kicks off a new
@@ -238,19 +253,6 @@ export function createPackageQueryController(
       generation++;
       abortController.abort();
       state.outcome = withCompletion(state.outcome, { kind: "cancelled" });
-      onUpdate();
-    },
-
-    toggleSelection(packageId: string) {
-      const next = new Set(state.selected);
-      if (next.has(packageId)) next.delete(packageId);
-      else next.add(packageId);
-      state.selected = next;
-      onUpdate();
-    },
-
-    clearSelection() {
-      state.selected = new Set();
       onUpdate();
     },
   };
