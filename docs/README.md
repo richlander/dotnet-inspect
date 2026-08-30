@@ -33,7 +33,8 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | -------- | ----------- |
 | [Inspection Space Architecture](inspection-space.md) | Target core workspace, query, acquisition, join, cache, and safety architecture organized around Rich, Fast, and Safe. |
 | [Overview](overview.md) | Minimum system and architecture context for humans and agents. |
-| [Architecture](architecture.md) | Current command and metadata architecture. |
+| [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
+| [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
@@ -55,6 +56,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Semantic Row Selection](design/semantic-row-selection.md) | Dependency-free ordered Head, Tail, Window, and Top stages over complete logical sequences. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
+| [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The alignment, bounding, and guard-work invariants relating the custom-attribute value guard to SRM's decode, the two width-resolution paths, bounds, charging, and refusal semantics. Descriptive, with seven known gaps recorded against the contract. |
 | [Inspection Graph Modes](design/inspection-graph-modes.md) | Single-seed, peer-seed, and induced-set requests over member, type, assembly, and package subjects. |
 | [Call Graph Characteristics](design/call-graph-characteristics.md) | Mapping current call nodes, edges, occurrences, signals, and loop state into the inspection-graph descriptor model. |
 | [Graph Signal Annotations](design/graph-signal-annotations.md) | Projecting analysis signals (alloc/copy/unsafe, and exception-risk follow-ups) onto call-graph nodes via `--fields`. |
@@ -120,7 +122,11 @@ skeleton, or ReturnToSender coverage).
 
 ### Design history and backlog
 
-Some files under `docs/design/` and `docs/backlog*.md` were written during ideation. They are useful design history, but may not describe current CLI behavior. When current behavior matters, start with Overview, Architecture, Progressive Disclosure, the embedded skill, and tests.
+Some files under `docs/design/` and `docs/backlog*.md` were written during
+ideation. They are useful design history, but may not describe current
+behavior. When current behavior matters, start with Overview, the Architecture
+map, the relevant host architecture guide, Progressive Disclosure, the embedded
+skill, and tests.
 
 ## Getting Started
 

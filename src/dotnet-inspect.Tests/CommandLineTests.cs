@@ -14,6 +14,17 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class CommandLineTests
 {
+    private static string[] PreprocessAndApplyLineWindow(string[] args)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed = CommandLineBuilder.PreprocessArgs(args, root);
+        string[] lineArguments = [.. processed, "--lines"];
+        CommandLineBuilder.ApplyParsedLineWindow(
+            root.Parse(lineArguments),
+            lineArguments);
+        return processed;
+    }
+
     [Fact]
     public void RootCommand_WithNoArgs_ShowsHelpWithoutError()
     {
@@ -596,10 +607,319 @@ public class CommandLineTests
     {
         string[] args = ["find", "--package-prefix", "Azure", option, "-5"];
 
-        string[] result = CommandLineBuilder.PreprocessArgs(args);
+        string[] result = PreprocessAndApplyLineWindow(args);
 
         Assert.Same(args, result);
         Assert.Null(CommandLineBuilder.HeadLines);
+    }
+
+    [Theory]
+    [InlineData("-n=5")]
+    [InlineData("-n5")]
+    [InlineData("-n:5")]
+    public void PreprocessArgs_AttachedLineLimitSetsHeadLines(string option)
+    {
+        string[] args = ["package", "Foo", option];
+
+        string[] result = PreprocessAndApplyLineWindow(args);
+
+        Assert.Same(args, result);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+    }
+
+    [Theory]
+    [InlineData("-n=5")]
+    [InlineData("-n5")]
+    [InlineData("-n:5")]
+    public void PreprocessArgs_AttachedTailLineLimitSetsTailLines(string option)
+    {
+        string[] args = ["package", "Foo", option, "--tail"];
+
+        string[] result = PreprocessAndApplyLineWindow(args);
+
+        Assert.Same(args, result);
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Equal(5, CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("--tail=true", true)]
+    [InlineData("--tail:true", true)]
+    [InlineData("--tail=false", false)]
+    [InlineData("--tail:false", false)]
+    public void PreprocessArgs_InlineTailValueSetsDirection(
+        string tail,
+        bool fromEnd)
+    {
+        string[] args = ["package", "Foo", "-n1", tail];
+
+        PreprocessAndApplyLineWindow(args);
+
+        Assert.Equal(fromEnd ? null : 1, CommandLineBuilder.HeadLines);
+        Assert.Equal(fromEnd ? 1 : null, CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public void PreprocessArgs_SeparatedTailValueSetsDirection(
+        string value,
+        bool fromEnd)
+    {
+        string[] args = ["package", "Foo", "-n1", "--tail", value];
+
+        PreprocessAndApplyLineWindow(args);
+
+        Assert.Equal(fromEnd ? null : 1, CommandLineBuilder.HeadLines);
+        Assert.Equal(fromEnd ? 1 : null, CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-v")]
+    [InlineData("-T")]
+    [InlineData("--tips")]
+    public void PreprocessArgs_OptionalDisplayValueDoesNotHideLineLimit(
+        string option)
+    {
+        string[] args = ["package", "Foo", option, "-n1"];
+
+        PreprocessAndApplyLineWindow(args);
+
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("-v")]
+    [InlineData("-T")]
+    [InlineData("--tips")]
+    public void PreprocessArgs_OptionalDisplayValueDoesNotHideHeadShorthand(
+        string option)
+    {
+        string[] args = ["package", "Foo", option, "-5"];
+
+        string[] result = PreprocessAndApplyLineWindow(args);
+
+        Assert.Equal(["package", "Foo", option, "-n", "5"], result);
+        Assert.Equal(5, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("--path", "-n1")]
+    [InlineData("--path", "-1")]
+    [InlineData("--library", "-n1")]
+    [InlineData("--library", "-1")]
+    [InlineData("--version", "-n1")]
+    [InlineData("--version", "-1")]
+    [InlineData("--versions", "-n1")]
+    [InlineData("--versions", "-1")]
+    [InlineData("--versions-with-feed", "-n1")]
+    [InlineData("--versions-with-feed", "-1")]
+    public void PreprocessArgs_OptionalPackageValueDoesNotHideLineLimit(
+        string option,
+        string lineLimit)
+    {
+        PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
+
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("find")]
+    [InlineData("api")]
+    public void PreprocessArgs_RequiredLibraryValueCanResembleLineLimit(
+        string command)
+    {
+        PreprocessAndApplyLineWindow([command, "Foo", "--library", "-n1"]);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RequiredProjectReadmeValueCanResembleLineLimit()
+    {
+        PreprocessAndApplyLineWindow(
+            ["project", "--readme", "-n1", "--help"]);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
+    public void ParsedLineWindow_UsesActiveCommandOptionArity()
+    {
+        PreprocessAndApplyLineWindow(
+            ["find", "--platform", "-n1", "JsonSerializer"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        string[] shorthand = PreprocessAndApplyLineWindow(
+            ["find", "--platform", "-1", "JsonSerializer"]);
+        Assert.Equal(
+            ["find", "--platform", "-n", "1", "JsonSerializer"],
+            shorthand);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        PreprocessAndApplyLineWindow(
+            ["member", "System.String", "--focus", "-n1"]);
+        Assert.Null(CommandLineBuilder.HeadLines);
+
+        PreprocessAndApplyLineWindow(
+            ["library", "example.dll", "--version", "-n1"]);
+        Assert.Null(CommandLineBuilder.HeadLines);
+    }
+
+    [Theory]
+    [InlineData("--path=-n1")]
+    [InlineData("--library=-n1")]
+    [InlineData("-T=-n1")]
+    [InlineData("-T:-n1")]
+    [InlineData("-T-n1")]
+    public void ParsedLineWindow_InlineOptionalValueRemainsAValue(string option)
+    {
+        PreprocessAndApplyLineWindow(["package", "Foo", option]);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("--out=-1")]
+    [InlineData("--out:-1")]
+    [InlineData("-o=-1")]
+    [InlineData("-o:-1")]
+    [InlineData("-o-1")]
+    public void PreprocessArgs_ShorthandAfterInlineRequiredValueUsesRawOccurrence(
+        string output)
+    {
+        string[] result = PreprocessAndApplyLineWindow(
+            ["package", "Foo", output, "-1", "--help"]);
+
+        Assert.Equal(
+            ["package", "Foo", output, "-n", "1", "--help"],
+            result);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
+    public void ParsedLineWindow_InvalidParseClearsPriorState()
+    {
+        PreprocessAndApplyLineWindow(["package", "Foo", "-n1"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        string[] invalid =
+            [
+                "package",
+                "Foo",
+                "-n1",
+                "--lines",
+                "--tail",
+                "false",
+                "--tail",
+                "true"
+            ];
+        var root = CommandLineBuilder.CreateRootCommand();
+        CommandLineBuilder.ApplyParsedLineWindow(root.Parse(invalid), invalid);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Fact]
+    public void PreprocessArgs_CommandLikeValuesDoNotChangeImplicitPackageContext()
+    {
+        PreprocessAndApplyLineWindow(
+            ["package", "--source", "api", "Foo.nupkg", "--path", "-n1"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+
+        PreprocessAndApplyLineWindow(
+            ["package", "Foo", "--path", "-n1", "-t", "project"]);
+        Assert.Equal(1, CommandLineBuilder.HeadLines);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RoutedRequiredValueIsNotRewrittenAsShorthand()
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["System.String.ToString", "--library", "-1"]);
+
+        Assert.Equal(
+            ["router", "System.String.ToString", "--library", "-1"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RequiredValueDoesNotHideLaterIdenticalShorthand()
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["member", "System.String.ToString", "--library", "-1", "-1"]);
+
+        Assert.Equal(
+            [
+                "member",
+                "System.String.ToString",
+                "--library",
+                "-1",
+                "-n",
+                "1",
+            ],
+            result);
+    }
+
+    [Theory]
+    [InlineData("--library=-1")]
+    [InlineData("--library:-1")]
+    public void PreprocessArgs_InlineRequiredValueDoesNotShiftLaterShorthand(
+        string libraryOption)
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["member", "System.String.ToString", libraryOption, "-1"]);
+
+        Assert.Equal(
+            [
+                "member",
+                "System.String.ToString",
+                libraryOption,
+                "-n",
+                "1",
+            ],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_RewritesEveryShorthandOccurrence()
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["package", "Foo", "-1", "-1"]);
+
+        Assert.Equal(
+            ["package", "Foo", "-n", "1", "-n", "1"],
+            result);
+    }
+
+    [Theory]
+    [InlineData("--out", "-n1")]
+    [InlineData("--output", "-n1")]
+    [InlineData("-o", "-n1")]
+    [InlineData("--nugetconfig", "-n1")]
+    [InlineData("--tfm", "-n1")]
+    [InlineData("-t", "-n1")]
+    [InlineData("--out", "-n:1")]
+    [InlineData("--", "-n1")]
+    [InlineData("--", "-n:1")]
+    public void PreprocessArgs_AttachedLineLimitOutsideOptionScopeIsIgnored(
+        string preceding,
+        string token)
+    {
+        string[] args = ["package", "Foo", preceding, token];
+
+        PreprocessAndApplyLineWindow(args);
+
+        Assert.Null(CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
     }
 
     [Fact]
@@ -609,6 +929,34 @@ public class CommandLineTests
         var result = CommandLineBuilder.PreprocessArgs(args);
 
         Assert.Equal(["router", "System.Text.Json", "--versions"], result);
+    }
+
+    [Theory]
+    [InlineData("--head", "true")]
+    [InlineData("--head", "false")]
+    [InlineData("--tail", "true")]
+    [InlineData("--tail", "false")]
+    public void PreprocessArgs_LeadingSeparatedDirectionValueRoutesBareTarget(
+        string direction,
+        string value)
+    {
+        var result = CommandLineBuilder.PreprocessArgs(
+            [direction, value, "System.Text.Json", "-n1"]);
+
+        Assert.Equal(
+            ["router", "System.Text.Json", direction, value, "-n1"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_SearchPlatformSeparatedTailValueKeepsTarget()
+    {
+        string[] args =
+            ["find", "--platform", "JsonSerializer", "--tail", "false"];
+
+        var result = CommandLineBuilder.PreprocessArgs(args);
+
+        Assert.Same(args, result);
     }
 
     [Theory]

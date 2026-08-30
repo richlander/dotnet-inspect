@@ -46,7 +46,7 @@ public class OutputFormatterTests
                     Jsonl: true,
                     JsonArray: false,
                     Bare: false,
-                    OutputPath: printPath));
+                    Destination: new ProjectionDestination(printPath)));
 
             Assert.Equal(0, printExit);
             Assert.Equal("7\n", File.ReadAllText(countPath));
@@ -81,6 +81,97 @@ public class OutputFormatterTests
         }
         finally
         {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProjectionDestination_DoesNotApplyALineWindowAfterSemanticRows()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("projection-row-window-");
+        try
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            var args = CommandLineBuilder.PreprocessArgs(
+                ["package", "Foo", "-n", "1", "--lines"]);
+            CommandLineBuilder.ApplyParsedLineWindow(root.Parse(args));
+            var path = Path.Combine(tempDirectory.FullName, "paths.txt");
+            var exit = ShapeProjectionOutput.Write(
+                [
+                    new ShapeProjectionRow(2, "Files", "second"),
+                    new ShapeProjectionRow(3, "Files", "third"),
+                ],
+                new ShapeProjectionOptions(
+                    ShapeProjectionKind.Paths,
+                    Row: null,
+                    JsonOutput: false,
+                    Jsonl: false,
+                    JsonArray: false,
+                    Destination: new ProjectionDestination(path, RowWindow.Range(2, 3))));
+
+            Assert.Equal(0, exit);
+            Assert.Equal("second\nthird\n", File.ReadAllText(path));
+        }
+        finally
+        {
+            CommandLine.ArgumentPreprocessor.Reset();
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ExactProjectionLineWindowPreflight_PreservesDestinationsAndSkipsAcquisition()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("projection-exact-preflight-");
+        try
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            var args = CommandLineBuilder.PreprocessArgs(
+                ["package", "Foo", "-n", "1", "--lines"]);
+            CommandLineBuilder.ApplyParsedLineWindow(root.Parse(args));
+            var absentPath = Path.Combine(tempDirectory.FullName, "absent.bin");
+            var existingPath = Path.Combine(tempDirectory.FullName, "existing.bin");
+            byte[] sentinel = [0x10, 0x20, 0x30];
+            File.WriteAllBytes(existingPath, sentinel);
+            var rows = new[]
+            {
+                new PrintableRow(1, "Docs", "README", "README.md", null)
+            };
+            var reads = 0;
+
+            async Task<(int Exit, string Output, string Error)> RunAsync(string path) =>
+                await ConsoleCapture.RunAsync(() => Task.FromResult(
+                    PrintProjectionOutput.Write(
+                        rows,
+                        _ =>
+                        {
+                            reads++;
+                            return new PrintableContent("first\nsecond", [0x01, 0x02]);
+                        },
+                        new PrintProjectionOptions(
+                            Row: null,
+                            JsonOutput: false,
+                            Jsonl: false,
+                            JsonArray: false,
+                            Bare: true,
+                            Destination: new ProjectionDestination(path, ExactTransfer: true)))));
+
+            var absent = await RunAsync(absentPath);
+            var existing = await RunAsync(existingPath);
+
+            Assert.Equal(1, absent.Exit);
+            Assert.Equal(1, existing.Exit);
+            Assert.Empty(absent.Output);
+            Assert.Empty(existing.Output);
+            Assert.Contains("line limit", absent.Error, StringComparison.Ordinal);
+            Assert.Contains("exact --out", absent.Error, StringComparison.Ordinal);
+            Assert.False(File.Exists(absentPath));
+            Assert.Equal(sentinel, File.ReadAllBytes(existingPath));
+            Assert.Equal(0, reads);
+        }
+        finally
+        {
+            CommandLine.ArgumentPreprocessor.Reset();
             tempDirectory.Delete(recursive: true);
         }
     }

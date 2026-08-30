@@ -2774,7 +2774,7 @@ public class ApiCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                OutputPath: null));
+                new ProjectionDestination(null, options.Rows)));
     }
 
     private static int WriteApiShapeProjection(TypeView view, ApiOptions options)
@@ -2797,7 +2797,13 @@ public class ApiCommand
 
         return ShapeProjectionOutput.Write(
             rows,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+            new ShapeProjectionOptions(
+                kind,
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                new ProjectionDestination(null, options.Rows)));
     }
 
     private static List<ShapeProjectionRow> ProjectTypeSourceFiles(TypeView view, string section, ShapeProjectionKind kind)
@@ -2986,7 +2992,7 @@ public class ApiCommand
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                OutputPath: null));
+                new ProjectionDestination(null, options.Rows)));
     }
 
     private static bool TryGetBareApiPayload(TypeView view, ApiOptions options, out string raw, out string error)

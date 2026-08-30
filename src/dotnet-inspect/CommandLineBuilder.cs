@@ -67,8 +67,8 @@ public static class CommandLineBuilder
     internal static string[] CuratedScopePackages => ScopeConstants.CuratedPackages;
 
     /// <summary>
-    /// Pre-processes args to handle implicit package command and platform framework shorthands.
-    /// Delegates to <see cref="ArgumentPreprocessor.PreprocessArgs"/> for backward compatibility.
+    /// Pre-processes args and rewrites line-window shorthand only when the active
+    /// command parse does not own the token as a required option value.
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
     {
@@ -81,9 +81,14 @@ public static class CommandLineBuilder
         RootCommand rootCommand) =>
         ArgumentPreprocessor.PreprocessArgs(args, rootCommand);
 
+    public static void ApplyParsedLineWindow(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
+        => ArgumentPreprocessor.ApplyParsedLineWindow(parseResult, rawArgs);
+
     /// <summary>
     /// Invokes a parsed command under the payload-projection audit. This is the single
-    /// invoke choke point: the product entry point and the test harness both call it, so a
+    /// invoke choke point: product and test-harness invocation paths pass through it, so a
     /// render path that drops <c>--print</c>/<c>--value</c>/<c>--urls</c>/<c>--paths</c>/
     /// <c>--count</c> fails loudly in tests rather than shipping unprojected output.
     ///
@@ -101,8 +106,27 @@ public static class CommandLineBuilder
     /// the default handler off and catching here rather than only at the entry point
     /// keeps the containment on the path the test harness exercises too.
     /// </summary>
-    public static async Task<int> InvokeAsync(ParseResult parseResult)
+    public static Task<int> InvokeAsync(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
+        => InvokeParsedAsync(parseResult, rawArgs);
+
+    /// <summary>
+    /// Invokes a parsed command with the CLI host's rendered-line writer. The entry point
+    /// uses this for explicit commands, and the router uses it only after resolving the
+    /// authoritative child parse.
+    /// </summary>
+    public static Task<int> InvokeWithLineWindowAsync(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
+        => InvokeParsedAsync(parseResult, rawArgs);
+
+    private static async Task<int> InvokeParsedAsync(
+        ParseResult parseResult,
+        string[]? rawArgs)
     {
+        ApplyParsedLineWindow(parseResult, rawArgs);
+
         if (WriteParseErrors(parseResult))
             return 1;
 
