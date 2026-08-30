@@ -431,6 +431,8 @@ public sealed record DirectCall(
     /// </summary>
     public ResolvedValueSet? ResolvedReceiverValue { get; init; }
 
+    internal bool SecondByRefArgumentIsCurrentInstance { get; init; }
+
     /// <summary>
     /// Ordered element provenance for span-shaped arguments the C# compiler
     /// built from a recognized inline-array or single-element
@@ -610,6 +612,26 @@ public enum MethodResultSinkKind
 }
 
 /// <summary>
+/// The compiler lowering used by an authenticated async method body.
+/// </summary>
+public enum AsyncLoweringKind
+{
+    /// <summary>The method executes directly under runtime async.</summary>
+    Runtime,
+
+    /// <summary>The method executes through a compiler-generated state machine.</summary>
+    StateMachine,
+}
+
+/// <summary>
+/// Analysis-owned attribution from a physical async body to its exact source
+/// method and lowering.
+/// </summary>
+public sealed record AsyncBodyAttribution(
+    MethodIdentity SourceMethod,
+    AsyncLoweringKind Lowering);
+
+/// <summary>
 /// Conservative, physical-body evidence for the direct-call producers of a
 /// method-result sink.
 /// </summary>
@@ -638,13 +660,20 @@ public sealed record MethodResultSink(
     bool IsComplete)
 {
     /// <summary>
-    /// Direct async source method authenticated by Analysis for this physical
-    /// state-machine body. Null when the body is not a proven async
-    /// state-machine execution body.
-    /// <c>JsonWireContractResolverTests.Build_RejectsUnrelatedAsyncBuilderResultSink</c>
-    /// gates the consumer boundary.
+    /// Exact source method and lowering authenticated by Analysis for this
+    /// physical async body. Runtime-async bodies name their own physical
+    /// method; state-machine bodies name their kickoff source. Null when the
+    /// body is not proven async evidence.
+    /// <c>LibraryBodyIndexTests.ResultSinks_PublishRuntimeAsyncBodyAttribution</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_PublishStateMachineAsyncBodyAttribution</c>
+    /// gate both lowering forms;
+    /// <c>LibraryBodyIndexTests.ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync</c>
+    /// gates the close negative.
+    /// <c>JsonWireContractResolverTests.Build_ResolvesRegisteredStringArrayAfterAwait</c>
+    /// gates the compiler-state-machine consumer path.
     /// </summary>
-    public MethodIdentity? AsyncStateMachineSource { get; init; }
+    public AsyncBodyAttribution? AsyncBody { get; init; }
 
     /// <summary>
     /// The resolved provenance union for the sink value, independent of the
@@ -659,6 +688,32 @@ public sealed record MethodResultSink(
     /// <c>MethodCallResolvedValueTests.ResolvesResultSinkValues</c> gates it.
     /// </remarks>
     public ResolvedValueSet? ResolvedValue { get; init; }
+
+    /// <summary>
+    /// Exact direct-call sources recovered through one authenticated compiler
+    /// async state-machine field. Null unless Analysis proves one unambiguous
+    /// store that dominates the initial suspension and the corresponding load
+    /// after every suspension in the physical body, with no field-address
+    /// escape or exact store outside that body, into the same exact trusted
+    /// framework async-builder field used by every suspension. The source task
+    /// and builder families and result types must match. Scoped body indexes
+    /// withhold this whole-assembly absence proof.
+    /// </summary>
+    /// <remarks>
+    /// This augments rather than reinterprets
+    /// <see cref="SourceCallOffsets"/>/<see cref="IsComplete"/>: those members
+    /// retain their direct evaluation-stack meaning.
+    /// <c>LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_AuthenticateStateMachineCompletionBuilderField</c>
+    /// gate this contract.
+    /// </remarks>
+    public AsyncStateMachineFieldResultSource? StateMachineFieldSource
+        { get; init; }
 }
 
 /// <summary>

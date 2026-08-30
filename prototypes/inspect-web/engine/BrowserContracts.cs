@@ -21,12 +21,28 @@ namespace InspectWeb.Engine;
 /// The participants the workspace could not project, if any. A partial surface says so rather
 /// than reading as a complete one.
 /// </param>
+public sealed record BrowserCompileLibraryAvailability(
+    BrowserCompileLibraryStatus Status,
+    string? TargetFramework,
+    string? Message);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserCompileLibraryStatus>))]
+public enum BrowserCompileLibraryStatus
+{
+    Selected,
+    NoCompileAssets,
+    NoMatchingTargetFramework,
+    EmptyCompileGroup,
+    InvalidImplementationAssets,
+}
+
 public sealed record BrowserPackageSurface(
     string Package,
     string Version,
     string[] Frameworks,
     string ActiveFramework,
-    string DefaultAssemblyId,
+    string? DefaultAssemblyId,
+    BrowserCompileLibraryAvailability CompileLibrary,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
     BrowserAccessibilityDescriptor[] Accessibility,
@@ -184,6 +200,88 @@ public sealed record BrowserBuildIdentity(
     string? Commit,
     string? BuiltAtUtc,
     string? CommitUrl);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFacetTier>))]
+public enum BrowserPackageQueryFacetTier
+{
+    Nuspec,
+}
+
+public sealed record BrowserPackageQueryFacetDescriptor(
+    string Id,
+    string Label,
+    string Summary,
+    int Weight,
+    BrowserPackageQueryFacetTier Tier,
+    string? SelectionGroupId);
+
+public sealed record BrowserPackageQueryFacetCatalog(
+    BrowserPackageQueryFacetDescriptor[] Facets);
+
+public sealed record BrowserPackageQueryEvidence(
+    string Id,
+    string Text);
+
+public sealed record BrowserPackageQueryRow(
+    string PackageId,
+    string Version,
+    BrowserPackageQueryFacetTier Tier,
+    BrowserPackageQueryEvidence[] Evidence,
+    long TotalDownloads,
+    bool Verified,
+    string Producer);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
+public enum BrowserPackageQueryFailureKind
+{
+    Search,
+    SearchContract,
+    ManifestAcquisition,
+    ManifestContract,
+    InvalidManifest,
+}
+
+public sealed record BrowserPackageQueryFailure(
+    string? PackageId,
+    string? Version,
+    string Producer,
+    BrowserPackageQueryFailureKind Kind,
+    string Message);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryCompletionKind>))]
+public enum BrowserPackageQueryCompletionKind
+{
+    Exhausted,
+    MatchLimitReached,
+    CandidateLimitReached,
+    SourcePageLimitReached,
+    ClientPageLimitReached,
+    Failed,
+}
+
+public sealed record BrowserPackageQueryCompletion(
+    string Prefix,
+    string Producer,
+    int CandidateLimit,
+    int MatchLimit,
+    int Candidates,
+    int Matches,
+    int Failures,
+    BrowserPackageQueryCompletionKind Kind);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
+public enum BrowserPackageQueryEventKind
+{
+    Match,
+    Failure,
+    Completed,
+}
+
+public sealed record BrowserPackageQueryEvent(
+    BrowserPackageQueryEventKind Kind,
+    BrowserPackageQueryRow? Row,
+    BrowserPackageQueryFailure? Failure,
+    BrowserPackageQueryCompletion? Completion);
 
 /// <summary>
 /// One vocabulary field's discoverable contract, mapped verbatim from
@@ -414,7 +512,8 @@ public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kin
 
 public sealed record BrowserPackageMetadata(
     BrowserAssemblyMetadata[] Assemblies,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserAssemblyMetadata(
     string Assembly,
@@ -513,11 +612,12 @@ public sealed record BrowserPackageDependencies(
     string Package,
     string Version,
     string ActiveFramework,
-    string Assembly,
+    string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
     BrowserAssemblyReference[] AssemblyReferences,
     string? DependencyGroupError,
-    string? AssemblyReferenceError);
+    string? AssemblyReferenceError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserPackageDependencyGroup(
     int Index,
@@ -612,7 +712,8 @@ public sealed record BrowserPackageIntegrations(
     BrowserIntegrationCategory[] Categories,
     int TotalSignals,
     bool IsComplete,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserIntegrationCategory(
     string Integration,
@@ -632,7 +733,8 @@ public sealed record BrowserPackageOpportunities(
     BrowserOpportunityCategory[] Categories,
     int TotalOpportunities,
     bool IsComplete,
-    string? InspectionError);
+    string? InspectionError,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserOpportunityCategory(
     string Integration,
@@ -652,7 +754,8 @@ public sealed record BrowserPackagePerformance(
     BrowserPerformanceMember[] Members,
     string? InspectionError,
     int NonPublicOpportunities,
-    int TotalOpportunities);
+    int TotalOpportunities,
+    BrowserCompileLibraryAvailability CompileLibrary);
 
 public sealed record BrowserPerformanceMember(
     string Assembly,
@@ -811,6 +914,8 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserBuildIdentity))]
+[JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateCandidate[]))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]

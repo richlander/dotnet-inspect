@@ -31,6 +31,7 @@ using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using InertText;
 using Markout;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -1353,7 +1354,9 @@ public partial class CommandExecutionTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
-        File.WriteAllText(Path.Combine(packageRoot, readmeFile), readmeText);
+        var readmePath = Path.Combine(packageRoot, readmeFile.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(readmePath)!);
+        File.WriteAllText(readmePath, readmeText);
         if (agentsText != null)
             File.WriteAllText(Path.Combine(packageRoot, "AGENTS.md"), agentsText);
         foreach (var (path, content) in extraFiles)
@@ -1594,7 +1597,8 @@ public partial class CommandExecutionTests
     {
         return ConsoleCapture.RunAsync(async () =>
         {
-            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            args = CommandLineBuilder.PreprocessArgs(args, root);
             // Mirror Program.cs: the stale `--head N`/`--tail N` spelling is a raw-token
             // question, so it is answered by the product before parsing rather than by
             // a validator. Call the same product method the entry point calls; do not
@@ -1605,8 +1609,7 @@ public partial class CommandExecutionTests
                 return 1;
             }
 
-            var root = CommandLineBuilder.CreateRootCommand();
-            return await CommandLineBuilder.InvokeAsync(root.Parse(args));
+            return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
         });
     }
 
@@ -6544,6 +6547,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task RepeatedTailValues_ReportBoundedParseError()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Foo",
+            "-n1",
+            "--tail",
+            "false",
+            "--tail",
+            "true",
+            "--help");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "expects a single argument but 2 were provided",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "InvalidOperationException",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "at DotnetInspector",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_NamespaceExactMiss_RetriesAsPrefix()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -7704,6 +7736,219 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Usage:", routed.Error);
         Assert.DoesNotContain("Options:", routed.Error);
         Assert.DoesNotContain("Commands:", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public async Task Router_LineWindowUsesRewrittenRequiredValueOwnership(
+        string libraryValue)
+    {
+        var direct = await RunAppAsync(
+            "member",
+            "System.String.ToString",
+            "--library",
+            libraryValue,
+            "--help");
+        var routed = await RunAppAsync(
+            "System.String.ToString",
+            "--library",
+            libraryValue,
+            "--help");
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal(direct.Output, routed.Output);
+        Assert.True(
+            routed.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length > 1);
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public async Task Router_LineWindowUsesRewrittenActiveWindow(
+        string lineWindow)
+    {
+        var routed = await RunAppAsync(
+            "System.String.ToString",
+            "--focus",
+            "--rows",
+            lineWindow,
+            "--help");
+
+        Assert.Equal(0, routed.Exit);
+        Assert.Single(
+            routed.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Theory]
+    [InlineData("--library=-1")]
+    [InlineData("--library:-1")]
+    [InlineData("-o=-1")]
+    [InlineData("-o:-1")]
+    [InlineData("-o-1")]
+    public async Task Router_ShorthandAfterInlineRequiredValueUsesRawOccurrence(
+        string requiredValue)
+    {
+        var direct = await RunAppInDirectoryAsync(
+            Path.GetTempPath(),
+            "member",
+            "System.String.ToString",
+            requiredValue,
+            "-1",
+            "--help");
+        var routed = await RunAppInDirectoryAsync(
+            Path.GetTempPath(),
+            "System.String.ToString",
+            requiredValue,
+            "-1",
+            "--help");
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, routed.Exit);
+        Assert.Single(
+            direct.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+        Assert.Equal(direct.Output, routed.Output);
+    }
+
+    [Fact]
+    public async Task Router_ConcatenatedOptionalValueRemainsOwned()
+    {
+        var direct = await RunAppAsync(
+            "member",
+            "System.String.ToString",
+            "-T-n1",
+            "--help");
+        var routed = await RunAppAsync(
+            "System.String.ToString",
+            "-T-n1",
+            "--help");
+
+        Assert.Equal(0, direct.Exit);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal(direct.Output, routed.Output);
+        Assert.True(
+            routed.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length > 1);
+    }
+
+    [Fact]
+    public async Task RepeatedShorthandUsesNormalDuplicateOptionValidation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Foo",
+            "-1",
+            "-1",
+            "--help");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Option '-n' expects a single argument but 2 were provided",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ShorthandAfterConcatenatedRequiredValueUsesNormalDuplicateOptionValidation()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "Foo",
+            "-o-1",
+            "-1",
+            "-1",
+            "--help");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Option '-n' expects a single argument but 2 were provided",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Package_ConcatenatedValuesPreserveImplicitFileRouting()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.ConcatenatedOptions",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("a.txt", "a"),
+                ("b.txt", "b"),
+            ]);
+        string outputPath = Path.Combine(tempDir, "-1");
+        try
+        {
+            string[] projection =
+            [
+                packagePath,
+                "-S",
+                "Package files",
+                "--paths",
+                "-T-n1",
+            ];
+
+            var direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. projection]);
+            var routed = await RunAppInDirectoryAsync(
+                tempDir,
+                projection);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(0, routed.Exit);
+            Assert.True(
+                routed.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries).Length > 1);
+
+            string[] redirected =
+            [
+                packagePath,
+                "-S",
+                "Package files",
+                "--paths",
+                "-o-1",
+                "-1",
+                "--tips",
+                "q",
+            ];
+
+            direct = await RunAppInDirectoryAsync(
+                tempDir,
+                ["package", .. redirected]);
+            Assert.Equal(0, direct.Exit);
+            Assert.Empty(direct.Output);
+            string directOutput = File.ReadAllText(outputPath);
+            Assert.Single(
+                directOutput.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+
+            File.Delete(outputPath);
+            routed = await RunAppInDirectoryAsync(
+                tempDir,
+                redirected);
+
+            Assert.Equal(direct, routed);
+            Assert.Equal(directOutput, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Theory]
@@ -26780,6 +27025,52 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_SourceFilesSection_Bare_AppliesLineAndRowWindowsToOutput()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("package-bare-urls-");
+        try
+        {
+            var lineWindowPath = Path.Combine(tempDirectory.FullName, "line-window.txt");
+            var rowWindowPath = Path.Combine(tempDirectory.FullName, "row-window.txt");
+            string[] args =
+            [
+                "package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "-t", "JsonReader",
+                "--bare", "--raw",
+            ];
+
+            var stdout = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [.. args, "-n1", "--tips", "q"]);
+            var redirected = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [.. args, "-n1", "--out", lineWindowPath, "--tips", "q"]);
+            var rowWindow = await RunAppInDirectoryAsync(
+                tempDirectory.FullName,
+                [.. args, "--rows", "1", "--out", rowWindowPath, "--tips", "q"]);
+
+            Assert.Equal(0, stdout.Exit);
+            Assert.Equal(0, redirected.Exit);
+            Assert.Equal(0, rowWindow.Exit);
+            Assert.Empty(stdout.Error);
+            Assert.Empty(redirected.Output);
+            Assert.Empty(redirected.Error);
+            Assert.Empty(rowWindow.Output);
+            Assert.Empty(rowWindow.Error);
+            Assert.Equal(stdout.Output, File.ReadAllText(lineWindowPath));
+            Assert.Equal(stdout.Output, File.ReadAllText(rowWindowPath));
+            Assert.Single(
+                stdout.Output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_LibrarySourceFilesSection_PreservesTypeFilterAndBlobUrls()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -28769,6 +29060,388 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageProjectionDestinations_MatchStdoutAcrossTextAndStructuredModes()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.Destinations",
+            "README.md",
+            "first\nsecond\nthird",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "alpha"),
+            ("skills/beta/SKILL.md", "beta"));
+        try
+        {
+            (string Name, string[] Arguments, bool TerminatesWithLf)[] projections =
+            [
+                ("print", ["-S", "Package README file", "--print"], false),
+                ("bare", ["-S", "Package README file", "--print", "--bare"], false),
+                ("value", ["-S", "Package Info", "--fields", "Version", "--value"], true),
+                ("paths", ["-S", "Package skill files", "--paths"], true),
+                ("json", ["-S", "Package Info", "--fields", "Version", "--value", "--json"], false),
+                ("jsonl", ["-S", "Package Info", "--fields", "Version", "--value", "--jsonl"], true),
+                ("json-array", ["-S", "Package Info", "--fields", "Version", "--value", "--json-array"], false),
+                ("print-json", ["-S", "Package README file", "--print", "--json"], false),
+                ("print-jsonl", ["-S", "Package README file", "--print", "--jsonl"], true),
+                ("print-json-array", ["-S", "Package README file", "--print", "--json-array"], false),
+            ];
+
+            foreach (var projection in projections)
+            {
+                var outputPath = Path.Combine(tempDir, $"{projection.Name}.txt");
+                var baseline = await RunAppAsync(
+                    ["package", packagePath, .. projection.Arguments, "--tips", "q"]);
+                var redirected = await RunAppAsync(
+                    ["package", packagePath, .. projection.Arguments, "--out", outputPath, "--tips", "q"]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                Assert.DoesNotContain('\r', baseline.Output);
+                Assert.Equal(
+                    projection.TerminatesWithLf,
+                    baseline.Output.EndsWith('\n'));
+                Assert.False(baseline.Output.EndsWith("\n\n", StringComparison.Ordinal));
+            }
+
+            var urlsOutputPath = Path.Combine(tempDir, "urls.txt");
+            string[] urlsArguments =
+            [
+                "package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "-t", "JsonReader",
+                "--urls", "--row", "1", "--raw", "--tips", "q"
+            ];
+            var urlsBaseline = await RunAppAsync(urlsArguments);
+            var urlsRedirected = await RunAppAsync(
+                [.. urlsArguments, "--out", urlsOutputPath]);
+
+            Assert.Equal(0, urlsBaseline.Exit);
+            Assert.Equal(urlsBaseline.Exit, urlsRedirected.Exit);
+            Assert.Empty(urlsBaseline.Error);
+            Assert.Empty(urlsRedirected.Error);
+            Assert.Empty(urlsRedirected.Output);
+            Assert.Equal(urlsBaseline.Output, File.ReadAllText(urlsOutputPath));
+            Assert.StartsWith(
+                "https://raw.githubusercontent.com/JamesNK/Newtonsoft.Json/",
+                urlsBaseline.Output,
+                StringComparison.Ordinal);
+            Assert.EndsWith("\n", urlsBaseline.Output, StringComparison.Ordinal);
+            Assert.False(urlsBaseline.Output.EndsWith("\n\n", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageProjectionDestinations_ApplyHeadAndTailToRenderedLines()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.Windows",
+            "README.md",
+            "---\nname: projection\n---\nfirst\nsecond\nthird",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "alpha"),
+            ("skills/beta/SKILL.md", "beta"));
+        try
+        {
+            (string Name, string[] Arguments, string Expected)[] cases =
+            [
+                (
+                    "paths-head",
+                    ["-S", "Package skill files", "--paths", "-n", "1"],
+                    "skills/alpha/SKILL.md\n"),
+                (
+                    "paths-tail",
+                    ["-S", "Package skill files", "--paths", "-n", "1", "--tail"],
+                    "skills/beta/SKILL.md\n"),
+                (
+                    "paths-tail-inline",
+                    ["-S", "Package skill files", "--paths", "-n1", "--tail=true"],
+                    "skills/beta/SKILL.md\n"),
+                (
+                    "print-head",
+                    ["-S", "Package README file", "--print", "--body", "-n", "2"],
+                    "first\nsecond\n"),
+                (
+                    "print-tail",
+                    ["-S", "Package README file", "--print", "--body", "-n", "2", "--tail"],
+                    "second\nthird\n"),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
+                var baseline = await RunAppInDirectoryAsync(
+                    tempDir,
+                    ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    ["package", packagePath, .. testCase.Arguments, "--out", outputPath, "--tips", "q"]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(testCase.Expected, baseline.Output);
+                Assert.Equal(testCase.Expected, File.ReadAllText(outputPath));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageExactTransferLineWindows_PreserveAbsentAndExistingDestinations()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.ExactRefusal",
+            "README.md",
+            "first\nsecond");
+        byte[] sentinel = [0xEF, 0xBB, 0xBF, 0x73, 0x61, 0x66, 0x65];
+        try
+        {
+            (string Name, string[] Arguments)[] cases =
+            [
+                (
+                    "print-separated",
+                    ["-S", "Package README file", "--print", "--bare", "-n", "1"]),
+                (
+                    "print-inline",
+                    ["-S", "Package README file", "--print", "--bare", "-n=1"]),
+                (
+                    "print-attached",
+                    ["-S", "Package README file", "--print", "--bare", "-n1"]),
+                (
+                    "print-colon",
+                    ["-S", "Package README file", "--print", "--bare", "-n:1"]),
+                (
+                    "bare",
+                    ["-S", "Package README file", "--bare", "-n", "1"]),
+                (
+                    "content",
+                    ["--content", "--path", "README.md", "-n", "1"]),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var absentPath = Path.Combine(tempDir, $"{testCase.Name}-absent.md");
+                var existingPath = Path.Combine(tempDir, $"{testCase.Name}-existing.md");
+                File.WriteAllBytes(existingPath, sentinel);
+
+                async Task<(int Exit, string Output, string Error)> RunAsync(string path) =>
+                    await RunAppAsync(
+                        [
+                            "package", packagePath,
+                            .. testCase.Arguments,
+                            "--out", path, "--tips", "q",
+                        ]);
+
+                var absent = await RunAsync(absentPath);
+                var existing = await RunAsync(existingPath);
+
+                Assert.Equal(1, absent.Exit);
+                Assert.Equal(1, existing.Exit);
+                Assert.Empty(absent.Output);
+                Assert.Empty(existing.Output);
+                Assert.Contains("line limit", absent.Error, StringComparison.Ordinal);
+                Assert.Contains("exact --out", absent.Error, StringComparison.Ordinal);
+                Assert.False(File.Exists(absentPath));
+                Assert.Equal(sentinel, File.ReadAllBytes(existingPath));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageExactTransfer_NShapedOutputNameIsNotALineWindow()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.NShapedOutput",
+            "README.md",
+            "first\nsecond");
+        var outputPath = Path.Combine(tempDir, "-n1");
+        try
+        {
+            var result = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath,
+                "-S", "Package README file",
+                "--print", "--out", "-n1",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            Assert.Equal("first\nsecond", File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("-n1")]
+    [InlineData("-1")]
+    public async Task PackageExactTransfer_OptionShapedOutputNameStillSeesFollowingLineWindow(
+        string lineWindow)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.OptionShapedOutput",
+            "README.md",
+            "first\nsecond");
+        var outputPath = Path.Combine(tempDir, "--tfm");
+        const string sentinel = "safe";
+        File.WriteAllText(outputPath, sentinel);
+        try
+        {
+            var result = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath,
+                "-S", "Package README file",
+                "--print", "--out", "--tfm", lineWindow,
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains("line limit", result.Error, StringComparison.Ordinal);
+            Assert.Equal(sentinel, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("content", "Package README file")]
+    [InlineData("print", "package readme file")]
+    [InlineData("bare", "PACKAGE README FILE")]
+    public async Task PackageExactTransfer_LineWindowRejectsBeforePackageAcquisition(
+        string mode,
+        string section)
+    {
+        string packageName =
+            $"Test.Projection.NoAcquire.{Guid.NewGuid():N}";
+        string outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{packageName}.txt");
+        try
+        {
+            string[] projection = mode == "content"
+                ? ["--content", "--path", "README.md"]
+                : ["-S", section, $"--{mode}"];
+            var result = await RunAppAsync(
+                [
+                    "--offline",
+                    "package",
+                    packageName,
+                    .. projection,
+                    "-n1",
+                    "--out",
+                    outputPath,
+                    "--tips",
+                    "q",
+                ]);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "line limit",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "not available offline",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task PackageExactTransfer_WhitespaceOutputDoesNotFallBackToStdout()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.WhitespaceOutput",
+            "README.md",
+            "first\nsecond");
+        try
+        {
+            var result = await RunAppInDirectoryAsync(
+                tempDir,
+                "package",
+                packagePath,
+                "--content",
+                "--path",
+                "README.md",
+                "--bare",
+                "--out",
+                " ",
+                "-n1",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "line limit",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(tempDir, " ")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageBareReadme_AppliesSemanticRowsBeforeDestination()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.BareRows",
+            "README.md",
+            "selected");
+        var outputPath = Path.Combine(tempDir, "sentinel.md");
+        const string sentinel = "safe";
+        File.WriteAllText(outputPath, sentinel);
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "-S", "Package README file",
+                "--bare", "--rows", "2..2",
+                "--out", outputPath,
+                "--tips", "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains("found no package file", result.Error);
+            Assert.Equal(sentinel, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_QuietSignedValuePerformsExplicitVerification()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -28786,6 +29459,58 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("Verified", output.Trim());
+    }
+
+    [Fact]
+    public async Task PackageContentCountWithLineWindowAndOutput_IsNotExactTransfer()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.ContentCount",
+            "README.md",
+            "first\nsecond");
+        var outputPath = Path.Combine(tempDir, "count.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "README.md",
+                "--count", "-n", "1",
+                "--out", outputPath, "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            Assert.Equal("1\n", File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentStdout_NormalizesRenderedLineEndings()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Projection.ContentNewlines",
+            "README.md",
+            "first\nsecond");
+        try
+        {
+            var result = await RunAppAsync(
+                "package", packagePath,
+                "--content", "--path", "README.md",
+                "--tips", "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.DoesNotContain('\r', result.Output);
+            Assert.EndsWith("\n", result.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Theory]
@@ -29101,17 +29826,18 @@ public partial class CommandExecutionTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
-        var nuspec = """
-            <?xml version="1.0" encoding="utf-16"?>
-            <package>
-              <metadata>
-                <id>Test.Bom.Nuspec</id>
-                <version>1.0.0</version>
-                <authors>tests</authors>
-                <description>test package</description>
-              </metadata>
-            </package>
-            """;
+        var nuspec = string.Join(
+            "\r\n",
+            "<?xml version=\"1.0\" encoding=\"utf-16\"?>",
+            "<package>",
+            "  <metadata>",
+            "    <id>Test.Bom.Nuspec</id>",
+            "    <version>1.0.0</version>",
+            "    <authors>tests</authors>",
+            "    <description>test package</description>",
+            "  </metadata>",
+            "</package>",
+            "");
         var encoding = new UnicodeEncoding(
             bigEndian: false,
             byteOrderMark: true,
@@ -29124,6 +29850,10 @@ public partial class CommandExecutionTests
         try
         {
             Assert.Equal(0xFF, shipped[0]);
+            Assert.True(shipped.AsSpan().IndexOf(
+                new byte[] { 0x0D, 0x00, 0x0A, 0x00 }) >= 0);
+            Assert.True(shipped.AsSpan().EndsWith(
+                new byte[] { 0x0D, 0x00, 0x0A, 0x00 }));
 
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
@@ -29258,50 +29988,350 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task SkillDocuments_OmitPayloadsThatRequireContainment()
+    {
+        const string bidi = "\u202E";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.ContainedOutput",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedOutput",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
+
+        try
+        {
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+            var (contentExit, contentOutput, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
+            var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--jsonl");
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
+            Assert.Equal(0, contentJsonExit);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(projectJsonError);
+            Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
+            Assert.Empty(contentJsonError);
+            string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+            Assert.Equal(placeholder, packageOutput);
+            Assert.Equal(placeholder, projectOutput);
+            Assert.Equal(placeholder + "\n", contentOutput);
+            Assert.Contains(placeholder + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, contentBlocksOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, packageJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, projectJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(bidi, contentJson, StringComparison.Ordinal);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            using var contentDocument = JsonDocument.Parse(contentJson);
+            Assert.Equal(
+                placeholder,
+                packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(
+                placeholder,
+                projectDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(
+                placeholder,
+                contentDocument.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_PreserveSafeOriginalText()
+    {
+        const string Body = """Use Regex("\\d+") with C:\temp and literal \u202E text.""";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.SafeOriginal",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", Body));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.SafeOriginal",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", Body)]));
+
+        try
+        {
+            var packageOutputPath = Path.Combine(packageTempDir, "package-skill.md");
+            var contentOutputPath = Path.Combine(packageTempDir, "content-skill.md");
+            var projectOutputPath = Path.Combine(projectTempDir, "project-skill.md");
+
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (contentExit, contentOutput, contentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare");
+            var (contentBlocksExit, contentBlocksOutput, contentBlocksError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+            var (packageJsonExit, packageJson, packageJsonError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--jsonl");
+            var (contentJsonExit, contentJson, contentJsonError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--jsonl");
+            var (projectJsonExit, projectJson, projectJsonError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
+            var (packageFileExit, packageFileOutput, packageFileError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                "--output", packageOutputPath);
+            var (contentFileExit, contentFileOutput, contentFileError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare", "--output", contentOutputPath);
+            var (projectFileExit, projectFileOutput, projectFileError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare",
+                "--output", projectOutputPath);
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, contentExit);
+            Assert.Equal(0, contentBlocksExit);
+            Assert.Equal(0, projectExit);
+            Assert.Equal(0, packageJsonExit);
+            Assert.Equal(0, contentJsonExit);
+            Assert.Equal(0, projectJsonExit);
+            Assert.Equal(0, packageFileExit);
+            Assert.Equal(0, contentFileExit);
+            Assert.Equal(0, projectFileExit);
+            Assert.Empty(packageError);
+            Assert.Empty(contentError);
+            Assert.Empty(contentBlocksError);
+            Assert.Empty(projectError);
+            Assert.Empty(packageJsonError);
+            Assert.Empty(contentJsonError);
+            Assert.Empty(projectJsonError);
+            Assert.Empty(packageFileOutput);
+            Assert.Empty(contentFileOutput);
+            Assert.Empty(projectFileOutput);
+            Assert.Empty(packageFileError);
+            Assert.Empty(contentFileError);
+            Assert.Empty(projectFileError);
+            Assert.Equal(Body, packageOutput);
+            Assert.Equal(Body + "\n", contentOutput);
+            Assert.Contains(Body + "\n", contentBlocksOutput, StringComparison.Ordinal);
+            Assert.Equal(Body, projectOutput);
+
+            using var packageDocument = JsonDocument.Parse(packageJson);
+            using var contentDocument = JsonDocument.Parse(contentJson);
+            using var projectDocument = JsonDocument.Parse(projectJson);
+            Assert.Equal(Body, packageDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, contentDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, projectDocument.RootElement.GetProperty("content").GetString());
+            Assert.Equal(Body, File.ReadAllText(packageOutputPath));
+            Assert.Equal(Body, File.ReadAllText(contentOutputPath));
+            Assert.Equal(Body, File.ReadAllText(projectOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SkillDocuments_ClassifyRawContentBeforeNormalizingGitHubLinks()
+    {
+        const string bidi = "\u202E";
+        var body = $"[docs](https://github.com/owner/repo/blob/main/docs/{bidi}INJECTED.md)";
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.RawClassification",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", body));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.RawClassification",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", body)]));
+
+        try
+        {
+            var (packageExit, packageOutput, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare");
+            var (projectExit, projectOutput, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare");
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            string placeholder = InertString.ContainmentRequiredPlaceholder.ToString();
+            Assert.Equal(placeholder, packageOutput);
+            Assert.Equal(placeholder, projectOutput);
+            Assert.DoesNotContain("%E2%80%AE", packageOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("%E2%80%AE", projectOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_SkillDocumentDeclaredAsReadmeUsesSkillContainment()
+    {
+        const string bidi = "\u202E";
+        const string SkillPath = "skills/readme-skill/SKILL.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.DeclaredReadme",
+            SkillPath,
+            $"readme{bidi}skill");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                output);
+            Assert.DoesNotContain(bidi, output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("-o")]
     [InlineData("--output")]
     public async Task SkillDocuments_OutputAliasesWritePackageAndProjectPayloads(string outputOption)
     {
+        const string bidi = "\u202E";
         var (packagePath, packageTempDir) = CreateLocalReadmePackage(
             "Test.Skills.Output",
             "README.md",
             "readme",
             null,
             null,
-            ("skills/package-skill/SKILL.md", "package skill"));
+            ("skills/package-skill/SKILL.md", $"package{bidi}skill"));
         var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
                 "Test.Project.Skills.Output",
                 "1.0.0",
                 "README.md",
                 "readme",
-                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", "project skill")]));
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", $"project{bidi}skill")]));
 
         try
         {
             var packageOutput = Path.Combine(packageTempDir, "package-skill.md");
+            var packageContentOutput = Path.Combine(packageTempDir, "package-content-skill.md");
             var projectOutput = Path.Combine(projectTempDir, "project-skill.md");
 
             var (packageExit, packageStdout, packageError) = await RunAppAsync(
                 "package", packagePath, "-S", "Package skill files", "--print", "--bare",
                 outputOption, packageOutput);
+            var (packageContentExit, packageContentStdout, packageContentError) = await RunAppAsync(
+                "package", packagePath, "--path", "skills/package-skill/SKILL.md",
+                "--content", "--bare", outputOption, packageContentOutput);
             var (projectExit, projectStdout, projectError) = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--print", "--body", "--bare", outputOption, projectOutput);
 
             Assert.Equal(0, packageExit);
+            Assert.Equal(0, packageContentExit);
             Assert.Equal(0, projectExit);
             Assert.Empty(packageStdout);
+            Assert.Empty(packageContentStdout);
             Assert.Empty(projectStdout);
             Assert.Empty(packageError);
+            Assert.Empty(packageContentError);
             Assert.Empty(projectError);
-            Assert.Equal("package skill", File.ReadAllText(packageOutput));
-            Assert.Equal("project skill", File.ReadAllText(projectOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(packageOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(packageContentOutput));
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                File.ReadAllText(projectOutput));
         }
         finally
         {
             Directory.Delete(packageTempDir, recursive: true);
             Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_OrdinaryDocumentOutputStillPreservesExactBytes()
+    {
+        const string bidi = "\u202E";
+        var readme = Encoding.UTF8.GetPreamble()
+            .Concat(Encoding.UTF8.GetBytes($"ordinary{bidi}readme\r\n"))
+            .ToArray();
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Ordinary.ExactOutput",
+            "README.md",
+            "placeholder");
+        var packageRoot = Path.Combine(tempDir, "content");
+        File.WriteAllBytes(Path.Combine(packageRoot, "README.md"), readme);
+        File.Delete(packagePath);
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        var outputPath = Path.Combine(tempDir, "exported.md");
+
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--path", "@readme", "--content", "--bare",
+                "--output", outputPath);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            Assert.Equal(readme, File.ReadAllBytes(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
         }
     }
 
@@ -30337,6 +31367,136 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Before\u202EINJECTED")]
+    [InlineData("Before\fINJECTED")]
+    [InlineData("Before\u0085INJECTED")]
+    [InlineData("Before\u2028INJECTED")]
+    [InlineData("Before\u2029INJECTED")]
+    [InlineData("\fINJECTED")]
+    [InlineData("\u0085INJECTED")]
+    [InlineData("\u2028INJECTED")]
+    [InlineData("\u2029INJECTED")]
+    [InlineData("INJECTED\f")]
+    [InlineData("INJECTED\u0085")]
+    [InlineData("INJECTED\u2028")]
+    [InlineData("INJECTED\u2029")]
+    public async Task Project_SkillsInventory_ReplacesContainedYamlFields(string description)
+    {
+        var skill = $"""
+            ---
+            name: contained-description
+            description: {description}
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedDescription",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-description/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Empty(error);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("\f")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public async Task Project_SkillsInventory_PreservesBlockIndicatorConcerns(string concern)
+    {
+        var skill = $"""
+            ---
+            name: contained-indicator
+            description: |{concern}
+              INJECTED
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.ContainedIndicator",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/contained-indicator/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain("INJECTED", output, StringComparison.Ordinal);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                InertString.ContainmentRequiredPlaceholder.ToString(),
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsInventory_FoldsLiteralBlockDescription()
+    {
+        var skill = """
+            ---
+            name: literal-description
+            description: |
+              Renders objects as Markdown.
+              Use when a CLI needs agent-readable output.
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.LiteralDescription",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/literal-description/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "Renders objects as Markdown. Use when a CLI needs agent-readable output.",
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Project_SkillsSection_AcceptsDirectoryNameAndExtensionFrontmatter()
     {
@@ -30496,6 +31656,53 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal(["skills/SKILL.md", "skills/two/SKILL.md"], output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProjectProjectionDestinations_MatchStdoutForShapeAndPrintConsumers()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Projection.Destination",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    CompliantProjectSkill(
+                        "skills/project-skill/SKILL.md",
+                        "project skill")
+                ]));
+        try
+        {
+            (string Name, string[] Arguments)[] cases =
+            [
+                ("paths", ["-S", "Skills", "--paths"]),
+                ("print", ["-S", "Skills", "--print", "--row", "1", "--body"]),
+            ];
+
+            foreach (var testCase in cases)
+            {
+                var outputPath = Path.Combine(tempDir, $"project-{testCase.Name}.txt");
+                var baseline = await RunProjectFixtureAsync(
+                    projectPath,
+                    [.. testCase.Arguments, "--tips", "q"]);
+                var redirected = await RunProjectFixtureAsync(
+                    projectPath,
+                    [.. testCase.Arguments, "--out", outputPath, "--tips", "q"]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+            }
         }
         finally
         {
@@ -30914,6 +32121,34 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Equal(firstSkill.Text, output.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsBare_AppliesRowsBeforeDefaultSelection()
+    {
+        var firstSkill = CompliantProjectSkill("skills/first/SKILL.md", "first");
+        var secondSkill = CompliantProjectSkill("skills/second/SKILL.md", "second");
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("A.Project.First", "1.0.0", "README.md", "readme", Skills:
+                [firstSkill]),
+            new ProjectDocPackage("B.Project.Second", "1.0.0", "README.md", "readme", Skills:
+                [secondSkill]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "--bare", "--rows", "2..2");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal(secondSkill.Text, output.Trim());
         }
         finally
         {
@@ -33106,7 +34341,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PackageContentOutput_MultiplePackagesHydrateOneGlobalMatch()
+    public async Task PackageContentOutput_MultiplePackagesPreflightThenHydrateOneGlobalMatch()
     {
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
@@ -33120,8 +34355,29 @@ public partial class CommandExecutionTests
                 "second",
                 "agents payload");
         string outputPath = Path.Combine(firstDir, "agents.txt");
+        byte[] sentinel = [0xEF, 0xBB, 0xBF, 0x73, 0x61, 0x66, 0x65];
         try
         {
+            File.WriteAllBytes(outputPath, sentinel);
+            var refused = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@agents",
+                "--content",
+                "-n",
+                "1",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, refused.Exit);
+            Assert.Empty(refused.Output);
+            Assert.Contains("line limit", refused.Error, StringComparison.Ordinal);
+            Assert.Equal(sentinel, File.ReadAllBytes(outputPath));
+
             var result = await RunAppAsync(
                 "package",
                 firstPackage,

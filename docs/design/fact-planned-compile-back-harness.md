@@ -21,8 +21,8 @@ an artifact-fidelity oracle.
 The important distinction is artifact production vs proof:
 
 - product code owns C# artifact production;
-- ReturnToSender owns artifact requests, compilation, product diff invocation,
-  and failure reporting.
+- ReturnToSender owns compile-back planning, compilation, product diff
+  invocation, admission, receipt-gated verdicts, and failure reporting.
 
 The harness also has a strict two-oracle invariant:
 
@@ -34,9 +34,15 @@ The harness also has a strict two-oracle invariant:
 PDB checksum verification proves that fetched authored bytes correspond to the
 PDB. It is not the A→IL verdict. Determinism, compilation options, references,
 compiler version, generators, and project context are reported separately as
-build-context evidence. `--authored-rebuild-fidelity` substitutes the acquired
-authored body into the same final `ArtifactRequest`, invokes product IL diff,
-and prints both oracle results plus checksum, determinism, and context status.
+build-context evidence. `--authored-rebuild-fidelity` places the acquired
+authored body in a separate comparison-only request under the same artifact and
+reference policies. After
+[#4931](https://github.com/richlander/dotnet-inspect/issues/4931) lands, it uses
+the owner-issued replacement artifact over the frozen decompiled source
+template, invokes product IL diff, and prints both oracle results plus checksum,
+determinism, and context status. The resulting artifact has a distinct digest
+and cannot produce an `Exact` receipt under the current contract; until then the
+causal control is unavailable.
 
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
 membership: compile, read the compiler's missing-symbol diagnostics, add the
@@ -89,7 +95,7 @@ The new harness should:
 | `ILInspector.Instructions` | Shared IL decode, block identity, typed stack (`StackType`) substrate. |
 | `ILInspector.Analysis` | Whole-assembly IL facts, direct calls, body indexes, type/member references. |
 | `ILInspector.Research` | Typed fact registry, joins, and projections only. |
-| assembly/package resolution service | Generalize and reuse for CLI and harness reference closure. |
+| assembly/package resolution service | Reuse candidate acquisition, package dependencies, assembly identity, and Metadata binding. |
 | fixture libraries | Built repo artifacts that RTS uses as original metadata witnesses. |
 
 ## Strategic stance
@@ -121,8 +127,8 @@ Metadata / Instructions / Analysis / Research facts
                   |
                   v
         +---------------------------+
-        | ArtifactRequest           |
-        | target + shape policy     |
+        | Tools compile-back plan   |
+        | identity + target policy  |
         +-------------+-------------+
                       |
                       v
@@ -150,11 +156,13 @@ Metadata / Instructions / Analysis / Research facts
         +---------------------------+
 ```
 
-`ArtifactRequest` and oracle reporting should live in tools-only code under
+The compile-back plan and oracle reporting live in tools-only code under
 `tools/` or another non-shipped harness assembly. Product artifact creation and
 the API/IL/C# diff primitives belong in product code because they are the system
-under test and useful CLI features. RTS may define request and comparison scopes,
-but it should not own the C# artifact printer or a bespoke metadata comparator.
+under test and useful CLI features. RTS translates its plan into each product
+owner's request shape; product code does not consume the tools-only plan or
+define its closure policy. RTS may define target and comparison scopes, but it
+does not own the C# artifact printer or a bespoke metadata comparator.
 
 Research remains a product library. It can expose generic facts that other
 product consumers also need, but compile-back planning is a harness concern.
@@ -163,7 +171,8 @@ product consumers also need, but compile-back planning is a harness concern.
 
 ### Assembly and package resolution service
 
-Own package, assembly, reference, and dependency resolution.
+Own package dependency resolution, assembly candidate acquisition, and Metadata
+binding. It does not own compile-back reference selection or closure.
 
 Responsibilities:
 
@@ -176,12 +185,14 @@ Responsibilities:
 This should be a general product service, not a ReturnToSender-only utility. The
 CLI already needs the same answers for package, platform, framework, and source
 selection, and the current harness has reimplemented enough of that behavior to
-show the risk of divergence. ReturnToSender should consume this service for
-reference closure and metadata identity instead of owning a parallel resolver.
+show the risk of divergence. ReturnToSender consumes this service for candidates
+and metadata identity, then applies its tools-owned exact reference selection
+and compile-back closure policy.
 
 The service should stay SRM-only and should sit below Decompiler, Research, and
-ReturnToSender. Harness-only policy, such as "which closure roots belong in this
-artifact request", belongs above this service.
+ReturnToSender. Which candidates enter the frozen compiler set and which
+same-assembly roots belong in an artifact are harness-only policy above this
+service.
 
 ### Instructions
 
@@ -264,9 +275,11 @@ fact is required to turn `RecompileFail` into `Exact`.
 
 Own C# artifact production.
 
-Input: `ArtifactRequest`.
+Input: an owner-issued C# artifact request derived from the tools plan.
 
-Output: C# artifact plus structured provenance.
+Output: C# artifact plus structured provenance and the producer-issued
+participant manifest required by
+[#4881](https://github.com/richlander/dotnet-inspect/issues/4881).
 
 The artifact provider is product code. It may use Metadata, Analysis, Research,
 and Decompiler internals, but it must remain SRM-only, NativeAOT-friendly,
@@ -274,22 +287,26 @@ Roslyn-free, and free of inspected-assembly loading. It answers product
 questions such as:
 
 - What type or member artifact should be emitted for this metadata target?
-- Which closure members belong to the artifact under the requested policy?
 - Which declarations are product-owned source shape rather than RTS scaffolding?
 - Which base/interface/constructor relationships are real and spellable?
-- Which method bodies are included, and which members are declaration-only?
+- Which typed declaration, body, and generated-fragment facts are available?
+- Which requested method bodies can be rendered, and which members are
+  declaration-only?
 
 The artifact provider should return structured diagnostics when it cannot
 produce an artifact. RTS should surface those diagnostics; it should not patch
 the artifact with local C#.
 
-Initial typed closure derivation belongs with artifact production: the provider
-can derive same-assembly roots, source facts, and member requirements from the
-raised `IrFunction`. RTS remains responsible for Roslyn oracle growth and passes
-only the target/oracle closure roots and facts discovered by compile feedback.
-Target-body rendering is also provider-owned: RTS selects the target and carries
-the provider-produced body/provenance, but should not call the C# output printer
-directly.
+Initial typed closure derivation and same-assembly root selection belong to the
+`tools/DecompilerHarness` planner defined by
+[`csharp-member-recompilation.md`](csharp-member-recompilation.md). The product
+provider constructs its declaration models and returns owner-issued declaration,
+body, generated-fragment, and rendering results; RTS composes them with Metadata
+and instruction evidence and owns Roslyn oracle growth. RTS selects typed
+identities, roots, and body policy, but does not construct `CSharpTypeShellSpec`,
+flatten product accessibility, re-indent product members, or call the C# output
+printer directly. The tools-owned `LegacyArtifactEmitter` is a labelled
+legacy-policy exception and cannot produce product admission evidence.
 
 The product/shared side should own truthful declaration facts that are useful
 beyond ReturnToSender: namespaces, type/member signatures, base/interface
@@ -333,10 +350,11 @@ Constructor/base-chain handling has the same split:
   type kind, and spellability;
 - the shared writer renders those facts, such as `class C : Base`,
   `public C(int x) : base(x)`, and `static C()`;
-- ReturnToSender owns only **artifact request policy** and proof: which artifact
-  shape is requested, which product diff scopes are used, and how failures are
-  reported. Synthetic constructors or omitted base clauses, if ever needed, must
-  be product artifact decisions with provenance, not RTS patches.
+- ReturnToSender owns **compile-back planning and proof**: which artifact shape
+  is requested, exact reference and root selection, closure and admission, which
+  product diff scopes are used, receipt-gated verdicts, and failure reporting.
+  Synthetic constructors or omitted base clauses, if ever needed, must be
+  product artifact decisions with provenance, not RTS patches.
 
 ### Product diffs
 
@@ -378,7 +396,7 @@ Own orchestration and proof.
 Responsibilities:
 
 1. select target method;
-2. construct an `ArtifactRequest`;
+2. construct the generation-scoped tools request and compile-back plan;
 3. ask product code for a C# artifact;
 4. compile the artifact;
 5. invoke product API and IL/body diffs for original vs artifact assemblies;
@@ -389,42 +407,24 @@ Responsibilities:
 Roslyn diagnostics remain useful, but as membership growth and validation
 feedback, not as the primary shape architecture.
 
-## Minimal contracts
+## Authoritative contracts
 
-These are intentionally conceptual, but they need this level of precision before
-implementation starts.
+This consumer document does not define parallel `ArtifactRequest` or
+`ProductArtifact` records. The authoritative tools request is the
+generation-scoped `RoundTripRequest` in
+[`csharp-member-recompilation.md`](csharp-member-recompilation.md#typed-request-and-result):
+it binds `ArtifactIdentity`, `ModuleIdentity`, and `MemberAnchor` targets to the
+owning artifact session rather than identifying input by assembly display
+identity. That document also owns the compile-back plan, frozen references,
+closure, admission, receipt, and result contracts.
 
-```text
-ArtifactRequest
-  OriginalAssembly: AssemblyIdentity
-  Target: TypeIdentity | MemberIdentity
-  ArtifactKind: type | member | module | source-file
-  ClosurePolicy: explicit-members | referenced-members | product-default
-  BodyPolicy: declarations-only | include-target-body | include-selected-bodies
-  ApiDiffScope: ApiDiffScope
-  IlDiffScope: IlDiffScope
-  CSharpDiffScope: CSharpDiffScope?
-```
-
-```text
-ProductArtifact
-  Request: ArtifactRequest
-  Source: string
-  SourceFacts: IReadOnlyList<FactIdentity>
-  Diagnostics: IReadOnlyList<ProductArtifactDiagnostic>
-```
-
-```text
-ArtifactDiffResult
-  Api: ApiDiff?
-  IL: IlBodyDiff?
-  BodySignals: BodySignalDiff?
-  CSharp: CSharpArtifactDiff?
-  Unified: ResearchUnifiedDiff?
-```
-
-`ProductArtifact.Source` is a product output, not an RTS construction. RTS
-compiles it and feeds original/artifact assemblies into product diff APIs.
+Each product component defines its own typed evidence or rendering request. The
+C# artifact response supplies product-owned source, diagnostics, and
+[#4881](https://github.com/richlander/dotnet-inspect/issues/4881)'s
+artifact-digest-bound participant manifest. RTS composes those owner results but
+does not replace them with an unscoped source-fact list. API, IL/body,
+body-signal, and C# diffs remain separate owner-issued result fields; Research
+may later project a unified view without changing their meanings.
 
 ## Project-under-test and consumption boundary
 
@@ -709,9 +709,10 @@ rather than carrying forward the old skeleton shape.
    - one generated protobuf fixture;
    - one Aspire resource/builder fixture;
    - one real Aspire witness method from the cap-25 run.
-2. Define tools-only `ArtifactRequest` and `ProductArtifact`.
-3. Define the product artifact API that accepts an `ArtifactRequest` and returns
-   C# source plus provenance.
+2. Define the tools-only `RoundTripRequest`, compile-back plan, and result
+   contracts from the focused owner document.
+3. Define the product C# artifact API using its owner-issued request and return
+   C# source, diagnostics, provenance, and the participant manifest.
 4. Define the first product diff primitive needed by RTS:
    - `ILDiff`: canonical IL/body comparison over the Instructions substrate;
    - `Analysis`: body-signal diff UX, starting with unsafe added/removed.
@@ -748,26 +749,41 @@ the existing compile-back status buckets.
 
 | ReturnToSender detail | Existing status |
 | --- | --- |
-| artifact compiles, product diffs match requested scopes | `Exact` |
-| artifact compiles, IL/body diff mismatches selected bodies | `OpcodeDiff` |
-| artifact compiles, API/body-signal/C# diff mismatches requested scope | `OpcodeDiff` or diff detail under the selected top-level status |
+| artifact compiles and IL/body diff is exact | `Exact` |
+| artifact compiles, opcode names differ | `OpcodeDiff` |
+| artifact compiles, opcode names match but operands differ | `OperandDiff` |
+| artifact compiles below `Full` fidelity and IL/body diff differs | `NotFull` |
+| artifact compiles, but the comparison or target receipt is unavailable | `FidelityUnavailable` |
+| artifact compiles, API/body-signal/C# diff mismatches requested scope | retain the mismatch in its owner-specific field; do not synthesize an IL status |
 | product artifact cannot be produced | `ContextFail` |
 | artifact source does not compile | `RecompileFail` |
 | unsupported product body shape before compile | `RecompileFail` or `ContextFail`, with explicit reason |
 
+This table describes the shipping status projection. Under issue #4810's target
+contract, the `Exact` row additionally requires the matching artifact
+compile-context receipt and member entry defined by
+[`csharp-member-recompilation.md`](csharp-member-recompilation.md). Compile plus
+diff equality without that evidence becomes `FidelityUnavailable`. The receipt
+precondition is **unverified** until its planned Release gates run.
+
 SourceLink or fixture source coverage is a sidecar oracle, not a replacement RTS
 verdict. When a product artifact fails to recompile and an authored source body
-is available for the same requested target, RTS may substitute only that authored
-body into the same `ArtifactRequest` shell and retry compilation. If the authored
-body compiles, the `RecompileFail` is isolated to a product/decompiler body
-defect. If the authored body also fails, the failure is isolated to the RTS
-shell, closure, reference, or standalone source-consumption context. The original
-status remains `RecompileFail`; the sidecar reason may refine reporting as
-`body-defect` or `shell-or-closure-defect`, composed with the original compiler
-diagnostic bucket. On closure root or iteration budget exits, `body-defect`
-means the authored body fit inside the final RTS shell while the decompiled body
-did not; it may still point at a harness closure budget limit rather than a
-semantic product-body bug.
+is available for the same requested target, RTS requests #4931's owner-issued
+replacement artifact over the frozen `CSharpSourceArtifact` and materializes it
+as a distinct comparison-only artifact under the same artifact and reference
+policies. It cannot inherit artifact evidence or issue a compile-context
+receipt.
+
+If every non-target byte and preserved policy matches, an authored body that
+compiles may refine the original `RecompileFail` to `body-defect`; an authored
+body that also fails records `authored-control-failed` without assigning a
+shell, closure, or body cause. Otherwise the control is unavailable and makes no
+causal refinement. This target classification is **unverified** until
+`AuthoredBodyControlPreservesProductRenderedShell` runs, and it remains
+unavailable while #4931 is absent. On closure root or iteration budget exits,
+`body-defect` means only that the authored body fit inside the byte-fixed shell
+while the decompiled body did not; it may still point at a harness closure
+budget limit rather than a semantic product-body bug.
 
 The same sidecar lane also produces a source-correspondence census for
 fixture-source coverage. The census projects source-probe rows into
@@ -778,19 +794,23 @@ ignorable taste/options, not-yet-raised source sugar, structuring residue,
 semantic opcode deltas, invalid rows, and unclassified frontiers. Shared JSON
 uses source file names, not absolute local paths, in the finding projection.
 
-The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `RecompileFail`, and
-`ContextFail`. ReturnToSender planning reasons should be structured details
-underneath those statuses, not replacement top-level metrics.
+The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `OperandDiff`,
+`NotFull`, `FidelityUnavailable`, `RecompileFail`, and `ContextFail`.
+ReturnToSender planning reasons should be structured details underneath those
+statuses, not replacement top-level metrics.
 
 Example report:
 
 ```text
 ReturnToSender over N targets
 
-  Exact         : X
-  OpcodeDiff    : Y
-  RecompileFail : Z
-  ContextFail   : A
+  Exact               : X
+  OpcodeDiff          : Y
+  OperandDiff         : Z
+  NotFull             : A
+  FidelityUnavailable : B
+  RecompileFail       : C
+  ContextFail         : D
 
 Plan layers:
   artifact request      : resolved / failed
@@ -817,8 +837,8 @@ Examples:
 - Land this design.
 - Decide shared TypeIdentity extraction vs explicit adapters with measured
   friction points.
-- Define `ArtifactRequest`, `ProductArtifact`, diff scopes, and the product
-  artifact API.
+- Define the focused tools request/result records, owner-issued product artifact
+  request/result, diff scopes, and their typed handoff.
 - Keep Research scoped to reusable facts.
 
 ### Phase 2: protobuf pilot
@@ -899,7 +919,7 @@ Tests should name the oracle they exercise:
 | fact agreement | Do independently produced facts agree on the same IL/member/type evidence? |
 | product diff parity | Do product API/IL/C# diffs match for the requested artifact scope? |
 | source artifact validity | Does the product artifact compile without RTS-side C# construction? |
-| authored-source isolation | Does the authored body compile in the same RTS shell after a product artifact `RecompileFail`? |
+| authored-source isolation | Does typed replacement compile the authored body while preserving every non-target product-rendered byte? |
 | API/platform resolution | Did package/framework/shared-service resolution select the intended asset? |
 | performance-signal precision | Does a signal identify useful targets without noisy over-reporting? |
 

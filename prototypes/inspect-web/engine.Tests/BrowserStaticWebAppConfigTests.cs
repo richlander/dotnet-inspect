@@ -21,10 +21,13 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement.GetProperty("routes").EnumerateArray(),
         ];
 
-        Assert.Equal(3, routes.Length);
+        Assert.Equal(6, routes.Length);
         AssertRoute(routes[0], "/");
         AssertRoute(routes[1], "/index.html");
         AssertRoute(routes[2], "/credits", "/index.html");
+        AssertRoute(routes[3], "/credits/", "/index.html");
+        AssertRoute(routes[4], "/query", "/index.html");
+        AssertRoute(routes[5], "/query/", "/index.html");
         Assert.Equal(
             "dotnet-isolated:8.0",
             config.RootElement
@@ -70,7 +73,7 @@ public class BrowserStaticWebAppConfigTests
     }
 
     [Fact]
-    public void RouteKeysAreUniqueAfterTrailingSlashNormalization()
+    public void RouteKeysAreUnique()
     {
         string repository = RepositoryRoot();
         string configPath = Path.Combine(
@@ -85,17 +88,13 @@ public class BrowserStaticWebAppConfigTests
             .. config.RootElement
                 .GetProperty("routes")
                 .EnumerateArray()
-                .Select(route => NormalizeRouteKey(
-                    route.GetProperty("route").GetString()!)),
+                .Select(route => route.GetProperty("route").GetString()!),
         ];
 
         Assert.Equal(
             routeKeys.Length,
             routeKeys.Distinct(StringComparer.Ordinal).Count());
     }
-
-    private static string NormalizeRouteKey(string route) =>
-        route.Length > 1 ? route.TrimEnd('/') : route;
 
     private static void AssertRoute(
         JsonElement route,

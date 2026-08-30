@@ -1,5 +1,10 @@
+import {
+  isRoutedEntryPath,
+  ROUTED_ENTRY_PATHS,
+} from "./entry-routes.ts";
+
 export function isCreditsPath(pathname: string): boolean {
-  return pathname === "/credits" || pathname === "/credits/";
+  return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.credits);
 }
 
 export interface CreditsPanelBindingActions {

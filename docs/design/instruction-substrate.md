@@ -121,6 +121,56 @@ never become a success-shaped producer list.
 `MethodCallAnalysisTests.RejectsMergedEvaluationStackResultSources` gate the
 multi-branch complete case plus raw return and local-store merge boundaries.
 
+The historical `MethodResultSink.SourceCallOffsets` and `IsComplete` pair keeps
+that direct evaluation-stack meaning. For an authenticated compiler async
+state machine, Analysis can additionally issue
+`AsyncStateMachineFieldResultSource` when one exact local instance field carries
+only direct call results from one store that dominates the initial suspension
+to the post-suspension framework builder completion. Later continuation
+dispatches may bypass the original store physically; the field persists its
+value across those transitions. Every recognizable trusted framework builder
+suspension must use the same exact local builder field, authenticate the current
+state-machine instance as its by-ref state-machine argument, and have no
+control-flow path to the selected load. Every recognizable reachable-or-unknown
+trusted framework `SetResult` completion must use that same field with the exact
+compatible result signature; otherwise Analysis withholds every field source
+for the body. The census enumerates generic, non-generic, pooled, void, and
+iterator framework
+builder families so an incompatible family rejects rather than disappearing;
+the qualifying builder family and result type must match the authenticated
+kickoff source's `Task<T>` or `ValueTask<T>`. A local-address form used by
+reference-type lowering must have no possibly mutating earlier address use that
+can reach the registration. The fact retains the result field identity and
+physical store, load, and source-call offsets; null cleanup stores emitted after
+the load are allowed only when they cannot flow back to that load. Unknown
+reachability, an unresolved or foreign field, another non-null write, a
+whole-current-instance indirect write or unrecognized by-ref escape in any
+analyzed method on the physical state-machine type, a possible-alias store or
+address escape outside the physical state-machine body, a result-field address
+escape inside it, a looped or initially non-dominating source store, another
+builder field, a custom async builder, or an incomplete field-access census
+remains unresolved. A scoped body census withholds the fact because it cannot
+establish whole-assembly absence of external writes and address escapes.
+The shared exception-aware block graph conservatively joins a finally handler's
+possible leave continuations, so a suspension enclosed by `try`/`finally` may
+remain unresolved when that join can reach the result load.
+`LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField`
+and
+`ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
+`ResultSinks_RejectAddressMutatedReferenceStateMachineArgument`,
+`ResultSinks_RejectWholeStateMachineInstanceWrite`,
+`ResultSinks_InventoryNonGenericFrameworkBuilderSuspensions`,
+`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
+`ResultSinks_RejectUnresolvedExternalFieldStoreAlias`,
+`ResultSinks_AuthenticateStateMachineCompletionBuilderField`,
+`ResultSinks_SuppressStateMachineFieldSourceForScopedCensus`,
+`ResultSinks_SuppressFieldSourceWhenAssemblyCensusIsIncomplete`,
+`ResultSinks_SuppressFieldSourceWhenBodyClassificationFails`,
+`ResultSinks_WithholdFieldSourceForConservativeFinallyFlow`,
+`ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
+`AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate the positive,
+fail-closed, scope-completeness, and equality boundaries.
+
 The same opt-in call-value flow separately projects an instance call's receiver
 sources. A receiver is complete only when every path comes from directly proven
 non-void call results, including through a single local; raw values,

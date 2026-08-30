@@ -54,7 +54,9 @@ public static class CSharpFindings
                 new FindingInspection<CSharpCanonicalLine>.Complete(
                     ProjectAtoms(body.Lines, subject)),
             CSharpCanonicalization.Absent absent =>
-                new FindingInspection<CSharpCanonicalLine>.Absent(absent.Detail),
+                new FindingInspection<CSharpCanonicalLine>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput,
+                    absent.Detail),
             CSharpCanonicalization.Failed failed =>
                 new FindingInspection<CSharpCanonicalLine>.Failed(
                     CreateInspectionError(subject, failed.Reason)),
@@ -160,10 +162,22 @@ public static class CSharpFindings
                 representative.Anchor.StableSelector,
                 representative.Display);
             var oldInspection = oldMethod is null
-                ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
+                ? MissingInspection(
+                    oldIndex,
+                    representative.StableAssemblyKey,
+                    representative.TypeFullName,
+                    representative.MethodName,
+                    subject,
+                    "old")
                 : Inspect(sources.Open(oldMethod), oldMethod.MethodHandle, subject);
             var newInspection = newMethod is null
-                ? new FindingInspection<CSharpCanonicalLine>.Absent("Member is absent.")
+                ? MissingInspection(
+                    newIndex,
+                    representative.StableAssemblyKey,
+                    representative.TypeFullName,
+                    representative.MethodName,
+                    subject,
+                    "new")
                 : Inspect(sources.Open(newMethod), newMethod.MethodHandle, subject);
             comparisons.Add(new CSharpMemberFindingComparison(
                 key,
@@ -177,6 +191,50 @@ public static class CSharpFindings
         return new CSharpAssemblyFindingComparisonResult(
             comparisons.ToImmutable(),
             [.. oldIndex.Failures, .. newIndex.Failures]);
+    }
+
+    internal static FindingInspection<CSharpCanonicalLine> MissingInspection(
+        CSharpBodyDiff.CSharpMethodIndex index,
+        string stableAssemblyKey,
+        string typeFullName,
+        string methodName,
+        FindingSubject subject,
+        string side)
+    {
+        var failures = index.DeclarationOmissionFailures
+            .Where(omission =>
+                string.Equals(
+                    omission.Failure.StableAssemblyKey,
+                    stableAssemblyKey,
+                    StringComparison.Ordinal)
+                && (omission.OwningTypeFullName is null
+                    || string.Equals(
+                        omission.OwningTypeFullName,
+                        typeFullName,
+                        StringComparison.Ordinal))
+                && (omission.MethodName is null
+                    || string.Equals(
+                        omission.MethodName,
+                        methodName,
+                        StringComparison.Ordinal)))
+            .ToArray();
+        if (failures.Length == 0)
+        {
+            return new FindingInspection<CSharpCanonicalLine>.Absent(
+                FindingInspectionAbsenceKind.SubjectAbsent,
+                "Member is absent.");
+        }
+
+        return new FindingInspection<CSharpCanonicalLine>.Failed(
+            new InspectionError(
+                subject,
+                LineDescriptor,
+                $"C# member indexing failed for the {side} endpoint: "
+                + string.Join(
+                    "; ",
+                    failures.Select(static omission =>
+                        $"{omission.Failure.Kind}: "
+                        + omission.Failure.Detail))));
     }
 
     internal static FindingComparison<CSharpCanonicalLine> CompareCanonicalized(

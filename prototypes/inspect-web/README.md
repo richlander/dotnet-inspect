@@ -655,6 +655,13 @@ and its ordering in the Vite bundle and SDK-published site. Other application
 routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
+Search also exposes a `Package query` action that opens the routed `/query`
+surface. It runs the product-issued nuspec-only facet catalog against
+nuget.org, streams rows and visible partial failures from Browser Wasm, and
+hands an exact result coordinate to the normal Workspace package-opening path.
+The route keeps request and result state in the current session rather than in
+the URL; a direct load starts with an empty prefix.
+
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
 `EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
@@ -694,13 +701,246 @@ test pins both generated lint inputs so a generator change cannot silently
 leave analysis coverage. The configuration disables four non-correctness
 rules: underscore spelling, function relocation, listener API preference, and
 `Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
-sorting, the ES2023 `toSorted` API while this project targets ES2022.
+sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
+four, plus the five unsafe-operation rules scoped to the generated
+`engine/wwwroot/inspect-web-engine.js` artifact, are the *complete* set of
+disabled rules: a toolchain test pins it against Oxlint's resolved
+configuration, so a fifth disable — written at the top level or inside an
+`overrides` entry — fails rather than passing quietly. Turning a rule off is
+not the only way to lose it, so options, plugin settings and the global
+environment are pinned beside the severities; those are described below.
 
 Existing JavaScript tests and verification scripts remain covered by Oxlint's
 correctness and suspicious rules, but not by its unsafe-operation type rules:
 adding a shadow type model or migrating those files to TypeScript is outside
 this analysis change. Their dependency and reachability graph remains covered
 by Knip.
+
+Oxlint's `plugins` list enables the `import`, `jsdoc`, and `promise` plugins on
+top of the ones it turns on by default. That key *replaces* the defaults rather
+than adding to them, so `typescript`, `unicorn`, and `oxc` are re-declared
+explicitly; dropping one would retire a whole family of rules with every
+command green. The core `eslint` rules are not affected by that key — they stay
+enabled whether or not the list names them — so the list does not mention them.
+Each added plugin was measured against this project at the same correctness and
+suspicious categories before being enabled, and the toolchain tests read
+Oxlint's own `--print-config` output rather than the config file. That output is
+what Oxlint resolved, so a plugin that enables nothing at these categories, a
+narrowed category set, a named rule switched off, or an `overrides` entry that
+replaces the plugin list for product sources all fail there instead of reading
+as an adoption. Overrides need reading separately because Oxlint keeps them as
+their own array rather than folding them into the top-level rules.
+That resolved read pins rule *options* as one set alongside the severities: a
+rule left enabled but given options that exempt the code it was enabled for
+reports nothing while every severity reads exactly as before. The `node:test`
+`test` call is the only option-borne exemption in the project, so any second one
+fails there. Plugin *settings* are pinned the same way and for the same reason,
+except that they reach a whole family at once — `settings.jsdoc.ignorePrivate`
+exempts every `@private` symbol from every jsdoc rule without touching a
+severity. The settings assertion is differential: it compares this project's
+resolved settings against Oxlint's resolution of an empty config, so the claim
+is literally "this project changes no setting" and an Oxlint release that adds a
+plugin's settings block does not churn it.
+
+Severities, options and settings describe what the rules do; the *environment*
+decides what they can see, and a rule that sees nothing reports nothing.
+`eslint/no-global-assign` fires only on a name the configuration calls a
+read-only global, so it can be silenced two ways without touching a severity:
+re-declare the name as writable through `globals`, or drop the `env` that
+supplied it — deleting `browser` silences an assignment to `document` exactly
+as `globals: { document: "writable" }` does. Both keys are pinned, at the top
+level and inside every `overrides` entry, as one map: this project declares no
+`globals` at all, and its environments are `browser` plus `es2022` at the top
+level and Node for scripts, tests and the Vite config.
+
+`promise/always-return` is enabled and pinned by name: the two side-effect
+continuations handed to `observeAsync` return explicitly, because their promises
+are consumed rather than terminal and so fall outside the upstream
+`ignoreLastCallback` option.
+
+Enabling a rule is not the same as running it at its use sites, because an
+inline `oxlint-disable` directive switches it off exactly where it would have
+reported, and a *used* directive is invisible to `reportUnusedDisableDirectives`
+as well as to every severity, category, option and override read above. So the
+directive scan pins the set of rules this project suppresses inline at all —
+today `typescript/no-unsafe-type-assertion` and
+`typescript/no-unnecessary-type-parameters`. Pinning rules rather than sites
+means an additional type-assertion suppression in a test does not churn the
+list, while suppressing a newly adopted rule fails. A directive naming no rule
+switches off everything and is rejected outright.
+
+`npm run lint` also runs [html-validate](https://html-validate.org) over
+`**/*.{html,htm,xhtml}` with `--config .htmlvalidate.json`. Documents are
+otherwise invisible to every other gate here: the compiler builds a program out
+of `.ts` files and Oxlint is handed a list of source paths, so nothing read
+`index.html` at all before this. The committed `.htmlvalidate.json` extends the
+`standard`, `document`, and `a11y` presets, which bring validity, element
+conformance, document structure, and WCAG rules. It sets `root: true` so
+configuration outside the project cannot merge into it, and makes one option
+change: `require-sri` uses `target: "crossorigin"`, so third-party bytes must
+carry a digest while same-origin files Vite emits are not asked for one.
+`.htmlvalidateignore` names only generated output — `/dist`, `node_modules`,
+`bin` and `obj`. Only `dist` is anchored: it is generated at the project root
+only, so an unanchored entry would also exclude an authored `src/dist`. The
+other three match at any depth, which makes the ignore file deliberately
+*broader* than the project inventory's own pruning — the inventory exempts
+anything under `public/`, `src/`, `test/` and `scripts/` outright, and prunes
+`bin` and `obj` only beside a `.csproj`. The two are not equivalent and are not
+meant to be. What makes the comparison below valid is containment in the safe
+direction: every directory the inventory prunes is also ignored, so no owned
+document is measured against a file the linter refused to open. Where the two
+do diverge — an authored `src/bin/probe.html`, say — the set comparison fails
+loudly rather than passing quietly. The `bin` and `obj` entries matter only once
+the engine project has been built, which is why they went unnoticed locally and
+surfaced on CI: without them html-validate was linting `engine/bin/**` and
+`engine/obj/**` — MSBuild static-web-asset placeholders and copied `wwwroot`
+output that no one authored and no one can fix.
+
+Eight toolchain tests hold that wiring honest. They pin the preset list, the
+`root: true` setting, and the *whole* `rules` object — `require-sri` is the only
+entry, so a second rule relaxed beside it fails rather than slipping past an
+assertion aimed at one key. They also pin the file's whole *key set*, because
+rules are not the only way the presets get weaker: an `elements` entry changes
+the HTML metadata the stock rules check against, so a rule can stay on and
+simply have nothing left to say about an element. They require the lint glob to
+reach a document of each covered extension, both nested and under `src/dist`;
+require the committed configuration to reject a specimen *by the name of the
+rule that must reject it* (`close-order`, `element-required-attributes`,
+`wcag/h37`, `require-sri`, `attribute-allowed-values`); and require every
+document the project owns to sit outside the ignore file.
+
+The rest close the gap between "the linter ran" and "the linter saw this file".
+One states the property directly, in two passes with different jobs. Both run
+html-validate with `--dump-source` under the same `--config` the lint uses and
+read the `Source` header printed ahead of each processed document.
+
+The per-document pass is the authoritative answer to "was this document
+examined". It hands html-validate each owned path *on its own* and requires the
+first header back to name that same document. Asking one file at a time is what
+makes the answer trustworthy, because `--dump-source` prints a document's full
+text after its header: in a combined stream a header spelled inside a body is
+indistinguishable from a real one, so a document excluded by an ignore file can
+be vouched for by markup that *was* read. Handed a single path, the only text
+that can reach stdout is that file's own, and an excluded path prints `No files
+matching patterns` and nothing else. Comparing the header's path rather than
+merely observing that one exists closes a further channel — html-validate
+expands its path arguments as globs, so a document named with glob
+metacharacters resolves onto a different file, and identity catches that without
+enumerating which characters are dangerous.
+
+The whole-glob pass runs over the lint glob and compares the header set to the
+set the project inventory reports. Forgery cannot hide anything from it: writing
+a header into a body only *adds* a name, and a name that is not owned fails as
+an extra. So it is the reliable direction for "the linter read something this
+project does not own" — a stray document under a generated directory, say —
+while the per-document pass owns the direction a body could otherwise lie about.
+Between them a document the linter never saw fails whatever the cause, and the
+`--formatter=json` output cannot substitute for either, because it lists only
+files that had problems.
+
+Three more name specific causes, which makes a failure diagnosable rather than
+merely true. html-validate resolves configuration and exclusions per directory:
+a descendant `.htmlvalidate.json` replaces the committed rules for its own
+subtree and a descendant `.htmlvalidateignore` drops documents outright, so a
+walk requires the tree to hold exactly one of each, at the root. `**` does not
+descend into dotted directories, so no authored document may sit under one. And
+document extensions must be lowercase, because Node matches glob patterns
+case-insensitively on macOS and Windows and case-sensitively everywhere else — a
+`probe.HTML` would be linted on a developer's Mac and skipped on the Ubuntu
+runners that gate merges and deploy the site.
+
+Those three walks descend from the project root, so none of them can see an
+ancestor. html-validate looks for `.htmlvalidateignore` by walking *upward* from
+each document, and `root: true` stops configuration merging without stopping
+ignore discovery, so a file one directory above this project can exclude an
+authored document. That is precisely the case the `--dump-source` passes catch
+and a walk structurally cannot, which is why the property is asserted directly
+rather than by enumerating one more placement.
+
+The `<link rel="preload" id="webassembly">` element in `index.html` carries a
+scoped `html-validate-disable-next` directive for `element-required-attributes`.
+It is a genuinely incomplete element on purpose: the .NET Wasm publish step
+rewrites it to inject the runtime `href`, and three workflows plus
+`PromotionWorkflowContract.cs` pin it by id. The directive names that one rule
+on that one element.
+
+That directive is the whole suppression budget, and the last toolchain test pins
+it as such. A directive is written in the document rather than in a config file,
+so none of the reads above can see one, and `no-unused-disable` cannot help when
+the suppression is genuinely used: widening this one from `disable-next` to a
+file-wide `disable` silences the rule for every element below it, and a second
+directive next to a fresh violation is equally invisible. So the test
+inventories every directive in every authored document and pins the set,
+including the action — a different rule, a second entry, or a wider action all
+fail.
+
+CSS is not linted. Adopting Stylelint is tracked separately.
+
+### Protections the linters cannot provide
+
+Everything above reads source text at build time. Two properties matter here that
+no amount of reading source text can establish.
+
+The first is what a browser is allowed to do with the page once it ships.
+
+`staticwebapp.config.json` sets four response headers globally —
+`X-Content-Type-Options: nosniff`, which stops content-type guessing on the JSON,
+TSV and wasm this site serves, plus `Referrer-Policy`, `X-Frame-Options` and
+`Strict-Transport-Security`. Azure Static Web Apps returns the union of
+`globalHeaders` and a matching route's `headers`, with the route winning per key,
+so a route that names one of these keys replaces the global value for its own
+paths and the file still reads as though the protection is global. A toolchain
+test pins the header set and requires the route keys to stay disjoint from it,
+compared case-insensitively because HTTP header names are — a route spelling
+`x-frame-options` overrides a global `X-Frame-Options` on the wire. It also
+rejects any route using `redirect`: Azure omits `globalHeaders` entirely on
+redirect responses ([Azure/static-web-apps#739][swa-739], open since 2022), so
+such a route names none of the four keys and still answers without them.
+Together those two properties are what make "every static response" true rather
+than merely intended. CI re-checks the headers in the published artifact,
+because the site is deployed from that copy rather than from the source file.
+
+[swa-739]: https://github.com/Azure/static-web-apps/issues/739
+
+The word "static" there is a real boundary, not hedging. Azure Static Web Apps
+does not apply `globalHeaders` to responses produced by the managed functions
+under `/api/*`, which carry whatever headers the function sets for itself. The
+MSDL proxy is such a function, so these four headers do not cover its responses.
+Giving the proxy its own headers is tracked in #5119.
+
+The second property is whether the third-party digests in `index.html` still
+describe what the CDN serves. `require-sri` enforces that a cross-origin
+subresource *carries* a digest, and that is the whole of what a linter can see;
+whether the digest is still current lives on the network and changes without any
+commit here. `scripts/check-sri-freshness.ts` re-fetches each pinned URL and
+compares hashes, reading the pins out of the document so they cannot drift from
+what the site actually loads.
+
+Be precise about what that buys, because it is not a security control. SRI is
+the security control and the browser enforces it: a stale pin means the browser
+*refuses* the bytes, so nothing unexpected runs. What goes wrong is that the
+subresource silently disappears — on this site, syntax highlighting stops
+working — with nothing to say why. This is a maintenance signal, and it is
+scheduled weekly rather than gating pull requests, because reaching jsDelivr is
+required and an outage there is not a defect in somebody's change.
+
+It reads the document with html-validate's own parser — the same parser that
+lints the file — rather than with a pattern, so the two cannot disagree about
+what the markup contains. It resolves URLs the way a browser does and follows
+the SRI metadata grammar, so valid markup does not produce false drift. It also
+separates the two ways it can fail: a stale pin is fixed by re-pinning, an
+unreachable CDN is not a pin problem at all, and filing the second under the
+first sends somebody looking for drift that is not there.
+
+The check that matters most is the cheapest one. Finding *no* pinned
+subresources exits as inconclusive rather than as success, because this script
+exists to check them and finding none means the markup shape changed underneath
+it. Without that, every later refactor of `index.html` would quietly turn the
+weekly run into a green light for nothing.
+
+A Content-Security-Policy is still outstanding, because the generated
+`<script type="importmap">` needs a per-build hash before `script-src` can be
+strict.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.

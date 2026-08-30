@@ -110,6 +110,7 @@ function packageSurface(
     frameworks: ["net9.0", "net10.0"],
     activeFramework: "net10.0",
     defaultAssemblyId: primary.id,
+    compileLibrary: { status: "Selected", targetFramework: "net10.0", message: null },
     assemblies: [primary],
     types: [typeSurface("Example.Widget")],
     accessibility: [{
@@ -142,6 +143,24 @@ function generatedPackageSurfaceRejectsMutation(
   type.api[0] = member;
 }
 void generatedPackageSurfaceRejectsMutation;
+
+test("root-only package surfaces preserve typed unavailability at the UI boundary", () => {
+  assert.throws(
+    () => createNuGetPackageModel(packageSurface({
+      defaultAssemblyId: null,
+      compileLibrary: {
+        status: "NoCompileAssets",
+        targetFramework: null,
+        message: null,
+      },
+      assemblies: [],
+      types: [],
+      accessibility: [],
+      totalMembers: 0,
+    })),
+    /NoCompileAssets/,
+  );
+});
 
 test("graph-only implementation bodies select, switch, and clear", () => {
   const overload = {

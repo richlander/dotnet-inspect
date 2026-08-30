@@ -1,12 +1,9 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Findings;
-using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -27,6 +24,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly PEReader _peReader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver;
+    readonly LibraryBodyGenericConstraintClassifier
+        _genericConstraintClassifier;
+    readonly LibraryBodyStableReceiverGetterClassifier
+        _stableReceiverGetterClassifier;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
     readonly LibraryBodyAsyncSourceResolver
@@ -50,13 +51,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
-    readonly Action<MethodDefinitionHandle>? _stableReceiverGetterClassified;
     readonly Action<TypeDefinitionHandle>? _sourceGeneratedTypeClassified;
     readonly Action? _parallelBuildStarting;
-    readonly ConcurrentDictionary<
-        MethodDefinitionHandle,
-        Lazy<bool>>
-        _stableReceiverGetters = new();
     readonly Dictionary<TypeDefinitionHandle, bool>
         _sourceGeneratedTypes = new();
 
@@ -93,8 +89,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 null,
                 null);
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
-        _stableReceiverGetterClassified =
-            stableReceiverGetterClassified;
         _sourceGeneratedTypeClassified =
             sourceGeneratedTypeClassified;
         _parallelBuildStarting = parallelBuildStarting;
@@ -102,14 +96,23 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             new LibraryBodyMethodReferenceResolver(
                 reader,
                 methodReferenceResolved);
+        _genericConstraintClassifier =
+            new LibraryBodyGenericConstraintClassifier(reader);
+        _stableReceiverGetterClassifier =
+            new LibraryBodyStableReceiverGetterClassifier(
+                reader,
+                peReader,
+                stableReceiverGetterClassified);
         _primaryMetadataResolver =
             new LibraryBodyPrimaryMetadataResolver(
                 reader,
                 _assemblyName,
                 _mvid,
                 _methodReferenceResolver.ResolveMethod,
-                GenericParameterCanBeValueType,
-                IsStableReceiverGetter,
+                _genericConstraintClassifier
+                    .GenericParameterCanBeValueType,
+                _stableReceiverGetterClassifier
+                    .IsStableReceiverGetter,
                 asyncStateMachineTypesBuilt);
         _asyncSourceResolver =
             new LibraryBodyAsyncSourceResolver(
@@ -149,7 +152,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 reader,
                 ResolveExternalAsyncSiblingTypeDefinition,
                 _asyncSiblingMethodIndex,
-                HasGenericConstraints);
+                _genericConstraintClassifier
+                    .HasGenericConstraints);
         _asyncSiblingAccessibilityAnalyzer =
             new LibraryBodyAsyncSiblingAccessibilityAnalyzer(
                 reader,
@@ -163,7 +167,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _asyncSiblingMethodIndex,
                 _asyncSiblingDispatchAnalyzer,
                 _asyncSiblingAccessibilityAnalyzer,
-                HasGenericConstraints);
+                _genericConstraintClassifier
+                    .HasGenericConstraints);
     }
 
     public void Dispose() =>
@@ -262,13 +267,13 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             methodDefinition,
             typeSourceGenerated);
 
-    MethodIdentity?
+    AsyncBodyAttribution?
         ILibraryMethodAnalysisInfrastructure
-            .ResolveAsyncStateMachineSource(
+            .ResolveAsyncBody(
                 MethodIdentity method,
                 MethodDefinition methodDefinition,
                 bool typeSourceGenerated) =>
-        _asyncSourceResolver.ResolveDeclaredSourceMethod(
+        _asyncSourceResolver.ResolveAsyncBody(
             method,
             methodDefinition,
             typeSourceGenerated);
@@ -667,23 +672,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return inherited;
     }
 
-    static bool HasGenericConstraints(
-        MetadataReader reader,
-        MethodDefinition method)
-    {
-        foreach (var handle in method.GetGenericParameters())
-        {
-            var parameter = reader.GetGenericParameter(handle);
-            if (parameter.Attributes
-                    != GenericParameterAttributes.None
-                || parameter.GetConstraints().Count > 0)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {
         if (constructor.Kind == HandleKind.MemberReference
@@ -698,170 +686,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
         }
         return ("", "");
-    }
-
-    bool GenericParameterCanBeValueType(
-        TypeRef genericParameter,
-        MethodIdentity caller)
-    {
-        try
-        {
-            var methodHandle = (MethodDefinitionHandle)
-                MetadataTokens.EntityHandle(caller.MetadataToken);
-            var method = _reader.GetMethodDefinition(methodHandle);
-            GenericParameterHandleCollection handles =
-                genericParameter.Kind == TypeRefKind.MethodGenericParameter
-                    ? method.GetGenericParameters()
-                    : _reader.GetTypeDefinition(method.GetDeclaringType())
-                        .GetGenericParameters();
-            if (genericParameter.GenericParameterIndex < 0
-                || genericParameter.GenericParameterIndex >= handles.Count)
-            {
-                return false;
-            }
-
-            var handle = handles.ElementAt(
-                genericParameter.GenericParameterIndex);
-            var parameter = _reader.GetGenericParameter(handle);
-            if ((parameter.Attributes
-                    & GenericParameterAttributes.ReferenceTypeConstraint) != 0)
-            {
-                return false;
-            }
-
-            foreach (var constraintHandle in parameter.GetConstraints())
-            {
-                EntityHandle constraint =
-                    _reader.GetGenericParameterConstraint(constraintHandle).Type;
-                if (!ConstraintCanIncludeValueType(constraint))
-                    return false;
-            }
-            return true;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException
-            or InvalidCastException)
-        {
-            return false;
-        }
-    }
-
-    bool IsStableReceiverGetter(DecodedInstruction instruction)
-    {
-        try
-        {
-            EntityHandle methodHandle = MetadataTokens.EntityHandle(
-                MethodInstructionFacts.OperandInt32(instruction));
-            if (methodHandle.Kind != HandleKind.MethodDefinition)
-                return false;
-
-            var definitionHandle =
-                (MethodDefinitionHandle)methodHandle;
-            var method = _reader.GetMethodDefinition(definitionHandle);
-            bool overridableVirtualCall = instruction.OpCode == ILOpCode.Callvirt
-                && (method.Attributes & MethodAttributes.Virtual) != 0
-                && (method.Attributes & MethodAttributes.Final) == 0
-                && (_reader.GetTypeDefinition(method.GetDeclaringType()).Attributes
-                    & TypeAttributes.Sealed) == 0;
-            if (method.RelativeVirtualAddress == 0
-                || overridableVirtualCall
-                || !_reader.GetString(method.Name).StartsWith(
-                    "get_",
-                    StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            return _stableReceiverGetters.GetOrAdd(
-                definitionHandle,
-                handle => new Lazy<bool>(
-                    () => ClassifyStableReceiverGetter(handle),
-                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException
-            or InvalidCastException)
-        {
-            return false;
-        }
-    }
-
-    bool ClassifyStableReceiverGetter(
-        MethodDefinitionHandle methodHandle)
-    {
-        _stableReceiverGetterClassified?.Invoke(methodHandle);
-        MethodDefinition method =
-            _reader.GetMethodDefinition(methodHandle);
-        var body = _peReader.GetMethodBody(method.RelativeVirtualAddress);
-        if (body.ExceptionRegions.Length != 0)
-            return false;
-        DecodedInstruction? first = null;
-        DecodedInstruction? fieldLoad = null;
-        DecodedInstruction? third = null;
-        int count = 0;
-        foreach (DecodedInstruction instruction
-            in InstructionDecoder.Decode(body.GetILBytes() ?? []))
-        {
-            if (instruction.OpCode == ILOpCode.Nop)
-                continue;
-            switch (count++)
-            {
-                case 0:
-                    first = instruction;
-                    break;
-                case 1:
-                    fieldLoad = instruction;
-                    break;
-                case 2:
-                    third = instruction;
-                    break;
-                default:
-                    return false;
-            }
-        }
-        if (count != 3
-            || first is not { OpCode: ILOpCode.Ldarg_0 }
-            || fieldLoad is not { OpCode: ILOpCode.Ldfld }
-            || third is not { OpCode: ILOpCode.Ret })
-        {
-            return false;
-        }
-
-        EntityHandle fieldHandle = MetadataTokens.EntityHandle(
-            MethodInstructionFacts.OperandInt32(fieldLoad));
-        return fieldHandle.Kind == HandleKind.FieldDefinition
-            && (_reader.GetFieldDefinition(
-                    (FieldDefinitionHandle)fieldHandle).Attributes
-                & FieldAttributes.InitOnly) != 0;
-    }
-
-    bool ConstraintCanIncludeValueType(EntityHandle constraint)
-    {
-        if (constraint.Kind == HandleKind.TypeDefinition)
-        {
-            TypeAttributes attributes = _reader
-                .GetTypeDefinition((TypeDefinitionHandle)constraint)
-                .Attributes;
-            return (attributes & TypeAttributes.Interface) != 0;
-        }
-
-        if (constraint.Kind == HandleKind.TypeReference)
-        {
-            var reference = _reader.GetTypeReference(
-                (TypeReferenceHandle)constraint);
-            string @namespace = _reader.GetString(reference.Namespace);
-            string name = _reader.GetString(reference.Name);
-            return @namespace == "System"
-                && name is "ValueType" or "Enum";
-        }
-
-        // Type specifications and generic-parameter constraints cannot be
-        // proven here to admit a value-type instantiation.
-        return false;
     }
 
     TypeRef TypeFromEntity(EntityHandle handle)

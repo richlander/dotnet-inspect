@@ -53,10 +53,19 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(43, surface.Functions.Count);
+        Assert.Equal(48, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
+        Assert.Contains("GetWidgetSerializedBeforeAwait", names);
+        Assert.Contains(
+            "GetWidgetConditionallySerializedBeforeAwait",
+            names);
         Assert.Contains("GetStringArrayAsyncAfterAwait", names);
+        Assert.Contains("GetWidgetOrRawAfterAwait", names);
+        Assert.Contains(
+            "GetWidgetFromIncompleteFlowAfterAwait",
+            names);
+        Assert.Contains("GetWidgetThroughLocalAsync", names);
         Assert.Contains("EchoBytes", names);
         Assert.Contains("GetRegisteredString", names);
         Assert.Contains("Ping", names);
