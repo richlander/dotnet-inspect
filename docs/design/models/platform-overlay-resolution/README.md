@@ -107,7 +107,10 @@ replayed platform-realization evidence before `PlatformAuthorized` is granted.
 Delegated-policy composition is an implementation-boundary gate rather than a
 second model state: an all-role-bearing in-group delegated result is represented
 by the modeled registrations, while a result containing any outside-group or
-non-authority candidate remains an adjacent-policy outcome.
+non-authority candidate remains an adjacent-policy outcome. Propagation of a
+delegated `AssemblyBindingPolicyVersion` change into a new outer policy version
+is covered by an implementation gate for the same reason; TLC does not establish
+policy-version consistency.
 TLC results establish properties of this state machine under the stated
 assumptions and bounds, not properties of the shipped implementation. Formal
 model-to-implementation correspondence is unverified.
