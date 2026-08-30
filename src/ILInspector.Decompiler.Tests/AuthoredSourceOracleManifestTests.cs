@@ -389,6 +389,93 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
+    public void SyntaxInventory_DistinguishesUsingResourceForms()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "using (IDisposable resource = Open()) { }",
+            out IReadOnlyList<string> declarationFeatures,
+            out string? error),
+            error);
+        Assert.Contains("clause.using-variable-declaration", declarationFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "using (Open()) { }",
+            out IReadOnlyList<string> expressionFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("clause.using-variable-declaration", expressionFeatures);
+    }
+
+    [Fact]
+    public void SyntaxInventory_DistinguishesCatchDeclarationForms()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "try { } catch (Exception error) { }",
+            out IReadOnlyList<string> variableFeatures,
+            out string? error),
+            error);
+        Assert.Contains("clause.catch-declaration", variableFeatures);
+        Assert.Contains("clause.catch-variable", variableFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "try { } catch (Exception) { }",
+            out IReadOnlyList<string> declarationFeatures,
+            out error),
+            error);
+        Assert.Contains("clause.catch-declaration", declarationFeatures);
+        Assert.DoesNotContain("clause.catch-variable", declarationFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "try { } catch { }",
+            out IReadOnlyList<string> bareFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("clause.catch-declaration", bareFeatures);
+        Assert.DoesNotContain("clause.catch-variable", bareFeatures);
+    }
+
+    [Fact]
+    public void SyntaxInventory_DistinguishesAnonymousMemberNaming()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "return new { Value = value };",
+            out IReadOnlyList<string> explicitFeatures,
+            out string? error),
+            error);
+        Assert.Contains("expression.anonymous-member-explicit-name", explicitFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "return new { value };",
+            out IReadOnlyList<string> shorthandFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain(
+            "expression.anonymous-member-explicit-name",
+            shorthandFeatures);
+    }
+
+    [Theory]
+    [InlineData("ref")]
+    [InlineData("out")]
+    [InlineData("in")]
+    public void SyntaxInventory_TracksParameterRefKinds(string refKind)
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            $"return ({refKind} int value, int sibling) => value + sibling;",
+            out IReadOnlyList<string> byRefFeatures,
+            out string? error),
+            error);
+        Assert.Contains($"parameter.{refKind}", byRefFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "return (value, sibling) => value + sibling;",
+            out IReadOnlyList<string> ordinaryFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain($"parameter.{refKind}", ordinaryFeatures);
+    }
+
+    [Fact]
     public void Manifest_SyntaxInventoryRequiresExactObservedFeatureSet()
     {
         var row = Row(

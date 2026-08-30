@@ -89,8 +89,20 @@ static class PrinterSyntaxInventory
                     and not OmittedArraySizeExpressionSyntax:
                     Add("expression", node.Kind(), "Expression");
                     break;
-                case CatchClauseSyntax:
+                case AnonymousObjectMemberDeclaratorSyntax
+                {
+                    NameEquals: not null,
+                }:
+                    Features.Add("expression.anonymous-member-explicit-name");
+                    break;
+                case CatchClauseSyntax @catch:
                     Features.Add("clause.catch");
+                    if (@catch.Declaration is not null)
+                    {
+                        Features.Add("clause.catch-declaration");
+                        if (!@catch.Declaration.Identifier.IsKind(SyntaxKind.None))
+                            Features.Add("clause.catch-variable");
+                    }
                     break;
                 case CatchFilterClauseSyntax:
                     Features.Add("clause.catch-filter");
@@ -161,8 +173,23 @@ static class PrinterSyntaxInventory
             {
                 Features.Add("statement.await-using");
             }
+            if (node is UsingStatementSyntax { Declaration: not null })
+                Features.Add("clause.using-variable-declaration");
             if (node is ArgumentSyntax { NameColon: not null })
                 Features.Add("argument.named");
+            if (node is ParameterSyntax parameter)
+            {
+                foreach (SyntaxToken modifier in parameter.Modifiers)
+                {
+                    if (modifier.Kind() is
+                        SyntaxKind.RefKeyword or
+                        SyntaxKind.OutKeyword or
+                        SyntaxKind.InKeyword)
+                    {
+                        Features.Add($"parameter.{modifier.ValueText}");
+                    }
+                }
+            }
 
             base.Visit(node);
         }
