@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -15,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
+    <InternalsVisibleTo Include="DotnetInspector.Artifacts.Tests" />
   </ItemGroup>
 
 </Project>

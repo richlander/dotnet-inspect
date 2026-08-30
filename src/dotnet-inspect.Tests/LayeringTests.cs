@@ -507,6 +507,67 @@ public sealed class LayeringTests
             changeDetection);
     }
 
+    [Fact]
+    public void LocalPathAdmission_PlatformClassifiersRemainPortable()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        string probeDirectory = Path.Combine(
+            root,
+            "tests",
+            "DotnetInspector.Artifacts.Local.PlatformProbe");
+        string probe = File.ReadAllText(
+            Path.Combine(probeDirectory, "Program.cs"));
+        string nativeProject = File.ReadAllText(
+            Path.Combine(
+                probeDirectory,
+                "LocalPathAdmissionPlatformProbe.csproj"));
+        string browserProject = File.ReadAllText(
+            Path.Combine(
+                probeDirectory,
+                "LocalPathAdmissionBrowserProbe.csproj"));
+        string runner = File.ReadAllText(
+            Path.Combine(
+                root,
+                "eng",
+                "run-local-path-admission-platform-probe.sh"));
+        string workflow = File.ReadAllText(
+            Path.Combine(root, ".github", "workflows", "ci.yml"));
+        string changeDetection = File.ReadAllText(
+            Path.Combine(root, "eng", "ci-detect-changes.sh"));
+
+        Assert.Contains(
+            "LocalArtifactSource.AcquireFileAsync(",
+            probe);
+        Assert.Contains(
+            "<PublishAot>true</PublishAot>",
+            nativeProject);
+        Assert.Contains(
+            "<IsPublishable>true</IsPublishable>",
+            nativeProject);
+        Assert.Contains(
+            "Microsoft.NET.Sdk.WebAssembly",
+            browserProject);
+        Assert.Contains(
+            "<IsPublishable>true</IsPublishable>",
+            browserProject);
+        Assert.Contains(
+            "run-local-path-admission-platform-probe.sh nativeaot",
+            workflow);
+        Assert.Contains(
+            "run-local-path-admission-platform-probe.sh browser",
+            workflow);
+        Assert.Contains("dotnet publish", runner);
+        Assert.Contains("node \"$main_js\"", runner);
+        Assert.Contains(
+            "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*) "
+                + "CODE=true; WEB=true",
+            changeDetection);
+        Assert.Contains(
+            "eng/run-local-path-admission-platform-probe.sh) "
+                + "CODE=true; WEB=true",
+            changeDetection);
+    }
+
     private static (string Name, string Source)[] EvaluatedSources(
         string project)
     {

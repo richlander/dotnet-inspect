@@ -7,9 +7,10 @@ inspection experience.
 This is a design proposal with an incremental implementation. Target boundaries
 remain **unverified** until their named implementation gates exist. The
 source-neutral contract floor, artifact-session publication, explicit local-file
-snapshot adapter, and package-free local host now have the gates named under
-[Required gates](#required-gates). Current types and remaining target behavior
-are identified explicitly under [Current mismatches](#current-mismatches).
+snapshot adapter, shared local-path admission, and package-free local host now
+have the gates named under [Required gates](#required-gates). Current types and
+remaining target behavior are identified explicitly under
+[Current mismatches](#current-mismatches).
 
 See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
@@ -705,10 +706,10 @@ These properties are represented by
 `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
 `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
 `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
-`LocalPathAdmission_PlatformClassifiersRemainPortable`. They are unverified
-until those gates exist. The bounded-directory implementation must exercise
-the same contract through its public root and selected-entry outcomes rather
-than adding another classifier.
+`LocalPathAdmission_PlatformClassifiersRemainPortable`. Those gates enforce the
+shared classifier and explicit-file admission contract. The bounded-directory
+implementation must exercise the same contract through its public root and
+selected-entry outcomes rather than adding another classifier.
 
 Admission is sequential and adds no publication, interleaving, or concurrent
 ownership state. A new TLA+ model would duplicate the existing artifact-session
@@ -1462,12 +1463,15 @@ non-masking disposal, role assignment separate from provenance, and
 owner-bound content references that cannot mix descriptor, registration, role,
 or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
-missing/limit diagnostics, mutation and deletion resistance, and cancellation
-remaining cancellation. The three named `LocalDirectoryAcquisition_*` gates
-remain unverified. Together they require bounded deterministic top-level
-selection, source-neutral exclusions, atomic empty and failure outcomes,
-directory provenance, immutable batch snapshots, and cancellation
-preservation. Shared local-path admission remains with the
+path-admission outcomes, expected kinds, link handling, pre-open rejection of
+stable non-regular entries, once-opened generation identity, mutation and
+deletion resistance, and cancellation remaining cancellation. The executable
+NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports.
+The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
+they require bounded deterministic top-level selection, source-neutral
+exclusions, atomic empty and failure outcomes, directory provenance, immutable
+batch snapshots, and cancellation preservation. Shared local-path admission
+remains with the
 [local adapter](#shared-local-path-admission) rather than these directory
 gates.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
