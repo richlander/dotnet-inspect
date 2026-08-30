@@ -541,7 +541,10 @@ file's nonempty, sorted, and duplicate-free observed features, publish the exact
 union of those per-file features as `observedFeatures`, and satisfy the
 producer's passing invariants: at least one file, no failures, and every
 registered file Valid, Correct, inventory-tracked, and Printer exact.
-Contradictory or vacuous passing evidence is rejected.
+The consumer also recomputes the benchmark's complete-input predicate and
+denominator relationships from its row, target, corpus, and assembly counts
+rather than trusting the serialized `inputsComplete` flag. Contradictory or
+vacuous passing evidence is rejected.
 `SourceOracleCandidateLedgerTests.Baseline_RejectsUnverifiedReports`,
 `Baseline_RejectsALegacyReportWithNoManifest`,
 `Baseline_RejectsAManifestSuppliedInPlaceOfAReport`,
@@ -551,7 +554,8 @@ Contradictory or vacuous passing evidence is rejected.
 `Baseline_RejectsAnIncompleteTrackedFileCount`, and
 `Baseline_RejectsObservedFeaturesThatContradictTheFileInventory`,
 `Baseline_RejectsAVacuousPassingReport`, and
-`Baseline_RejectsContradictoryPassingInvariants` are the named gates. The
+`Baseline_RejectsContradictoryPassingInvariants`, and
+`Baseline_RejectsContradictoryInputCompleteness` are the named gates. The
 candidate report records the baseline's provenance, digest, and feature set —
 never its local path.
 

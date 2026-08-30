@@ -647,6 +647,44 @@ public class SourceOracleCandidateLedgerTests
         Assert.Equal("digest", baseline.Digest);
     }
 
+    [Theory]
+    [InlineData("zero-targets")]
+    [InlineData("unmatched-row")]
+    [InlineData("malformed-row")]
+    [InlineData("assembly-mismatch")]
+    [InlineData("row-count-mismatch")]
+    [InlineData("corpus-row-mismatch")]
+    public void Baseline_RejectsContradictoryInputCompleteness(string mutation)
+    {
+        var report = Baseline();
+        report = mutation switch
+        {
+            "zero-targets" => report with
+            {
+                CorpusRows = 0,
+                MatchedAssemblies = 0,
+                CorpusAssemblies = 0,
+                TargetsEvaluated = 0,
+                Rows = [],
+            },
+            "unmatched-row" => report with { CorpusRows = 2, UnmatchedRows = 1 },
+            "malformed-row" => report with { MalformedRows = 1 },
+            "assembly-mismatch" => report with { MatchedAssemblies = 0 },
+            "row-count-mismatch" => report with { Rows = [] },
+            "corpus-row-mismatch" => report with { CorpusRows = 2 },
+            _ => throw new InvalidOperationException(),
+        };
+        Assert.True(report.InputsComplete);
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(
+                SerializeBaseline(report),
+                "digest",
+                out _,
+                out string? error));
+        Assert.Contains("complete inputs", error!, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Every way a report can fail to be verified enrolled evidence is rejected, because
     /// ranking against an unverified feature set would report enrolled coverage as new.
@@ -1254,7 +1292,26 @@ public class SourceOracleCandidateLedgerTests
                         Features: ["statement.return"]),
                 ]),
             Ratchet: null,
-            Rows: []);
+            Rows:
+            [
+                new AuthoredCorpusBenchmark.RowReport(
+                    Type: "N.T",
+                    Method: "M",
+                    Overload: 0,
+                    Outcome: ReturnToSenderSourceOutcome.ValidMatch.ToString(),
+                    TasteBucket: AuthoredCorpusBenchmark.TasteBucket.Correct.ToString(),
+                    CompileBackStatus: null,
+                    InvalidKind: null,
+                    FaultIsolation: null,
+                    FaultIsolationMethod: null,
+                    UsedCompileBackFloor: false,
+                    SupersededFaultIsolation: null,
+                    SupersededFaultIsolationMethod: null,
+                    Reason: "body_match",
+                    Detail: null,
+                    SourceFile: "src/A.cs",
+                    PrinterExact: PrinterExactOutcome.Exact.ToString()),
+            ]);
 
     static string SerializeBaseline(AuthoredCorpusBenchmark.Report report)
         => AuthoredCorpusBenchmark.SerializeReport(report);

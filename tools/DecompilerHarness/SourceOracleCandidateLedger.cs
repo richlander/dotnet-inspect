@@ -783,7 +783,7 @@ static class SourceOracleCandidateLedger
             return false;
         }
 
-        if (!report.InputsComplete)
+        if (!AuthoredCorpusExitContract.ReportInputsAreComplete(report))
         {
             error = "Baseline source-oracle report did not measure complete inputs, "
                 + "so its observed features are not the enrolled set.";

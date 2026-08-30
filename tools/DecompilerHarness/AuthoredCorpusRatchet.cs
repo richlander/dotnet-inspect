@@ -1111,6 +1111,19 @@ static class AuthoredCorpusExitContract
         => unmatchedRows == 0 && malformedRows == 0 && evaluated > 0;
 
     /// <summary>
+    /// Recomputes the complete-input claim carried by a serialized benchmark report.
+    /// The report is an evidence boundary, so consumers verify both the producer rule
+    /// and the denominator relationships instead of trusting its derived flag.
+    /// </summary>
+    internal static bool ReportInputsAreComplete(AuthoredCorpusBenchmark.Report report)
+        => report.InputsComplete
+            && InputsComplete(report.UnmatchedRows, report.MalformedRows, report.TargetsEvaluated)
+            && report.MatchedAssemblies == report.CorpusAssemblies
+            && report.Rows is { } rows
+            && rows.Count == report.TargetsEvaluated
+            && report.TargetsEvaluated + report.UnmatchedRows == report.CorpusRows;
+
+    /// <summary>
     /// Whether the run is trustworthy at all. These conditions do not say the
     /// decompiler got worse; they say the number this run produced must not be
     /// compared to anything. A ratchet result — pass, fail, or skip — never rescues a
