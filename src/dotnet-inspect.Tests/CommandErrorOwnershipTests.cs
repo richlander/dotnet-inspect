@@ -175,7 +175,16 @@ public class CommandErrorOwnershipTests
                     + "that scrolls past a green build.");
             }
 
-            // NoWarn beats WarningsAsErrors in Roslyn, so escalation alone is
+            if (EvaluatedProperty(project, "WarningsNotAsErrors")
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Contains(BannedApiRule, StringComparer.OrdinalIgnoreCase))
+            {
+                uncovered.Add(
+                    $"{relative}: de-escalates {BannedApiRule} through WarningsNotAsErrors, "
+                    + "so a violation would not fail the build.");
+            }
+
+            // NoWarn also overrides WarningsAsErrors, so escalation alone is
             // not the same as enforcement: a project carrying both reports a
             // rule that is escalated and silent.
             if (EvaluatedProperty(project, "NoWarn")
@@ -267,6 +276,14 @@ public class CommandErrorOwnershipTests
         Assert.Contains(
             BannedApiRule,
             warningsAsErrors,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            BannedApiRule,
+            EvaluatedProperty(project, "WarningsNotAsErrors")
+                .Split(
+                    ';',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries),
             StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain(
             BannedApiRule,
@@ -1145,6 +1162,7 @@ public class CommandErrorOwnershipTests
         "RunAnalyzers",
         "RunAnalyzersDuringBuild",
         "WarningsAsErrors",
+        "WarningsNotAsErrors",
         "NoWarn",
         "TargetPath",
         "ProjectAssetsFile",
