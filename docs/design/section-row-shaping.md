@@ -152,6 +152,30 @@ because a terminal cardinality has no row cells.
 An unsupported, unresolved, or inapplicable projection fails request resolution
 rather than silently preserving the unprojected result.
 
+## Resolution order
+
+Resolution is fail-fast in this total order:
+
+1. Validate request-wide structure, including the selected-row-set list, the
+   terminal Rows-or-Count branch, and request-wide operation combinations owned
+   by L2.
+2. Visit selected row sets in declaration order. For each set:
+   1. bind its declared identity, sequence key, schema, and shape capability,
+      diagnosing a duplicate at the later declaration;
+   2. resolve membership projection;
+   3. resolve row-query intent under the row-query owner's internal failure
+      order;
+   4. construct and bind the semantic selection plan and order catalog;
+   5. resolve cell projection; and
+   6. validate that the terminal branch is supported for that set.
+3. Validate cross-set cohort and result-binding invariants in first-declared
+   row-set order.
+
+The first failure wins and no later category is evaluated. Its failure variant
+names request-wide scope or the declared row-set identity reached by this
+order. Atomicity prevents a partial executable request; it does not permit an
+implementation to choose among simultaneous invalid bindings.
+
 ## Reference composition
 
 For each shaping cohort, L2's logical reference sequence is:
@@ -173,7 +197,7 @@ failure. This design defines where their completed result enters L2 projection
 or reduction.
 
 Count is terminal. No later operation that requires rows, fields, row order, or
-row identity can consume its scalar outcome. A later presentation owner may
+row identity can consume its reduction outcome. A later presentation owner may
 render the typed count result but cannot resume row shaping from it.
 
 ## Count semantics
@@ -201,7 +225,8 @@ Examples:
 For `Head(N) -> Count`, finding N ordered matches is sufficient to prove the
 exact result N without proving corpus exhaustion. Returning fewer than N is
 exact only when the implementation can prove that no additional applicable
-row exists.
+row exists. Source completion is therefore relative to the resolved logical
+request, not necessarily to the complete underlying corpus.
 
 A work, page, time, memory, or acquisition budget is not semantic `Head`.
 Reaching such a budget cannot turn the rows observed so far into a successful
@@ -224,19 +249,23 @@ An aggregate count exists only when the producer declared one aggregate row set
 before shaping. Conversely, independently declared sets remain independent even
 when they share a section definition or display label.
 
-A failed or incomplete set never contributes zero and never disappears from a
-successful-looking aggregate. Exact zero means the declared set was complete
-and contained no surviving rows.
+A set whose source disposition is failed, `Absent`, or insufficient for its
+resolved logical request never contributes zero and never disappears from a
+successful-looking aggregate. Exact zero means the available evidence proves
+that the logical request has no surviving rows.
 
 The reference failure precedence is:
 
 1. Resolve the complete L2 request. Resolution failure returns no executable
    request. Validation follows declared row-set order, then the row-query
    owner's order within each set.
-2. Establish complete source evidence for every selected row set. If any set
-   is failed, incomplete, or `Absent`, return an L2 failure result binding every
-   selected row-set identity to its owner-issued source outcome, invoke no
-   residual semantic selection, and produce no Count result.
+2. Establish source evidence sufficient for every selected row set's resolved
+   logical request. If any owner-issued disposition is failed, `Absent`, or
+   reports insufficient completion for that request, return an L2 failure
+   result binding every selected row-set identity to its source outcome,
+   invoke no residual semantic selection, and produce no Count result. A
+   proven semantic prefix may be sufficient without corpus exhaustion; a work,
+   page, time, memory, or acquisition cutoff is not.
 3. Apply one named semantic-selection invocation per cohort in cohort order.
    The first semantic failure returns its bound row-set failure and no Count
    result.
@@ -290,9 +319,9 @@ semantic named-sequence failure returns no selected row collection and no count
 entries, preserving the semantic component's all-or-failure contract.
 
 Typed source failures and completion evidence remain visible when L2 binds a
-source result. A selected set lacking complete evidence prevents the entire
-Count result rather than producing a partial exact-count payload. No incomplete
-cardinality is exposed as an exact count.
+source result. A selected set lacking evidence sufficient for its resolved
+logical request prevents the entire Count result rather than producing a
+partial exact-count payload. No unproven cardinality is exposed as exact.
 
 ## Physical execution freedom
 
@@ -341,14 +370,17 @@ The implementation must add these named Release gates:
 | `MembershipProjectionPrecedesRowQuery` | Field-entry membership selection changes the rows seen by predicates, baseline order, and semantic stages; a close negative table-column projection changes no membership. |
 | `CellProjectionFollowsSelectionAndPreservesCardinality` | Cell projection applies only to selected row results, may omit predicate/order fields, and never changes membership, order, or Count. |
 | `CountObservesPrecedingSemanticStages` | Empty, undersized, exact, and oversized `Head`, `Tail`, and `Top` plans reduce to the cardinality of their selected result, including `Head(N) -> Count = min(N, input count)`. |
+| `CountConsumesSuccessfulWindows` | Successful closed, prefix, suffix, and boundless `Window` stages feed their selected cardinality to Count, including a Window after an earlier stage has reindexed its input. |
 | `CountPreservesTopStageObservations` | A Count terminal still reaches every reached `Top` stage, resolves its comparer once through the supplied resolver, and propagates sentinel resolver or comparer exceptions unchanged instead of returning a cardinality. |
 | `StrictWindowFailurePreemptsCount` | Closed, prefix, and suffix windows return their semantic failure rather than a partial cardinality when the required position is absent. |
-| `CountPreservesDeclaredRowSetScope` | One complete selected set produces one exact entry; multiple complete sets retain declaration order and identity; no total is invented unless the producer declared one aggregate set. |
+| `HeadCountAcceptsProvenPrefixCompletion` | N ordered applicable rows with proof sufficient for `Head(N) -> Count` return exact N without corpus exhaustion; fewer than N without proof that no later applicable row exists returns source failure rather than a count. |
+| `CountPreservesDeclaredRowSetScope` | One request-complete selected set produces one exact entry; multiple request-complete sets retain declaration order and identity; no total is invented unless the producer declared one aggregate set. |
 | `HeterogeneousSchemasFormOrderedCohorts` | Sets sharing one complete schema-and-plan contract enter one named semantic invocation; different contracts form cohorts ordered by first declaration; two schemas with different `Top` bindings use their own resolvers; a sentinel failure skips every later cohort without replaying or rolling back earlier callbacks; successful results reassemble in declared order. |
-| `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any selected source-failed, incomplete, or `Absent` set prevents every residual cohort and Count; all-complete source results execute cohorts in order, and the first semantic cohort failure prevents every count entry. |
-| `EmptyFailedAndAbsentSetsStayDistinct` | A complete empty selected set produces exact zero after semantic success; a selected incomplete, failed, or owner-issued `Absent` disposition prevents Count and remains a typed source failure; an unrequested or undeclared set produces no entry. |
+| `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any selected source-failed, `Absent`, or request-insufficient set prevents every residual cohort and Count; source evidence sufficient for the request executes cohorts in order, and the first semantic cohort failure prevents every count entry. |
+| `EmptyFailedAndAbsentSetsStayDistinct` | A request-complete empty selected set produces exact zero after semantic success; a selected request-insufficient, failed, or owner-issued `Absent` disposition prevents Count and remains a typed source failure; an unrequested or undeclared set produces no entry. |
 | `SectionRowFailureBindingPreservesSourceOutcomes` | A source failure result retains one ordered selected-set entry and each owner-issued success, failure, incompleteness, or absence disposition; its variant structurally exposes no Rows or Count payload and invokes no semantic selection. |
 | `SectionRowResolutionIsAtomic` | Any invalid row-set, schema, projection, row-query, selection, or reduction binding returns one structured failure with explicit request-wide or declared-row-set scope and no partial executable request. |
+| `SectionRowResolutionFailureOrderIsDeterministic` | Simultaneous invalid bindings return the first failure in the request-wide, declared-row-set, and per-set category order above; the row-query substep preserves its owner's internal order. |
 | `SectionRowResultsArePresentationFree` | Row, Count, and failure results contain typed row-set identities, values, exact cardinalities, or owner-issued outcome evidence without headings, formatted cells, diagnostic sentences, or renderer state. |
 
 ## Non-claims
