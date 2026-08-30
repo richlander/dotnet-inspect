@@ -882,17 +882,18 @@ public sealed class InspectionWorkspaceTests
     public async Task WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking()
     {
         TestAssembly source = TestAssembly.Create();
-        InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
         var creationContext =
             new NonPumpingSynchronizationContext();
         SynchronizationContext? previousContext =
             SynchronizationContext.Current;
+        InspectionWorkspace workspace;
         AssemblyContextGroup group;
         try
         {
             SynchronizationContext.SetSynchronizationContext(
                 creationContext);
+            workspace =
+                InspectionWorkspace.CreateAsynchronous();
             group = workspace.CreateAssemblyContextGroup(
                 [source.Participant]);
         }
@@ -928,7 +929,10 @@ public sealed class InspectionWorkspaceTests
             AssemblyImageAccessResult<int>.Available>(
                 await operation);
         Assert.Equal(0, creationContext.PostCount);
-        InspectionWorkspaceCloseReport report = await close;
+        InspectionWorkspaceCloseReport report =
+            await close.WaitAsync(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken);
 
         Assert.Equal(42, available.Value);
         Assert.True(Assert.Single(report.Groups).Succeeded);
