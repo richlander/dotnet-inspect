@@ -651,8 +651,11 @@ public class SourceOracleCandidateLedgerTests
     [InlineData("zero-targets")]
     [InlineData("unmatched-row")]
     [InlineData("malformed-row")]
+    [InlineData("zero-assemblies")]
     [InlineData("assembly-mismatch")]
+    [InlineData("too-many-assemblies")]
     [InlineData("row-count-mismatch")]
+    [InlineData("null-row")]
     [InlineData("corpus-row-mismatch")]
     public void Baseline_RejectsContradictoryInputCompleteness(string mutation)
     {
@@ -669,8 +672,19 @@ public class SourceOracleCandidateLedgerTests
             },
             "unmatched-row" => report with { CorpusRows = 2, UnmatchedRows = 1 },
             "malformed-row" => report with { MalformedRows = 1 },
+            "zero-assemblies" => report with
+            {
+                MatchedAssemblies = 0,
+                CorpusAssemblies = 0,
+            },
             "assembly-mismatch" => report with { MatchedAssemblies = 0 },
+            "too-many-assemblies" => report with
+            {
+                MatchedAssemblies = 2,
+                CorpusAssemblies = 2,
+            },
             "row-count-mismatch" => report with { Rows = [] },
+            "null-row" => report with { Rows = [null!] },
             "corpus-row-mismatch" => report with { CorpusRows = 2 },
             _ => throw new InvalidOperationException(),
         };

@@ -1118,9 +1118,12 @@ static class AuthoredCorpusExitContract
     internal static bool ReportInputsAreComplete(AuthoredCorpusBenchmark.Report report)
         => report.InputsComplete
             && InputsComplete(report.UnmatchedRows, report.MalformedRows, report.TargetsEvaluated)
+            && report.MatchedAssemblies > 0
             && report.MatchedAssemblies == report.CorpusAssemblies
+            && report.MatchedAssemblies <= report.TargetsEvaluated
             && report.Rows is { } rows
             && rows.Count == report.TargetsEvaluated
+            && rows.All(static row => row is not null)
             && report.TargetsEvaluated + report.UnmatchedRows == report.CorpusRows;
 
     /// <summary>
