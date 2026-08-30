@@ -90,10 +90,13 @@ which is exactly what it publishes for a machine that genuinely has no claim.
 The invariant was therefore satisfiable by an index that dropped rows, which is
 the failure it exists to catch. `BrokenDroppedRow.cfg` is the regression test.
 
-`cause` is independent of the published `kind`. That separation makes C2's
-cause-to-kind mapping checkable: `BrokenWrongFailureKind.cfg` swaps
-`Malformed` and `BudgetExceeded` while remaining typed, so membership in the
-set of failure kinds is not enough to pass.
+`cause` is independent of the published `kind`, and publication behavior does
+not share the expected-kind helper used by the C2 oracle. That separation makes
+both directions of C2's cause-to-kind mapping checkable:
+`BrokenWrongFailureKind.cfg` misreports malformed input, while
+`BrokenWrongBudgetFailureKind.cfg` independently reaches budget exhaustion and
+misreports it. Both remain typed, so membership in the set of failure kinds is
+not enough to pass.
 
 **The publication is the unit, not the machine.** This is the correction that
 took two review rounds to reach. The implementation creates one union-find node
@@ -241,7 +244,8 @@ weaker than it looks.
 | `BrokenPartialFailure.cfg` | Module failure preserves results already recorded, rejecting only unclassified machines | `C3_FailureRejectsAll` |
 | `BrokenAbsentOnFailure.cfg` | Module failure reports `Absent` rather than `Rejected` | `C2_FailureIsTyped` |
 | `BrokenUntypedFailure.cfg` | Module failure publishes no typed failure kind | `C2_FailureIsTyped` |
-| `BrokenWrongFailureKind.cfg` | Module failure publishes the other cause's typed kind | `C2_FailureIsTyped` |
+| `BrokenWrongFailureKind.cfg` | Malformed-input failure publishes the budget-exhaustion kind | `C2_FailureIsTyped` |
+| `BrokenWrongBudgetFailureKind.cfg` | Budget exhaustion publishes the malformed-input kind | `C2_FailureIsTyped` |
 | `BrokenMutatingFailure.cfg` | A published whole-module failure changes its detail | `FailureIsAbsorbing` |
 | `BrokenPartialMerge.cfg` | A publication joins current representatives but not their whole components | `C5_ComponentsEqualGraphClosure` |
 | `BrokenUnvisitedPublish.cfg` | Construction publishes before classifying every machine | `C1_Totality` |
@@ -355,6 +359,8 @@ expect_violation BrokenAbsentOnFailure StateMachineCompleteness \
 expect_violation BrokenUntypedFailure StateMachineCompleteness \
   "Invariant C2_FailureIsTyped"
 expect_violation BrokenWrongFailureKind StateMachineCompleteness \
+  "Invariant C2_FailureIsTyped"
+expect_violation BrokenWrongBudgetFailureKind StateMachineCompleteness \
   "Invariant C2_FailureIsTyped"
 expect_violation BrokenMutatingFailure StateMachineCompleteness \
   "Action property FailureIsAbsorbing"

@@ -27,7 +27,8 @@ CONSTANTS
 (*               = "PreserveClassified" leave earlier results standing      *)
 (*               = "ReportAbsent"       report Absent instead of Rejected   *)
 (*               = "Untyped"            publish failure with no typed kind  *)
-(*               = "WrongKind"          publish the other cause's kind      *)
+(*               = "WrongMalformedKind" misreport malformed input           *)
+(*               = "WrongBudgetKind"    misreport budget exhaustion         *)
 (*                                                                         *)
 (*   FailureMutationMode = "Stable"      published failure is immutable      *)
 (*                       = "RewriteDetail" mutate it after publication        *)
@@ -41,7 +42,7 @@ ASSUME
     /\ MaxBudget \in Nat
     /\ FailureMode \in
         {"Total", "PreserveClassified", "ReportAbsent", "Untyped",
-         "WrongKind"}
+         "WrongMalformedKind", "WrongBudgetKind"}
     /\ FailureMutationMode \in {"Stable", "RewriteDetail"}
     /\ FinishMode \in {"Guarded", "AllowUnvisited", "DropAsAbsent"}
 
@@ -55,8 +56,23 @@ Phases == {"Building", "Built", "Failed"}
 ExpectedFailureKind(c) ==
     IF c = "MalformedInput" THEN "Malformed" ELSE "BudgetExceeded"
 
-WrongFailureKind(c) ==
-    IF c = "MalformedInput" THEN "BudgetExceeded" ELSE "Malformed"
+(***************************************************************************)
+(* Keep publication behavior independent of ExpectedFailureKind, the C2     *)
+(* oracle. Sharing that helper would let a mapping defect change both the   *)
+(* behavior and its check together.                                         *)
+(***************************************************************************)
+PublishedFailureKind(c) ==
+    IF FailureMode = "Untyped"
+    THEN "None"
+    ELSE IF /\ FailureMode = "WrongMalformedKind"
+            /\ c = "MalformedInput"
+         THEN "BudgetExceeded"
+         ELSE IF /\ FailureMode = "WrongBudgetKind"
+                 /\ c = "BudgetExhaustion"
+              THEN "Malformed"
+              ELSE IF c = "MalformedInput"
+                   THEN "Malformed"
+                   ELSE "BudgetExceeded"
 
 Expected(t) ==
     CASE t = "Resolvable" -> "Resolved"
@@ -117,10 +133,7 @@ FailModule(c) ==
     /\ phase = "Building"
     /\ phase' = "Failed"
     /\ cause' = c
-    /\ kind' =
-        CASE FailureMode = "Untyped" -> "None"
-          [] FailureMode = "WrongKind" -> WrongFailureKind(c)
-          [] OTHER -> ExpectedFailureKind(c)
+    /\ kind' = PublishedFailureKind(c)
     /\ failureDetail' = 1
     /\ result' = [m \in Machines |->
                     CASE FailureMode = "ReportAbsent" -> "Absent"
