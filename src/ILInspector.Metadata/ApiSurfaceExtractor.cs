@@ -2005,9 +2005,22 @@ public static class ApiSurfaceExtractor
             {
                 var exportedType = reader.GetExportedType(exportedTypeHandle);
 
-                // Type forwarders have IsForwarder flag set
                 if (!exportedType.IsForwarder)
+                {
+                    if (exportedType.Implementation.Kind
+                        == HandleKind.AssemblyReference)
+                    {
+                        throw new MetadataRowRejectedException(
+                            ApiSurfaceInspectionFailure
+                                .TypeForwarderIdentityOperation,
+                            MetadataTypeNameFailure.Malformed(
+                                exportedTypeHandle,
+                                ApiSurfaceInspectionFailure
+                                    .UnmarkedAssemblyForwarderDetail));
+                    }
+
                     continue;
+                }
 
                 budget?.BeginTypeForwarder();
                 MetadataTypeDefinitionName? definitionName;

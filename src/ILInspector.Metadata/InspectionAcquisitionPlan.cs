@@ -431,8 +431,8 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                         if (!reader.GetExportedType(rootToLeaf[0]).IsForwarder)
                         {
                             entry.RecordRootAdjacencyFailure(
-                                "The selected image has an AssemblyRef-terminated "
-                                    + "ExportedType chain that is not a forwarder.");
+                                ApiSurfaceInspectionFailure
+                                    .UnmarkedAssemblyForwarderDetail);
                             continue;
                         }
 

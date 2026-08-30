@@ -224,6 +224,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   normalized endpoint and path-redaction handoffs; package composition, cache
   authority, presentation, and post-return stream failures remain with their
   focused owners.
+- [NuGetFetch operation deadlines](design/browser-package-sources.md#timeout-ownership):
+  one reusable monotonic operation context, nested request deadlines, typed
+  timeout identity, and source-safe post-return stream failures. It consumes
+  source-result identity; source eligibility, failover policy, cache behavior,
+  and presentation remain with their focused owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.
