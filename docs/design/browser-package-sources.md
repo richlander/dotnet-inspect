@@ -1404,8 +1404,10 @@ applies to the aggregate; a transport failure cannot hide a library-owned
 deadline failure.
 `PackageSourceTimeout` records `Request`, `MetadataBody`, or `Operation` plus
 the configured duration for a library-owned deadline. A transport-originated
-`TimeoutException` retains the existing timeout classification without falsely
-claiming one of those owner-issued bounds, so its typed timeout detail is null.
+`TimeoutException`, including one carried by a transport
+`TaskCanceledException`, retains the existing timeout classification without
+falsely claiming one of those owner-issued bounds, so its typed timeout detail
+is null.
 An elapsed owner-issued deadline still outranks a concurrent or later
 transport failure, including an inner-stream `ObjectDisposedException`.
 Caller cancellation remains an exception carrying the original caller token.
@@ -1432,6 +1434,8 @@ The implementation gates are:
 - `PackageSourceClientTests.PayloadTimeoutRetainsCleanupFailureWithoutInnerException`;
 - `PackageSourceClientTests.DisposingSharedContextCancelsOutstandingPayloadRead`;
 - `PackageSourceClientTests.PayloadTransportFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadCanceledTransportTimeoutRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadCanceledTransportTimeoutDuringDisposalRetainsSafeSourceIdentity`;
 - `PackageSourceClientTests.PayloadTransportFailureOutranksRacingReadCancellation`;
 - `PackageSourceClientTests.PayloadCallerCancellationDoesNotRetainTransportFailure`;
 - `PackageSourceClientTests.PayloadDisposalFailureRetainsSafeSourceIdentity`;
@@ -1858,6 +1862,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3SearchWithoutAdvertisedResourceIsTypedUnsupported`,
 `V3SearchUsesLibraryDeadline`,
 `V3SearchTransportTimeoutRemainsTypedTimeout`,
+`V3SearchCanceledTransportTimeoutRemainsTypedTimeout`,
 `V3SearchDoesNotFailOverAuthenticationRejection`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
 `GalleryEnumerationJoinsAuthoritativeListingState`,

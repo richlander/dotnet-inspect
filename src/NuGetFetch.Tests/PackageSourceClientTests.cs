@@ -1555,6 +1555,27 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task V3SearchCanceledTransportTimeoutRemainsTypedTimeout()
+    {
+        var handler = new CanceledSearchTransportTimeoutHandler();
+        HttpMessageHandler client = handler;
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(PackageSourceCapabilities.Search, failure.Capability);
+        Assert.Null(failure.Timeout);
+    }
+
+    [Fact]
     public async Task V3SearchNormalizesIdnServiceIndex()
     {
         const string unicodeIndex =
@@ -3292,10 +3313,13 @@ public sealed class PackageSourceClientTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task GalleryLateStreamingTimeoutPreservesDeadline(
-        bool operationExpires)
+        bool operationExpires,
+        bool canceledTransportTimeout)
     {
         var options = new NuGetFetchOptions
         {
@@ -3308,7 +3332,8 @@ public sealed class PackageSourceClientTests
         };
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(
-                new LateStreamingTimeoutHandler(),
+                new LateStreamingTimeoutHandler(
+                    canceledTransportTimeout),
                 options);
 
         PackageSourceFailure failure = Failed(
@@ -4602,6 +4627,101 @@ public sealed class PackageSourceClientTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PayloadCanceledTransportTimeoutRetainsSafeSourceIdentity(
+        bool readAsync)
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new CanceledTimeoutPayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error;
+        if (readAsync)
+        {
+            error = await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+        }
+        else
+        {
+            error = Assert.Throws<PackageSourceStreamException>(
+                () => content.ReadByte());
+        }
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.Timeout);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PayloadCanceledTransportTimeoutDuringDisposalRetainsSafeSourceIdentity(
+        bool disposeAsync)
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new CanceledTimeoutDisposePayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        PackageSourceStreamException error;
+        if (disposeAsync)
+        {
+            error = await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => payload.Content.DisposeAsync().AsTask());
+        }
+        else
+        {
+            error = Assert.Throws<PackageSourceStreamException>(
+                payload.Content.Dispose);
+        }
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.True(error.CleanupFailed);
+        Assert.Null(error.Timeout);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PayloadDisposalFailureRetainsSafeSourceIdentity()
     {
@@ -5211,6 +5331,13 @@ public sealed class PackageSourceClientTests
         Assert.IsType<PackageSourceOperationResult<T>.Failed>(result)
             .Failure;
 
+    private static TaskCanceledException CreateCanceledTransportTimeout() =>
+        new(
+            "Simulated canceled transport timeout from "
+            + "https://secret.example/package.",
+            new TimeoutException("Simulated transport timeout."),
+            CancellationToken.None);
+
     private sealed class DelayedList<T>(T value) : IReadOnlyList<T>
     {
         public int Count => 1;
@@ -5570,6 +5697,36 @@ public sealed class PackageSourceClientTests
         }
     }
 
+    private sealed class CanceledSearchTransportTimeoutHandler
+        : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsoluteUri == ServiceIndex)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""
+                        {
+                          "resources": [
+                            {
+                              "@id": "{{SearchEndpoint}}",
+                              "@type": "SearchQueryService/3.5.0"
+                            }
+                          ]
+                        }
+                        """),
+                };
+            }
+
+            await Task.Yield();
+            throw CreateCanceledTransportTimeout();
+        }
+    }
+
     private sealed class StallingMetadataBodyHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -5663,6 +5820,57 @@ public sealed class PackageSourceClientTests
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class CanceledTimeoutPayloadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw CreateCanceledTransportTimeout();
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(
+                CreateCanceledTransportTimeout());
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class CanceledTimeoutDisposePayloadStream
+        : MemoryStream
+    {
+        public CanceledTimeoutDisposePayloadStream()
+            : base([1], writable: false)
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            throw CreateCanceledTransportTimeout();
+        }
     }
 
     private sealed class LateObjectDisposedPayloadStream : Stream
@@ -6276,13 +6484,17 @@ public sealed class PackageSourceClientTests
             throw new NotSupportedException();
     }
 
-    private sealed class LateStreamingTimeoutHandler : HttpMessageHandler
+    private sealed class LateStreamingTimeoutHandler(
+        bool canceledTransportTimeout) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(100));
+            if (canceledTransportTimeout)
+                throw CreateCanceledTransportTimeout();
+
             throw new TimeoutException(
                 "Simulated late streaming transport timeout.");
         }
@@ -6424,13 +6636,7 @@ public sealed class PackageSourceClientTests
 
             Interlocked.Increment(ref StallingRequests);
             if (canceledTransportTimeout)
-            {
-                throw new TaskCanceledException(
-                    "Simulated canceled registration transport timeout.",
-                    new TimeoutException(
-                        "Simulated registration transport timeout."),
-                    CancellationToken.None);
-            }
+                throw CreateCanceledTransportTimeout();
 
             if (transportTimeout)
             {

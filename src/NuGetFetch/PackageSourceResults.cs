@@ -472,7 +472,7 @@ internal static class PackageSourceOperation
                 or NuGetMetadataBodyTimeoutException
                 or NuGetOperationTimeoutException =>
                 PackageSourceFailureKind.Timeout,
-            TimeoutException =>
+            _ when NuGetTransportFailure.IsTimeout(exception) =>
                 PackageSourceFailureKind.Timeout,
             NuGetMetadataResponseTooLargeException =>
                 PackageSourceFailureKind.ResponseRejected,

@@ -695,7 +695,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         }
         catch (OperationCanceledException exception)
         {
-            return exception.InnerException is TimeoutException timeout
+            return NuGetTransportFailure.GetTimeout(exception) is
+                { } timeout
                 ? [timeout]
                 : [];
         }

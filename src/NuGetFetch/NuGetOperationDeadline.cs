@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 
 namespace NuGetFetch;
 
@@ -106,6 +107,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         catch (OperationCanceledException ex)
         {
             ThrowTranslated(ex, requestCancellation, requestStarted);
+            ThrowTransportTimeout(ex);
             throw;
         }
         catch (NuGetMetadataBodyTimeoutException ex)
@@ -233,6 +235,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     ex,
                     requestCancellation,
                     requestStarted);
+                ThrowTransportTimeout(ex);
             }
             finally
             {
@@ -366,6 +369,13 @@ internal sealed class NuGetOperationDeadline : IDisposable
             and not NuGetRegistrationResourceLimitExceededException
             or HttpRequestException
             or ObjectDisposedException;
+
+    private static void ThrowTransportTimeout(
+        OperationCanceledException exception)
+    {
+        if (NuGetTransportFailure.GetTimeout(exception) is { } timeout)
+            ExceptionDispatchInfo.Capture(timeout).Throw();
+    }
 
     internal static bool IsDeadlineEligibleFailure(Exception exception) =>
         IsDeadlineAbort(exception)
@@ -932,7 +942,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             throw new PackageSourceStreamException(
                 operation._producer,
                 operation._transportKind,
-                exception is TimeoutException
+                NuGetTransportFailure.IsTimeout(exception)
                     ? PackageSourceFailureKind.Timeout
                     : PackageSourceFailureKind.Transport,
                 timeout: null,
@@ -947,7 +957,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             throw new PackageSourceStreamException(
                 operation._producer!,
                 operation._transportKind,
-                exception is TimeoutException
+                NuGetTransportFailure.IsTimeout(exception)
                     ? PackageSourceFailureKind.Timeout
                     : PackageSourceFailureKind.Transport,
                 timeout: null,
