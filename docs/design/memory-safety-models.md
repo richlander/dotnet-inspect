@@ -60,8 +60,8 @@ Consumers must preserve the distinction between these states:
 | --- | --- |
 | Legacy, unmarked | The module has no `MemorySafetyRulesAttribute`; apply v1 compatibility rules. |
 | Updated v2 | The module has one valid module attribute with version `2`; apply v2 rules. |
-| Unsupported version | The module attribute contains another integer; report the integer without applying v1 or v2 semantics. |
-| Malformed marker | The attribute cannot be decoded according to its expected constructor shape. |
+| Unsupported version | The module attribute contains another integer. Preserve it as unrecognized; Roslyn also applies legacy compatibility inference while reporting the unsupported marker when members are consumed. |
+| Malformed marker | The attribute cannot be decoded according to its expected constructor shape. Preserve the failure; Roslyn likewise uses compatibility inference while treating the marker as unrecognized. |
 | Conflicting markers | More than one candidate marker prevents a unique module judgment. |
 
 The raw integer and the recognized model are separate facts. Reporting an
@@ -94,6 +94,7 @@ In the legacy model:
 
 - a pointer or function-pointer type in a callable member's parameter or return
   signature makes the member propagate unsafe;
+- the compiler's compatibility rule also applies to pointer-bearing fields;
 - the `unsafe` modifier on a type or member establishes a lexical unsafe
   context for declarations and bodies within its scope;
 - metadata does not preserve that source modifier by itself;
@@ -112,7 +113,7 @@ module into v2 semantics.
 In the updated model:
 
 - `unsafe` on a member publishes a caller contract represented in metadata by
-  `RequiresUnsafeAttribute`;
+  `RequiresUnsafeAttribute`, including for fields;
 - the member modifier does not itself establish an unsafe context for the
   member body;
 - a pointer-bearing signature does not propagate unsafe unless the member has
@@ -133,7 +134,7 @@ unsafe operations.
 | Question | V1: legacy | V2: updated |
 | --- | --- | --- |
 | Binary model marker | Attribute absent | Module attribute version `2` |
-| What propagates unsafe? | Pointer or function-pointer parameter or return types | `RequiresUnsafeAttribute` |
+| What propagates unsafe? | Pointer or function-pointer callable signatures and fields under compatibility rules | `RequiresUnsafeAttribute` |
 | Meaning of member `unsafe` | Establishes a lexical unsafe context | Publishes a caller contract |
 | Meaning of a pointer-bearing signature | Compatibility propagator | Not a propagator by itself |
 | How a body establishes unsafe context | Enclosing type/member context or inner unsafe context | Inner unsafe block or expression |
@@ -148,15 +149,19 @@ Mixed-model behavior has two inputs:
 2. The caller's model determines whether an explicit v2 contract is enforced.
    An implicit v1 compatibility contract is enforced for both caller models.
 
-| Callee evidence | Contract | V1 caller | V2 caller |
+| Target-member evidence | Contract | V1 caller | V2 caller |
 | --- | --- | --- | --- |
-| Unmarked module and pointer-bearing signature | Implicit | Requires unsafe context | Requires unsafe context |
-| Unmarked module without pointer-bearing signature | None | No caller requirement | No caller requirement |
+| Unmarked module and pointer-bearing callable signature or field | Implicit | Requires unsafe context | Requires unsafe context |
+| Unmarked module without a compatibility pointer contract | None | No caller requirement | No caller requirement |
 | V2 module and `RequiresUnsafeAttribute` | Explicit | Contract not enforced | Requires unsafe context |
-| V2 module without `RequiresUnsafeAttribute`, including a pointer-bearing signature | None | No caller requirement | No caller requirement |
+| V2 module without `RequiresUnsafeAttribute`, including a pointer-bearing signature or field | None | No caller requirement | No caller requirement |
 
-For an unsupported or malformed callee marker, report that the contract
-judgment is unavailable instead of falling back silently.
+For an unsupported or malformed target-module marker, preserve and report the
+unrecognized state. Roslyn also classifies member contracts with the legacy
+pointer compatibility rule in this state, while reporting an unrecognized
+attribute-version diagnostic when a member is consumed. Product output should
+present both facts: a compatibility-derived contract is not permission to call
+the module v1 or to hide its invalid marker.
 
 The caller's project policy also determines which source operations it may
 express, but it does not rewrite the callee's classified contract. A legacy
@@ -235,7 +240,7 @@ observations remain independent:
 | --- | --- | --- |
 | Project declaration or evaluation | Which rules and unsafe permission the build requested | Which model an arbitrary binary actually publishes |
 | Module metadata | The binary's raw rules marker and recognized model | Whether unsafe source was permitted |
-| Member metadata and signatures | Which members publish or imply caller contracts for that module model | Which bodies actually use unsafe operations |
+| Member metadata and signatures | Which callable members and fields publish or imply caller contracts for that module model | Which bodies actually use unsafe operations |
 | Method-body analysis | Candidate declaration, local, call, and IL-operation evidence for model-aware interpretation | The original lexical source form in every case |
 | Provenance | Whether a project/build corresponds to a binary | The safety meaning of either artifact |
 
@@ -252,7 +257,7 @@ substitute for typed provenance.
 | Which model did this binary publish? | Module `MemorySafetyRulesAttribute` constructor integer and recognition rules | Metadata decodes an `int?`; Library Signals displays it. Current scope and unsupported-version handling are incomplete. |
 | Did this project request updated enforcement? | Declared or evaluated `LangVersion`, `Features`, and future supported model property | Not currently answered. The `project` command reads `project.assets.json`, not these project properties. |
 | Was unsafe source permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
-| Which members propagate unsafe? | Version-aware composition of the module model with pointer signatures or `RequiresUnsafeAttribute` | Analysis exposes `CallerUnsafeMode`, but its current computation does not yet implement the model split faithfully. |
+| Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, or `RequiresUnsafeAttribute` | Analysis exposes method `CallerUnsafeMode`, but its current computation does not yet implement the model split faithfully; no equivalent field classification is exposed. |
 | Which methods use unsafe facilities? | Version-aware declaration, local, call, and IL-operation evidence | `MethodSafetyAnalysis` produces related evidence categories, but their interpretation is not yet fully version-aware. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive body-unsafety evidence | Not currently exposed as a composed query. |
 | How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
@@ -304,6 +309,7 @@ The following gaps remain with Analysis:
   signatures, but `MemberRef` carries no callee rules model or caller contract.
   Analysis therefore misses pointerless `RequiresUnsafe` calls and treats
   pointer-bearing v2 calls without that attribute as unsafe; and
+- field-access evidence has no equivalent version-aware field contract; and
 - no query composes model, propagation, and body evidence into a safe-boundary
   classification.
 
@@ -313,8 +319,16 @@ The Decompiler uses the presence of a module marker to choose updated-rule
 rendering, or can simulate updated rules explicitly. Its rendering contract is
 owned by [Memory-safety rendering modes](memory-safety-modes.md).
 
-The remaining version gap is that marker presence is treated as updated
-without decoding and recognizing the integer.
+The following gaps remain with Decompiler:
+
+- the inspected module's marker presence is treated as updated without decoding
+  and recognizing the integer;
+- same-assembly call rendering applies pointer-signature compatibility without
+  classifying the callee module model;
+- cross-assembly resolution reads `RequiresUnsafeAttribute` from a target
+  member without also reading the target module's rules model; and
+- field-access contracts are not carried through the current method-oriented
+  requires-unsafe path.
 
 ### Project inspection
 
@@ -337,10 +351,13 @@ Implementation should proceed through focused owner changes:
    version numbers.
 3. Analysis consumes the shared state and applies pointer compatibility only
    to legacy modules. Its call resolver carries the callee module model and
-   member contract across assembly boundaries, then applies the caller/callee
-   enforcement matrix.
+   member contract across assembly boundaries, its field resolver supplies the
+   equivalent field contract, and both apply the caller/target enforcement
+   matrix.
 4. Decompiler consumes the shared state for conservative replay while keeping
-   its explicit simulation mode.
+   its explicit simulation mode. Same- and cross-assembly call and field
+   resolution carry the target module model with the member contract before
+   deciding where source needs an unsafe context.
 5. Project inspection acquires declared or evaluated rule and permission
    facts through its own design.
 6. A composition query joins project policy, binary contracts, body evidence,
