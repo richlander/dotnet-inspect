@@ -1317,7 +1317,16 @@ public class ResearchComparisonAdmissionTests
         => new(PathlessAssembly(), new UnusedResolver(), BodyIndex());
 
     static LibraryBodyIndex BodyIndex()
-        => LibraryBodyIndex.FromEvidence([], []);
+        => LibraryBodyIndex.FromEvidence(
+            [],
+            [],
+            moduleIdentity: new(
+                new AssemblyReferenceIdentity(
+                    "SyntheticAdmission",
+                    Version: null,
+                    Culture: null,
+                    PublicKeyToken: null),
+                new Guid("f88df8d2-0474-4f48-811a-bf5cb2af203e")));
 
     static ResolvedAssemblyReference PathlessAssembly()
         => ResolvedAssemblyReference.Create(
