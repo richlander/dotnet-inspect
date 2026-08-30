@@ -380,6 +380,35 @@ incomplete-stop evidence, not the required witness.
 This example applies the adjacent owners' locked semantics; it does not move
 `Head` or Count meaning into this pattern.
 
+## Example: an OData-backed source
+
+This section is illustrative, not normative. An OData-backed source shows
+both the opportunity and the discipline, because the provider protocol
+itself accepts delegated row and limit work:
+
+- `$filter`, `$orderby`, and `$top` map directly onto a delegated
+  source-closed prefix of predicate, order, and clamp work — when the
+  adoption proves the service actually honors them, for example through
+  capability metadata, rather than assuming an option a service may ignore.
+- `$count=true` returns a server-computed `@odata.count`; the adopted source
+  contract may construct a requirement witness or exhaustion evidence from
+  it under that service's documented semantics.
+- A response carrying `@odata.nextLink` is server-driven paging: stopping
+  there is an incomplete stop, whatever the page happens to contain. The
+  source may follow the links to completion or hand off the acquired rows
+  with honest incompleteness evidence.
+- A service that silently ignores an unsupported `$orderby` returns
+  plausible values in the wrong order — exactly the behavior drift the
+  adoption's equivalence gate exists to catch before it ships.
+
+The delegation also chains: the caller delegates to the source, and the
+source delegates onward to the OData service. This contract governs only the
+caller/source boundary. How the source satisfies its accepted plan —
+following next links, trusting `@odata.count`, checking capability
+annotations — is adoption-owned acquisition and proof construction, and the
+same rule holds at every depth: an operational bound anywhere in the chain
+never surfaces as semantic proof.
+
 ## By construction, not by gate
 
 The prior draft policed the following at runtime with identity tokens,
