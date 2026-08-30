@@ -1,6 +1,7 @@
 ---------------------- MODULE StateMachineCompleteness ----------------------
 (***************************************************************************)
-(* C1-C3 of docs/design/state-machine-relationship-index.md.               *)
+(* C1, C3, and the structural GetByStateMachine fragment of C2 from        *)
+(* docs/design/state-machine-relationship-index.md.                        *)
 (*                                                                         *)
 (* This model owns structural-machine classification and whole-module      *)
 (* failure. Rejection-component merging has a different unit of state --   *)

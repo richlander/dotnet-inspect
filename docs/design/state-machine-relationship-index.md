@@ -350,7 +350,7 @@ Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MergesEv
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce`.
 
-Both are narrower than the invariant.
+All three are narrower than the invariant.
 `RejectsSharedStateMachineClaims` creates one publication and gates its shared
 projection across kickoff and state-machine indexes.
 `MergesEveryOverlappingRejection` creates two publications joined by one
@@ -384,8 +384,8 @@ with the index.
 
 [`models/state-machine-completeness/`](models/state-machine-completeness/)
 holds two small TLA+ models rather than conflating their state domains.
-`StateMachineCompleteness.tla` checks C1, C2, and C3 over structural machines,
-plus failure absorption and termination.
+`StateMachineCompleteness.tla` checks C1, C3, and the structural
+`GetByStateMachine` fragment of C2, plus failure absorption and termination.
 `RejectionComponentMerge.tla` checks C5 over published rejections, tagged
 merge keys, and diagnostic payloads.
 

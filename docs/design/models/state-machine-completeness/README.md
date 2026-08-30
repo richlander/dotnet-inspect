@@ -43,7 +43,10 @@ state-machine index. Keeping that seam explicit is preferable to putting
 kickoff, state-machine, implementation, and claimed-name keys back into C1's
 structural-machine domain.
 
-The completeness model covers keyed query results, not the public
+The completeness model's `result` domain corresponds only to structural
+`GetByStateMachine` queries. It does not model kickoff or implementation keys,
+so `C2_FailureIsTyped` checks the state-machine-query fragment of C2 rather
+than all three keyed surfaces. It also does not model the public
 `Relationships` enumeration. Production returns an empty enumeration after
 whole-module failure with no accompanying status, so that surface remains
 success-shaped and is tracked by #4833 rather than idealized here.
@@ -124,7 +127,7 @@ vacuous: a broken merge could never reach the state in which it is checked.
 | Name | Design invariant | Statement |
 | --- | --- | --- |
 | `C1_Totality` | C1 | Once `Built`, every machine's result matches an independent recount of `truth` |
-| `C2_FailureIsTyped` | C2 | `Failed` implies typed, non-`Absent` keyed-query results |
+| `C2_FailureIsTyped` | C2 (`GetByStateMachine` fragment) | `Failed` implies typed, non-`Absent` structural-machine results |
 | `C3_FailureRejectsAll` | C3 | `Failed` implies *every* machine reports `Rejected` |
 | `C5_ComponentsEqualGraphClosure` | C5 | Component equality is exactly connectivity through tagged merge keys |
 | `C5_ComponentProjectionAgrees` | C5 | One component has one frozen evidence set and reason |
@@ -171,8 +174,11 @@ TLC prints every variable and each action's source range. The states below are
 omit source ranges. Run the command to see them in full.
 
 ```console
+$ TLA_METADIR=$(mktemp -d \
+    "${TMPDIR:-/tmp}/dotnet-inspect-state-machine-demo.XXXXXX")
+$ trap 'rm -rf "$TLA_METADIR"' EXIT
 $ java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
-    -workers 1 -cleanup -noGenerateSpecTE \
+    -workers 1 -metadir "$TLA_METADIR" -cleanup -noGenerateSpecTE \
     -config BrokenPartialFailure.cfg StateMachineCompleteness.tla
 
 Error: Invariant C3_FailureRejectsAll is violated.
@@ -289,15 +295,24 @@ using `-cleanup` can remove one another's metadata.
 ```bash
 set -euo pipefail
 
-java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
-  -workers auto -cleanup \
-  -config StateMachineCompleteness.cfg StateMachineCompleteness.tla
-java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
-  -workers auto -cleanup \
-  -config BudgetExhaustion.cfg StateMachineCompleteness.tla
-java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
-  -workers auto -cleanup \
-  -config RejectionComponentMerge.cfg RejectionComponentMerge.tla
+TLA_METADIR=$(mktemp -d \
+  "${TMPDIR:-/tmp}/dotnet-inspect-state-machine-model.XXXXXX")
+trap 'rm -rf "$TLA_METADIR"' EXIT
+
+run_clean() {
+  local config=$1 module=$2 metadir="$TLA_METADIR/$1"
+  mkdir -p "$metadir"
+  java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
+    -workers auto -metadir "$metadir" -cleanup \
+    -config "$config.cfg" "$module.tla"
+}
+
+run_clean StateMachineCompleteness StateMachineCompleteness
+run_clean BudgetExhaustion StateMachineCompleteness
+run_clean RejectionComponentMerge RejectionComponentMerge
+
+rm -rf "$TLA_METADIR"
+trap - EXIT
 ```
 
 All three report `Model checking completed. No error has been found.`
@@ -308,11 +323,17 @@ violation:
 ```bash
 set -euo pipefail
 
+TLA_METADIR=$(mktemp -d \
+  "${TMPDIR:-/tmp}/dotnet-inspect-state-machine-mutations.XXXXXX")
+trap 'rm -rf "$TLA_METADIR"' EXIT
+
 expect_violation() {
   local config=$1 module=$2 expected=$3 output
+  local metadir="$TLA_METADIR/$config"
+  mkdir -p "$metadir"
   if output=$(java -XX:+UseParallelGC \
       -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
-      -workers 1 -cleanup -noGenerateSpecTE \
+      -workers 1 -metadir "$metadir" -cleanup -noGenerateSpecTE \
       -config "$config.cfg" "$module.tla" 2>&1); then
     echo "$config unexpectedly passed" >&2
     return 1
@@ -344,4 +365,7 @@ expect_violation BrokenLocalReason RejectionComponentMerge \
   "Invariant C5_ComponentProjectionAgrees"
 expect_violation BrokenHybridReason RejectionComponentMerge \
   "Invariant C5_ReasonComesFromComponent"
+
+rm -rf "$TLA_METADIR"
+trap - EXIT
 ```
