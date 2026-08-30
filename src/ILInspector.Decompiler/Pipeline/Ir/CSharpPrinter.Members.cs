@@ -1181,7 +1181,7 @@ public sealed partial class CSharpPrinter
         while (current.Kind is TypeRefKind.SzArray or TypeRefKind.Array && current.ElementType is { } element)
         {
             suffixes.Add(current.Kind == TypeRefKind.Array
-                ? $"[{ArrayShapeText.FormatDimensions(current.Rank)}]"
+                ? $"[{TypeRef.FormatArrayDimensions(current.Rank)}]"
                 : "[]");
             current = element;
         }

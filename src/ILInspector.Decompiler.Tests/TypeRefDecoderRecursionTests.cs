@@ -4,6 +4,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -433,20 +435,28 @@ public class TypeRefDecoderRecursionTests
     public void SynthesizedOutOfRangeArrayRank_ProductRenderersStayBounded()
     {
         const int rank = ArrayShapeText.MaxRenderableRank + 1;
-        const string marker = "/* invalid rank 33 */";
+        const string marker = "/* invalid rank 33 */ invalid";
         var intType = TypeRef.CoreLib("System", "Int32");
         var hostile = TypeRef.MdArray(intType, rank);
-        var unsupportedHostile = TypeRef.MdArray(TypeRef.Unsupported("synthetic"), rank);
+        var function = EmptyFunction(hostile);
 
-        string fidelityReason = Assert.Single(
-            FidelityRemarks.Collect(EmptyFunction(unsupportedHostile)),
-            remark => remark.Code == DiagnosticIds.UnsupportedType).Reason;
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var fidelityCause = Assert.Single(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Code == DiagnosticIds.UnsupportedType);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnsupportedTypeShape,
+            fidelityCause.Discriminator);
+        Assert.Equal(
+            $"array rank {rank} is outside the loadable range 1..{ArrayShapeText.MaxRenderableRank}",
+            fidelityCause.InventoryBucket);
+        string arrayCreation = RenderArrayCreation(hostile);
         string[] rendered =
         [
             hostile.ToDisplayString(),
             CSharpBodyDiff.CanonicalTypeName(hostile),
-            RenderArrayCreation(hostile),
-            fidelityReason,
+            arrayCreation,
+            fidelityCause.Reason,
         ];
 
         Assert.All(rendered, text =>
@@ -456,6 +466,26 @@ public class TypeRefDecoderRecursionTests
                 text.Length < 512,
                 $"expected a bounded rendering, got {text.Length} chars");
         });
+
+        Assert.Contains(
+            "CS0270",
+            CompileErrorIds($$"""
+                static class __Gate
+                {
+                    static {{hostile.ToDisplayString()}} Value;
+                }
+                """));
+        Assert.Contains(
+            "CS0178",
+            CompileErrorIds($$"""
+                static class __Gate
+                {
+                    static object M()
+                    {
+                {{arrayCreation}}
+                    }
+                }
+                """));
     }
 
     [Fact]
@@ -470,6 +500,15 @@ public class TypeRefDecoderRecursionTests
             "return new int[1][];",
             RenderArrayCreation(rankOne),
             StringComparison.Ordinal);
+        Assert.Empty(CompileErrorIds($$"""
+            static class __Gate
+            {
+                static object M()
+                {
+            {{RenderArrayCreation(rankOne)}}
+                }
+            }
+            """));
     }
 
     [Fact]
@@ -767,6 +806,22 @@ public class TypeRefDecoderRecursionTests
             body);
 
         return Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+    }
+
+    static string[] CompileErrorIds(string source)
+    {
+        var syntaxTree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview));
+        return CSharpCompilation.Create(
+                "__gate",
+                [syntaxTree],
+                RoslynTestReferences.TrustedPlatform,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
+            .GetDiagnostics()
+            .Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(static diagnostic => diagnostic.Id)
+            .ToArray();
     }
 
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)

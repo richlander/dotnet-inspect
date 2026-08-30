@@ -835,6 +835,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>True if this type or any constituent shape cannot be represented as valid C# (feeds the fidelity computation).</summary>
     public bool ContainsUnsupported =>
         Kind == TypeRefKind.Unsupported
+        || HasUnsupportedArrayRank
         || IsPrivateImplementationDetails
         || ElementType?.ContainsUnsupported == true
         || TypeArguments.Any(a => a.ContainsUnsupported)
@@ -852,6 +853,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (Kind == TypeRefKind.Unsupported)
             yield return UnsupportedReason;
+        if (HasUnsupportedArrayRank)
+            yield return $"array rank {Rank} is outside the loadable range 1..{ArrayShapeText.MaxRenderableRank}";
         if (IsPrivateImplementationDetails)
             yield return $"unspellable C# type name '{ToDisplayString()}'";
         if (ElementType is { } element)
@@ -869,6 +872,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     internal IEnumerable<string> UnsupportedDiscriminators()
     {
         if (Kind == TypeRefKind.Unsupported)
+            yield return DecompilerFidelityDiscriminators.UnsupportedTypeShape;
+        if (HasUnsupportedArrayRank)
             yield return DecompilerFidelityDiscriminators.UnsupportedTypeShape;
         if (IsPrivateImplementationDetails)
             yield return DecompilerFidelityDiscriminators.PrivateImplementationDetailsType;
@@ -995,11 +1000,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
         {
             suffixes.Add(element.Kind == TypeRefKind.SzArray
                 ? "[]"
-                : $"[{ArrayShapeText.FormatDimensions(element.Rank)}]");
+                : $"[{FormatArrayDimensions(element.Rank)}]");
             element = element.ElementType!;
         }
         return element.ToDisplayString(scope) + string.Concat(suffixes);
     }
+
+    internal static string FormatArrayDimensions(int rank)
+    {
+        string dimensions = ArrayShapeText.FormatDimensions(rank);
+        return ArrayShapeText.IsLoadableRank(rank)
+            ? dimensions
+            : $"{dimensions} invalid";
+    }
+
+    bool HasUnsupportedArrayRank
+        => Kind == TypeRefKind.Array && !ArrayShapeText.IsLoadableRank(Rank);
 
     bool IsPrivateImplementationDetails
         => Kind == TypeRefKind.Definition
