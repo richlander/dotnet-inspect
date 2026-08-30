@@ -392,6 +392,48 @@ Because the CLI is stateless, source and focus selectors must be repeated when
 changing operations. That repetition is not a reason to conflate the commands;
 it makes the transition explicit and reproducible.
 
+### Selection / discovery
+
+`match` carries a third transition on the same axis: whether the second operand
+is supplied or discovered.
+
+```text
+match A B            pairwise: how do these two methods relate?
+match A --similar    discovery: which methods should I match against A?
+```
+
+Both keep one source and one structural focus. `--similar` changes only the
+arity of the *candidate* side, from one named member to a bounded ranked
+population. It is not a different noun, so it stays under `match` rather than
+becoming a `clone` command that would split one identity-agnostic workflow
+between competing nouns.
+
+The two directions compose, and the transition runs one way:
+
+```text
+match A --similar          discover ranked candidates
+  -> match A B             pairwise relation for one selected candidate
+  -> match A B --implementation   decompiled drill-down for that pair
+```
+
+Discovery ranks; it does not decide. A rank is a selection step, so the output
+must disclose that it establishes no relation, no semantic equivalence, and no
+authorship or copying claim. `--implementation` is rejected in discovery mode:
+it is a pairwise drill-down and must not run for every ranked row.
+
+The candidate population follows the disclosure rules rather than the focus
+rules. Type-scoped retrieval is the bounded default and is inferred from the
+seed's declaring type; whole-assembly search changes the cost class and so
+requires an explicit `--assembly-wide`. Cross-image discovery reuses the
+existing range spelling for a second address (`--library old.dll..new.dll`), so
+A-vs-A' needs no new source grammar.
+
+Presentation and product limits stay orthogonal: `--top` bounds rendered rows,
+while `--max-results` and `--max-methods` move the product retrieval limits.
+Structured output retains every candidate, outcome, blocker, and receipt
+regardless of `--top`, so a text-shaping flag can never silently discard
+evidence.
+
 ## Timeline and bisect consequences
 
 `timeline` and `diff` are peers. Both are multi-address operations over the same

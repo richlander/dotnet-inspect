@@ -30,6 +30,9 @@ public static class MatchCommand
 
     public static async Task<int> ExecuteAsync(MatchOptions options)
     {
+        if (options.Similar)
+            return await MatchDiscovery.ExecuteAsync(options);
+
         if (string.IsNullOrEmpty(options.LeftSelector) || string.IsNullOrEmpty(options.RightSelector))
         {
             CommandError.Write("match requires two method selectors (Type.Member).");

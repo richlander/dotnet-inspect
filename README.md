@@ -103,7 +103,7 @@ stderr rather than mixed into structured output.
 | API and package discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, direct calls/callers, source, decompiled C#, IL, and package-prefix discovery. |
 | API compatibility | `diff` | Package, platform, and library diffs with breaking/additive classification plus opt-in implementation evidence. |
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
-| Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods in one retained assembly. |
+| Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired locally or through SourceLink. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
@@ -129,6 +129,7 @@ stderr rather than mixed into structured output.
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. |
+| `match A --similar` | Rank structural candidates for one seed method, in the same assembly or across a `--library old.dll..new.dll` pair. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
@@ -297,6 +298,27 @@ dotnet-inspect diff --platform System.Runtime@9.0.0..10.0.0 --breaking
 dotnet-inspect timeline --package Markout@0.33.0..0.35.2 --type Markout.MarkoutWriterOptions --members --at all
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
 ```
+
+### Structural matching
+
+```bash
+dotnet-inspect match Left.Compute Right.Compute --library ./app.dll
+dotnet-inspect match Left.Compute Right.Compute --library ./app.dll --implementation
+dotnet-inspect match Sample.Encode --similar --library ./app.dll
+dotnet-inspect match Sample.Encode --similar --library ./app.dll --assembly-wide --top 10
+dotnet-inspect match Sample.Encode --similar --library ./old.dll..new.dll
+```
+
+`--similar` ranks structural candidates for one seed method. It is a discovery
+step, not a verdict: a rank establishes no relation, no semantic equivalence,
+and no authorship or copying claim. Confirm a candidate by re-running the
+pairwise form on the selected pair.
+
+The default candidate population is the seed's declaring type. `--assembly-wide`
+opts into whole-assembly retrieval, which costs materially more. `--top` bounds
+rendered rows only; `--json` retains every candidate, outcome, blocker, and
+receipt regardless. `--max-results` and `--max-methods` move the product
+retrieval limits themselves.
 
 ### Relationships and graphs
 
