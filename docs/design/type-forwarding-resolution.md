@@ -37,10 +37,11 @@ faithfully implemented a specification that asked for too much: a subject, plan,
 evaluation, evidence and proof vocabulary re-expressing a tri-state that
 `TypeResolutionOutcome` already carries, across 45 public types with no product
 consumer. The section below is the replacement, written around the resolution
-primitive that ships plus two newly specified additions: a terminal-definition
-accessibility operation, and an authorized baseline scope carried with a
-resolved candidate. The bounded decode contract that effort produced is retained
-unchanged.
+primitive that ships plus three newly specified additions: a terminal-definition
+accessibility operation, an authorized baseline scope carried with a resolved
+candidate, and field and property member addresses extending the module-scoped
+method address that already ships. The bounded decode contract that effort
+produced is retained unchanged.
 
 This consumer extension is **design-only and unverified**. `Resolve` ships; the
 terminal-definition accessibility operation it depends on does not exist yet,
@@ -435,18 +436,36 @@ public sealed class ResolvedAssemblyCandidate
     internal ResolvedAssemblyCandidate(
         AssemblyCatalogId catalog,
         AssemblyCandidateId id,
-        ResolvedAssemblyReference assembly)
+        ResolvedAssemblyReference assembly,
+        AssemblyResolutionScope authorizedScope)
     {
         Catalog = catalog;
         Id = id;
         Assembly = assembly;
+        AuthorizedScope = authorizedScope;
     }
 
     internal AssemblyCatalogId Catalog { get; }
     internal AssemblyCandidateId Id { get; }
     public ResolvedAssemblyReference Assembly { get; }
+    public AssemblyResolutionScope AuthorizedScope { get; }
 }
 ```
+
+`AuthorizedScope` is the one piece of candidate state this document adds. It is
+the widest scope the catalog authorized for lookups rooted at this candidate,
+and it is issued at construction rather than inferred later. Because the scope
+is a required constructor argument, a candidate cannot exist without one, and
+the "missing baseline" rejection below is reachable only across a catalog
+generation boundary, never from a freshly registered candidate.
+
+The acquisition plan is the owner that issues it: both candidate construction
+sites live in the plan, so the plan passes the authorized scope it already
+decided when it admitted the assembly. Nothing outside `ILInspector.Metadata`
+supplies or overrides it, and no other registration or descriptor type changes.
+The scope is not derived from the assembly's name, path, public key, or
+provenance at construction time; those inputs inform the plan's admission
+decision, not a later re-derivation.
 
 `ResolvedAssemblyReference` evolves in slice 2 from a value-equal record to a
 non-equatable sealed class containing identity, optional path, opener,
@@ -2131,9 +2150,16 @@ Two operations answer it:
 This consumer also requires one piece of state the catalog does not yet keep: the
 authorized baseline scope of a resolved candidate, described under
 [§Reference scopes and request construction](#reference-scopes-and-request-construction).
-Those two additions — one operation and one candidate property — are the entire
-cost of this consumer, against the 45 public types the previous specification
-required.
+Finally, it requires field and property member addresses, described under
+[§The member row is validated before its signature is decoded](#the-member-row-is-validated-before-its-signature-is-decoded).
+Those are the existing module-scoped method address applied to two more tables,
+so they add a pattern's instances rather than a pattern.
+
+Those three additions — one operation, one candidate property, and two more
+instances of an existing address type — are the entire cost of this consumer,
+against the 45 public types the previous specification required. A fourth change
+is not an addition at all: the scope-tightening operation already exists and only
+becomes reachable.
 
 A speller walks the signature's named occurrences, asks for each to be bound,
 and asks the second question only of the external definitions the first one
@@ -2156,8 +2182,26 @@ reader-bound `FieldDefinition`, `PropertyDefinition`, or `MethodDefinition`
 value, because a mismatched pairing decodes whatever bytes the wrong row
 addresses and reports the result as a signature.
 
-Before any decode, the catalog-owned inspection session validates, against the
-source candidate it was opened for:
+The operation therefore does not take a `MetadataReader` and a bare member
+handle as two independent arguments. A raw `FieldDefinition`,
+`PropertyDefinition`, or `MethodDefinition` value contains only a table row and
+cannot detect use with another reader, which is precisely why this component
+already addresses methods by module-scoped value rather than by handle
+(`MetadataMethodAddress`). The speller takes a member address of that same
+shape — the source candidate's verified module version id together with the
+member handle — issued by the catalog-owned inspection session for the candidate
+it was opened for. Field and property addresses follow the existing method
+address exactly; they are the same pattern applied to two more tables, not a new
+addressing scheme.
+
+An MVID match is not a cryptographic identity, so it is a precondition and not a
+proof: as the existing method address already documents, two modules that
+deliberately share an MVID can both satisfy it. Row-bounds and table validation
+is what keeps that worst case to selecting the wrong same-row member rather than
+reading outside the module.
+
+Before any decode, the session validates, against the source candidate it was
+opened for:
 
 - the verified source MVID and acquisition registration;
 - the token's member table and row bounds;
@@ -2192,11 +2236,16 @@ only for occurrences whose role makes visibility matter.
   their named children rather than collapsing to one outer leaf. A `ref` or
   `out` parameter and a ref return are by-reference types, so their element type
   is a named occurrence like any other.
-- Pinned types are deliberately absent. They are valid only in local-variable
-  signatures, and this consumer accepts field, property, and method signatures;
-  the repository's member-signature model already reports them as unavailable.
-  Specifying traversal for a shape this consumer cannot receive would add a rule
-  with no reachable case.
+- A pinned type is rejected, and the signature is not spellable. `ELEMENT_TYPE_PINNED`
+  is valid only in a local-variable signature, so it is never well-formed in the
+  field, property, and method signatures this consumer accepts. It is still
+  **reachable**, because this consumer decodes metadata it did not produce: the
+  signature blob guard treats pinned as an ordinary prefix and lets the blob
+  through, and today's spellability provider returns the pinned type's element
+  as if the prefix were not there. Silently spelling a malformed signature as
+  its element type is the success-shaped degradation this document forbids, so
+  the prefix is a decode rejection with its own reason. This is a rule about a
+  reachable malformed shape, not traversal for a shape that cannot arrive.
 
 When several occurrences produce one equal request, the speller may ask once and
 merge participation with logical OR. That is a caching decision inside the
@@ -2233,11 +2282,12 @@ forwarding hops use the same operation and may tighten but never loosen, as
 
 The source candidate's authorized baseline scope must be owner-issued. **This
 does not exist today**: `ResolvedAssemblyCandidate` carries a catalog, an id and
-an assembly, and registration accepts no scope. Implementing this consumer
-therefore requires the catalog to record the authorized scope when a candidate is
-registered and to expose it with that candidate. It is new state, not a
+an assembly, and no construction path accepts a scope. It is new state, not a
 rediscovered property, and it belongs to the catalog because the catalog is what
-authorized the candidate.
+authorized the candidate. The state and the owner that issues it are specified
+once, with the candidate itself, in
+[§Assembly candidate](#assembly-candidate); this consumer reads
+`AuthorizedScope` and does not introduce a second way to supply it.
 
 `AssemblyResolutionScope` has two arms, `Any` and `Platform`, and tightening
 never loosens. A `Platform` baseline therefore constrains **every** occurrence in
@@ -3970,11 +4020,14 @@ Signature spellability gates name the outcome they protect, not the shape of the
 implementation that produces it. A gate that can only be satisfied by one
 internal vocabulary constrains structure rather than behaviour.
 
-- `SignatureSpellability_RejectsForeignMemberRow` proves that a cross-reader
-  row, a wrong member table, an out-of-range row number, a declaring-type
+- `SignatureSpellability_RejectsForeignMemberRow` proves that a cross-module
+  address, a wrong member table, an out-of-range row number, a declaring-type
   mismatch, or a stale module identity is rejected before signature decode,
   rather than decoding whatever bytes the mismatched row addresses. Each case is
-  distinct, and each retains its reason.
+  distinct, and each retains its reason. The cross-module case is expressible
+  because the operation takes a module-scoped member address; it could not be
+  written against a bare reader-and-handle pair, which is what makes the address
+  a contract requirement rather than a convenience.
 - `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
   by-reference parameters and ref returns, function pointers, generic
   arguments, generic type and method parameters, and modified types.
@@ -4057,6 +4110,17 @@ internal vocabulary constrains structure rather than behaviour.
   binding and declaration, malformed nested chains, forwarding cycles,
   candidate open failure, and relationship or hop-budget exhaustion without
   collapsing them into one empty or successful result.
+- `SignatureSpellability_RetainsPolicyUnavailable` proves the arm the previous
+  gate does not reach. When the binding policy declines to bind and no candidate
+  open failure occurred, resolution reports `Unavailable` rather than a
+  rejection, because nothing malfunctioned. The occurrence is still unbound, so
+  the signature is not spellable and the policy failure is retained. An
+  implementation that treats "no failure to report" as "nothing wrong" and
+  spells the signature fails here and passes every other failure-kind gate.
+- `SignatureSpellability_RejectsPinnedMemberSignature` supplies a field,
+  property, and method signature each carrying `ELEMENT_TYPE_PINNED`, which the
+  blob guard admits, and proves each is rejected with a reason rather than
+  spelled as the pinned element type.
 - `SignatureSpellability_UnresolvedIsNotSpellable` is the regression gate for
   the defect this design corrects: an occurrence that fails to resolve must not
   read as accessible. Loading an empty non-public type set on failure makes the
