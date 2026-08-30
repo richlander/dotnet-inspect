@@ -1,28 +1,79 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Win32.SafeHandles;
 
 namespace NuGetFetch.PluginFixture;
 
 internal static class Program
 {
+    private const int OutputClosedExitCode = 42;
     private static readonly UTF8Encoding Utf8NoBom = new(false);
 
     private static async Task<int> Main(string[] args)
     {
-        if (args is not ["-Plugin"])
+        if (args is ["-Plugin"])
         {
-            return 2;
+            return await RunSupervisorAsync();
         }
 
+        if (args is ["--worker", var configurationPath])
+        {
+            return await RunWorkerAsync(configurationPath);
+        }
+
+        return 2;
+    }
+
+    private static async Task<int> RunSupervisorAsync()
+    {
         string assemblyPath = typeof(Program).Assembly.Location;
         string configurationPath = Path.ChangeExtension(assemblyPath, ".json");
-        PluginFixtureConfiguration configuration =
-            JsonSerializer.Deserialize<PluginFixtureConfiguration>(
-                await File.ReadAllTextAsync(configurationPath))
+        string hostPath = Environment.ProcessPath
             ?? throw new InvalidOperationException(
-                $"Could not read plugin fixture configuration '{configurationPath}'.");
+                "Could not determine the plugin fixture host path.");
+        var startInfo = new ProcessStartInfo(hostPath)
+        {
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(assemblyPath);
+        startInfo.ArgumentList.Add("--worker");
+        startInfo.ArgumentList.Add(configurationPath);
+
+        using Process worker = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                "Could not start the plugin fixture worker.");
+        // The worker can end the output stream while this launched process stays alive.
+        CloseStandardOutput();
+        await worker.WaitForExitAsync();
+        if (worker.ExitCode != OutputClosedExitCode)
+        {
+            return worker.ExitCode;
+        }
+
+        PluginFixtureConfiguration configuration =
+            await ReadConfigurationAsync(configurationPath);
+        using var recordStream = new FileStream(
+            configuration.RecordPath,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.ReadWrite);
+        using var record = new StreamWriter(recordStream, Utf8NoBom)
+        {
+            AutoFlush = true,
+        };
+        using var input = new StreamReader(
+            Console.OpenStandardInput(),
+            Utf8NoBom,
+            detectEncodingFromByteOrderMarks: false);
+        await DrainInputAsync(input, record);
+        return 0;
+    }
+
+    private static async Task<int> RunWorkerAsync(string configurationPath)
+    {
+        PluginFixtureConfiguration configuration =
+            await ReadConfigurationAsync(configurationPath);
 
         using var recordStream = new FileStream(
             configuration.RecordPath,
@@ -37,106 +88,104 @@ internal static class Program
             Console.OpenStandardInput(),
             Utf8NoBom,
             detectEncodingFromByteOrderMarks: false);
-        StreamWriter? output = new(OpenOwnedStandardOutput(), Utf8NoBom)
+        using var output = new StreamWriter(
+            Console.OpenStandardOutput(),
+            Utf8NoBom)
         {
             AutoFlush = true,
         };
 
-        try
+        if (configuration.WriteGarbageAndWait)
         {
-            if (configuration.WriteGarbageAndWait)
-            {
-                await output.WriteLineAsync("not json at all");
-                await Task.Delay(TimeSpan.FromSeconds(2));
-                return 0;
-            }
-
-            if (configuration.PreambleMessage is not null)
-            {
-                await output.WriteLineAsync(configuration.PreambleMessage);
-            }
-
-            await EmitMessageAsync(
-                output,
-                "fake-handshake",
-                "Request",
-                "Handshake",
-                configuration.InboundHandshakePayload);
-
-            while (await input.ReadLineAsync() is { } line)
-            {
-                await record.WriteLineAsync(line);
-
-                using JsonDocument message = JsonDocument.Parse(line);
-                JsonElement root = message.RootElement;
-                if (root.GetProperty("Type").GetString() != "Request")
-                {
-                    continue;
-                }
-
-                string requestId = root.GetProperty("RequestId").GetString()!;
-                string method = root.GetProperty("Method").GetString()!;
-                switch (method)
-                {
-                    case "Handshake":
-                        await EmitMessageAsync(
-                            output,
-                            requestId,
-                            "Response",
-                            method,
-                            configuration.OutboundHandshakePayload);
-                        break;
-                    case "MonitorNuGetProcessExit":
-                    case "Initialize":
-                    case "SetLogLevel":
-                        await EmitSuccessAsync(output, requestId, method);
-                        if (method == "SetLogLevel"
-                            && await ApplyAfterSetLogLevelBehaviorAsync(
-                                configuration,
-                                input,
-                                output))
-                        {
-                            output = null;
-                            await DrainInputAsync(input, record);
-                            return 0;
-                        }
-                        break;
-                    case "GetOperationClaims":
-                        await EmitObjectAsync(
-                            output,
-                            requestId,
-                            method,
-                            new { Claims = new[] { configuration.Claims } });
-                        break;
-                    case "GetAuthenticationCredentials":
-                        CredentialActionResult result =
-                            await ApplyCredentialBehaviorAsync(
-                                configuration,
-                                output,
-                                requestId);
-                        if (result == CredentialActionResult.OutputClosed)
-                        {
-                            output = null;
-                            await DrainInputAsync(input, record);
-                            return 0;
-                        }
-                        if (result == CredentialActionResult.Exit)
-                        {
-                            return 0;
-                        }
-                        break;
-                    case "Close":
-                        return 0;
-                }
-            }
-
+            await output.WriteLineAsync("not json at all");
+            await Task.Delay(TimeSpan.FromSeconds(2));
             return 0;
         }
-        finally
+
+        if (configuration.PreambleMessage is not null)
         {
-            output?.Dispose();
+            await output.WriteLineAsync(configuration.PreambleMessage);
         }
+
+        await EmitMessageAsync(
+            output,
+            "fake-handshake",
+            "Request",
+            "Handshake",
+            configuration.InboundHandshakePayload);
+
+        while (await input.ReadLineAsync() is { } line)
+        {
+            await record.WriteLineAsync(line);
+
+            using JsonDocument message = JsonDocument.Parse(line);
+            JsonElement root = message.RootElement;
+            if (root.GetProperty("Type").GetString() != "Request")
+            {
+                continue;
+            }
+
+            string requestId = root.GetProperty("RequestId").GetString()!;
+            string method = root.GetProperty("Method").GetString()!;
+            switch (method)
+            {
+                case "Handshake":
+                    await EmitMessageAsync(
+                        output,
+                        requestId,
+                        "Response",
+                        method,
+                        configuration.OutboundHandshakePayload);
+                    break;
+                case "MonitorNuGetProcessExit":
+                case "Initialize":
+                case "SetLogLevel":
+                    await EmitSuccessAsync(output, requestId, method);
+                    if (method == "SetLogLevel"
+                        && await ApplyAfterSetLogLevelBehaviorAsync(
+                            configuration,
+                            input,
+                            output))
+                    {
+                        return OutputClosedExitCode;
+                    }
+                    break;
+                case "GetOperationClaims":
+                    await EmitObjectAsync(
+                        output,
+                        requestId,
+                        method,
+                        new { Claims = new[] { configuration.Claims } });
+                    break;
+                case "GetAuthenticationCredentials":
+                    CredentialActionResult result =
+                        await ApplyCredentialBehaviorAsync(
+                            configuration,
+                            output,
+                            requestId);
+                    if (result == CredentialActionResult.OutputClosed)
+                    {
+                        return OutputClosedExitCode;
+                    }
+                    if (result == CredentialActionResult.Exit)
+                    {
+                        return 0;
+                    }
+                    break;
+                case "Close":
+                    return 0;
+            }
+        }
+
+        return 0;
     }
+
+    private static async Task<PluginFixtureConfiguration> ReadConfigurationAsync(
+        string configurationPath) =>
+        JsonSerializer.Deserialize<PluginFixtureConfiguration>(
+            await File.ReadAllTextAsync(configurationPath))
+        ?? throw new InvalidOperationException(
+            $"Could not read plugin fixture configuration '{configurationPath}'.");
 
     private static async Task<bool> ApplyAfterSetLogLevelBehaviorAsync(
         PluginFixtureConfiguration configuration,
@@ -151,11 +200,9 @@ internal static class Program
                 await EmitLogAsync(configuration, output);
                 return false;
             case PluginAfterSetLogLevelBehavior.CloseOutput:
-                await CloseOutputAsync(output);
                 return true;
             case PluginAfterSetLogLevelBehavior.WaitForCloseMarkerThenCloseOutput:
                 await WaitForMarkerAsync(configuration.RecordPath + ".close");
-                await CloseOutputAsync(output);
                 return true;
             case PluginAfterSetLogLevelBehavior.Stall:
                 await Task.Delay(TimeSpan.FromSeconds(30));
@@ -191,7 +238,6 @@ internal static class Program
                 await EmitCredentialResponseAsync(configuration, output, requestId);
                 return CredentialActionResult.Continue;
             case PluginCredentialBehavior.CloseOutput:
-                await CloseOutputAsync(output);
                 return CredentialActionResult.OutputClosed;
             case PluginCredentialBehavior.Exit:
                 return CredentialActionResult.Exit;
@@ -308,20 +354,33 @@ internal static class Program
         }
     }
 
-    private static async Task CloseOutputAsync(StreamWriter output)
+    private static void CloseStandardOutput()
     {
-        await output.FlushAsync();
-        output.Dispose();
-    }
+        int error;
+        if (OperatingSystem.IsWindows())
+        {
+            error = CloseHandle(GetStdHandle(-11))
+                ? 0
+                : Marshal.GetLastPInvokeError();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            error = CloseMacOS(1) == 0
+                ? 0
+                : Marshal.GetLastPInvokeError();
+        }
+        else
+        {
+            error = CloseUnix(1) == 0
+                ? 0
+                : Marshal.GetLastPInvokeError();
+        }
 
-    private static FileStream OpenOwnedStandardOutput()
-    {
-        nint handle = OperatingSystem.IsWindows()
-            ? GetStdHandle(-11)
-            : 1;
-        return new FileStream(
-            new SafeFileHandle(handle, ownsHandle: true),
-            FileAccess.Write);
+        if (error != 0)
+        {
+            throw new IOException(
+                $"Could not close the plugin fixture output pipe (error {error}).");
+        }
     }
 
     private static async Task DrainInputAsync(
@@ -362,6 +421,16 @@ internal static class Program
         Exit,
     }
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(nint handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern nint GetStdHandle(int standardHandle);
+
+    [DllImport("libc", EntryPoint = "close", SetLastError = true)]
+    private static extern int CloseUnix(int fileDescriptor);
+
+    [DllImport("libSystem.B.dylib", EntryPoint = "close", SetLastError = true)]
+    private static extern int CloseMacOS(int fileDescriptor);
 }
