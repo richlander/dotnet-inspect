@@ -70,9 +70,10 @@ not fallbacks.
 The selected framework's manifests are authoritative:
 
 - `<family>.runtimeconfig.json`, when present, defines direct shared-framework
-  dependencies; absence means the framework is a dependency-free leaf;
-- `<family>.deps.json` is required and defines the exact managed members under the
-  target named by `runtimeTarget.name`.
+  dependencies; only a definitive not-found result establishes a
+  dependency-free leaf;
+- `<family>.deps.json` is required and defines the exact managed members under
+  the target named by `runtimeTarget.name`.
 
 Directory contents are not membership. Extra DLLs, native assets, resource
 satellites, unrelated runtime targets, servicing or shared stores, application
@@ -80,9 +81,21 @@ probing, and hostpolicy arbitration do not enter this closure. A missing
 manifest-declared member fails the realization. This is a manifest-defined
 installed implementation closure, not launch-time effective TPA.
 
-Manifest and asset coordinates must remain contained beneath the selected
-framework directory. Manifest bytes are bounded before parsing;
-`HardenedJson` owns malformed-JSON and duplicate-property policy.
+Manifest coordinates remain contained beneath the selected framework
+directory. Manifest bytes are bounded before parsing; `HardenedJson` owns
+malformed-JSON and duplicate-property policy. A runtime-configuration probe,
+open, or read failure other than definitive not-found is a typed failure, not
+an empty dependency set.
+
+Each dependency-manifest runtime path is a logical asset coordinate. It must be
+relative, use `/` separators, contain no empty, `.` or `..` segment, and end in
+one valid file name. The installed member coordinate is that final segment
+directly beneath the selected framework/version directory. Thus a modern
+`System.Runtime.dll` and a legacy
+`runtimes/linux-x64/lib/netcoreapp2.1/System.Runtime.dll` both select the
+installed top-level `System.Runtime.dll`. Unsupported logical forms or two
+logical assets that project to one installed coordinate reject before member
+inspection.
 
 Only reached framework families are inventoried. Each reached family's bounded
 candidate inventory is frozen for the attempt; unrelated families are never
@@ -185,9 +198,9 @@ contract.
 | `Rejected(InvalidRequest)` | Invalid family, version, or layout; non-positive limit; request limit exceeding the adapter capability |
 | `Rejected(InvalidManifest)` | Missing dependency manifest; malformed, duplicate-bearing, or unsupported present runtime configuration or dependency manifest |
 | `Rejected(InvalidFrameworkGraph)` | Duplicate reference, cycle, incompatible requirements, or equal-precedence candidate/reference ambiguity |
-| `Rejected(InvalidMember)` | Escaping, invalid, or repeated member coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
+| `Rejected(InvalidMember)` | Unsupported logical asset path; escaping, invalid, repeated, or colliding projected member coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
 | `Rejected(BudgetExceeded)` | Reached-family inventory, name, framework, resolution-work, manifest, member, or byte limit exceeded |
-| `Failed` | Reached-family enumeration or required manifest/member read failed |
+| `Failed` | Reached-family enumeration; runtimeconfig probe/open/read other than not-found; required dependency-manifest or member read |
 | `Realized` | The complete framework and member closure plus its evidence |
 
 Each arm carries a typed reason identifying the exact family, version,
@@ -244,10 +257,10 @@ rules are owned by their rejection gates.
 | Claim | Named gate |
 | --- | --- |
 | Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure`, `InstalledPlatformRealization_CoreMembershipMatchesIndependentOracle` |
-| Dependency-free leaf compatibility | `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf` |
+| Dependency-free leaf compatibility | `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf`, `InstalledPlatformRealization_RuntimeConfigReadFailureDoesNotBecomeLeaf` |
 | Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_RejectsEqualPrecedenceReferenceAmbiguity`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
 | Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
-| Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
+| Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_LegacyRuntimeAssetProjectsToInstalledLeaf`, `InstalledPlatformRealization_ProjectedMemberCoordinateCollisionRejectsAtomically`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
 | No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout` |
 | Declared rejection behavior | `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
 | Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_GenerationIsFreshAndProofLeaseBound`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
@@ -264,6 +277,8 @@ This design does not:
   participant roles, group construction, or query authorization;
 - detect concurrent servicing or prove an attempt-wide filesystem snapshot;
 - grant core-library trust or define designated-over-platform precedence;
+- select among distinct canonical platform identities that share one binding
+  name;
 - resolve types, members, or call targets; or
 - define CLI coordinates, sections, rendering, or exit status.
 
