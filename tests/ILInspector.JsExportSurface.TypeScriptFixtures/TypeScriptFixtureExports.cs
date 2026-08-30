@@ -49,6 +49,21 @@ public static partial class TypeScriptFixtureExports
     public static string Then(string value) => value;
 
     [JSExport]
+    public static void ObserveValue(
+        [JSMarshalAs<JSType.Function<JSType.Number>>]
+        Action<int> callback) =>
+        callback(42);
+
+    [JSExport]
+    public static bool TransformValue(
+        [JSMarshalAs<JSType.Function<
+            JSType.Number,
+            JSType.String,
+            JSType.Boolean>>]
+        Func<int, string, bool> callback) =>
+        callback(42, "answer");
+
+    [JSExport]
     public static string GetJsonElement() =>
         JsonSerializer.Serialize(
             JsonDocument.Parse("""{"value":"json"}""").RootElement,
