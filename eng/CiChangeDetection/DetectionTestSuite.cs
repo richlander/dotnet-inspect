@@ -939,6 +939,24 @@ internal static class DetectionTestSuite
                 FormatValues(tlaRootLevelConfig));
         }
 
+        // A symlinked model directory placed directly under a model root has
+        // no .tla/.cfg suffix of its own, so no extension-based pattern
+        // matches it -- without a depth-1, any-name catch-all, the change
+        // would never route to tla-plus at all, and the runner's own
+        // symlink rejection would never get a chance to fire.
+        Dictionary<string, string> tlaSymlinkedModelDir = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/linked-model",
+            outputs);
+        if (tlaSymlinkedModelDir["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Symlinked model directory canary did not select tla: " +
+                FormatValues(tlaSymlinkedModelDir));
+        }
+
         Dictionary<string, string> pushedSource = RunDetection(
             repository,
             body,

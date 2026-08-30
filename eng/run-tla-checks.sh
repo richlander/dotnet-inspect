@@ -132,6 +132,33 @@ if [ -f "$MODULE_OVERRIDES_FILE" ]; then
       FAILURES=$((FAILURES + 1))
       continue
     fi
+    case "$value" in
+      */*)
+        echo "::error::$MODULE_OVERRIDES_FILE:$line_no names module '$value' for '$key', but a module name must be a bare name with no '/' -- it is always resolved beside its .cfg, never in another directory." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+    key_ext=$(printf '%s' "${key##*.}" | tr '[:upper:]' '[:lower:]')
+    key_dir=$(dirname "$key")
+    key_root=$(dirname "$key_dir")
+    key_is_supported_root=false
+    for candidate_root in "${MODEL_ROOTS[@]}"; do
+      if [ "$key_root" = "$candidate_root" ]; then
+        key_is_supported_root=true
+        break
+      fi
+    done
+    if [ "$key_ext" != "cfg" ] || [ "$key_is_supported_root" != true ]; then
+      # A key that isn't a .cfg (any case) directly inside a model directory
+      # can never match the cfg path override_module_for() is actually
+      # looked up with, so it would otherwise be accepted here (as long as
+      # some unrelated file happens to exist at that path) while silently
+      # doing nothing for the .cfg it was meant to override.
+      echo "::error::$MODULE_OVERRIDES_FILE:$line_no names '$key', which is not a .cfg file directly inside a model directory under ${MODEL_ROOTS[*]}. Fix the path so it matches the .cfg it is meant to override." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
     if [ ! -f "$key" ]; then
       # A stale/typo'd key never matches any real .cfg, so it silently does
       # nothing -- the override is dropped and, if a .cfg later exists at a
@@ -210,15 +237,37 @@ for root in "${MODEL_ROOTS[@]}"; do
 
     echo "::group::$dir"
 
+    valid_tla_basenames=()
     for tla in "${tla_files[@]}"; do
-      module=$(basename "$tla" .tla)
+      tla_basename=$(basename "$tla")
+      module="${tla_basename%.*}"
+      case "$tla_basename" in
+        *.tla) ;;
+        *)
+          # TLC resolves a module by bare name, always appending a literal
+          # lowercase ".tla" itself (confirmed: passing the file's own name
+          # verbatim, e.g. "Upper.TLA", makes TLC look for a module literally
+          # named "Upper.TLA" and fail a table lookup, since the module's
+          # real name is "Upper"). A file whose extension isn't exactly
+          # lowercase ".tla" therefore cannot be checked by TLC at all on a
+          # case-sensitive filesystem (e.g. CI's Linux runner), even though
+          # SANY alone can parse it and even though find -iname discovers it.
+          # Fail loudly instead of silently mis-invoking SANY/TLC with a
+          # reconstructed name that may not exist, and exclude it from
+          # pairing below so a .cfg cannot fall back to matching it either.
+          echo "::error::$dir/$tla_basename does not have a lowercase .tla extension; TLC cannot check a module under any other extension casing. Rename the file." >&2
+          FAILURES=$((FAILURES + 1))
+          continue
+          ;;
+      esac
       echo "-- SANY: $module"
-      if ! (cd "$dir" && java -cp "$TLA_TOOLS_JAR" tla2sany.SANY "$module.tla" </dev/null); then
-        echo "::error::SANY could not parse $dir/$module.tla" >&2
+      if ! (cd "$dir" && java -cp "$TLA_TOOLS_JAR" tla2sany.SANY "$tla_basename" </dev/null); then
+        echo "::error::SANY could not parse $dir/$tla_basename" >&2
         FAILURES=$((FAILURES + 1))
         continue
       fi
       CHECKED_MODULES=$((CHECKED_MODULES + 1))
+      valid_tla_basenames+=("$tla_basename")
     done
 
     if [ "${#tla_files[@]}" -eq 0 ]; then
@@ -236,14 +285,45 @@ for root in "${MODEL_ROOTS[@]}"; do
     fi
 
     for cfg in "${cfg_files[@]}"; do
-      cfg_name=$(basename "$cfg" .cfg)
-      module=$(override_module_for "$dir/$cfg_name.cfg" || true)
-      if [ -z "$module" ]; then
-        if [ "${#tla_files[@]}" -eq 1 ]; then
-          module=$(basename "${tla_files[0]}" .tla)
+      cfg_basename=$(basename "$cfg")
+      cfg_name="${cfg_basename%.*}"
+      case "$cfg_basename" in
+        *.cfg) ;;
+        *)
+          # Same TLC constraint as above, applied to the -config argument:
+          # TLC always appends a literal lowercase ".cfg" to whatever bare
+          # name it is given, so a config file whose extension isn't
+          # exactly lowercase ".cfg" can never be located by TLC on a
+          # case-sensitive filesystem.
+          echo "::error::$dir/$cfg_basename does not have a lowercase .cfg extension; TLC cannot read a configuration under any other extension casing. Rename the file." >&2
+          FAILURES=$((FAILURES + 1))
+          continue
+          ;;
+      esac
+      module=$(override_module_for "$cfg" || true)
+      override_specified=$module
+      if [ -n "$module" ]; then
+        # The override names a module by bare name (validated up front to
+        # contain no '/'); confirm it resolves to one of the modules SANY
+        # actually validated above (not merely any .tla found on disk),
+        # so an override can't point at a wrongly-cased or otherwise
+        # rejected file and be silently treated as satisfied.
+        found=false
+        for candidate_basename in "${valid_tla_basenames[@]}"; do
+          if [ "${candidate_basename%.*}" = "$module" ]; then
+            found=true
+            break
+          fi
+        done
+        if [ "$found" != true ]; then
+          module=""
+        fi
+      else
+        if [ "${#valid_tla_basenames[@]}" -eq 1 ]; then
+          module="${valid_tla_basenames[0]%.*}"
         else
-          for tla in "${tla_files[@]}"; do
-            candidate=$(basename "$tla" .tla)
+          for candidate_basename in "${valid_tla_basenames[@]}"; do
+            candidate="${candidate_basename%.*}"
             if [ "$candidate" = "$cfg_name" ]; then
               module="$candidate"
               break
@@ -252,13 +332,13 @@ for root in "${MODEL_ROOTS[@]}"; do
         fi
       fi
 
-      if [ -z "$module" ]; then
-        echo "::error::$dir/$cfg_name.cfg does not match any single module in $dir, has no matching-name module, and has no entry in $MODULE_OVERRIDES_FILE. Add one instead of letting this cfg go unchecked." >&2
+      if [ -n "$override_specified" ] && [ -z "$module" ]; then
+        echo "::error::$MODULE_OVERRIDES_FILE names module '$override_specified' for $dir/$cfg_basename, but no valid $override_specified.tla exists in $dir (it may not exist, or may have been rejected above for a non-canonical extension)." >&2
         FAILURES=$((FAILURES + 1))
         continue
       fi
-      if [ ! -f "$dir/$module.tla" ]; then
-        echo "::error::$MODULE_OVERRIDES_FILE names module '$module' for $dir/$cfg_name.cfg, but $dir/$module.tla does not exist." >&2
+      if [ -z "$module" ]; then
+        echo "::error::$dir/$cfg_basename does not match any single module in $dir, has no matching-name module, and has no entry in $MODULE_OVERRIDES_FILE. Add one instead of letting this cfg go unchecked." >&2
         FAILURES=$((FAILURES + 1))
         continue
       fi
@@ -269,7 +349,7 @@ for root in "${MODEL_ROOTS[@]}"; do
       (cd "$dir" && timeout "${TLA_CHECK_TIMEOUT_SECONDS}s" \
         java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
         -workers auto -cleanup -noGenerateSpecTE \
-        -config "$cfg_name.cfg" "$module") < /dev/null > "$log" 2>&1
+        -config "$cfg_name" "$module") < /dev/null > "$log" 2>&1
       exit_code=$?
       set -e
       CHECKED_CONFIGS=$((CHECKED_CONFIGS + 1))
@@ -282,10 +362,10 @@ for root in "${MODEL_ROOTS[@]}"; do
         # make an unrelated change's CI time depend on the slowest model in
         # the repository. This config was not verified this run; the
         # repository's Deep Inspect lane is the place for a full run.
-        echo "::warning::TLC did not finish $dir/$cfg_name.cfg within ${TLA_CHECK_TIMEOUT_SECONDS}s; not verified this run. Run it directly (see the model's README) or via Deep Inspect for full verification." >&2
+        echo "::warning::TLC did not finish $dir/$cfg_basename within ${TLA_CHECK_TIMEOUT_SECONDS}s; not verified this run. Run it directly (see the model's README) or via Deep Inspect for full verification." >&2
         TIMEOUTS=$((TIMEOUTS + 1))
       elif ! is_ok_exit_code "$exit_code"; then
-        echo "::error::TLC reported an unexpected error (exit $exit_code) for $dir/$cfg_name.cfg" >&2
+        echo "::error::TLC reported an unexpected error (exit $exit_code) for $dir/$cfg_basename" >&2
         tail -n 60 "$log" >&2
         FAILURES=$((FAILURES + 1))
       else

@@ -425,10 +425,27 @@ while IFS= read -r -d '' file; do
     .github/workflows/ci.yml) TLA=true ;;
   esac
   case "$file_lower" in
-    docs/design/models/*.tla|docs/design/models/*.cfg) TLA=true ;;
     docs/design/models/*/*.tla|docs/design/models/*/*.cfg) TLA=true ;;
-    docs/models/*.tla|docs/models/*.cfg) TLA=true ;;
     docs/models/*/*.tla|docs/models/*/*.cfg) TLA=true ;;
+  esac
+  # A path directly under a model root, with no further subpath, occupies
+  # exactly the position eng/run-tla-checks.sh scans as a model directory
+  # (find -mindepth 1 -maxdepth 1 -type d). find does not follow symlinks,
+  # so a symlink placed there (which is a real git blob, unlike an actual
+  # directory, and so does show up as a changed path) would never match
+  # the .tla/.cfg patterns above and would otherwise never route to
+  # tla-plus at all -- the runner's own symlink rejection never gets a
+  # chance to run. This also covers a root-level .tla/.cfg file itself.
+  # This deliberately does not broaden to deeper paths (e.g. a README.md
+  # inside an existing model directory), which the runner does not scan
+  # for and so do not need tla-plus to run.
+  case "$file_lower" in
+    docs/design/models/*/*) ;;
+    docs/design/models/*) TLA=true ;;
+  esac
+  case "$file_lower" in
+    docs/models/*/*) ;;
+    docs/models/*) TLA=true ;;
   esac
   case "$file" in
     eng/run-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;
