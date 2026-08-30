@@ -394,8 +394,11 @@ machine as its by-ref state-machine argument, and have no control-flow path to
 the selected result load. The suspension census enumerates generic,
 non-generic, pooled, void, and iterator framework builder families so an
 incompatible family rejects the proof instead of disappearing; only the exact
-result-compatible generic builder can qualify. Completion uses that same exact
-builder field. A reference-type state-machine local remains the current
+result-compatible generic builder can qualify. Every recognizable
+reachable-or-unknown trusted framework `SetResult` completion must have the
+exact compatible result signature and use that same builder field, or Analysis
+withholds every field source for the body. A reference-type state-machine local
+remains the current
 instance only when no earlier address use that can reach its selected
 registration may replace it. A whole-current-instance indirect write or
 unrecognized by-ref escape in any analyzed method on the physical state-machine

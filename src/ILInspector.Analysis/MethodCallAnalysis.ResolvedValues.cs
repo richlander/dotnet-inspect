@@ -317,6 +317,16 @@ internal static partial class MethodCallAnalysis
                         call.Callee))
                 .OrderBy(call => call.ILOffset),
         ];
+        DirectCall[] completions =
+        [
+            .. calls
+                .Where(call =>
+                    call.Caller == context.Method
+                    && call.IsReachable != false
+                    && IsFrameworkAsyncBuilderCompletion(
+                        call.Callee))
+                .OrderBy(call => call.ILOffset),
+        ];
         if (suspensions.Length == 0
             || suspensions.Any(call =>
                 !IsAuthenticatedAsyncBuilderSuspension(
@@ -331,6 +341,16 @@ internal static partial class MethodCallAnalysis
                 out FieldIdentity? builderField)
             || suspensions.Any(call =>
                 !TryGetBuilderField(
+                    context.Method,
+                    call,
+                    out FieldIdentity? candidate)
+                || !builderField.Equals(candidate))
+            || completions.Length == 0
+            || completions.Any(call =>
+                !IsAsyncBuilderResult(
+                    call.Callee,
+                    asyncResultType)
+                || !TryGetBuilderField(
                     context.Method,
                     call,
                     out FieldIdentity? candidate)
@@ -695,38 +715,50 @@ internal static partial class MethodCallAnalysis
         => callee.Name is "AwaitOnCompleted"
                 or "AwaitUnsafeOnCompleted"
             && callee.HasThis
-            && (FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "AsyncTaskMethodBuilder`1")
-                || FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "AsyncValueTaskMethodBuilder`1")
-                || FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "AsyncTaskMethodBuilder")
-                || FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "AsyncValueTaskMethodBuilder")
-                || FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "PoolingAsyncValueTaskMethodBuilder`1")
-                || FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "PoolingAsyncValueTaskMethodBuilder")
-                || FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "AsyncVoidMethodBuilder")
-                || FrameworkIdentity.IsCoreLibraryType(
-                    callee.DeclaringType,
-                    "System.Runtime.CompilerServices",
-                    "AsyncIteratorMethodBuilder"));
+            && IsFrameworkAsyncBuilder(
+                callee.DeclaringType);
+
+    static bool IsFrameworkAsyncBuilderCompletion(
+        MemberRef callee)
+        => callee.Name == "SetResult"
+            && callee.HasThis
+            && IsFrameworkAsyncBuilder(
+                callee.DeclaringType);
+
+    static bool IsFrameworkAsyncBuilder(
+        TypeRef declaringType)
+        => FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncTaskMethodBuilder`1")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncValueTaskMethodBuilder`1")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncTaskMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncValueTaskMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "PoolingAsyncValueTaskMethodBuilder`1")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "PoolingAsyncValueTaskMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncVoidMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncIteratorMethodBuilder");
 
     static bool IsAuthenticatedAsyncBuilderSuspension(
         MethodIdentity method,

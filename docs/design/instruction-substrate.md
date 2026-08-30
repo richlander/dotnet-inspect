@@ -131,8 +131,11 @@ dispatches may bypass the original store physically; the field persists its
 value across those transitions. Every recognizable trusted framework builder
 suspension must use the same exact local builder field, authenticate the current
 state-machine instance as its by-ref state-machine argument, and have no
-control-flow path to the selected load; completion uses that same field. The
-census enumerates generic, non-generic, pooled, void, and iterator framework
+control-flow path to the selected load. Every recognizable reachable-or-unknown
+trusted framework `SetResult` completion must use that same field with the exact
+compatible result signature; otherwise Analysis withholds every field source
+for the body. The census enumerates generic, non-generic, pooled, void, and
+iterator framework
 builder families so an incompatible family rejects rather than disappearing;
 the qualifying builder family and result type must match the authenticated
 kickoff source's `Task<T>` or `ValueTask<T>`. A local-address form used by

@@ -2960,12 +2960,10 @@ public class LibraryBodyIndexTests
                         == completion.EvidenceMethod
                     && sink.ILOffset == completion.ILOffset)),
         ];
-        Assert.Single(
+        Assert.All(
             completionSinks,
-            sink => sink.StateMachineFieldSource is not null);
-        Assert.Single(
-            completionSinks,
-            sink => sink.StateMachineFieldSource is null);
+            sink => Assert.Null(
+                sink.StateMachineFieldSource));
     }
 
     [Fact]
