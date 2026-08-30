@@ -68,6 +68,7 @@ internal static partial class MethodCallAnalysis
         ImmutableArray<MethodResultSink>.Builder? resultSinks = null,
         ImmutableArray<FieldStoreFact>.Builder? fieldStores = null,
         ImmutableArray<FieldLoadFact>.Builder? fieldLoads = null,
+        ImmutableArray<int>.Builder? currentInstanceMutations = null,
         ImmutableArray<MethodReturnFlow>.Builder? returnFlows = null)
     {
         var caller = context.Method;
@@ -201,6 +202,15 @@ internal static partial class MethodCallAnalysis
                     reachability,
                     fieldStores,
                     fieldLoads);
+            }
+            if (currentInstanceMutations is not null)
+            {
+                CollectCurrentInstanceMutations(
+                    context,
+                    sources,
+                    reachability,
+                    calls,
+                    currentInstanceMutations);
             }
             if (returnFlows is not null)
             {
