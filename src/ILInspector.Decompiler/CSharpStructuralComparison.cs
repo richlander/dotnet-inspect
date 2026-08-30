@@ -489,16 +489,19 @@ public static partial class CSharpBodyDiff
                     // A genuine call-site rewrite: both sides are InvocationExpression
                     // nodes rendered as one contiguous projected span each (so the
                     // rewrite check has a single, unambiguous run of characters to
-                    // compare) whose selected, IL-projected text actually differs. An
+                    // compare) whose *callee* text actually differs. Comparing only
+                    // the callee -- not the full invocation text -- matters: an
+                    // argument-only edit (round-7 review, reviewers A and B), such as
+                    // `Log(oldValue)` becoming `Log(newValue)`, must not itself license
+                    // an unrelated declaration elsewhere in the document as an inferred
+                    // rewrite target, since the call's target never changed. An
                     // unchanged call that merely happens to retain matching IL evidence
-                    // does not count -- that is not evidence that anything was rewritten
-                    // alongside it. Nor does an invocation that still spans multiple
-                    // projected pieces on either side after removing IL lines: this
-                    // carve-out declines to guess at such a call's true text equality
-                    // rather than risk treating a merely differently-interleaved,
-                    // unchanged multi-line call as a rewrite (SelectedTextEqual compares
-                    // spans pairwise by position, not by full concatenation, so a
-                    // multi-span pairing is not reliable evidence either way here).
+                    // does not count either -- that is not evidence that anything was
+                    // rewritten alongside it. Nor does an invocation that still spans
+                    // multiple projected pieces on either side after removing IL lines:
+                    // this carve-out declines to guess at such a call's true callee
+                    // text rather than risk treating a merely differently-interleaved,
+                    // unchanged multi-line call as a rewrite.
                     callSiteRewriteMatched = matches.Any(match =>
                         beforeProjection.NodeIds.TryGetValue(match.Before.NodeId, out int beforeProjectedId)
                         && afterProjection.NodeIds.TryGetValue(match.After.NodeId, out int afterProjectedId)
@@ -508,7 +511,7 @@ public static partial class CSharpBodyDiff
                         && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
                         && beforeCallNode.Spans.Count == 1
                         && afterCallNode.Spans.Count == 1
-                        && !SelectedTextEqual(
+                        && !InvocationCalleeTextEqual(
                             beforeProjection.Document,
                             beforeCallNode,
                             afterProjection.Document,
@@ -894,6 +897,28 @@ public static partial class CSharpBodyDiff
             beforeNode.Spans,
             afterDocument,
             afterNode.Spans);
+
+    // Compares only an InvocationExpression node's callee -- the text before
+    // its argument list's opening parenthesis -- rather than its full call
+    // text. An argument-only edit (e.g. `Log(oldValue)` -> `Log(newValue)`)
+    // must not read as a call-site rewrite: the call's target never changed,
+    // so it is not evidence that some other declaration in the document was
+    // introduced or removed alongside it. Callers guarantee a single span.
+    static bool InvocationCalleeTextEqual(
+        AnnotatedSourceDocument beforeDocument,
+        AnnotatedSourceNode beforeNode,
+        AnnotatedSourceDocument afterDocument,
+        AnnotatedSourceNode afterNode)
+        => GetInvocationCalleeText(beforeDocument, beforeNode)
+            .SequenceEqual(GetInvocationCalleeText(afterDocument, afterNode));
+
+    static ReadOnlySpan<char> GetInvocationCalleeText(AnnotatedSourceDocument document, AnnotatedSourceNode node)
+    {
+        var span = node.Spans[0];
+        var text = document.Text.AsSpan(span.Start, span.Length);
+        int parenIndex = text.IndexOf('(');
+        return (parenIndex < 0 ? text : text[..parenIndex]).TrimEnd();
+    }
 
     internal static bool SelectedTextEqual(
         AnnotatedSourceDocument beforeDocument,

@@ -1636,6 +1636,31 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_DoesNotTreatArgumentOnlyInvocationChangeAsCallSiteRewrite()
+    {
+        // Close negative (round-7 review, reviewers A and B): a matched
+        // InvocationExpression pair whose callee is unchanged but whose
+        // arguments differ (Log(1) -> Log(2)) must not itself license an
+        // unrelated new local-function declaration elsewhere in the document
+        // as an inferred rewrite target. The call's target never changed, so
+        // this is not evidence that anything was rewritten alongside it.
+        var before = TrustedDocument(
+            "Log(1);",
+            new NodeSpec("InvocationExpression", "Log(1)", [0x10]));
+        var after = TrustedDocument(
+            "Log(2);\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log(2)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWhenMultipleCandidatesShareScope()
     {
         // Close negative: two new local-function declarations with no IL
