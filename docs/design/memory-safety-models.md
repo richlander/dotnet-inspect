@@ -8,8 +8,10 @@ method-body, and provenance evidence.
 
 It does not take implementation ownership from the participating subsystems:
 
-- Metadata owns facts decoded from ECMA-335 metadata.
-- Analysis owns method-signature and IL-body evidence.
+- Metadata owns module, member, and decoded-signature facts, including
+  version-aware caller-contract classification.
+- Analysis owns IL-body evidence and method-level compositions over Metadata
+  facts.
 - Decompiler owns source reconstruction and safety-context rendering.
 - Project inspection owns facts declared by or evaluated from project inputs.
 - A provenance service, when available, owns correspondence between a project
@@ -128,6 +130,9 @@ In the updated model:
   `RequiresUnsafeAttribute`, including for fields;
 - the member modifier does not itself establish an unsafe context for the
   member body;
+- an `unsafe` instance constructor is the narrow exception: its modifier
+  establishes an unsafe context for its `base(...)` or `this(...)` initializer,
+  but still not for its body;
 - a pointer-bearing signature does not propagate unsafe unless the member has
   the v2 caller contract;
 - an inner `unsafe` block or expression establishes the body context needed for
@@ -154,13 +159,19 @@ A TypeDef-level lookalike is not a valid substitute for any of these contracts.
 Same- and cross-assembly resolution must follow the accessor association before
 deciding that a MethodDef lacks a contract.
 
+Current Roslyn synthesizes an explicit field contract directly onto FieldDef
+even though the cited runtime `RequiresUnsafeAttribute.AttributeUsage` does not
+include fields. Metadata consumers must follow the compiler's emitted and
+imported contract rather than reject a legitimate FieldDef application by
+reapplying runtime reflection-target policy.
+
 ### Comparison
 
 | Question | V1: legacy | V2: updated |
 | --- | --- | --- |
 | Binary model marker | Attribute absent | Module attribute version `2` |
 | What propagates unsafe? | Pointer or function-pointer callable signatures and fields under compatibility rules | `RequiresUnsafeAttribute` |
-| Meaning of member `unsafe` | Establishes a lexical unsafe context | Publishes a caller contract |
+| Meaning of member `unsafe` | Establishes a lexical unsafe context | Publishes a caller contract; an instance constructor also establishes its initializer context |
 | Meaning of a pointer-bearing signature | Compatibility propagator | Not a propagator by itself |
 | How a body establishes unsafe context | Enclosing type/member context or inner unsafe context | Inner unsafe block or expression |
 | Safe-boundary method | Not distinguishable as a separate caller contract | Body uses unsafe context, but member does not propagate |
@@ -201,7 +212,8 @@ The module model controls caller-contract interpretation. It does not by itself
 select every rule for pointer syntax and operations. Unsafe-evolution language
 features are independently gated by language version.
 
-In particular, pointer declarations, pointer-target stack allocation, pointer
+In particular, pointer declarations, pointer-bearing lambda parameters,
+ordinary `fixed` statement headers, pointer-target stack allocation, pointer
 arithmetic, and pointer comparison can be legal in safe contexts under the
 updated language feature regardless of whether the module publishes v1 or v2.
 Pointer dereference and function-pointer invocation remain examples of
@@ -407,7 +419,13 @@ The following gaps remain with Decompiler:
   associations;
 - pointer-target stack allocation, pointer arithmetic, and pointer comparison
   are currently treated as requiring an unsafe context even though the
-  unsafe-evolution language feature permits them in safe contexts; and
+  unsafe-evolution language feature permits them in safe contexts;
+- string-pinning `fixed` headers and pointer-bearing lambda declarations are
+  also currently marked as requiring an unsafe context solely from their
+  pointer declarations;
+- constructor-chain rendering does not model the rule that an `unsafe`
+  constructor establishes context for its `base(...)` or `this(...)`
+  initializer but not its body; and
 - field-access contracts are not carried through the current method-oriented
   requires-unsafe path.
 
@@ -433,9 +451,8 @@ Implementation should proceed through focused owner changes:
    independently combining pointer shapes, attributes, or raw version numbers.
    The API surface gains version-aware field and accessor coverage.
 3. Analysis consumes the shared state and applies pointer compatibility only
-   to legacy modules. Its call resolver carries the callee module model and
-   member contract across assembly boundaries, its field resolver supplies the
-   equivalent field contract, and both apply the caller/target enforcement
+   to legacy modules. Call and field evidence resolve target contracts through
+   Metadata across assembly boundaries and apply the caller/target enforcement
    matrix. Operation evidence separates raw `localloc` and pointer shapes from
    context-requiring source operations. The same stage re-states and gates the
    resulting
@@ -443,11 +460,13 @@ Implementation should proceed through focused owner changes:
    [Memory-safety rendering modes](memory-safety-modes.md), because correcting
    `CallerUnsafeMode` and realized-operation evidence changes their inputs.
 4. Decompiler consumes the shared state for conservative replay while keeping
-   its explicit simulation mode. Same- and cross-assembly call and field
-   resolution carry the target module model with the member contract before
-   deciding where source needs an unsafe context, including accessor
-   associations. Rendering follows the selected language semantics rather than
-   treating relaxed pointer operations as unsafe because of the module model.
+   its explicit simulation mode. Same- and cross-assembly call and field paths
+   consume Metadata's target contract, including accessor associations, before
+   deciding where source needs an unsafe context. Rendering follows the selected
+   language semantics rather than treating relaxed pointer declarations or
+   operations as unsafe because of the module model, and constructor-chain
+   rendering handles the initializer exception without widening the
+   constructor body.
 5. Project inspection acquires declared or evaluated rule and permission
    facts through its own design.
 6. A composition query joins project policy, binary contracts, body evidence,
@@ -499,6 +518,8 @@ The model follows the implemented compiler and runtime contracts:
 - [SDK memory-safety enforcement design](https://github.com/dotnet/designs/blob/8f17cc55212fe45f563741aa7137d432d82482d5/accepted/2025/memory-safety/sdk-memory-safety-enforcement.md)
 - [Roslyn memory-safety version handling](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEModuleSymbol.cs)
 - [Roslyn caller-unsafe interpretation](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEMethodSymbol.cs)
+- [Roslyn field-contract emission](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Source/SourceMemberFieldSymbol.cs)
+- [Roslyn field-contract import](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEFieldSymbol.cs)
 - [Runtime `MemorySafetyRulesAttribute`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/MemorySafetyRulesAttribute.cs)
 - [Runtime `RequiresUnsafeAttribute`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/libraries/System.Private.CoreLib/src/System/Diagnostics/CodeAnalysis/RequiresUnsafeAttribute.cs)
 
