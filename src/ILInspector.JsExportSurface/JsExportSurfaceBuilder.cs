@@ -195,6 +195,8 @@ public static class JsExportSurfaceBuilder
             new Dictionary<int, JsonSourceGenerationMode>();
         var registeredJsonTypeInfoDefaultGetterTokens =
             new Dictionary<int, int>();
+        var registeredJsonTypeInfoShapes =
+            new Dictionary<int, ApiTypeShape>();
         var unsupportedJsonTypeInfoGetterReasons =
             new Dictionary<int, string>();
         var queue = new Queue<(
@@ -332,6 +334,17 @@ public static class JsExportSurfaceBuilder
                                         throw new UnsupportedJsExportSurfaceException(
                                             FormatMemberLocation(type, member),
                                             "serializer-context default-instance evidence conflicts");
+                                    }
+                                    if (!registeredJsonTypeInfoShapes.TryAdd(
+                                            getterToken,
+                                            root!.Type!)
+                                        && !registeredJsonTypeInfoShapes[
+                                                getterToken].Equals(
+                                                root.Type))
+                                    {
+                                        throw new UnsupportedJsExportSurfaceException(
+                                            FormatMemberLocation(type, member),
+                                            "serializer-context root shapes conflict");
                                     }
                                 }
                             }
@@ -488,6 +501,7 @@ public static class JsExportSurfaceBuilder
                         token,
                         registeredJsonTypeInfoGetterModes,
                         registeredJsonTypeInfoDefaultGetterTokens,
+                        registeredJsonTypeInfoShapes,
                         unsupportedJsonTypeInfoGetterReasons);
                 }
             }

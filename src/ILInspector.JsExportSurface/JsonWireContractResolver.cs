@@ -83,9 +83,12 @@ public static class JsonWireContractResolver
     const string JsonTypeInfoNamespace = "System.Text.Json.Serialization.Metadata";
 
     /// <summary>
-    /// Returns <paramref name="function"/> with <see cref="JsExportFunction.ReturnWireType"/> and
-    /// <see cref="JsExportFunction.ParameterWireTypes"/> populated from the direct calls found in
-    /// <paramref name="bodyIndex"/> for the method identified by <paramref name="metadataToken"/>.
+    /// Returns <paramref name="function"/> with
+    /// <see cref="JsExportFunction.ReturnWireType"/>,
+    /// <see cref="JsExportFunction.ReturnWireTypeShape"/>, and
+    /// <see cref="JsExportFunction.ParameterWireTypes"/> populated from the
+    /// direct calls found in <paramref name="bodyIndex"/> for the method
+    /// identified by <paramref name="metadataToken"/>.
     /// </summary>
     public static JsExportFunction Attach(
         LibraryBodyIndex bodyIndex,
@@ -95,6 +98,8 @@ public static class JsonWireContractResolver
             registeredJsonTypeInfoGetterModes,
         IReadOnlyDictionary<int, int>
             registeredJsonTypeInfoDefaultGetterTokens,
+        IReadOnlyDictionary<int, ApiTypeShape>
+            registeredJsonTypeInfoShapes,
         IReadOnlyDictionary<int, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
@@ -121,18 +126,21 @@ public static class JsonWireContractResolver
                     dto,
                     registeredJsonTypeInfoGetterModes,
                     registeredJsonTypeInfoDefaultGetterTokens,
+                    registeredJsonTypeInfoShapes,
                     unsupportedJsonTypeInfoGetterReasons,
-                    JsonWireDirection.Deserialize))
+                    JsonWireDirection.Deserialize,
+                    out _))
             {
                 parameterTypes.Add(dto);
             }
         }
 
-        TypeRef? returnType = ResolveCompleteReturnWireType(
+        AuthenticatedWireType? returnType = ResolveCompleteReturnWireType(
             bodyIndex,
             metadataToken,
             registeredJsonTypeInfoGetterModes,
             registeredJsonTypeInfoDefaultGetterTokens,
+            registeredJsonTypeInfoShapes,
             unsupportedJsonTypeInfoGetterReasons);
         return new JsExportFunction
         {
@@ -145,11 +153,12 @@ public static class JsonWireContractResolver
             Parameters = function.Parameters,
             DelegateParameters = function.DelegateParameters,
             ReturnWireType = returnType is not null
-                ? returnType.ToQualifiedDisplayString()
+                ? returnType.Value.Type.ToQualifiedDisplayString()
                 : null,
             ReturnWireTypeReferences = returnType is not null
-                ? [.. ReferencedTypes(returnType).Distinct()]
+                ? [.. ReferencedTypes(returnType.Value.Type).Distinct()]
                 : [],
+            ReturnWireTypeShape = returnType?.Shape,
             ParameterWireTypes =
                 [.. parameterTypes.Select(
                     type => type.ToQualifiedDisplayString())],
@@ -160,13 +169,15 @@ public static class JsonWireContractResolver
         };
     }
 
-    static TypeRef? ResolveCompleteReturnWireType(
+    static AuthenticatedWireType? ResolveCompleteReturnWireType(
         LibraryBodyIndex bodyIndex,
         int metadataToken,
         IReadOnlyDictionary<int, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
         IReadOnlyDictionary<int, int>
             registeredJsonTypeInfoDefaultGetterTokens,
+        IReadOnlyDictionary<int, ApiTypeShape>
+            registeredJsonTypeInfoShapes,
         IReadOnlyDictionary<int, string>
             unsupportedJsonTypeInfoGetterReasons)
     {
@@ -214,6 +225,7 @@ public static class JsonWireContractResolver
             return null;
 
         TypeRef? dto = null;
+        ApiTypeShape? dtoShape = null;
         foreach (MethodResultSink sink in sinks)
         {
             if (!TryGetCompleteSourceCallOffsets(
@@ -240,21 +252,28 @@ public static class JsonWireContractResolver
                         sourceDto,
                         registeredJsonTypeInfoGetterModes,
                         registeredJsonTypeInfoDefaultGetterTokens,
+                        registeredJsonTypeInfoShapes,
                         unsupportedJsonTypeInfoGetterReasons,
-                        JsonWireDirection.Serialize))
+                        JsonWireDirection.Serialize,
+                        out ApiTypeShape? sourceShape)
+                    || sourceShape is null)
                     return null;
                 if (dto is null)
                 {
                     dto = sourceDto;
+                    dtoShape = sourceShape;
                 }
-                else if (!WireTypesEqual(dto, sourceDto))
+                else if (!WireTypesEqual(dto, sourceDto)
+                    || !dtoShape!.Equals(sourceShape))
                 {
                     return null;
                 }
             }
         }
 
-        return dto;
+        return dto is not null && dtoShape is not null
+            ? new(dto, dtoShape)
+            : null;
     }
 
     static bool TryGetCompleteSourceCallOffsets(
@@ -332,10 +351,14 @@ public static class JsonWireContractResolver
             registeredJsonTypeInfoGetterModes,
         IReadOnlyDictionary<int, int>
             registeredJsonTypeInfoDefaultGetterTokens,
+        IReadOnlyDictionary<int, ApiTypeShape>
+            registeredJsonTypeInfoShapes,
         IReadOnlyDictionary<int, string>
             unsupportedJsonTypeInfoGetterReasons,
-        JsonWireDirection direction)
+        JsonWireDirection direction,
+        out ApiTypeShape? authenticatedShape)
     {
+        authenticatedShape = null;
         CallArgumentSource? argument =
             serializerCall.ArgumentSources.FirstOrDefault(
                 source => source.ArgumentIndex == 1);
@@ -367,6 +390,9 @@ public static class JsonWireContractResolver
                     source.CalleeDefinitionToken,
                     out JsonSourceGenerationMode generationMode)
                 || !SupportsDirection(generationMode, direction)
+                || !registeredJsonTypeInfoShapes.TryGetValue(
+                    source.CalleeDefinitionToken,
+                    out ApiTypeShape? sourceShape)
                 || !IsTrustedJsonTypeInfoOf(
                     source.Callee.ReturnType,
                     dto))
@@ -385,9 +411,17 @@ public static class JsonWireContractResolver
                     "serializer context",
                     "generated JsonTypeInfo getter receiver is not the authenticated default context");
             }
+            if (authenticatedShape is null)
+            {
+                authenticatedShape = sourceShape;
+            }
+            else if (!authenticatedShape.Equals(sourceShape))
+            {
+                return false;
+            }
         }
 
-        return true;
+        return authenticatedShape is not null;
     }
 
     static bool HasAuthenticatedDefaultContextReceiver(
@@ -590,7 +624,8 @@ public static class JsonWireContractResolver
             {
                 yield return new(
                     assembly,
-                    type.ToQualifiedDisplayString(),
+                    type.Resolution?.Type?.ToMetadataFullName()
+                        ?? type.ToQualifiedDisplayString(),
                     type.Resolution?.Type);
             }
         }
@@ -710,4 +745,8 @@ public static class JsonWireContractResolver
             ? new(type.Assembly, null, null, null)
             : null;
     }
+
+    readonly record struct AuthenticatedWireType(
+        TypeRef Type,
+        ApiTypeShape Shape);
 }

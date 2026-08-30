@@ -656,29 +656,30 @@ public sealed class GeneratedJsExportAuthenticationTests
     }
 
     /// <summary>
-    /// The command must read the assembly once and hand the same immutable
-    /// image to metadata extraction and to body analysis. Two reads let a
-    /// metadata surface be composed with bodies from different content that
-    /// shares an MVID and token layout, which no downstream gate can detect.
+    /// The shared generator loader must read the assembly once and hand the
+    /// same immutable image to metadata extraction and to body analysis. Two
+    /// reads let a metadata surface be composed with bodies from different
+    /// content that shares an MVID and token layout, which no downstream gate
+    /// can detect.
     /// </summary>
     [Fact]
-    public void TsBindGen_ReadsOneImageForMetadataAndBodyEvidence()
+    public void GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence()
     {
-        LibraryBodyIndex commandBodies = LibraryBodyIndex.Open(
-            typeof(TsBindGenCommand).Assembly.Location,
+        LibraryBodyIndex loaderBodies = LibraryBodyIndex.Open(
+            typeof(JsExportSurfaceLoader).Assembly.Location,
             LibraryBodyAnalysisFeatures.JsonWireContractFlow);
 
         DirectCall read = Assert.Single(
-            commandBodies.DirectCalls,
+            loaderBodies.DirectCalls,
             call => call.Callee.Name == "ReadAllBytes"
                 && call.Callee.DeclaringType.Name == "File");
         DirectCall metadataReader = Assert.Single(
-            commandBodies.DirectCalls,
+            loaderBodies.DirectCalls,
             call => call.Kind == CallKind.NewObject
                 && call.Callee.Name == ".ctor"
                 && call.Callee.DeclaringType.Name == "PEReader");
         DirectCall bodyReader = Assert.Single(
-            commandBodies.DirectCalls,
+            loaderBodies.DirectCalls,
             call => call.Callee.Name == "OpenFromPrefetchedImage"
                 && call.Callee.DeclaringType.Name
                     == nameof(LibraryBodyIndex));
@@ -689,12 +690,12 @@ public sealed class GeneratedJsExportAuthenticationTests
             read.EvidenceMethod.MetadataToken,
             bodyReader.EvidenceMethod.MetadataToken);
         Assert.DoesNotContain(
-            commandBodies.DirectCalls,
+            loaderBodies.DirectCalls,
             call => call.Callee.Name == "Open"
                 && call.Callee.DeclaringType.Name
                     == nameof(LibraryBodyIndex));
         Assert.DoesNotContain(
-            commandBodies.DirectCalls,
+            loaderBodies.DirectCalls,
             call => call.Callee.Name == "OpenRead"
                 && call.Callee.DeclaringType.Name == "File");
     }

@@ -161,11 +161,15 @@ public static class PackagePayloadAcquisition
         Action<string>? log = null,
         PackagePayloadLimits? limits = null,
         CancellationToken cancellationToken = default,
-        IPackagePayloadTransferPolicy? transferPolicy = null)
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        NuGetOperationContext? operationContext = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(coordinate);
         ArgumentNullException.ThrowIfNull(store);
+        cancellationToken = operationContext?.ResolveInvocationToken(
+            cancellationToken) ?? cancellationToken;
+        operationContext?.ThrowIfExpired();
         limits = ValidateLimits(limits);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -197,7 +201,8 @@ public static class PackagePayloadAcquisition
             await source.GetPackageAsync(
                 coordinate.PackageId,
                 coordinate.Version,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
         if (operation
             is PackageSourceOperationResult<PackageSourcePayload>.Failed failed)
         {
@@ -576,6 +581,10 @@ public static class PackagePayloadAcquisition
 
                 reservation?.Complete();
                 return committed;
+            }
+            catch (PackageSourceStreamException)
+            {
+                throw;
             }
             catch (Exception ex) when (
                 ex is IOException

@@ -124,6 +124,18 @@ public sealed class JsExportFunction
         { get; init; } = [];
 
     /// <summary>
+    /// Exact structural shape of <see cref="ReturnWireType"/>. This keeps
+    /// primitive nodes distinct from producer-defined types whose C# display
+    /// spelling is identical.
+    /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>TypeScriptFacadeEmitterTests.Emit_PreservesPrimitivesWhenProducerTypeUsesKeywordSpelling</c>.
+    /// </remarks>
+    [JsonIgnore]
+    public ApiTypeShape? ReturnWireTypeShape { get; init; }
+
+    /// <summary>
     /// DTO type(s) this method's own body deserializes from a JSON-string argument, resolved from
     /// <c>JsonSerializer.Deserialize</c> call sites. Not yet attributed to a specific parameter
     /// position — see <see cref="JsonWireContractResolver"/> remarks for that residual gap.
