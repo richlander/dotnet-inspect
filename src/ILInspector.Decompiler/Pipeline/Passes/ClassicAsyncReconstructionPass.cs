@@ -976,6 +976,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     {
         if (!left.Equals(right)
             || left.Kind != right.Kind
+            || left.ValueTypeHint != ValueTypeHint.Unknown
+                && right.ValueTypeHint != ValueTypeHint.Unknown
+                && left.ValueTypeHint != right.ValueTypeHint
             || left.ResolutionAssembly != right.ResolutionAssembly
             || left.DefinitionName != right.DefinitionName
             || left.DefinitionHandle != right.DefinitionHandle
@@ -1209,7 +1212,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (!kickoffModel.IsNarrow)
             return ReconstructionResult.UnconsumedKickoffRegion;
         if (recipeHasUnconsumedStore
-            || HasUnconsumedExecutionStore(moveNext))
+            || HasUnconsumedExecutionStore(
+                moveNext,
+                consumedExecutionSlots))
         {
             return ReconstructionResult.UnconsumedExecutionRegion;
         }
@@ -2310,15 +2315,17 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         return false;
     }
 
-    static bool HasUnconsumedExecutionStore(IrFunction moveNext)
+    static bool HasUnconsumedExecutionStore(
+        IrFunction moveNext,
+        IReadOnlyList<IrNode> consumedStatementSlots)
     {
-        TypeRef machine = DefinitionType(moveNext.DeclaringType);
+        var consumed = consumedStatementSlots.ToHashSet(
+            ReferenceEqualityComparer.Instance);
         foreach (IrNode node in moveNext.Descendants)
         {
             switch (node)
             {
-                case StoreField store
-                    when !IsMachineFieldStore(store, machine):
+                case StoreField:
                 case StoreProperty:
                 case StoreElement:
                 case StoreIndirect:
@@ -2331,8 +2338,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 case NullCoalescingFieldAssignment:
                 case NullCoalescingFieldAssignmentExpression:
                 case NullCoalescingPropertyAssignment:
-                case InitObject init
-                    when !IsMachineStorageAddress(init.Address, machine):
+                case InitObject:
+                    if (!TryGetStatementSlot(
+                            node,
+                            out IrNode statement)
+                        || !consumed.Contains(statement))
+                    {
+                        return true;
+                    }
+                    break;
                 case Call call
                     when IsPotentialWriteAccessor(call.Callee):
                     return true;
@@ -2341,13 +2355,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         return false;
     }
-
-    static bool IsMachineStorageAddress(
-        IrExpression address,
-        TypeRef machine)
-        => address is LoadFieldAddress field
-            && IsMachineField(field.Field, machine)
-            && IsCompilerHousekeepingField(field.Field.Name);
 
     static bool IsPotentialWriteAccessor(MethodRef method)
         => method.AccessorKind is
@@ -2430,8 +2437,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         bool ClaimCallbacks(RecipeOwnership ownership)
             => TryClaimExpectedBuilderCallbacks(
                 moveNext,
-                kickoff.StateMachineType,
-                kickoff.BuilderStorage,
+                kickoff,
                 setResult,
                 getResults,
                 ownership);
@@ -2596,7 +2602,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .LastOrDefault(s => s.Index == result.Index && ContainsNode(s.Value, getResults[0]));
         if (store is null)
             return false;
-        if (HasUnexpectedStore(moveNext, store))
+        if (HasUnexpectedStore(moveNext, kickoff, store))
             return false;
 
         var value = CloneWithAwaitsAndRemap(
@@ -2642,7 +2648,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var getResultStatement = getResults[0].Parent as ExpressionStatement;
         if (getResultStatement is null || HasUnexpectedExpressionStatement(moveNext, getResultStatement))
             return false;
-        if (HasUnexpectedStore(moveNext))
+        if (HasUnexpectedStore(moveNext, kickoff))
             return false;
         if (!ownership.Claim(setResult, getResultStatement)
             || !TryClaimAwaitSource(
@@ -2728,6 +2734,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
         if (HasUnexpectedStore(
                 moveNext,
+                kickoff,
                 firstResultStore,
                 firstStore,
                 secondStore))
@@ -2810,12 +2817,19 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return false;
 
         var flag = moveNext.Descendants.OfType<LoadField>()
-            .FirstOrDefault(static field => field.Field.Type is { Name: "Boolean", Namespace: "System" }
+            .FirstOrDefault(field => field.Field.Type is { Name: "Boolean", Namespace: "System" }
                 && field.Instance is LoadArgument { Index: 0 }
-                && !field.Field.Name.StartsWith("<", StringComparison.Ordinal));
+                && !field.Field.Name.StartsWith("<", StringComparison.Ordinal)
+                && TryGetParameterBinding(
+                    kickoff,
+                    field.Field,
+                    out _));
         if (flag is null)
             return false;
-        if (!moveNext.Descendants.OfType<ConditionalBranch>().Any(branch => ContainsEquivalentField(branch.Condition, flag.Field.Name)))
+        if (!moveNext.Descendants.OfType<ConditionalBranch>()
+            .Any(branch => ContainsEquivalentField(
+                branch.Condition,
+                flag.Field)))
             return false;
 
         var tempStores = moveNext.Descendants.OfType<StoreLocal>().Where(store => store.Index != result.Index).ToList();
@@ -2834,12 +2848,16 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .Where(branch =>
                 branch.TargetOffset == zeroBlock.StartOffset
                 && branch.Condition is LogicalNot not
-                && ContainsEquivalentField(not.Operand, flag.Field.Name))
+                && ContainsEquivalentField(
+                    not.Operand,
+                    flag.Field))
             .ToList();
         if (zeroBranches is not [var zeroBranch])
             return false;
         if (zeroBranch.Condition is not LogicalNot { Operand: LoadField conditionField }
-            || conditionField.Field.Name != flag.Field.Name
+            || !SameExactFieldDefinition(
+                conditionField.Field,
+                flag.Field)
             || conditionField.Instance is not LoadArgument { Index: 0 })
         {
             hasUnconsumedStore = true;
@@ -2857,7 +2875,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             hasUnconsumedStore = true;
             return true;
         }
-        if (HasUnexpectedStore(moveNext, awaitStore, zeroStore, finalStore))
+        if (HasUnexpectedStore(
+                moveNext,
+                kickoff,
+                awaitStore,
+                zeroStore,
+                finalStore))
             return false;
 
         var condition = CloneAndRemap(
@@ -2969,7 +2992,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             finalResultStore,
         };
         allowedStores.AddRange(expectedLoopFieldStores);
-        if (HasUnexpectedStore(moveNext, [.. allowedStores]))
+        if (HasUnexpectedStore(
+                moveNext,
+                kickoff,
+                [.. allowedStores]))
         {
             hasUnconsumedStore = true;
             return true;
@@ -3138,7 +3164,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             kickoff);
         if (mappedFinally is null)
             return false;
-        if (HasUnexpectedStore(moveNext, resultStore))
+        if (HasUnexpectedStore(
+                moveNext,
+                kickoff,
+                resultStore))
         {
             hasUnconsumedStore = true;
             return true;
@@ -3382,10 +3411,26 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         out StoreLocal awaiterStore,
         out IrExpression awaitedOperand,
         out Call suspensionCallback)
+        => TryGetAwaitSource(
+            moveNext,
+            getResult,
+            out awaiterStore,
+            out awaitedOperand,
+            out suspensionCallback,
+            out _);
+
+    static bool TryGetAwaitSource(
+        IrFunction moveNext,
+        Call getResult,
+        out StoreLocal awaiterStore,
+        out IrExpression awaitedOperand,
+        out Call suspensionCallback,
+        out StoreLocal? resumeStore)
     {
         awaiterStore = null!;
         awaitedOperand = null!;
         suspensionCallback = null!;
+        resumeStore = null;
         if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
             return false;
         Block? useBlock = OwningBlock(getResult);
@@ -3567,6 +3612,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             {
                 return false;
             }
+            resumeStore = resumeStores[index];
             expectedSpill = resumeLoad.Field;
         }
         if (!TryGetSuspensionCallback(
@@ -4236,19 +4282,25 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryClaimExpectedBuilderCallbacks(
         IrFunction moveNext,
-        TypeRef expectedStateMachineType,
-        ClassicAsyncStorage expectedBuilderStorage,
+        Kickoff kickoff,
         Call selectedSetResult,
         IReadOnlyList<Call> getResults,
         RecipeOwnership ownership)
         => TryGetExpectedBuilderCallbackSlots(
                 moveNext,
-                expectedStateMachineType,
-                expectedBuilderStorage,
+                kickoff.StateMachineType,
+                kickoff.BuilderStorage,
                 selectedSetResult,
                 getResults,
                 out IReadOnlyList<IrNode> callbacks)
-            && ownership.Claim(callbacks);
+            && TryGetExpectedProtocolMutationSlots(
+                moveNext,
+                kickoff,
+                selectedSetResult,
+                getResults,
+                out IReadOnlyList<IrNode> mutations)
+            && ownership.Claim(callbacks)
+            && ownership.Claim(mutations);
 
     internal static bool TryGetExpectedBuilderCallbackSlots(
         IrFunction moveNext,
@@ -4371,6 +4423,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         Parent: Block outerBlock,
                     },
                 }
+            || catchClause.Body.Blocks is not
+                [var catchBlock]
+            || !ReferenceEquals(
+                statement.Parent,
+                catchBlock)
             || variableIndex is null
             || exceptionValue.Index != variableIndex.Value
             || !IsExactExceptionType(caughtType)
@@ -4396,6 +4453,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             Namespace: "System",
             Name: "Exception",
             CustomModifiers.IsEmpty: true,
+            ValueTypeHint: not ValueTypeHint.ValueType,
         };
 
     static CatchClause? ContainingCatchClause(
@@ -4679,50 +4737,276 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         };
     }
 
-    static bool HasUnexpectedStore(IrFunction moveNext, params IrNode[] allowed)
+    static bool TryGetExpectedProtocolMutationSlots(
+        IrFunction moveNext,
+        Kickoff kickoff,
+        Call selectedSetResult,
+        IReadOnlyList<Call> getResults,
+        out IReadOnlyList<IrNode> mutationSlots)
     {
-        var allowedSet = allowed.ToHashSet();
-        var stateLocal = StateLocalIndex(moveNext);
+        mutationSlots = [];
+        int? stateLocal = StateLocalIndex(moveNext);
+        if (stateLocal is null)
+            return false;
+
+        StoreLocal[] initialStateLoads =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<StoreLocal>()
+                .Where(store =>
+                    store.Index == stateLocal
+                    && store.Value is LoadField
+                    {
+                        Field: var field,
+                        Instance: LoadArgument { Index: 0 },
+                    }
+                    && SameExactFieldDefinition(
+                        field,
+                        kickoff.StateStorage)),
+        ];
+        if (initialStateLoads is not [var initialStateLoad])
+            return false;
+
+        var mutations = new HashSet<IrNode>(
+            ReferenceEqualityComparer.Instance)
+        {
+            initialStateLoad,
+        };
+        var suspensionStates = new HashSet<int>();
+        foreach (Call getResult in getResults)
+        {
+            if (!TryGetAwaitSource(
+                    moveNext,
+                    getResult,
+                    out StoreLocal awaiterStore,
+                    out _,
+                    out Call suspension,
+                    out StoreLocal? resumeStore)
+                || suspension.Parent is not
+                    ExpressionStatement suspensionStatement
+                || suspensionStatement.Parent is not
+                    Block suspensionBlock
+                || resumeStore is null)
+            {
+                return false;
+            }
+
+            StoreField[] spills =
+            [
+                .. suspensionBlock.Children
+                    .Take(suspensionStatement.ChildIndex)
+                    .OfType<StoreField>()
+                    .Where(store =>
+                        store.Instance is
+                            LoadArgument { Index: 0 }
+                        && store.Value is LoadLocal
+                        {
+                            Index: var index,
+                        }
+                        && index == awaiterStore.Index
+                        && store.Field.Name.StartsWith(
+                            "<>u__",
+                            StringComparison.Ordinal)
+                        && HasExactFieldDefinition(
+                            store.Field)
+                        && IsMachineField(
+                            store.Field,
+                            DefinitionType(
+                                moveNext.DeclaringType))
+                        && SameExactType(
+                            StateMachineFieldType(
+                                store.Field.Type,
+                                moveNext.DeclaringType),
+                            awaiterStore.Type)),
+            ];
+            if (spills is not [var spill]
+                || spill.ChildIndex < 2
+                || suspensionBlock.Children[
+                    spill.ChildIndex - 2] is not
+                    StoreLocal
+                    {
+                        Index: var suspensionStateLocal,
+                        Value: Constant
+                        {
+                            Value: int suspensionState,
+                        },
+                    } suspensionStateStore
+                || suspensionStateLocal != stateLocal
+                || suspensionState < 0
+                || !suspensionStates.Add(suspensionState)
+                || suspensionBlock.Children[
+                    spill.ChildIndex - 1] is not
+                    StoreField suspensionStateField
+                || !IsExactStateWrite(
+                    suspensionStateField,
+                    kickoff.StateStorage,
+                    suspensionState))
+            {
+                return false;
+            }
+
+            if (resumeStore.Value is not LoadField
+                {
+                    Field: var resumeField,
+                    Instance: LoadArgument { Index: 0 },
+                }
+                || !SameExactFieldDefinition(
+                    resumeField,
+                    spill.Field)
+                || resumeStore.Parent is not Block resumeBlock
+                || resumeStore.ChildIndex + 3
+                    >= resumeBlock.Children.Count
+                || resumeBlock.Children[
+                    resumeStore.ChildIndex + 1] is not
+                    InitObject
+                    {
+                        Address: LoadFieldAddress
+                        {
+                            Field: var clearField,
+                            Instance:
+                                LoadArgument { Index: 0 },
+                        },
+                        Type: var clearType,
+                    } clear
+                || !SameExactFieldDefinition(
+                    clearField,
+                    spill.Field)
+                || !SameExactType(
+                    clearType,
+                    StateMachineFieldType(
+                        spill.Field.Type,
+                        moveNext.DeclaringType))
+                || resumeBlock.Children[
+                    resumeStore.ChildIndex + 2] is not
+                    StoreLocal
+                    {
+                        Index: var resumeStateLocal,
+                        Value: Constant { Value: -1 },
+                    } resumeStateStore
+                || resumeStateLocal != stateLocal
+                || resumeBlock.Children[
+                    resumeStore.ChildIndex + 3] is not
+                    StoreField resumeStateField
+                || !IsExactStateWrite(
+                    resumeStateField,
+                    kickoff.StateStorage,
+                    -1))
+            {
+                return false;
+            }
+
+            mutations.Add(awaiterStore);
+            mutations.Add(suspensionStateStore);
+            mutations.Add(suspensionStateField);
+            mutations.Add(spill);
+            mutations.Add(resumeStore);
+            mutations.Add(clear);
+            mutations.Add(resumeStateStore);
+            mutations.Add(resumeStateField);
+        }
+
+        Call[] setExceptions =
+        [
+            .. moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>()
+                .Where(static call =>
+                    call.Callee.Name == "SetException"),
+        ];
+        if (setExceptions is not [var setException]
+            || !TryGetPrecedingCompletionStateWrite(
+                selectedSetResult,
+                kickoff.StateStorage,
+                out StoreField successState)
+            || !TryGetPrecedingCompletionStateWrite(
+                setException,
+                kickoff.StateStorage,
+                out StoreField exceptionState))
+        {
+            return false;
+        }
+        mutations.Add(successState);
+        mutations.Add(exceptionState);
+        mutationSlots = [.. mutations];
+        return true;
+    }
+
+    static bool TryGetPrecedingCompletionStateWrite(
+        Call callback,
+        ClassicAsyncStorage stateStorage,
+        out StoreField stateWrite)
+    {
+        stateWrite = null!;
+        if (callback.Parent is not
+                ExpressionStatement statement
+            || statement.Parent is not Block block
+            || statement.ChildIndex == 0
+            || block.Children[statement.ChildIndex - 1]
+                is not StoreField candidate
+            || !IsExactStateWrite(
+                candidate,
+                stateStorage,
+                -2))
+        {
+            return false;
+        }
+
+        stateWrite = candidate;
+        return true;
+    }
+
+    static bool IsExactStateWrite(
+        StoreField store,
+        ClassicAsyncStorage stateStorage,
+        int value)
+        => store.Instance is LoadArgument { Index: 0 }
+            && store.Value is Constant { Value: int actual }
+            && actual == value
+            && SameExactFieldDefinition(
+                store.Field,
+                stateStorage);
+
+    internal static bool HasUnexpectedStore(
+        IrFunction moveNext,
+        Kickoff kickoff,
+        params IrNode[] allowed)
+    {
+        Call? setResult = FinalSetResult(moveNext);
+        IReadOnlyList<Call> getResults =
+            GetResultCalls(moveNext);
+        if (setResult is null
+            || !TryGetExpectedProtocolMutationSlots(
+                moveNext,
+                kickoff,
+                setResult,
+                getResults,
+                out IReadOnlyList<IrNode> protocolMutations))
+        {
+            return true;
+        }
+        var allowedSet = allowed
+            .Concat(protocolMutations)
+            .ToHashSet(
+                ReferenceEqualityComparer.Instance);
 
         foreach (var node in moveNext.Descendants)
         {
             switch (node)
             {
                 case StoreField store:
-                    if (allowedSet.Contains(store)
-                        || IsCompilerHousekeepingField(store.Field.Name))
-                    {
+                    if (allowedSet.Contains(store))
                         continue;
-                    }
                     return true;
                 case StoreProperty or StoreElement or StoreIndirect or StoreArgument:
                     if (!allowedSet.Contains(node))
                         return true;
                     break;
                 case InitObject init:
-                    if (allowedSet.Contains(init)
-                        || init.Address is LoadFieldAddress
-                        {
-                            Field.Name: var initFieldName,
-                        }
-                        && IsCompilerHousekeepingField(initFieldName))
-                    {
+                    if (allowedSet.Contains(init))
                         continue;
-                    }
                     return true;
                 case StoreLocal store:
                     if (allowedSet.Contains(store))
                         continue;
-                    if (stateLocal is { } state && store.Index == state
-                        && store.Value is Constant
-                            or LoadStackSlot
-                            or LoadField { Field.Name: "<>1__state" })
-                        continue;
-                    if (store.Value is Call { Callee.Name: "GetAwaiter" }
-                        || store.Value is LoadField { Field.Name: var fieldName } && fieldName.StartsWith("<>u__", StringComparison.Ordinal))
-                    {
-                        continue;
-                    }
                     return true;
             }
         }
@@ -4754,10 +5038,6 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool IsInt32(TypeRef type)
         => type is { Namespace: "System", Name: "Int32" };
 
-    static bool IsCompilerHousekeepingField(string name)
-        => name is "<>1__state" or "<>t__builder" or "<>4__this"
-            || name.StartsWith("<>u__", StringComparison.Ordinal);
-
     static bool HasHoistedUserState(IrFunction moveNext)
         => moveNext.Descendants.OfType<StoreField>().Any(static store =>
             IsHoistedLocal(store.Field.Name) || store.Field.Name.StartsWith("<>7__wrap", StringComparison.Ordinal));
@@ -4771,9 +5051,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             _ => false,
         });
 
-    static bool ContainsEquivalentField(IrNode node, string fieldName)
+    internal static bool ContainsEquivalentField(
+        IrNode node,
+        FieldRef expectedField)
         => node.Descendants.Prepend(node).Any(candidate =>
-            candidate is LoadField { Field.Name: var name, Instance: LoadArgument { Index: 0 } } && name == fieldName);
+            candidate is LoadField
+            {
+                Field: var field,
+                Instance: LoadArgument { Index: 0 },
+            }
+            && SameExactFieldDefinition(
+                field,
+                expectedField));
 
     static bool IsWrap3Load(IrExpression expression)
         => expression is LoadField { Field.Name: "<>7__wrap3", Instance: LoadArgument { Index: 0 } };

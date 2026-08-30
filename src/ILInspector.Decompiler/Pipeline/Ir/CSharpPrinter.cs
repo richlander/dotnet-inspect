@@ -371,7 +371,16 @@ public sealed partial class CSharpPrinter
     }
 
     DecompilerResult Result(string output, IrFunction function)
-        => new(output, function.Fidelity, [.. function.Diagnostics])
+    {
+        if (function.ClassicAsyncStageResult is
+            ClassicAsyncStageResult.Failed failed)
+        {
+            return DecompilerResult.Failure(
+                failed.Failure.DiagnosticId,
+                failed.Failure.Message);
+        }
+
+        return new(output, function.Fidelity, [.. function.Diagnostics])
         {
             ConstructorChain = _constructorChain,
             FieldInitializers = _fieldInitializers,
@@ -385,6 +394,7 @@ public sealed partial class CSharpPrinter
             BodyIsDestructor = function.IsDestructor,
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
+    }
 
     /// <summary>
     /// True when the printed body is exactly one top-level statement whose whole

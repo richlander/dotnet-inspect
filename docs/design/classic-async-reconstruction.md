@@ -242,6 +242,11 @@ component carries those coordinates through its detached storage and
 parameter-binding values and requires the guard when comparing the live kickoff
 and execution imports. Two fields whose generic coordinates instantiate to the
 same closed type therefore remain distinct.
+Exact protocol type comparisons also retain known raw signature kind: a
+known `CLASS` encoding cannot satisfy a known `VALUETYPE` encoding for the
+same named type. Unknown kind evidence may still compare with known evidence;
+the component does not fabricate a contradiction when one import surface lacks
+that discriminator.
 Every generated-name storage role in one execution snapshot resolves to one
 exact FieldDef. Hoisted-result remapping carries that identity with the
 reconstructed local mapping rather than indexing by field name alone.
@@ -417,18 +422,35 @@ and its second pair must name the exact closed state-machine type and actual
 `SetException` must be inside the canonical unfiltered outer
 `catch (System.Exception)` and receive an exact load of that clause's catch
 local. Any substitution, overwrite of that local in the catch body, or callback
-outside the catch declines.
+outside the catch declines. The callback must be a direct statement in the
+sole canonical catch-body block; nesting it beneath a conditional or another
+structured region does not prove exception completion.
 The `Completion callback ownership` gate independently inventories the
 compiler positives and exercises each correlation decline.
+
+Compiler state-machine mutations are authenticated protocol slots, not
+generated-name housekeeping. Each await point owns one exact nonnegative state
+transition and exact awaiter spill immediately before its suspension callback,
+then one exact spill reload, clear, and `-1` state transition on its resume
+path. Successful and exceptional completion each own one exact `-2` state
+write immediately before the corresponding callback. All state and awaiter
+fields retain exact FieldDef identity; suspension state values are unique.
+`MoveNext` never mutates builder or receiver storage. Every authenticated
+mutation is claimed in the physical-region ledger, and any additional state,
+awaiter, builder, receiver, or clear operation declines. The `Protocol mutation
+ownership` gate covers the compiler positives and unmatched-mutation
+negatives.
 
 The first predicate realization gate covers the accepted conditional recipe.
 Only a condition carrying the field-to-kickoff-parameter mapping required by
 the accepted recipe enters the input inventory; compiler state and awaiter
 branches do not. The matched branch sense is normalized to the source
 predicate, then paired with the reconstructed conditional by global predicate
-position and the same recursive typed expression identity. Compound and
-guarded predicates remain declines until recipes model their complete control
-and effect regions.
+position and the same recursive typed expression identity. The input condition
+and every correlated physical branch must load the same exact FieldDef as the
+kickoff parameter binding; a same-name field is not interchangeable. Compound
+and guarded predicates remain declines until recipes model their complete
+control and effect regions.
 
 The first guarded-effect realization gate covers the accepted `try`/`finally`
 recipe. The input effect must be one direct call under the exact compiler
@@ -483,7 +505,9 @@ stage's optional capabilities or active nested-pipeline stack.
 
 Planning failures do not become declines. A decline means the classic input was
 healthy and the component intentionally refused reconstruction for a named
-reason.
+reason. A failed stage application remains a `DecompilerResult` failure through
+printing and member-body production; it cannot become success-shaped source or
+permit declaration logic to recover an `async` modifier from metadata.
 
 ## Inverse domain
 
@@ -750,7 +774,7 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Focused owner boundary | `ClassicAsyncArchitectureTests` source inventory | Classic code scans Metadata relationships, imports by name/ordinal, defines physical diff/Research/CLI/harness policy, or references #4716–#4719 implementation types |
 | Owner-result preservation | Metadata fixture adapters over every #4669 result arm plus `StateMachineRelationshipIndex_PreservesClaimKindPerKickoff`, `StateMachineRelationshipIndex_BudgetFailureRetainsExactClaim`, `MixedRejectedClaimsClassifyEachKickoffExactly`, and `BudgetFailureWithClassicClaimRemainsInputFailure` | A merged rejection loses the exact kickoff/kind association; another kickoff's claim produces `RejectedRelationship`/`OmitAsync`; `BudgetExceeded` becomes decline despite exact claim evidence; or failure becomes empty success or a guessed candidate |
 | Exact host identity | Kickoff/execution/support fixtures with same-name, same-token, and byte-distinct same-MVID/same-row decoys, plus `KickoffLocalWithoutExactDefinitionIdentityDeclines` | Planning or application drops the owner guard, changes the requested host role, accepts a same-name foreign machine local, or uses another acquired module or MethodDef |
-| Planning totality | Healthy classic, non-classic, owner-failure, import-failure, and injected planner-failure fixtures | A request has no terminal result; failure becomes decline; or classic health is inferred from rendered text |
+| Planning totality | Healthy classic, non-classic, owner-failure, import-failure, injected planner-failure fixtures, and `ClassicAsyncStageFailureFlowsToBodyFailure` | A request has no terminal result; failure becomes decline or success-shaped printed output; or classic health is inferred from rendered text |
 | Stage-neutral plan | Raised/Lowered fixtures in both request orders | Recognition runs twice; decisions differ by request order; a plan retains stage-owned nodes/locals; or stage snapshots alias |
 | Registered pipeline preservation | Independent exact pass-list baselines plus accepted classic fixtures | The registered `IrPasses.Default` or `IrPasses.Lowered` sequence or required relative order changes without an intentional baseline update |
 | Planning-sequence derivation | Set/order equality against the registered prefix before `ClassicAsyncReconstructionPass` for kickoff planning and `ForReconstruction<ClassicAsyncReconstructionPass>()` for execution planning | Planning uses a copied list, omits a registered prerequisite, includes the requesting/application pass, replays a post-classic pass over the kickoff, or changes order |
@@ -758,10 +782,12 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Plan-region partition | Accepted compiler fixtures plus injected extra-region, external-entry, duplicate-consumption, overlap, and unconsumed-use negatives | A physical kickoff/execution region is neither consumed nor preserved, appears in both sets, is consumed twice, has an unmodeled entry/use, or is rewritten while preserved |
 | User-region realization | `CheckedRegionHasOnePrimaryRealization`, `AwaitedOperandsHaveOnePrimaryRealization`, `PredicateRegionHasOnePrimaryRealization`, `GuardedEffectRegionHasOnePrimaryRealization`, and the `RegionLedgerRejects*` negatives | A modeled user region has no realization or more than one, its typed semantics or position changes, or preserved physical material supplies reconstructed semantics |
 | Decline honesty | Narrow and non-narrow classic kickoff fixtures for every decline category | A healthy decline lacks a marker/reason; a narrow handoff survives; a non-narrow statement changes or disappears; or a failure fabricates a marker-only success |
-| Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, `SwappedKickoffParameterCopiesDecline`, `NarrowKickoffRequiresProtocolOrder`, `ParameterBindingRequiresExactFieldType`, `ParameterBindingRequiresExactFieldDefinition`, the foreign Create/Start/Task-accessor negatives, `BuilderStorageMustBeCanonical`, `SameExactTypeIncludesOrderedRecursiveCustomModifiers`, `CustomModifiedBuilderMemberMakesKickoffNonNarrow`, `ExactAddressedBuilderMemberMakesKickoffNonNarrow`, and `InconsistentBuilderMemberProvenanceMakesKickoffNonNarrow` | Shape resemblance, member names, reordered synchronous handoff, custom-modifier or provenance loss, unauthenticated definition coordinates, same-name FieldDef aliasing, inconsistent provenance, or a set of valid source arguments establishes ownership without exact builder protocol and field-to-argument identity |
+| Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, `SwappedKickoffParameterCopiesDecline`, `NarrowKickoffRequiresProtocolOrder`, `ParameterBindingRequiresExactFieldType`, `ParameterBindingRequiresExactFieldDefinition`, the foreign Create/Start/Task-accessor negatives, `BuilderStorageMustBeCanonical`, `SameExactTypeIncludesOrderedRecursiveCustomModifiers`, `SameExactTypeRejectsConflictingValueTypeHints`, `CustomModifiedBuilderMemberMakesKickoffNonNarrow`, `ExactAddressedBuilderMemberMakesKickoffNonNarrow`, and `InconsistentBuilderMemberProvenanceMakesKickoffNonNarrow` | Shape resemblance, member names, reordered synchronous handoff, custom-modifier, known class-versus-value-type, or provenance loss, unauthenticated definition coordinates, same-name FieldDef aliasing, inconsistent provenance, or a set of valid source arguments establishes ownership without exact builder protocol and field-to-argument identity |
 | Await source uniqueness | `AuthenticatedAwaitProtocolIsAccepted`, `AwaitProtocolRequiresExactCorrelatedMembers`, `CompletionBranchMustDefineAwaitCfgEdges`, `AwaitCompletionBranchRequiresMatchingPolarity`, `SequentialAwaiterLocalReuseHasUniqueReachingSources`, `CompetingAwaiterDefinitionsDecline`, `AwaitSourceReachingDefinitionsRejectBackedgeAfterUse`, and `AwaitSourceRejectsDiamondWithTwoResumeDefinitions` | A `GetResult` selects a source by tree order, accepts a missing/alternate/backedge/cross-container definition or multiple resume definitions, loses direct-versus-negated completion polarity, fails to authenticate the exact correlated `GetAwaiter`/terminating `IsCompleted`/suspension/`GetResult` protocol and one exact spill FieldDef, or rejects ordinary sequential reuse |
 | Result-use boundary | `PostAwaitResultReceiverCallDeclinesAtPartialFidelity`, `PostAwaitInvocationNodesAreUnverified`, `CompilerConstructorAfterAwaitDeclines`, `HoistedResultRemappingRequiresExactFieldDefinition`, and the direct/conversion cases in `FaithfulLegacyRecipeRemainsFullyReconstructed` | A post-await receiver or invocation/effect node is cloned without a region and realization, a hoisted load aliases another same-name FieldDef, a call in the separately inventoried awaited operand is rejected, or a verified direct/conversion/operator result is rejected |
-| Completion callback ownership | `AcceptedRecipesOwnEveryCompletionCallback`, `ExtraExactMachineSetResultIsRejected`, `CallbackBuilderMustMatchKickoffBuilder`, `CallbackBuilderRequiresExactFieldDefinition`, `ExceptionCompletionRequiresCanonicalCaughtValue`, `AwaitCallbackRequiresExactAwaitPointCorrelation`, and `CompletionCallbackRequiresExactExternalMemberIdentity` | An accepted recipe leaves a completion/suspension callback preserved, accepts an extra callback, loses custom-modifier/member provenance, substitutes an execution builder FieldDef not authenticated by the kickoff, forwards a substituted or overwritten value to `SetException`, moves exception completion outside the canonical catch, mismatches an awaiter or machine argument/type, or derives the compiler-positive inventory from the same permissive matcher |
+| Completion callback ownership | `AcceptedRecipesOwnEveryCompletionCallback`, `ExtraExactMachineSetResultIsRejected`, `CallbackBuilderMustMatchKickoffBuilder`, `CallbackBuilderRequiresExactFieldDefinition`, `ExceptionCompletionRequiresCanonicalCaughtValue`, `AwaitCallbackRequiresExactAwaitPointCorrelation`, and `CompletionCallbackRequiresExactExternalMemberIdentity` | An accepted recipe leaves a completion/suspension callback preserved, accepts an extra callback, loses custom-modifier/member provenance, substitutes an execution builder FieldDef not authenticated by the kickoff, forwards a substituted or overwritten value to `SetException`, moves exception completion outside or beneath a conditional in the canonical catch, mismatches an awaiter or machine argument/type, or derives the compiler-positive inventory from the same permissive matcher |
+| Protocol mutation ownership | `CompilerProtocolMutationsAreAuthenticated`, `UnmatchedProtocolMutationDeclines`, `AcceptedPlanPartitionsEveryPhysicalStatementSlot`, and the complete accepted compiler population | An accepted mutation is inferred from a generated name rather than exact state/awaiter identity and protocol position, a builder clear or extra state/awaiter write/clear survives, or a protocol mutation lacks a physical ownership receipt |
+| Predicate field identity | `ConditionalFieldCorrelationRequiresExactDefinition` plus the accepted conditional fixture and predicate realization gate | A same-name Boolean FieldDef can control a physical branch while reconstruction emits a different kickoff parameter |
 | Finally-state transition correlation | Compiler-produced `AwaitInTryFinally` positives plus `FinallyStateGuardRequiresExactMachineStateAndNoElse` | A guard accepts a foreign state field, else arm, user assignment, direct constant assignment, or uncoupled stack-slot transition |
 | Support preservation | Classic, runtime, iterator, custom-builder, and unrelated support-like methods | An Execution/Support host is not `NotApplicable`, broad builder-name recognition edits a method, or any support body/local changes |
 | Declaration disposition | Reconstructed, declined, not-applicable, owner/import/planner failure matrix | Reconstructed omits `IncludeAsync`, declined does not return `OmitAsync`, or a non-decision invents classic modifier policy |

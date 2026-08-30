@@ -649,6 +649,24 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
+    public void SameExactTypeRejectsConflictingValueTypeHints()
+    {
+        TypeRef classType = TypeRef.CoreLib(
+                "System",
+                "Exception")
+            .WithValueTypeHint(
+                ValueTypeHint.ReferenceType);
+        TypeRef valueType =
+            classType.WithValueTypeHint(
+                ValueTypeHint.ValueType);
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.SameExactType(
+                classType,
+                valueType));
+    }
+
+    [Fact]
     public void CompetingAwaiterDefinitionsDecline()
     {
         using var source = OpenClassicFixture();
@@ -1189,6 +1207,143 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
+    public void ConditionalFieldCorrelationRequiresExactDefinition()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitConditional");
+        LoadField field = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<ConditionalBranch>()
+                .SelectMany(static branch =>
+                    branch.Condition.Descendants
+                        .Prepend(branch.Condition))
+                .OfType<LoadField>(),
+            static load => load.Field.Name == "flag");
+        ExactFieldDefinitionAddress address =
+            Assert.IsType<ExactFieldDefinitionAddress>(
+                field.Field.ExactDefinitionAddress);
+        var alias = new LoadField(
+            field.Field with
+            {
+                ExactDefinitionAddress = address with
+                {
+                    MetadataToken = address.MetadataToken + 1,
+                },
+            },
+            new LoadArgument(
+                0,
+                "this",
+                moveNext.DeclaringType));
+
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .ContainsEquivalentField(
+                    field,
+                    field.Field));
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .ContainsEquivalentField(
+                    alias,
+                    field.Field));
+    }
+
+    [Fact]
+    public void CompilerProtocolMutationsAreAuthenticated()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitVoid");
+        ClassicAsyncReconstructionPass.Kickoff kickoff =
+            ExpectedKickoff(source, "AwaitVoid");
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .HasUnexpectedStore(
+                    moveNext,
+                    kickoff));
+    }
+
+    [Theory]
+    [InlineData("builder-clear")]
+    [InlineData("extra-state")]
+    [InlineData("extra-awaiter")]
+    [InlineData("unmatched-clear")]
+    public void UnmatchedProtocolMutationDeclines(
+        string mutation)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitVoid");
+        ClassicAsyncReconstructionPass.Kickoff kickoff =
+            ExpectedKickoff(source, "AwaitVoid");
+        ExpressionStatement completion = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<ExpressionStatement>(),
+            static statement =>
+                statement.Expression is Call
+                {
+                    Callee.Name: "SetResult",
+                });
+        var completionBlock = Assert.IsType<Block>(
+            completion.Parent);
+
+        IrNode expected = mutation switch
+        {
+            "builder-clear" => completion,
+            "extra-state" => Assert.IsType<StoreField>(
+                completionBlock.Children[
+                    completion.ChildIndex - 1]),
+            "extra-awaiter" => Assert.Single(
+                moveNext.DescendantsOutsideNestedFunctions
+                    .OfType<StoreField>(),
+                static store =>
+                    store.Field.Name.StartsWith(
+                        "<>u__",
+                        StringComparison.Ordinal)),
+            "unmatched-clear" => Assert.Single(
+                moveNext.DescendantsOutsideNestedFunctions
+                    .OfType<InitObject>()),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(mutation)),
+        };
+        var block = Assert.IsType<Block>(
+            expected.Parent);
+        IReadOnlyList<IrNode> children =
+            block.DetachChildren();
+        foreach (IrNode child in children)
+        {
+            if (ReferenceEquals(child, expected))
+            {
+                block.Add(mutation == "builder-clear"
+                    ? BuilderClear(expected)
+                    : expected.Clone());
+            }
+            block.Add(child);
+        }
+
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .HasUnexpectedStore(
+                    moveNext,
+                    kickoff));
+        moveNext.CheckInvariant();
+
+        static InitObject BuilderClear(IrNode node)
+        {
+            var statement =
+                Assert.IsType<ExpressionStatement>(node);
+            var callback = Assert.IsType<Call>(
+                statement.Expression);
+            var builder = Assert.IsType<LoadFieldAddress>(
+                callback.Arguments[0]);
+            return new InitObject(
+                builder.Field.Type,
+                (LoadFieldAddress)builder.Clone());
+        }
+    }
+
+    [Fact]
     public void BuilderStorageMustBeCanonical()
     {
         TypeRef modifier = TypeRef.CoreLib(
@@ -1614,6 +1769,7 @@ public class ClassicAsyncReconstructionPassTests
     [InlineData("null")]
     [InlineData("overwritten")]
     [InlineData("outside-catch")]
+    [InlineData("conditional")]
     public void ExceptionCompletionRequiresCanonicalCaughtValue(
         string mutation)
     {
@@ -1683,6 +1839,16 @@ public class ClassicAsyncReconstructionPassTests
                         if (ReferenceEquals(child, tryCatch))
                             outerBlock.Add(statement);
                     }
+                    break;
+                }
+            case "conditional":
+                {
+                    var thenBlock = new Block(0);
+                    thenBlock.Add(statement.Clone());
+                    statement.ReplaceWith(new IfStatement(
+                        new Constant(false, Boolean),
+                        thenBlock,
+                        elseArm: null));
                     break;
                 }
             default:
@@ -3562,6 +3728,13 @@ public class ClassicAsyncReconstructionPassTests
     static ClassicAsyncStorage ExpectedBuilderStorage(
         MetadataSource source,
         string methodName)
+        => ExpectedKickoff(
+            source,
+            methodName).BuilderStorage;
+
+    static ClassicAsyncReconstructionPass.Kickoff ExpectedKickoff(
+        MetadataSource source,
+        string methodName)
     {
         IrFunction kickoffFunction =
             PreparedKickoff(source, methodName);
@@ -3579,7 +3752,7 @@ public class ClassicAsyncReconstructionPassTests
                 out ClassicAsyncReconstructionPass.Kickoff kickoff,
                 out _,
                 out _));
-        return kickoff.BuilderStorage;
+        return kickoff;
     }
 
     static IrFunction PreparedMoveNext(

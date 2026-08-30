@@ -7,6 +7,44 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "RoundTrip")]
 public sealed class MemberBodyProducerAsyncTests
 {
+    [Fact]
+    public void ClassicAsyncStageFailureFlowsToBodyFailure()
+    {
+        var block = new Block(0);
+        block.Add(new Return(null));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "C"),
+            new MethodSignature(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body)
+        {
+            ClassicAsyncStageResult =
+                new ClassicAsyncStageResult.Failed(
+                    ClassicAsyncStage.Raised,
+                    new ClassicAsyncFailure(
+                        DiagnosticIds.InternalError,
+                        "classic planning failed")),
+        };
+
+        DecompilerResult result =
+            CSharpPrinter.Print(function, out _);
+
+        Assert.Null(result.Output);
+        Assert.Contains(
+            result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Id == DiagnosticIds.InternalError
+                && diagnostic.Message
+                    == "classic planning failed");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
