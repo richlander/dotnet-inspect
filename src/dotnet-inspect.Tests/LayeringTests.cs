@@ -385,6 +385,27 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void Decompiler_MetadataSourceRequiresFormatAdmission()
+    {
+        const string metadataSource =
+            "ILInspector.Decompiler.Pipeline.MetadataSource.";
+        string assembly =
+            typeof(ILInspector.Decompiler.Pipeline.MetadataSource)
+                .Assembly.Location;
+
+        Assert.DoesNotContain(
+            MetadataHasMetadataSites(assembly),
+            site => site.StartsWith(
+                metadataSource,
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            MetadataReaderConstructionSites(assembly),
+            site => site.StartsWith(
+                metadataSource,
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void MetadataPrimitives_MethodSemanticsReaderIsIsolated()
     {
         string project = Path.Combine(

@@ -290,31 +290,15 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(provenance);
 
         string fullPath = System.IO.Path.GetFullPath(path);
-        using FileStream stream = File.OpenRead(fullPath);
-        System.Reflection.PortableExecutable.PEReader? peReader = null;
+        FileStream? stream = null;
+        PEReader? peReader = null;
         try
         {
-            peReader =
-                new System.Reflection.PortableExecutable.PEReader(stream);
+            stream = File.OpenRead(fullPath);
+            peReader = new PEReader(stream);
             if (!MetadataFormatAdmission.AdmitImage(peReader))
-            {
-                peReader.Dispose();
                 return null;
-            }
-        }
-        catch (MalformedMetadataRootException)
-        {
-            peReader?.Dispose();
-            throw;
-        }
-        catch (BadImageFormatException)
-        {
-            peReader?.Dispose();
-            return null;
-        }
 
-        using (peReader)
-        {
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
                     MetadataFormatAdmission.GetMetadataReader(peReader));
@@ -327,6 +311,31 @@ public sealed class ResolvedAssemblyReference
                 () => File.OpenRead(fullPath),
                 provenance,
                 File.GetLastWriteTimeUtc(stream.SafeFileHandle));
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+            peReader = null;
+            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
+            stream = null;
+            throw;
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+            peReader = null;
+            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
+            stream = null;
+            throw;
+        }
+        finally
+        {
+            peReader?.Dispose();
+            stream?.Dispose();
         }
     }
 
@@ -387,39 +396,21 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(provenance);
 
-        Stream? source = openRead();
-        if (source is null || !source.CanRead)
-        {
-            source?.Dispose();
-            throw new IOException(
-                "The assembly opener did not return a readable stream.");
-        }
-
-        using Stream stream = source;
-        System.Reflection.PortableExecutable.PEReader? peReader = null;
+        Stream? stream = null;
+        PEReader? peReader = null;
         try
         {
-            peReader =
-                new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            stream = openRead();
+            if (stream is null || !stream.CanRead)
             {
-                peReader.Dispose();
-                return null;
+                throw new IOException(
+                    "The assembly opener did not return a readable stream.");
             }
-        }
-        catch (MalformedMetadataRootException)
-        {
-            peReader?.Dispose();
-            throw;
-        }
-        catch (BadImageFormatException)
-        {
-            peReader?.Dispose();
-            return null;
-        }
 
-        using (peReader)
-        {
+            peReader = new PEReader(stream);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
+                return null;
+
             MetadataReader metadata =
                 MetadataFormatAdmission.GetMetadataReader(peReader);
             if (artifactRegistration is not null
@@ -449,6 +440,31 @@ public sealed class ResolvedAssemblyReference
                 openRead,
                 provenance,
                 lastWriteTimeUtc);
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+            peReader = null;
+            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
+            stream = null;
+            throw;
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+            peReader = null;
+            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
+            stream = null;
+            throw;
+        }
+        finally
+        {
+            peReader?.Dispose();
+            stream?.Dispose();
         }
     }
 

@@ -179,6 +179,31 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void CreateFromStreamIfManaged_UnsupportedMetadataCleansUpBothOwners()
+    {
+        byte[] image = BuildUnsupportedMetadataAssembly();
+        DisposeCountingMemoryStream? opened = null;
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => opened = new DisposeCountingMemoryStream(image),
+                AssemblyResolutionProvenance.Local("test")));
+
+        Assert.Equal(2, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void CreateFromStreamIfManaged_CleanupCannotReplaceUnsupportedFailure()
+    {
+        byte[] image = BuildUnsupportedMetadataAssembly();
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new ThrowingDisposeMemoryStream(image),
+                AssemblyResolutionProvenance.Local("test")));
+    }
+
+    [Fact]
     public void ArtifactDescriptor_PreservesRegistrationAndBindsNonEmptyMvid()
     {
         Guid mvid = Guid.NewGuid();
@@ -1647,6 +1672,41 @@ public class InspectionAcquisitionPlanTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildUnsupportedMetadataAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Unsupported.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(
+            metadata,
+            "WindowsRuntime 1.4;CLR v4.0.30319");
+    }
+
     static byte[] BuildManyTypesAssembly(int typeCount)
     {
         var metadata = new MetadataBuilder();
@@ -1687,11 +1747,16 @@ public class InspectionAcquisitionPlanTests
         return Serialize(metadata);
     }
 
-    static byte[] Serialize(MetadataBuilder metadata)
+    static byte[] Serialize(
+        MetadataBuilder metadata,
+        string? metadataVersion = null)
     {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
-            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new MetadataRootBuilder(
+                metadata,
+                metadataVersion,
+                suppressValidation: true),
             new BlobBuilder(),
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
@@ -1738,6 +1803,30 @@ public class InspectionAcquisitionPlanTests
                 _disposed = true;
                 disposed();
             }
+            base.Dispose(disposing);
+        }
+    }
+
+    sealed class DisposeCountingMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        bool _innerDisposed;
+
+        public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                if (!_innerDisposed)
+                {
+                    _innerDisposed = true;
+                    base.Dispose(disposing);
+                }
+                return;
+            }
+
             base.Dispose(disposing);
         }
     }

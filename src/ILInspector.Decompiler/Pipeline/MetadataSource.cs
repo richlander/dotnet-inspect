@@ -228,10 +228,10 @@ public sealed class MetadataSource : IDisposable
         try
         {
             peReader = new PEReader(image);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {path}");
 
-            var reader = peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
@@ -294,9 +294,9 @@ public sealed class MetadataSource : IDisposable
         try
         {
             peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {path}");
-            var reader = peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
@@ -362,9 +362,9 @@ public sealed class MetadataSource : IDisposable
         try
         {
             peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {assembly.Identity.Name}");
-            var reader = peReader.GetMetadataReader();
+            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : assembly.Identity.Name;

@@ -234,7 +234,10 @@ Metadata-owned session and projection adoption is separately gated by
 admission cases in `MetadataImageFormatClassifierTests`.
 `LayeringTests.Metadata_MetadataPredicatesRequireFormatAdmission` prevents a
 raw `PEReader.HasMetadata` predicate from running before that admission in the
-Metadata assembly. Browser projection
+Metadata assembly.
+`LayeringTests.Decompiler_MetadataSourceRequiresFormatAdmission` applies the
+same compiled-IL closure to Decompiler `MetadataSource` predicates and reader
+construction. Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.
 These focused gates do not close `MDP017`'s separately planned cache,
