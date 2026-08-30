@@ -11,12 +11,14 @@ resets on a timed-out wait, described by
 `CoreCache.cs` serializes every control operation (`RegisterVersionedCategory`,
 `Initialize`, `Clear`, `CancelAndWaitForMaintenance`,
 `RequestVersionedCategoryCleanupAsync`) under one process-wide lock, so those
-operations never interleave with each other. The only genuine concurrency left
-in the maintenance lifecycle is between that single lock-holding control
-thread and the independent background `Task.Run` bodies that delete
-directories and record their result. The model isolates exactly that
-interaction: one writer action per completed directory deletion, and one
-reader action per report.
+operations never interleave with each other. The genuine concurrency this
+model isolates is between that single lock-holding control thread and the
+independent background `Task.Run` bodies that delete directories and record
+their result; a further, distinct concurrency exposure -- an outstanding
+`RequestVersionedCategoryCleanupAsync` aggregate task's continuation racing a
+later generation transition -- exists but is out of this model's scope (see
+Non-claims). The model isolates the writer/reader interaction: one writer
+action per completed directory deletion, and one reader action per report.
 
 The reader action models `CancelAndWaitForMaintenance` specifically, and only
 the case where its wait times out: `Clear` always waits for its triggered
@@ -61,6 +63,9 @@ The model does not cover:
   newly-scheduled background task (a second, distinct, self-correcting
   exposure since its `Snapshot()` read doesn't reset the counters -- see the
   design doc's "Maintenance progress accounting" section);
+- a generation transition's `TakeSnapshot()` racing an already-outstanding
+  aggregate task's `Snapshot()` (a third, distinct, self-correcting exposure
+  for the same reason -- see the design doc);
 - `CoreCache`'s non-maintenance read/write cache paths;
 - `CacheTelemetry`; or
 - thread scheduling beyond the writer/reader interleaving above.

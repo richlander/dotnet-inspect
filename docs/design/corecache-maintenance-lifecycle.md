@@ -136,11 +136,33 @@ background task against the *same* `CacheMaintenanceProgress` instance, but
 is not part of the `tasks` array the first call already captured -- so the
 first task's eventual `progress.Snapshot()` can race that new task's
 `RecordDeletion`. Unlike the `CancelAndWaitForMaintenance` case, `Snapshot()`
-does not reset the counters, so a torn read here is transient: a later
-`Snapshot`/`TakeSnapshot` call still observes the complete, untorn total.
-This model and its `Safety`/`Liveness` properties do not cover this second
-reader path (see the model's Non-claims); it is noted here as a known,
-self-correcting gap in this contract's coverage, not a proven defect.
+does not reset the counters, so this torn read does not permanently split
+the stored totals: once every concurrent writer has become quiescent, a
+subsequent `Snapshot`/`TakeSnapshot` call observes the complete, untorn
+total -- but no specific *later* call is itself guaranteed to land after
+that quiescent point, and can tear again in the same way.
+
+**A third, distinct exposure: a generation transition's `TakeSnapshot` can
+race an already-outstanding aggregate task's `Snapshot`.** `Initialize` and
+`StartNewMaintenanceGenerationIfCanceled` each wait only for
+`s_maintenanceTasks` (the per-key cleanup tasks) via
+`WaitForMaintenanceTasksBestEffort` before calling `TakeSnapshot()` on the
+outgoing generation's progress object -- neither waits for an outstanding
+`s_maintenanceTask` (the aggregate task `RequestVersionedCategoryCleanupAsync`
+returned to some other caller). `AwaitMaintenanceAsync`'s continuation calls
+`progress.Snapshot()` against that same progress object after its own
+`await Task.WhenAll(tasks)` completes, but that continuation's actual resumption
+can be scheduled to run after the transition's synchronous wait and
+`TakeSnapshot()` have already reset the counters -- so the aggregate task's
+caller can observe a torn `(bytes, 0)` or `(0, directories)` result. The
+transition's own carry-forward remains correct (it captures the full state
+via `TakeSnapshot()` before any further writer can touch the new progress
+object); only the *outstanding aggregate task's* result can tear.
+
+This model and its `Safety`/`Liveness` properties do not cover either reader
+path (see the model's Non-claims); both are noted here as known,
+self-correcting-once-quiescent gaps in this contract's coverage, not proven
+defects requiring a fix on their own.
 
 **Recommendation:** guard `CacheMaintenanceProgress`'s four methods
 (`Record`, `RecordDeletion`, `Snapshot`, `TakeSnapshot`) with a single lock (or
