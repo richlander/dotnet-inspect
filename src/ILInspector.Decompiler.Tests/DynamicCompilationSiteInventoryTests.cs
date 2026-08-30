@@ -44,6 +44,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["NonFiniteConstantPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced non-finite constant source."),
             ["NestedScopeNameCollisionTests.cs"] = (1, "Product-output validity: compiles rendered nested-scope collision source."),
             ["PrinterPrecedenceTests.cs"] = (1, "Product-output validity: compiles printer-produced precedence source per case."),
+            ["TypeRefDecoderRecursionTests.cs"] = (1, "Malformed-input product-output validity: compiles invalid-rank renderings to prove they are rejected rather than binding as another array shape."),
             ["UnboxValueReadPassTests.cs"] = (1, "Product-output validity: compiles the normalized unbox value-read source (cast vs Unsafe.Unbox) per case."),
             ["IrImporterTests.cs"] = (1, "Product-output validity: compiles synthesized source feeding the IR importer."),
             ["MemberBodyProducerUnionTests.cs"] = (1, "Product-output validity: recompiles member-body producer output per rule set."),
@@ -128,9 +129,12 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #4607 adds CSharpPrinterSemanticSpacingTests.cs (1 site): recompiles
     //     nested-function label scopes and structured lambda bodies containing
     //     printer line comments.
-    //   Combined: 43 files, 53 sites.
-    const int ExpectedDynamicFiles = 43;
-    const int ExpectedDynamicSites = 53;
+    //   #4732 adds TypeRefDecoderRecursionTests.cs (1 site): compiles the
+    //     Decompiler's bounded invalid-rank output and proves it cannot bind as
+    //     another array shape.
+    //   Combined: 44 files, 54 sites.
+    const int ExpectedDynamicFiles = 44;
+    const int ExpectedDynamicSites = 54;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
