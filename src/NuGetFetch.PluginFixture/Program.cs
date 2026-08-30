@@ -31,13 +31,6 @@ internal static class Program
         string configurationPath = Path.ChangeExtension(assemblyPath, ".json");
         PluginFixtureConfiguration configuration =
             await ReadConfigurationAsync(configurationPath);
-        bool traceOutputClosure =
-            OperatingSystem.IsLinux()
-            && (configuration.CredentialBehavior == PluginCredentialBehavior.CloseOutput
-                || configuration.AfterSetLogLevelBehavior
-                    is PluginAfterSetLogLevelBehavior.CloseOutput
-                    or PluginAfterSetLogLevelBehavior.WaitForCloseMarkerThenCloseOutput);
-        TraceOutputDescriptors(traceOutputClosure, "before worker");
         string hostPath = Environment.ProcessPath
             ?? throw new InvalidOperationException(
                 "Could not determine the plugin fixture host path.");
@@ -54,11 +47,7 @@ internal static class Program
                 "Could not start the plugin fixture worker.");
         // The worker can end the output stream while this launched process stays alive.
         CloseStandardOutput();
-        TraceOutputDescriptors(traceOutputClosure, "after supervisor close");
         await worker.WaitForExitAsync();
-        TraceOutputDescriptors(
-            traceOutputClosure,
-            $"after worker exit {worker.ExitCode}");
         if (worker.ExitCode != OutputClosedExitCode)
         {
             return worker.ExitCode;
@@ -79,27 +68,6 @@ internal static class Program
             detectEncodingFromByteOrderMarks: false);
         await DrainInputAsync(input, record);
         return 0;
-    }
-
-    private static void TraceOutputDescriptors(bool enabled, string stage)
-    {
-        if (!enabled)
-        {
-            return;
-        }
-
-        string[] descriptors = Directory.GetFiles("/proc/self/fd")
-            .Select(path =>
-            {
-                FileSystemInfo? target = File.ResolveLinkTarget(
-                    path,
-                    returnFinalTarget: false);
-                return $"{Path.GetFileName(path)}={target?.FullName ?? "?"}";
-            })
-            .ToArray();
-        WriteDiagnostic(
-            $"fixture supervisor {Environment.ProcessId} {stage}: " +
-            string.Join(", ", descriptors));
     }
 
     private static async Task<int> RunWorkerAsync(string configurationPath)
@@ -179,8 +147,6 @@ internal static class Program
                             input,
                             output))
                     {
-                        WriteDiagnostic(
-                            $"fixture worker {Environment.ProcessId} closing output");
                         return OutputClosedExitCode;
                     }
                     break;
@@ -199,8 +165,6 @@ internal static class Program
                             requestId);
                     if (result == CredentialActionResult.OutputClosed)
                     {
-                        WriteDiagnostic(
-                            $"fixture worker {Environment.ProcessId} closing output");
                         return OutputClosedExitCode;
                     }
                     if (result == CredentialActionResult.Exit)
@@ -401,15 +365,11 @@ internal static class Program
         }
         else if (OperatingSystem.IsMacOS())
         {
-            error = CloseMacOS(1) == 0
-                ? 0
-                : Marshal.GetLastPInvokeError();
+            error = CloseMatchingUnixDescriptors(isMacOS: true);
         }
         else
         {
-            error = CloseUnix(1) == 0
-                ? 0
-                : Marshal.GetLastPInvokeError();
+            error = CloseMatchingUnixDescriptors(isMacOS: false);
         }
 
         if (error != 0)
@@ -419,6 +379,47 @@ internal static class Program
         }
     }
 
+    private static int CloseMatchingUnixDescriptors(bool isMacOS)
+    {
+        const int maxDescriptor = 1024;
+        if (FStat(isMacOS, 1, out UnixStat outputStat) != 0)
+        {
+            return Marshal.GetLastPInvokeError();
+        }
+
+        List<int> matches = [];
+        for (int descriptor = 1; descriptor < maxDescriptor; descriptor++)
+        {
+            if (FStat(isMacOS, descriptor, out UnixStat candidateStat) == 0
+                && outputStat.Device == candidateStat.Device
+                && outputStat.Inode == candidateStat.Inode)
+            {
+                matches.Add(descriptor);
+            }
+        }
+
+        foreach (int descriptor in matches)
+        {
+            int result = isMacOS
+                ? CloseMacOS(descriptor)
+                : CloseUnix(descriptor);
+            if (result != 0)
+            {
+                return Marshal.GetLastPInvokeError();
+            }
+        }
+
+        return 0;
+    }
+
+    private static int FStat(
+        bool isMacOS,
+        int descriptor,
+        out UnixStat stat) =>
+        isMacOS
+            ? FStatMacOS(descriptor, out stat)
+            : FStatUnix(descriptor, out stat);
+
     private static async Task DrainInputAsync(
         StreamReader input,
         StreamWriter record)
@@ -427,17 +428,6 @@ internal static class Program
         {
             await record.WriteLineAsync(line);
         }
-    }
-
-    private static void WriteDiagnostic(string message)
-    {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
-
-        byte[] bytes = Utf8NoBom.GetBytes(message + Environment.NewLine);
-        _ = WriteUnix(2, bytes, (nuint)bytes.Length);
     }
 
     private static string ReadPartialStringProperty(string json, string property)
@@ -468,6 +458,17 @@ internal static class Program
         Exit,
     }
 
+    // Linux and Darwin stat layouts both place the device at 0 and inode at 8.
+    [StructLayout(LayoutKind.Explicit, Size = 512)]
+    private struct UnixStat
+    {
+        [FieldOffset(0)]
+        internal uint Device;
+
+        [FieldOffset(8)]
+        internal ulong Inode;
+    }
+
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CloseHandle(nint handle);
@@ -478,12 +479,16 @@ internal static class Program
     [DllImport("libc", EntryPoint = "close", SetLastError = true)]
     private static extern int CloseUnix(int fileDescriptor);
 
-    [DllImport("libc", EntryPoint = "write")]
-    private static extern nint WriteUnix(
+    [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
+    private static extern int FStatUnix(
         int fileDescriptor,
-        byte[] buffer,
-        nuint count);
+        out UnixStat stat);
 
     [DllImport("libSystem.B.dylib", EntryPoint = "close", SetLastError = true)]
     private static extern int CloseMacOS(int fileDescriptor);
+
+    [DllImport("libSystem.B.dylib", EntryPoint = "fstat", SetLastError = true)]
+    private static extern int FStatMacOS(
+        int fileDescriptor,
+        out UnixStat stat);
 }
