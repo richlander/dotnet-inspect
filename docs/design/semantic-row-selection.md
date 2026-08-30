@@ -663,3 +663,8 @@ complete-sequence reference executor. Delegation follows that owner's
 residual path. Any later extension that transports those failures must also
 compare strict windows before and after lenient stages, reached-stage resolver
 cardinality, and callback/failure precedence.
+
+If this owner issues a row-source execution permit, it declares the permit's
+failure-observability value and proves that declaration with
+`PermitFailureObservabilityIsOwnerDeclared` against this design's typed
+failure, resolver, comparer, and callback contract.

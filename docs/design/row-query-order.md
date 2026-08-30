@@ -238,6 +238,11 @@ define that optimization or its evidence. Delegation follows that owner's
 `OwnerFailureObservable` operations remain on the reference or row-handoff
 residual path.
 
+If this owner issues a row-source execution permit, it declares the permit's
+failure-observability value and proves that declaration with
+`PermitFailureObservabilityIsOwnerDeclared` against this design's resolution,
+callback, exception, ordering, and failure-precedence contract.
+
 Membership projection is outside this owner and supplies the rows entering this
 sequence. Cell projection, Count, and payload operations are also outside this
 owner.
