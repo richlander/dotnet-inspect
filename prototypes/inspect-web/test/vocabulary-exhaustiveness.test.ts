@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,6 +87,17 @@ function compileWidenedSource(): WidenedCompilation {
   try {
     cpSync(join(projectRoot, "src"), join(compilationRoot, "src"), { recursive: true });
     cpSync(join(projectRoot, "tsconfig.json"), join(compilationRoot, "tsconfig.json"));
+    // `src/` dynamically imports bundled packages by bare specifier, so the throwaway copy
+    // needs the same module resolution the real project has. Without this the compile fails
+    // with TS2307 and the exhaustiveness evidence below is invalid rather than merely noisy.
+    //
+    // A Windows "dir" symlink needs Developer Mode or an elevated shell, which would make this
+    // test fail for an ordinary Windows checkout. A junction needs no privilege and resolves
+    // the same way for a directory target that is already absolute.
+    symlinkSync(
+      join(projectRoot, "node_modules"),
+      join(compilationRoot, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir");
     cpSync(
       join(projectRoot, "..", "annotated-source-viewer", "src"),
       join(scratch, "annotated-source-viewer", "src"),

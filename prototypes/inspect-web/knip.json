@@ -9,5 +9,10 @@
     "test/**/*.ts",
     "scripts/*.ts"
   ],
-  "ignore": ["engine/wwwroot/inspect-web-engine.js"]
+  "ignore": [
+    "engine/wwwroot/inspect-web-engine.js"
+  ],
+  "ignoreDependencies": [
+    "type-fest"
+  ]
 }

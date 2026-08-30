@@ -1,3 +1,5 @@
+using ILInspector.Metadata;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -255,7 +257,7 @@ public static class FidelityRemarks
             TypeRefKind.Definition => type.Namespace.Length == 0 ? type.Name : $"{type.Namespace}.{type.Name}",
             TypeRefKind.GenericInstance => $"{RawTypeText(type.ElementType!)}<{string.Join(", ", type.TypeArguments.Select(RawTypeText))}>",
             TypeRefKind.SzArray => $"{RawTypeText(type.ElementType!)}[]",
-            TypeRefKind.Array => $"{RawTypeText(type.ElementType!)}[{new string(',', type.Rank - 1)}]",
+            TypeRefKind.Array => $"{RawTypeText(type.ElementType!)}[{TypeRef.FormatArrayDimensions(type.Rank)}]",
             TypeRefKind.ByRef => $"ref {RawTypeText(type.ElementType!)}",
             TypeRefKind.Pointer => $"{RawTypeText(type.ElementType!)}*",
             TypeRefKind.Pinned => $"pinned {RawTypeText(type.ElementType!)}",

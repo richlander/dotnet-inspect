@@ -250,10 +250,12 @@ Shape reducers do not revise operation arity. In particular:
   inspection. The explicit transition remains `package Package@version`.
 
 The same rule applies to `timeline`. `--count` can reduce an already assembled
-Timeline table; it cannot probe additional cells and rejects item/range
-windows. `--print` can print only payloads already carried or explicitly
-referenced by evaluated rows; it cannot turn unevaluated rows into implicit
-acquisition.
+Timeline table and cannot probe additional cells; semantic item/range
+composition follows
+[Section-row shaping](section-row-shaping.md#count-semantics), while final CLI
+conflicts remain L3-owned. `--print` can print only payloads already carried or
+explicitly referenced by evaluated rows; it cannot turn unevaluated rows into
+implicit acquisition.
 
 The current package `--versions` path is implemented as a specialized early-exit
 list writer, so some shared reducers and projectors are not yet honored
