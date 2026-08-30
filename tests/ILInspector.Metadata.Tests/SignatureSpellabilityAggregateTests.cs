@@ -1417,6 +1417,47 @@ public sealed partial class SignatureSpellabilityAggregateTests
     }
 
     [Fact]
+    public void SignatureSpellability_ChargesResolutionScopeCulture()
+    {
+        // A reference's culture is a heap string like its name, charged
+        // separately. With the name kept short, only the culture charge can
+        // account for the cost, so a rejection here is attributable to it.
+        SyntheticAssembly source = BuildOversizedScopeSource(
+            "OversizedScopeCulture",
+            scopeNameLength: 4,
+            scopeCultureLength: 512 * 1024);
+        using var catalog = new TypeResolutionCatalog();
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(source.Image),
+                            source.Coordinates))).Failure);
+    }
+
+    [Fact]
+    public void SignatureSpellability_ChargesModuleResolutionScopeName()
+    {
+        // A TypeRef can be scoped to a ModuleRef instead of an AssemblyRef,
+        // which reaches the heap through a different projection method. Its
+        // name is author-sized too and must be charged before it is read.
+        SyntheticAssembly source = BuildOversizedModuleScopeSource(
+            "OversizedModuleScopeName",
+            moduleNameLength: 512 * 1024);
+        using var catalog = new TypeResolutionCatalog();
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(source.Image),
+                            source.Coordinates))).Failure);
+    }
+
+    [Fact]
     public void SignatureSpellability_BoundsDistinctNameMaterialization()
     {
         // Distinct names cannot be served from the projection cache, so the
@@ -2128,18 +2169,53 @@ public sealed partial class SignatureSpellabilityAggregateTests
 
     static SyntheticAssembly BuildOversizedScopeNameSource(
         string assemblyName,
-        int scopeNameLength)
+        int scopeNameLength) =>
+        BuildOversizedScopeSource(assemblyName, scopeNameLength, 0);
+
+    // Name and culture are separate heap strings reached through separate
+    // charges, so sizing them independently lets a test put the whole cost on
+    // exactly one of them.
+    static SyntheticAssembly BuildOversizedScopeSource(
+        string assemblyName,
+        int scopeNameLength,
+        int scopeCultureLength)
     {
         MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
         AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
             metadata.GetOrAddString(new string('E', scopeNameLength)),
             new Version(1, 0, 0, 0),
-            default,
+            scopeCultureLength == 0
+                ? default
+                : metadata.GetOrAddString(
+                    new string('c', scopeCultureLength)),
             default,
             default,
             default);
         TypeReferenceHandle reference = metadata.AddTypeReference(
             assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        var returnType = new BlobBuilder();
+        returnType.WriteByte(0x1f);                 // ELEMENT_TYPE_CMOD_REQD
+        returnType.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(reference));
+        returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
+        TypeDefinitionHandle declaring = AddDeclaringType(metadata);
+        MethodDefinitionHandle method = AddMethod(
+            metadata,
+            MethodSignature(returnType));
+        return Synthetic(metadata, mvid, declaring, method);
+    }
+
+    static SyntheticAssembly BuildOversizedModuleScopeSource(
+        string assemblyName,
+        int moduleNameLength)
+    {
+        MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
+        ModuleReferenceHandle module = metadata.AddModuleReference(
+            metadata.GetOrAddString(new string('M', moduleNameLength)));
+        TypeReferenceHandle reference = metadata.AddTypeReference(
+            module,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("T"));
         var returnType = new BlobBuilder();

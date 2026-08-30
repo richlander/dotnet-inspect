@@ -37,6 +37,14 @@ public class SignatureSpellabilityBudgetBoundaryTests
         "From",
     };
 
+    // Methods that resolve a scope by charging and then materializing. Both
+    // requirements of the ordering gate below apply to each of them.
+    static readonly string[] ChargingScopeMethods =
+    {
+        "ProjectScope",
+        "ModuleScope",
+    };
+
     // The only methods permitted to materialize. Each charges the storage it is
     // about to read against the ledger before reading it.
     static readonly string[] ChargedMethods =
@@ -49,32 +57,57 @@ public class SignatureSpellabilityBudgetBoundaryTests
     [Fact]
     public void ProviderMaterializesMetadataOnlyInsideChargedMethods()
     {
+        // Enumerating methods and inspecting their reads is the wrong
+        // direction: it can only reject a read it happens to visit, so a read
+        // that moves into a property, accessor, constructor, field
+        // initializer, or local function is not judged at all -- it is simply
+        // never seen, and absence of a violation reads as compliance.
+        //
+        // Enumerate the reads instead and demand that each one justify its
+        // location. A read is permitted only when the member enclosing it is
+        // one of the named charging methods; every other host, whatever its
+        // kind, is a violation. Relocating a read out of a charging method now
+        // fails the gate rather than escaping it.
         TypeDeclarationSyntax provider = Provider();
         var violations = new List<string>();
-        foreach (MethodDeclarationSyntax method in
-            provider.Members.OfType<MethodDeclarationSyntax>())
+        foreach (InvocationExpressionSyntax invocation in
+            provider.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
-            if (ChargedMethods.Contains(method.Identifier.ValueText))
+            if (invocation.Expression is not MemberAccessExpressionSyntax access
+                || !MaterializingMembers.Contains(
+                    access.Name.Identifier.ValueText))
             {
                 continue;
             }
 
-            foreach (InvocationExpressionSyntax invocation in
-                method.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            MemberDeclarationSyntax? host = invocation
+                .Ancestors()
+                .OfType<MemberDeclarationSyntax>()
+                .FirstOrDefault();
+            bool permitted = host is MethodDeclarationSyntax method
+                && ChargedMethods.Contains(method.Identifier.ValueText);
+            if (!permitted)
             {
-                if (invocation.Expression is MemberAccessExpressionSyntax access
-                    && MaterializingMembers.Contains(
-                        access.Name.Identifier.ValueText))
-                {
-                    violations.Add(
-                        $"{method.Identifier.ValueText} -> "
-                        + access.Name.Identifier.ValueText);
-                }
+                violations.Add(
+                    $"{access.Name.Identifier.ValueText} in "
+                    + $"{host?.Kind().ToString() ?? "<no member>"} "
+                    + $"'{HostName(host)}'");
             }
         }
 
         Assert.Empty(violations);
     }
+
+    static string HostName(MemberDeclarationSyntax? host) => host switch
+    {
+        MethodDeclarationSyntax method => method.Identifier.ValueText,
+        PropertyDeclarationSyntax property => property.Identifier.ValueText,
+        ConstructorDeclarationSyntax constructor =>
+            constructor.Identifier.ValueText,
+        BaseFieldDeclarationSyntax field =>
+            field.Declaration.Variables.First().Identifier.ValueText,
+        _ => host?.ToString() ?? "<none>",
+    };
 
     // Members of an AssemblyReference whose value is stored inline in the
     // table row rather than in a heap. Reading one copies no author-sized
@@ -111,41 +144,77 @@ public class SignatureSpellabilityBudgetBoundaryTests
     }
 
     [Fact]
-    public void ModuleScopeChargesEachHandleBeforeMaterializingIt()
+    public void ChargesPrecedeMaterializationInEveryChargingMethod()
     {
-        // ModuleScope materializes directly rather than delegating, so the
-        // pairing is checkable here: every materializing read must be preceded
-        // by a charge naming the same handle. Requiring the charge to come
-        // first is the point -- charging afterwards prices work already done.
-        MethodDeclarationSyntax method = ProviderMethod("ModuleScope");
+        // Set equality alone does not price anything: charging after the work
+        // is done still reads attacker-sized storage before the ledger can
+        // refuse it. Ordering is the property, and it has to hold for the
+        // delegating method too, not just the one that materializes inline.
+        //
+        // Two requirements, because materialization takes two shapes here.
+        // ModuleScope names the handle it reads, so the charge naming that
+        // same handle must come first. ProjectScope hands the handle to
+        // AssemblyReferenceIdentity, which materializes out of sight, so the
+        // handle is not a syntactic argument -- there the requirement is that
+        // no materialization begins until every charge in the method is paid.
         var violations = new List<string>();
-        foreach (InvocationExpressionSyntax invocation in
-            method.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        foreach (string methodName in ChargingScopeMethods)
         {
-            if (invocation.Expression is not MemberAccessExpressionSyntax access
-                || !MaterializingMembers.Contains(
-                    access.Name.Identifier.ValueText)
-                || invocation.ArgumentList.Arguments.Count != 1)
-            {
-                continue;
-            }
-
-            string handle =
-                invocation.ArgumentList.Arguments[0].Expression.ToString();
-            bool chargedFirst = method
+            MethodDeclarationSyntax method = ProviderMethod(methodName);
+            InvocationExpressionSyntax[] charges = method
                 .DescendantNodes()
                 .OfType<InvocationExpressionSyntax>()
-                .Any(candidate =>
-                    candidate.Expression is IdentifierNameSyntax identifier
+                .Where(invocation =>
+                    invocation.Expression is IdentifierNameSyntax identifier
                     && identifier.Identifier.ValueText == "ChargeStorage"
-                    && candidate.ArgumentList.Arguments.Count == 2
-                    && candidate.ArgumentList.Arguments[1].Expression
-                        .ToString() == handle
-                    && candidate.SpanStart < invocation.SpanStart);
-            if (!chargedFirst)
+                    && invocation.ArgumentList.Arguments.Count == 2)
+                .ToArray();
+            InvocationExpressionSyntax[] materializations = method
+                .DescendantNodes()
+                .OfType<InvocationExpressionSyntax>()
+                .Where(invocation =>
+                    invocation.Expression is MemberAccessExpressionSyntax access
+                    && MaterializingMembers.Contains(
+                        access.Name.Identifier.ValueText))
+                .ToArray();
+
+            // A method that charges but never materializes, or materializes but
+            // never charges, means this gate is aimed at the wrong method.
+            Assert.NotEmpty(charges);
+            Assert.NotEmpty(materializations);
+
+            foreach (InvocationExpressionSyntax materialization in
+                materializations)
             {
-                violations.Add(
-                    $"{access.Name.Identifier.ValueText}({handle})");
+                string description = materialization.Expression.ToString();
+                foreach (InvocationExpressionSyntax charge in charges)
+                {
+                    if (charge.SpanStart > materialization.SpanStart)
+                    {
+                        violations.Add(
+                            $"{methodName}: {description} materializes before "
+                            + $"{charge.ArgumentList.Arguments[1].Expression} "
+                            + "is charged");
+                    }
+                }
+
+                if (materialization.ArgumentList.Arguments.Count != 1)
+                {
+                    continue;
+                }
+
+                string handle = materialization
+                    .ArgumentList.Arguments[0].Expression.ToString();
+                bool chargedFirst = charges.Any(charge =>
+                    charge.ArgumentList.Arguments[1].Expression.ToString()
+                        == handle
+                    && charge.SpanStart < materialization.SpanStart);
+                if (!chargedFirst)
+                {
+                    violations.Add(
+                        $"{methodName}: {description}({handle}) has no earlier "
+                        + "charge naming that handle");
+                }
             }
         }
 
