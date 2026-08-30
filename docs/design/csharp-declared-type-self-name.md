@@ -80,9 +80,10 @@ receipt, namespace requirement, compatibility text, or diagnostic prose.
 
 ### Exact
 
-Exact admission removes a generic-arity suffix only when
-`MetadataNameArity` recognizes the canonical suffix and the authoritative leaf
-count agrees. The remaining leaf must satisfy CSharpText's full Unicode
+Exact admission requires the canonical metadata arity to equal the
+authoritative introduced count: a positive count requires its matching suffix,
+and a zero count requires no suffix. It removes that suffix only after the
+equality is proven. The remaining leaf must satisfy CSharpText's full Unicode
 identifier grammar. A declaration keyword is represented with the ordinary
 `@` prefix.
 
@@ -111,8 +112,8 @@ source publication.
 Admission is unrepresentable when:
 
 - the leaf is not a legal C# identifier after valid keyword escaping;
-- a claimed arity suffix is malformed or disagrees with the authoritative leaf
-  count; or
+- the canonical arity suffix is missing, malformed, or disagrees with the
+  authoritative leaf count; or
 - the leaf is not eligible for the bounded generated-substitute policy.
 
 Identity-display escaping such as `A\+B`, inert-text containment, or replacement
