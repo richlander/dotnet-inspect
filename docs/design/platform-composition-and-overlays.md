@@ -596,13 +596,15 @@ The role-binding policy consumes the Metadata-owned typed no-candidate
 disposition established by
 [#5210](https://github.com/richlander/dotnet-inspect/issues/5210); this design
 does not define or reconstruct name ownership. Only the owner-issued
-`NoNameOwner` disposition contributes no candidate and permits otherwise
-eligible in-group role arbitration. Owner-issued `NameOwnedNoMatch` blocks role
-fallback and preserves the adjacent policy's missing result. Until #5210 lands,
-the current undifferentiated `AssemblyBindingSelection.Missing` is treated as
-authoritative `NameOwnedNoMatch`, so the no-name-owner fallthrough path is
-unavailable rather than guessed from package state, candidate contents, or
-provenance.
+`NoNameOwner` disposition permits composition to continue to #5214; it does not
+itself authorize role arbitration. The continuation must return a complete
+#5214 identity-eligible domain, and only a domain whose every candidate is an
+admitted authority-role registration can enter role arbitration. Owner-issued
+`NameOwnedNoMatch` blocks continuation and preserves the adjacent policy's
+missing result. Until #5210 lands, the current undifferentiated
+`AssemblyBindingSelection.Missing` is treated as authoritative
+`NameOwnedNoMatch`, so the no-name-owner continuation is unavailable rather
+than guessed from package state, candidate contents, or provenance.
 
 Preserving an adjacent result does not authorize it as designated or platform
 in this group. A target delegated policy that performs its own
@@ -721,12 +723,18 @@ authority-bearing field to it.
   outside-group registrations, and in-group registrations without an authority
   role, plus final selected, ambiguous, unavailable, and rejected outcomes and
   the Metadata-owned `NoNameOwner` and `NameOwnedNoMatch` dispositions from
-  #5210. Only an all-role-bearing in-group domain or owner-issued `NoNameOwner`
-  permits role arbitration; every other result remains the adjacent policy's
-  outcome after common request-identity validation, without group mutation,
-  role translation, or inactive-shadow promotion. Before #5210 and #5214 are
-  available, the same gate proves that undifferentiated `Missing`, `Selected`,
-  and `Ambiguous` cannot reach role arbitration.
+  #5210. Owner-issued `NoNameOwner` permits only continuation to #5214; the
+  continuation must produce an all-role-bearing in-group domain before role
+  arbitration. Every other result remains the adjacent policy's outcome after
+  common request-identity validation, without group mutation, role translation,
+  or inactive-shadow promotion. Before #5210 and #5214 are available, the same
+  gate proves that undifferentiated `Missing`, `Selected`, and `Ambiguous`
+  cannot reach role arbitration.
+- `WorkspaceRoleBinding_MixedCompositionDomainStaysAdjacent` supplies a
+  complete #5214 domain containing both an authority-role registration and a
+  non-authority registration. It proves the policy preserves the adjacent
+  outcome without filtering the domain, selecting the authority-bearing subset,
+  or producing inactive-shadow evidence.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
   registration, role, delegated-policy, or delegate-version change requires a

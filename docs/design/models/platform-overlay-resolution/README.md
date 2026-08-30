@@ -2,10 +2,11 @@
 
 This TLA+ model is the executable interaction companion to
 [Platform composition and overlays](../../platform-composition-and-overlays.md).
-It explores how one closed participant set and its owner-issued workspace-role
-snapshot are validated and resolved when designated and platform assemblies can
-both satisfy a reference. It also checks how version-skew evidence affects
-traversal when the loaded platform can or cannot satisfy a requested member.
+It explores how one closed participant set, its owner-issued workspace-role
+snapshot, and an abstract request-scoped identity-eligible composition domain
+are validated and resolved when designated and platform assemblies can both
+satisfy a reference. It also checks how version-skew evidence affects traversal
+when the loaded platform can or cannot satisfy a requested member.
 
 The model exists to answer interaction questions that are difficult to settle
 from prose:
@@ -17,6 +18,8 @@ from prose:
   before selection?
 - Can the platform snapshot change an owner-issued role without rejection?
 - Can an invalid snapshot recover authority from legacy candidate classes?
+- Can a composition domain containing a non-authority candidate be filtered
+  down to its authority-bearing subset?
 - Can incidental version equality change which role wins?
 - Does an unruled tie become a visible ambiguity rather than a silent pick?
 - Is every entitled candidate passed over by a successful selection recorded
@@ -35,8 +38,8 @@ The model is owned by the precedence and compatibility rules in
 `platform-composition-and-overlays.md`. It abstracts the candidate enumeration
 and first-match behavior currently found in
 `AssemblyDependencyResolver.ResolveCore`, the workspace-issued role mapping
-required by the target policy, and the typed binding selection returned to
-traversal.
+required by the target policy, #5214's abstract complete identity-eligible
+domain, and the typed binding selection returned to traversal.
 
 The four bounded participant registrations have these valid-snapshot roles:
 
@@ -58,16 +61,24 @@ owner-issued projection. Every invalid condition must reject resolution as
 those protections and must fail. After snapshot formation, every transition
 preserves its group, generation, domain, and assignments unchanged.
 
+For every registration prefix, the composition domain ranges over every subset
+of admitted registrations. The model assumes that set is the complete
+owner-issued #5214 domain; it does not derive completeness. Only a domain whose
+every member carries one authority role may enter arbitration. A domain
+containing any non-authority registration produces the abstract
+`AdjacentPolicy` result without selection or shadow evidence. The composition
+domain mutation instead filters by role and must fail.
+
 Source provenance is deliberately absent from the policy inputs. The model
 therefore has no operation by which provenance, path, or metadata identity can
 mint either authority role. Role assignments are functions rather than
 sequences, so role-projection enumeration order has no modeled semantics.
 Candidate registration order remains fully explored.
 
-Two references share the same bindable candidates but carry different
-incidental version-equality facts: one happens to match the platform candidate
-and one the designated candidates. The policy selection deliberately ignores
-that equality; the version mutation does not.
+Within each composition domain, two references carry different incidental
+version-equality facts: one happens to match the platform candidate and one the
+designated candidates. The policy selection deliberately ignores that
+equality; the version mutation does not.
 
 The skewed reference represents an overlay known to target a newer closure than
 the available platform. Two abstract member requests cross each reference: one
@@ -86,9 +97,9 @@ The checked model assumes:
   participant set, and role mapping, modeled separately from the
   platform-owned snapshot;
 - adjacent owners have already supplied immutable candidate identity,
-  version-skew, and member-availability facts;
-- every modeled candidate has the requested simple name and is bindable under
-  the adjacent identity policy;
+  version-skew, member-availability, and complete composition-domain facts;
+- every candidate in the modeled composition domain has the requested simple
+  name and is bindable under the adjacent identity policy;
 - every modeled candidate is already an admitted registration in the sealed
   group;
 - only `CallerDesignated` and `PlatformAuthorized` participate in this
@@ -115,10 +126,10 @@ gates rather than additional model states. Before those prerequisites land,
 undifferentiated delegated `Missing` is fail-closed as name-owned and current
 selected, ambiguous, or mutable-version answers are not treated as role
 arbitration evidence. This model neither defines nor checks those adjacent
-Metadata currencies. An all-role-bearing in-group #5214 domain is represented
-by the modeled registrations, while a domain containing any outside-group or
-non-authority candidate remains outside role arbitration; the ordinary outer
-identity-policy validation is also not modeled. TLC does not establish group
+Metadata currencies. It accepts an abstract #5214 domain as input and checks
+that only an all-role-bearing in-group domain enters arbitration. It does not
+derive domain completeness, represent an outside-group candidate, or model the
+ordinary outer identity-policy validation. TLC does not establish group
 construction, delegated-domain completeness, name ownership, or policy-version
 consistency.
 TLC results establish properties of this state machine under the stated
@@ -137,6 +148,7 @@ model-to-implementation correspondence is unverified.
 | `PlatformOverlayResolutionBrokenSilent.cfg` | Converts an attributed compatibility failure into `Missing`. It must violate `UnavailableSkewIsAttributed`. |
 | `PlatformOverlayResolutionBrokenRoleTranslation.cfg` | Accepts a platform snapshot whose role sets differ from the owner-issued projection. It must violate `InvalidRoleEvidenceIsRejected`. |
 | `PlatformOverlayResolutionBrokenRoleFallback.cfg` | Accepts invalid role evidence by recovering the legacy candidate classes. It must violate `InvalidRoleEvidenceIsRejected`. |
+| `PlatformOverlayResolutionBrokenCompositionDomain.cfg` | Filters a domain containing a non-authority candidate instead of preserving the adjacent-policy outcome. It must violate `MixedCompositionDomainStaysAdjacent`. |
 
 All configurations disable TLC's deadlock check because `Traversed` is an
 intentional terminal phase. The temporal specification permits stuttering in
@@ -196,6 +208,11 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 1 -cleanup -noGenerateSpecTE \
   -config PlatformOverlayResolutionBrokenRoleFallback.cfg \
   PlatformOverlayResolution.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config PlatformOverlayResolutionBrokenCompositionDomain.cfg \
+  PlatformOverlayResolution.tla
 ```
 
 ## Recorded result
@@ -204,28 +221,31 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 3,584 | 3,584 | 8 | All 14 invariants passed. |
-| Liveness | 3,584 | 3,584 | 8 | `ResolutionConverges` passed. |
+| Safety | 37,100 | 37,100 | 8 | All 15 invariants passed. |
+| Liveness | 37,100 | 37,100 | 8 | `ResolutionConverges` passed. |
 
-The state graph contains all 65 registration prefixes. Every prefix forms valid,
-missing, foreign-generation, stale-generation, or wrong-group role evidence;
-non-empty prefixes also form every incomplete witness, every noncontradictory
-role-set replacement unequal to the owner projection, and every contradictory
-witness; non-full prefixes form every extra registration witness. Each formed
-snapshot reaches `Resolved` and `Traversed`. The positive checks therefore
-cover both successful role-based arbitration and atomic rejection of every
-modeled invalid evidence class.
+The state graph contains all 65 registration prefixes and all 633 ordered
+registration-prefix/composition-domain pairs. Every pair forms valid, missing,
+foreign-generation, stale-generation, or wrong-group role evidence; non-empty
+prefixes also form every incomplete witness, every noncontradictory role-set
+replacement unequal to the owner projection, and every contradictory witness.
+Non-full prefixes form every extra registration witness. Each formed snapshot
+reaches `Resolved` and `Traversed`. The positive checks therefore cover
+successful role-based arbitration, preservation of every modeled domain
+containing a non-authority registration, and atomic rejection of every modeled
+invalid evidence class.
 
 Each mutation exited with TLC status 12 on its intended invariant:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
-| Broken order | 383 / 383 | 5 | Registration `<<DesignatedOne, DesignatedTwo>>` silently selected `DesignatedOne`, violating `SelectionIsOrderIndependent` instead of reporting the unruled tie. |
-| Broken version | 436 / 436 | 5 | With `DesignatedOne` and `Platform`, the exact reference selected `Platform` while the skewed reference selected `DesignatedOne`, violating `ReferenceVersionDoesNotChangeWinner`. |
-| Broken skew rejection | 1,200 / 1,200 | 6 | With `DesignatedOne` and `Platform`, skew caused an available member to return `CompatibilityFailure`, violating `AvailableTraversalSucceeds`. |
-| Broken silent failure | 1,200 / 1,200 | 6 | With `DesignatedOne` and `Platform`, an unavailable member under skew returned `Missing`, violating `UnavailableSkewIsAttributed`. |
-| Broken role translation | 144 / 144 | 4 | A snapshot changes one owner-issued role set and is accepted instead of returning `InvalidRoleEvidence`. |
-| Broken role fallback | 76 / 76 | 3 | A missing snapshot resolved as ordinary `NoMatch` instead of `InvalidRoleEvidence`; non-empty prefixes can additionally recover designated or platform selection from the legacy classes. |
+| Broken order | 1,316 / 1,316 | 5 | Registration `<<DesignatedOne, DesignatedTwo>>` silently selected `DesignatedOne`, violating `SelectionIsOrderIndependent` instead of reporting the unruled tie. |
+| Broken version | 1,666 / 1,666 | 5 | With `DesignatedOne` and `Platform`, the exact reference selected `Platform` while the skewed reference selected `DesignatedOne`, violating `ReferenceVersionDoesNotChangeWinner`. |
+| Broken skew rejection | 7,302 / 7,302 | 6 | With `DesignatedOne` and `Platform`, skew caused an available member to return `CompatibilityFailure`, violating `AvailableTraversalSucceeds`. |
+| Broken silent failure | 7,302 / 7,302 | 6 | With `DesignatedOne` and `Platform`, an unavailable member under skew returned `Missing`, violating `UnavailableSkewIsAttributed`. |
+| Broken role translation | 327 / 327 | 4 | A snapshot changes one owner-issued role set and is accepted instead of returning `InvalidRoleEvidence`. |
+| Broken role fallback | 124 / 124 | 3 | A missing snapshot resolved as ordinary `NoMatch` instead of `InvalidRoleEvidence`; non-empty prefixes can additionally recover designated or platform selection from the legacy classes. |
+| Broken composition domain | 2,016 / 2,016 | 5 | A mixed domain selected its authority-bearing member instead of preserving the adjacent-policy outcome, violating `MixedCompositionDomainStaysAdjacent`. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
 `2026.08.21.155922` revision `9787e65`. The checked

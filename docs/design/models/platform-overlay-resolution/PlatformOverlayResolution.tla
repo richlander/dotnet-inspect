@@ -53,11 +53,13 @@ ASSUME
     /\ TraversalMode \in
         {"Policy", "RejectSkew", "SuppressFailure"}
     /\ RoleValidationMode \in
-        {"Policy", "IgnoreOwnerProjection", "LegacyFallback"}
+        {"Policy", "IgnoreOwnerProjection", "LegacyFallback",
+         "FilterCompositionDomain"}
 
 Phases == {"Registering", "Loaded", "Resolved", "Traversed"}
 ResolutionFailures ==
-    {"Pending", "None", "NoMatch", "Ambiguous", "InvalidRoleEvidence"}
+    {"Pending", "None", "NoMatch", "Ambiguous", "AdjacentPolicy",
+     "InvalidRoleEvidence"}
 TraversalOutcomes ==
     {"NotStarted", "Found", "ResolutionFailed",
      "CompatibilityFailure", "Missing"}
@@ -154,6 +156,7 @@ VARIABLES
     roleGeneration,
     roleDomain,
     roleAssignments,
+    compositionDomain,
     loadWarning,
     selection,
     shadowed,
@@ -162,8 +165,8 @@ VARIABLES
 
 vars ==
     <<phase, registration, roleEvidenceMode, roleGroup, roleGeneration,
-      roleDomain, roleAssignments, loadWarning, selection, shadowed,
-      resolutionFailure, traversal>>
+      roleDomain, roleAssignments, compositionDomain, loadWarning, selection,
+      shadowed, resolutionFailure, traversal>>
 
 RoleEvidenceStructurallyValid ==
     RoleEvidenceValidAt(
@@ -175,7 +178,7 @@ RoleEvidenceStructurallyValid ==
         registration)
 
 RoleEvidenceAccepted ==
-    CASE RoleValidationMode = "Policy" ->
+    CASE RoleValidationMode \in {"Policy", "FilterCompositionDomain"} ->
             RoleEvidenceStructurallyValid
       [] RoleValidationMode = "IgnoreOwnerProjection" ->
             RoleEvidenceEnvelopeValidAt(
@@ -204,11 +207,20 @@ PlatformCandidatesFor(sequence) ==
 EntitledCandidatesFor(sequence) ==
     DesignatedCandidatesFor(sequence) \union PlatformCandidatesFor(sequence)
 
+CompositionDomainRoleBearing ==
+    compositionDomain \subseteq EntitledCandidatesFor(registration)
+
+CompositionDomainAccepted ==
+    IF RoleValidationMode = "FilterCompositionDomain"
+    THEN TRUE
+    ELSE CompositionDomainRoleBearing
+
 \* Every modeled candidate has the requested name and can bind under the
 \* adjacent identity policy. Authority comes only from the accepted snapshot.
 EligibleFor(sequence, reference) ==
-    {candidate \in RegisteredSet(sequence):
+    {candidate \in compositionDomain:
         /\ RoleEvidenceAccepted
+        /\ CompositionDomainAccepted
         /\ candidate \in EntitledCandidatesFor(sequence)
         /\ reference \in References}
 
@@ -272,12 +284,15 @@ FailureFor(sequence, reference) ==
     IF ~RoleEvidenceAccepted
     THEN "InvalidRoleEvidence"
     ELSE
-        IF CandidateFor(sequence, reference) # NoCandidate
-        THEN "None"
+        IF ~CompositionDomainAccepted
+        THEN "AdjacentPolicy"
         ELSE
-            IF EligibleFor(sequence, reference) = {}
-            THEN "NoMatch"
-            ELSE "Ambiguous"
+            IF CandidateFor(sequence, reference) # NoCandidate
+            THEN "None"
+            ELSE
+                IF EligibleFor(sequence, reference) = {}
+                THEN "NoMatch"
+                ELSE "Ambiguous"
 
 ShadowedFor(sequence, reference) ==
     LET selected == CandidateFor(sequence, reference)
@@ -286,20 +301,32 @@ ShadowedFor(sequence, reference) ==
         THEN {}
         ELSE EligibleFor(sequence, reference) \ {selected}
 
-KnownSkewAt(sequence, reference, domain, assignments) ==
+KnownSkewAt(
+        sequence,
+        reference,
+        domain,
+        assignments,
+        candidateDomain) ==
     /\ reference = SkewedReference
-    /\ {candidate \in RegisteredSet(sequence):
+    /\ candidateDomain \subseteq RegisteredSet(sequence)
+    /\ \A candidate \in candidateDomain:
+        \/ CallerDesignated \in RolesAt(domain, assignments, candidate)
+        \/ PlatformAuthorized \in RolesAt(domain, assignments, candidate)
+    /\ {candidate \in candidateDomain:
             CallerDesignated \in RolesAt(domain, assignments, candidate)}
         # {}
-    /\ {candidate \in RegisteredSet(sequence):
+    /\ {candidate \in candidateDomain:
             PlatformAuthorized \in RolesAt(domain, assignments, candidate)}
         # {}
 
 KnownSkewFor(sequence, reference) ==
     /\ RoleEvidenceAccepted
+    /\ CompositionDomainAccepted
     /\ reference = SkewedReference
-    /\ DesignatedCandidatesFor(sequence) # {}
-    /\ PlatformCandidatesFor(sequence) # {}
+    /\ EligibleFor(sequence, reference)
+        \cap DesignatedCandidatesFor(sequence) # {}
+    /\ EligibleFor(sequence, reference)
+        \cap PlatformCandidatesFor(sequence) # {}
 
 AvailableInPlatform(member) ==
     member = AvailableMember
@@ -317,6 +344,7 @@ Init ==
     /\ roleDomain = {}
     /\ roleAssignments =
         [candidate \in Candidates |-> {}]
+    /\ compositionDomain = {}
     /\ loadWarning = [reference \in References |-> FALSE]
     /\ selection = [reference \in References |-> NoCandidate]
     /\ shadowed = [reference \in References |-> {}]
@@ -331,10 +359,16 @@ Register(candidate) ==
     /\ registration' = Append(registration, candidate)
     /\ UNCHANGED
         <<phase, roleEvidenceMode, roleGroup, roleGeneration, roleDomain,
-          roleAssignments, loadWarning, selection, shadowed,
+          roleAssignments, compositionDomain, loadWarning, selection, shadowed,
           resolutionFailure, traversal>>
 
-FinishLoadWith(mode, group, generation, domain, assignments) ==
+FinishLoadWith(
+        mode,
+        group,
+        generation,
+        domain,
+        assignments,
+        candidateDomain) ==
     /\ phase = "Registering"
     /\ phase' = "Loaded"
     /\ roleEvidenceMode' = mode
@@ -342,6 +376,7 @@ FinishLoadWith(mode, group, generation, domain, assignments) ==
     /\ roleGeneration' = generation
     /\ roleDomain' = domain
     /\ roleAssignments' = assignments
+    /\ compositionDomain' = candidateDomain
     /\ loadWarning' =
         [reference \in References |->
             IF RoleEvidenceValidAt(
@@ -352,76 +387,90 @@ FinishLoadWith(mode, group, generation, domain, assignments) ==
                 assignments,
                 registration)
             THEN KnownSkewAt(
-                registration, reference, domain, assignments)
+                registration,
+                reference,
+                domain,
+                assignments,
+                candidateDomain)
             ELSE FALSE]
     /\ UNCHANGED
         <<registration, selection, shadowed, resolutionFailure, traversal>>
 
 FinishLoad ==
-    \/ FinishLoadWith(
-        "Valid",
-        CurrentGroup,
-        CurrentGeneration,
-        RegisteredSet(registration),
-        OwnerRoleProjection)
-    \/ FinishLoadWith(
-        "Missing",
-        NoGroup,
-        NoGeneration,
-        {},
-        OwnerRoleProjection)
-    \/ FinishLoadWith(
-        "Foreign",
-        CurrentGroup,
-        ForeignGeneration,
-        RegisteredSet(registration),
-        OwnerRoleProjection)
-    \/ FinishLoadWith(
-        "Stale",
-        CurrentGroup,
-        StaleGeneration,
-        RegisteredSet(registration),
-        OwnerRoleProjection)
-    \/ FinishLoadWith(
-        "WrongGroup",
-        ForeignGroup,
-        CurrentGeneration,
-        RegisteredSet(registration),
-        OwnerRoleProjection)
-    \/ /\ RegisteredSet(registration) # {}
-       /\ \E missing \in RegisteredSet(registration):
-            FinishLoadWith(
-                "Incomplete",
-                CurrentGroup,
-                CurrentGeneration,
-                RegisteredSet(registration) \ {missing},
-                OwnerRoleProjection)
-    \/ /\ Candidates \ RegisteredSet(registration) # {}
-       /\ \E extra \in Candidates \ RegisteredSet(registration):
-            FinishLoadWith(
-                "Extra",
-                CurrentGroup,
-                CurrentGeneration,
-                RegisteredSet(registration) \union {extra},
-                OwnerRoleProjection)
-    \/ /\ RegisteredSet(registration) # {}
-       /\ \E witness \in RegisteredSet(registration):
-            \E replacement
-                \in NonContradictoryRoleSets \ {OwnerRoles(witness)}:
+    \E candidateDomain \in SUBSET RegisteredSet(registration):
+        \/ FinishLoadWith(
+            "Valid",
+            CurrentGroup,
+            CurrentGeneration,
+            RegisteredSet(registration),
+            OwnerRoleProjection,
+            candidateDomain)
+        \/ FinishLoadWith(
+            "Missing",
+            NoGroup,
+            NoGeneration,
+            {},
+            OwnerRoleProjection,
+            candidateDomain)
+        \/ FinishLoadWith(
+            "Foreign",
+            CurrentGroup,
+            ForeignGeneration,
+            RegisteredSet(registration),
+            OwnerRoleProjection,
+            candidateDomain)
+        \/ FinishLoadWith(
+            "Stale",
+            CurrentGroup,
+            StaleGeneration,
+            RegisteredSet(registration),
+            OwnerRoleProjection,
+            candidateDomain)
+        \/ FinishLoadWith(
+            "WrongGroup",
+            ForeignGroup,
+            CurrentGeneration,
+            RegisteredSet(registration),
+            OwnerRoleProjection,
+            candidateDomain)
+        \/ /\ RegisteredSet(registration) # {}
+           /\ \E missing \in RegisteredSet(registration):
                 FinishLoadWith(
-                    "Altered",
+                    "Incomplete",
+                    CurrentGroup,
+                    CurrentGeneration,
+                    RegisteredSet(registration) \ {missing},
+                    OwnerRoleProjection,
+                    candidateDomain)
+        \/ /\ Candidates \ RegisteredSet(registration) # {}
+           /\ \E extra \in Candidates \ RegisteredSet(registration):
+                FinishLoadWith(
+                    "Extra",
+                    CurrentGroup,
+                    CurrentGeneration,
+                    RegisteredSet(registration) \union {extra},
+                    OwnerRoleProjection,
+                    candidateDomain)
+        \/ /\ RegisteredSet(registration) # {}
+           /\ \E witness \in RegisteredSet(registration):
+                \E replacement
+                    \in NonContradictoryRoleSets \ {OwnerRoles(witness)}:
+                    FinishLoadWith(
+                        "Altered",
+                        CurrentGroup,
+                        CurrentGeneration,
+                        RegisteredSet(registration),
+                        AlteredRoleAssignments(witness, replacement),
+                        candidateDomain)
+        \/ /\ RegisteredSet(registration) # {}
+           /\ \E witness \in RegisteredSet(registration):
+                FinishLoadWith(
+                    "Contradictory",
                     CurrentGroup,
                     CurrentGeneration,
                     RegisteredSet(registration),
-                    AlteredRoleAssignments(witness, replacement))
-    \/ /\ RegisteredSet(registration) # {}
-       /\ \E witness \in RegisteredSet(registration):
-            FinishLoadWith(
-                "Contradictory",
-                CurrentGroup,
-                CurrentGeneration,
-                RegisteredSet(registration),
-                ContradictoryRoleAssignments(witness))
+                    ContradictoryRoleAssignments(witness),
+                    candidateDomain)
 
 Resolve ==
     /\ phase = "Loaded"
@@ -437,7 +486,7 @@ Resolve ==
             FailureFor(registration, reference)]
     /\ UNCHANGED
         <<registration, roleEvidenceMode, roleGroup, roleGeneration, roleDomain,
-          roleAssignments, loadWarning, traversal>>
+          roleAssignments, compositionDomain, loadWarning, traversal>>
 
 TraversalFor(reference, member) ==
     IF resolutionFailure[reference] # "None"
@@ -467,7 +516,7 @@ Traverse ==
             TraversalFor(request[1], request[2])]
     /\ UNCHANGED
         <<registration, roleEvidenceMode, roleGroup, roleGeneration, roleDomain,
-          roleAssignments, loadWarning, selection, shadowed,
+          roleAssignments, compositionDomain, loadWarning, selection, shadowed,
           resolutionFailure>>
 
 Next ==
@@ -492,6 +541,7 @@ TypeOK ==
         {CurrentGeneration, ForeignGeneration, StaleGeneration, NoGeneration}
     /\ roleDomain \subseteq Candidates
     /\ roleAssignments \in [Candidates -> SUBSET WorkspaceRoles]
+    /\ compositionDomain \subseteq RegisteredSet(registration)
     /\ loadWarning \in [References -> BOOLEAN]
     /\ selection \in [References -> Candidates \union {NoCandidate}]
     /\ shadowed \in [References -> SUBSET Candidates]
@@ -503,6 +553,7 @@ SelectedCandidatesAreEntitled ==
         selection[reference] # NoCandidate =>
             /\ selection[reference] \in EntitledCandidatesFor(registration)
             /\ selection[reference] \in RegisteredSet(registration)
+            /\ selection[reference] \in compositionDomain
 
 SelectedCandidatesUseSnapshotRoles ==
     phase \in {"Resolved", "Traversed"} =>
@@ -527,6 +578,28 @@ InvalidRoleEvidenceIsRejected ==
                     /\ shadowed[reference] = {}
                     /\ resolutionFailure[reference] =
                         "InvalidRoleEvidence")
+
+NonAuthorityCompositionDomainStaysAdjacent ==
+    (/\ phase \in {"Resolved", "Traversed"}
+     /\ RoleEvidenceStructurallyValid
+     /\ ~CompositionDomainRoleBearing)
+    =>
+        \A reference \in References:
+            /\ selection[reference] = NoCandidate
+            /\ shadowed[reference] = {}
+            /\ resolutionFailure[reference] = "AdjacentPolicy"
+
+MixedCompositionDomainStaysAdjacent ==
+    (/\ phase \in {"Resolved", "Traversed"}
+     /\ RoleEvidenceStructurallyValid
+     /\ ~CompositionDomainRoleBearing
+     /\ compositionDomain
+        \cap EntitledCandidatesFor(registration) # {})
+    =>
+        \A reference \in References:
+            /\ selection[reference] = NoCandidate
+            /\ shadowed[reference] = {}
+            /\ resolutionFailure[reference] = "AdjacentPolicy"
 
 SelectionMatchesFailure ==
     phase \in {"Resolved", "Traversed"} =>
