@@ -7,7 +7,9 @@ namespace ILInspector.Decompiler.Tests;
 public class SlotMaterializationPassTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
+    static readonly TypeRef Int64 = TypeRef.CoreLib("System", "Int64");
     static readonly TypeRef Char = TypeRef.CoreLib("System", "Char");
+    static readonly TypeRef StringType = TypeRef.CoreLib("System", "String");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
     static readonly TypeRef Owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
 
@@ -57,6 +59,9 @@ public class SlotMaterializationPassTests
         body.Add(block);
         var function = Function([Int32], body);
 
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.All(decisions, static decision => Assert.True(decision.WillMaterialize));
+
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         var output = CSharpPrinter.Print(function).Output;
@@ -84,6 +89,16 @@ public class SlotMaterializationPassTests
         body.Add(block);
         var function = Function([Int32, Char, Int32], body);
 
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.ConflictingTypeTestimony)
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.IncompleteCopyComponent));
+        Assert.Contains(decisions, decision => decision.Slot == 1
+            && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
+        Assert.Contains(decisions, decision => decision.Slot == 256
+            && decision.Vetoes == SlotMaterializationVeto.IncompleteCopyComponent);
+        Assert.Contains(decisions, decision => decision.Slot == 5 && decision.WillMaterialize);
+
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         Assert.Equal(3, function.Descendants.OfType<StoreStackSlot>().Count());
@@ -93,10 +108,9 @@ public class SlotMaterializationPassTests
         function.CheckInvariant();
     }
 
-    // Adversarial review (5b-2, HIGH): slot numbering restarts at 0 inside a
-    // lambda, and a raised lambda prints through a fresh inner printer with no
-    // view of the outer locals table — materializing outer S_0 next to a
-    // residual inner S_0 is CS0136. The slot stays on the unifier.
+    // Historical 5b-2 boundary: #2356 made inner naming collision-free, but
+    // removing this conservative gate is a separate behavior slice from
+    // exposing its measured population.
     [Fact]
     public void DefersSlotWhoseNumberAppearsInNestedLambdaScope()
     {
@@ -115,6 +129,14 @@ public class SlotMaterializationPassTests
         block.Add(new StoreLocal(1, Action, lambda));
         body.Add(block);
         var function = Function([Int32, Action], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && ReferenceEquals(decision.Scope, function)
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.NestedSlotNumberCollision));
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && ReferenceEquals(decision.Scope, lambda)
+            && decision.Vetoes == SlotMaterializationVeto.NestedScope);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
@@ -141,6 +163,10 @@ public class SlotMaterializationPassTests
             body.Add(block);
         var function = Function([Int32], body);
 
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.MultiStoreSingleLoadFold));
+        Assert.True(decision.Vetoes.HasFlag(SlotMaterializationVeto.CrossBlockStoreFold));
+
         new SlotMaterializationPass().Run(function, PassContext.None);
 
         Assert.Equal(2, function.Descendants.OfType<StoreStackSlot>().Count());
@@ -164,6 +190,9 @@ public class SlotMaterializationPassTests
             new LoadStackSlot(0, Int32)));
         body.Add(block);
         var function = Function([], body);
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+        Assert.Equal(SlotMaterializationVeto.ElementStoreIdentityRecovery, decision.Vetoes);
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
@@ -191,5 +220,156 @@ public class SlotMaterializationPassTests
             body, returnType: null, ImmutableDictionary<TypeRef, TypeShape>.Empty);
 
         Assert.Equal(Char, testified[1]);
+    }
+
+    [Fact]
+    public void AnalysisAttributesEveryFunctionScopeSlotAndOverlappingVeto()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Constant(1, Int32)));
+        block.Add(new ExpressionStatement(new LoadStackSlot(0, type: null)));
+
+        block.Add(new StoreStackSlot(1, new Constant(1, Int32)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreLocal(1, Char, new LoadStackSlot(1, Char)));
+
+        block.Add(new StoreStackSlot(2, new Constant(2, Int32)));
+        block.Add(new StoreLocal(2, Int32, new LoadStackSlot(3, Int32)));
+
+        block.Add(new StoreStackSlot(4, new Constant("x", StringType)));
+        block.Add(new StoreLocal(3, StringType, new LoadStackSlot(4, StringType)));
+
+        block.Add(new StoreStackSlot(5, new Constant(5, Int32)));
+        block.Add(new StoreStackSlot(5, new Constant(5L, Int64)));
+        block.Add(new StoreLocal(4, Int32, new LoadStackSlot(5, Int32)));
+        body.Add(block);
+        var function = Function([Int32, Char, Int32, StringType, Int32], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+
+        Assert.Equal(6, decisions.Count);
+        Assert.Contains(decisions, decision => decision.Slot == 0
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnderivableTypeTestimony));
+        Assert.Contains(decisions, decision => decision.Slot == 1
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.ConflictingTypeTestimony));
+        Assert.Contains(decisions, decision => decision.Slot == 2
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.MissingLoad));
+        Assert.Contains(decisions, decision => decision.Slot == 3
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.MissingStore));
+        Assert.Contains(decisions, decision => decision.Slot == 4
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.OutsideCoercionDomain));
+        Assert.Contains(decisions, decision => decision.Slot == 5
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.UnrenderableStoreType)
+            && decision.Vetoes.HasFlag(SlotMaterializationVeto.MultiStoreSingleLoadFold));
+    }
+
+    [Fact]
+    public void AnalysisIdentifiesRepeatedSlotNumbersByOwningScope()
+    {
+        Lambda NestedLambda()
+        {
+            var nestedBlock = new Block();
+            nestedBlock.Add(new StoreStackSlot(0, new Constant(1, Int32)));
+            nestedBlock.Add(new Return(new LoadStackSlot(0, Int32)));
+            var nestedBody = new BlockContainer();
+            nestedBody.Add(nestedBlock);
+            return new Lambda(Action, [], [], [],
+                usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, nestedBody);
+        }
+
+        var first = NestedLambda();
+        var second = NestedLambda();
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new StoreLocal(0, Action, first));
+        block.Add(new StoreLocal(1, Action, second));
+        body.Add(block);
+        var function = Function([Action, Action], body);
+
+        var decisions = SlotMaterializationPass.Analyze(function);
+
+        Assert.Equal(2, decisions.Count);
+        Assert.Contains(decisions, decision => ReferenceEquals(decision.Scope, first)
+            && decision.Slot == 0
+            && decision.Vetoes == SlotMaterializationVeto.NestedScope);
+        Assert.Contains(decisions, decision => ReferenceEquals(decision.Scope, second)
+            && decision.Slot == 0
+            && decision.Vetoes == SlotMaterializationVeto.NestedScope);
+        Assert.NotEqual(decisions[0], decisions[1]);
+    }
+
+    [Fact]
+    public void PreservesFirstTestimonyOrderWhenAppendingMaterializedLocals()
+    {
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Constant(0, Int32)));
+        block.Add(new StoreStackSlot(1, new Constant(1, Int32)));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(1, Int32)));
+        block.Add(new StoreLocal(1, Int32, new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([Int32, Int32], body);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal(["S_1", "S_0"], function.LocalNames[^2..]);
+    }
+
+    [Fact]
+    public void MaterializationPreservesNestedSlotWebScopeIdentity()
+    {
+        var nestedBlock = new Block();
+        nestedBlock.Add(new StoreStackSlot(1, new Constant(1, Int32)));
+        nestedBlock.Add(new Return(new LoadStackSlot(1, Int32)));
+        var nestedBody = new BlockContainer();
+        nestedBody.Add(nestedBlock);
+        var lambda = new Lambda(Action, [], [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, nestedBody);
+
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new StoreStackSlot(0, new Call(
+            new MethodRef(Owner, "Use", Int32, [Action], HasThis: false),
+            isVirtual: false,
+            [lambda])));
+        block.Add(new StoreLocal(0, Int32, new LoadStackSlot(0, Int32)));
+        block.Add(new StoreLocal(1, Int32, new LoadStackSlot(0, Int32)));
+        body.Add(block);
+        var function = Function([Int32, Int32], body);
+        var nestedDecision = Assert.Single(
+            SlotMaterializationPass.Analyze(function),
+            decision => decision.Vetoes == SlotMaterializationVeto.NestedScope);
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Same(nestedDecision.Scope, Assert.Single(function.Descendants.OfType<Lambda>()));
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Single(function.Descendants.OfType<LoadStackSlot>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void AnalysisAttributesStructuralFoldsWithoutTypeTestimony()
+    {
+        var body = new BlockContainer();
+        var firstStore = new Block(0);
+        firstStore.Add(new StoreStackSlot(0, new Constant(1, Int32)));
+        var secondStore = new Block(4);
+        secondStore.Add(new StoreStackSlot(0, new Constant(2, Int32)));
+        var loadBlock = new Block(8);
+        loadBlock.Add(new ExpressionStatement(new LoadStackSlot(0, type: null)));
+        body.Add(firstStore);
+        body.Add(secondStore);
+        body.Add(loadBlock);
+        var function = Function([], body);
+
+        var decision = Assert.Single(SlotMaterializationPass.Analyze(function));
+
+        Assert.Equal(
+            SlotMaterializationVeto.UnderivableTypeTestimony
+                | SlotMaterializationVeto.MultiStoreSingleLoadFold
+                | SlotMaterializationVeto.CrossBlockStoreFold,
+            decision.Vetoes);
     }
 }
