@@ -4,6 +4,8 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -368,6 +370,148 @@ public class TypeRefDecoderRecursionTests
     }
 
     [Fact]
+    public void HugeArrayRank_IsRejectedVisibly()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x14); // ARRAY
+            signature.WriteByte(0x08); // I4
+            signature.WriteByte(0xdf); // compressed rank ~536M
+            signature.WriteByte(0xff);
+            signature.WriteByte(0xff);
+            signature.WriteByte(0xff);
+            signature.WriteByte(0x00); // 0 sizes
+            signature.WriteByte(0x00); // 0 lower bounds
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            MetadataTokens.TypeSpecificationHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "array rank 536870911 is outside the loadable range 1..32",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+        Assert.True(
+            result.ToDisplayString().Length < 128,
+            $"expected a bounded rendering, got {result.ToDisplayString().Length} chars");
+    }
+
+    [Fact]
+    public void LargestLoadableArrayRank_StillDecodes()
+    {
+        var reader = BuildMetadata(metadata =>
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x14); // ARRAY
+            signature.WriteByte(0x08); // I4
+            signature.WriteByte(0x20); // rank 32
+            signature.WriteByte(0x00); // 0 sizes
+            signature.WriteByte(0x00); // 0 lower bounds
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(signature));
+            return default(EntityHandle);
+        });
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            MetadataTokens.TypeSpecificationHandle(1),
+            0);
+
+        Assert.Equal(TypeRefKind.Array, result.Kind);
+        Assert.Equal(ArrayShapeText.MaxRenderableRank, result.Rank);
+        Assert.Equal(
+            $"int[{new string(',', ArrayShapeText.MaxRenderableRank - 1)}]",
+            result.ToDisplayString());
+    }
+
+    [Fact]
+    public void SynthesizedOutOfRangeArrayRank_ProductRenderersStayBounded()
+    {
+        const int rank = ArrayShapeText.MaxRenderableRank + 1;
+        const string marker = "/* invalid rank 33 */ invalid";
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var hostile = TypeRef.MdArray(intType, rank);
+        var function = EmptyFunction(hostile);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        var fidelityCause = Assert.Single(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Code == DiagnosticIds.UnsupportedType);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnsupportedTypeShape,
+            fidelityCause.Discriminator);
+        Assert.Equal(
+            $"array rank {rank} is outside the loadable range 1..{ArrayShapeText.MaxRenderableRank}",
+            fidelityCause.InventoryBucket);
+        string arrayCreation = RenderArrayCreation(hostile);
+        string[] rendered =
+        [
+            hostile.ToDisplayString(),
+            CSharpBodyDiff.CanonicalTypeName(hostile),
+            arrayCreation,
+            fidelityCause.Reason,
+        ];
+
+        Assert.All(rendered, text =>
+        {
+            Assert.Contains(marker, text, StringComparison.Ordinal);
+            Assert.True(
+                text.Length < 512,
+                $"expected a bounded rendering, got {text.Length} chars");
+        });
+
+        Assert.Contains(
+            "CS0270",
+            CompileErrorIds($$"""
+                static class __Gate
+                {
+                    static {{hostile.ToDisplayString()}} Value;
+                }
+                """));
+        Assert.Contains(
+            "CS0178",
+            CompileErrorIds($$"""
+                static class __Gate
+                {
+                    static object M()
+                    {
+                {{arrayCreation}}
+                    }
+                }
+                """));
+    }
+
+    [Fact]
+    public void SynthesizedRankOneMdArray_PreservesExistingRendererSpellings()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var rankOne = TypeRef.MdArray(intType, 1);
+
+        Assert.Equal("int[]", rankOne.ToDisplayString());
+        Assert.Equal("System.Int32[*]", CSharpBodyDiff.CanonicalTypeName(rankOne));
+        Assert.Contains(
+            "return new int[1][];",
+            RenderArrayCreation(rankOne),
+            StringComparison.Ordinal);
+        Assert.Empty(CompileErrorIds($$"""
+            static class __Gate
+            {
+                static object M()
+                {
+            {{RenderArrayCreation(rankOne)}}
+                }
+            }
+            """));
+    }
+
+    [Fact]
     public void SelfReferentialModreqUnderBlobCap_DoesNotStackOverflow()
     {
         var reader = BuildMetadata(metadata =>
@@ -623,6 +767,61 @@ public class TypeRefDecoderRecursionTests
         Assert.Equal(
             $"N.{string.Join('+', rootToLeaf)}",
             result.DefinitionName.ToEscapedFullName());
+    }
+
+    static IrFunction EmptyFunction(TypeRef returnType)
+    {
+        var body = new BlockContainer();
+        body.Add(new Block());
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "N", "Host"),
+            new MethodSignature(
+                returnType,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    static string RenderArrayCreation(TypeRef elementType)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var body = new BlockContainer();
+        var block = new Block();
+        block.Add(new Return(new NewArray(
+            elementType,
+            new ILInspector.Decompiler.Pipeline.Constant(1, intType))));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "N", "Host"),
+            new MethodSignature(
+                TypeRef.SzArray(elementType),
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        return Assert.IsType<string>(CSharpPrinter.Print(function).Output);
+    }
+
+    static string[] CompileErrorIds(string source)
+    {
+        var syntaxTree = CSharpSyntaxTree.ParseText(
+            source,
+            new CSharpParseOptions(LanguageVersion.Preview));
+        return CSharpCompilation.Create(
+                "__gate",
+                [syntaxTree],
+                RoslynTestReferences.TrustedPlatform,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary))
+            .GetDiagnostics()
+            .Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(static diagnostic => diagnostic.Id)
+            .ToArray();
     }
 
     static MetadataReader BuildMetadata(Func<MetadataBuilder, EntityHandle> addMalformedRow)
