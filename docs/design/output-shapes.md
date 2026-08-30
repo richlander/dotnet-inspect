@@ -41,23 +41,29 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 | **Vector** | one column: many rows of a single field | just the `Member` column |
 | **Scalar** | a single value, or a text/doc blob | `1234`, a README, a `///` summary |
 
+That descent describes one declared row-set outcome. Count reduces each
+declared row set independently: exactly one outcome reaches Scalar, while
+multiple exact outcomes reassemble as one ordered count Table. Count never
+collapses independent row sets into one request-wide scalar.
+
 - **Document → Table.** A Document is a sequence of sections. Selecting one
   section leaves a single Table (or other single-section payload).
 - **Table → Vector.** A Table is columns × rows. Projecting to one column
   leaves a Vector — many rows of a single field.
-- **Vector → Scalar.** Collapsing a Vector (count it, or take one row) yields a
-  Scalar. A Scalar is also the natural shape of a non-tabular payload: a count,
-  a single field value, or a text/documentation blob (a README, a decompiled
-  `.cs` body, an XML-doc `///` comment).
+- **Vector → Scalar.** Within one declared row set, collapsing a Vector (count
+  it, or take one row) yields a Scalar. A Scalar is also the natural shape of a
+  non-tabular payload: one count, a single field value, or a
+  text/documentation blob (a README, a decompiled `.cs` body, an XML-doc `///`
+  comment).
 
 Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, a tree, or a graph. Those are still "one section" — the
-Table rung — and they collapse to Scalars the same way. For a call graph, the
-declared row unit is a directed edge: `--count` counts relationships, `-n`
-limits them, and `--rows` selects an absolute range of the same ordered
-relationships whether the graph is rendered as a Markdown edge table,
-standalone tree, standalone Mermaid diagram, or tabular stream. Tree nodes are
-presentation context, not additional rows.
+Table rung — and each declared row set can collapse to a Scalar the same way.
+For a call graph, the declared row unit is a directed edge: `--count` counts
+relationships, `-n` limits them, and `--rows` selects an absolute range of the
+same ordered relationships whether the graph is rendered as a Markdown edge
+table, standalone tree, standalone Mermaid diagram, or tabular stream. Tree
+nodes are presentation context, not additional rows.
 `graph integrations` uses the same row contract: one row is one directed
 logical relationship. Its package groups and finer member/type nodes are
 presentation context, while `--count`, `-n`, and `--rows` count, limit, or

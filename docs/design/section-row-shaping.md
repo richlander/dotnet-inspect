@@ -69,8 +69,8 @@ semantic-selection operations apply independently. Its owner supplies:
 - the shape capabilities valid for those rows.
 
 The row-set identity is not a section display name, subject label, heading, or
-rendered path. Those values may accompany the result as presentation metadata,
-but they do not participate in binding.
+rendered path. Those values may accompany an outer presentation envelope, but
+they do not participate in binding and never enter `SectionRowResult`.
 
 The producer decides whether related subjects contribute one aggregate row set
 or several independent row sets before L2 shaping begins. L2 preserves that
@@ -78,7 +78,10 @@ decision. It does not merge independent sets because their labels match, split
 an aggregate set by provenance, or infer scope from rendered output.
 
 Requested empty row sets remain declared. They may produce an exact zero count
-or an empty row result; absence and emptiness are different states.
+or an empty row result. A selected set carrying an owner-issued `Absent` source
+disposition is not complete empty; it enters the source-failure branch. An
+unrequested or undeclared set produces no result entry. These three states are
+distinct.
 
 ## Sequence-key binding
 
@@ -231,9 +234,9 @@ The reference failure precedence is:
    request. Validation follows declared row-set order, then the row-query
    owner's order within each set.
 2. Establish complete source evidence for every selected row set. If any set
-   is failed or incomplete, return an L2 failure result binding every selected
-   row-set identity to its owner-issued source outcome, invoke no residual
-   semantic selection, and produce no Count result.
+   is failed, incomplete, or `Absent`, return an L2 failure result binding every
+   selected row-set identity to its owner-issued source outcome, invoke no
+   residual semantic selection, and produce no Count result.
 3. Apply one named semantic-selection invocation per cohort in cohort order.
    The first semantic failure returns its bound row-set failure and no Count
    result.
@@ -254,7 +257,8 @@ SectionRowResult =
     Rows(ordered row-set row results)
   | Count(ordered row-set exact counts)
   | Failure(
-        Resolution(structured resolution failure)
+        Resolution(Request | RowSet(declared row-set identity),
+                   structured resolution failure)
       | Source(ordered row-set source dispositions)
       | Semantic(declared row-set identity, semantic failure))
 ```
@@ -264,8 +268,8 @@ L2 therefore returns exactly one typed result branch:
 - **Rows** returns each selected caller-owned value under its declared
   row-set identity, with only the validated cell projection attached.
 - **Count** returns ordered row-set identities and exact cardinalities.
-- **Failure** binds a resolution failure, owner-issued source outcomes, or one
-  semantic failure to the relevant declared row-set identities.
+- **Failure** binds a request-wide or row-set-scoped resolution failure,
+  owner-issued source outcomes, or one semantic failure to its explicit scope.
 
 Each source-disposition entry contains the declared row-set identity plus the
 opaque owner-issued disposition and completion evidence. The L2 failure branch
@@ -337,13 +341,14 @@ The implementation must add these named Release gates:
 | `MembershipProjectionPrecedesRowQuery` | Field-entry membership selection changes the rows seen by predicates, baseline order, and semantic stages; a close negative table-column projection changes no membership. |
 | `CellProjectionFollowsSelectionAndPreservesCardinality` | Cell projection applies only to selected row results, may omit predicate/order fields, and never changes membership, order, or Count. |
 | `CountObservesPrecedingSemanticStages` | Empty, undersized, exact, and oversized `Head`, `Tail`, and `Top` plans reduce to the cardinality of their selected result, including `Head(N) -> Count = min(N, input count)`. |
+| `CountPreservesTopStageObservations` | A Count terminal still reaches every reached `Top` stage, resolves its comparer once through the supplied resolver, and propagates sentinel resolver or comparer exceptions unchanged instead of returning a cardinality. |
 | `StrictWindowFailurePreemptsCount` | Closed, prefix, and suffix windows return their semantic failure rather than a partial cardinality when the required position is absent. |
 | `CountPreservesDeclaredRowSetScope` | One complete selected set produces one exact entry; multiple complete sets retain declaration order and identity; no total is invented unless the producer declared one aggregate set. |
 | `HeterogeneousSchemasFormOrderedCohorts` | Sets sharing one complete schema-and-plan contract enter one named semantic invocation; different contracts form cohorts ordered by first declaration; two schemas with different `Top` bindings use their own resolvers; a sentinel failure skips every later cohort without replaying or rolling back earlier callbacks; successful results reassemble in declared order. |
-| `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any source-failed or incomplete selected set prevents every residual cohort and Count; all-complete source results execute cohorts in order, and the first semantic cohort failure prevents every count entry. |
-| `EmptyFailedAndAbsentSetsStayDistinct` | A complete empty set produces exact zero after semantic success, an incomplete or failed selected set prevents Count and remains a typed failure, and an unrequested or absent set produces no entry. |
+| `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any selected source-failed, incomplete, or `Absent` set prevents every residual cohort and Count; all-complete source results execute cohorts in order, and the first semantic cohort failure prevents every count entry. |
+| `EmptyFailedAndAbsentSetsStayDistinct` | A complete empty selected set produces exact zero after semantic success; a selected incomplete, failed, or owner-issued `Absent` disposition prevents Count and remains a typed source failure; an unrequested or undeclared set produces no entry. |
 | `SectionRowFailureBindingPreservesSourceOutcomes` | A source failure result retains one ordered selected-set entry and each owner-issued success, failure, incompleteness, or absence disposition; its variant structurally exposes no Rows or Count payload and invokes no semantic selection. |
-| `SectionRowResolutionIsAtomic` | Any invalid row-set, schema, projection, row-query, selection, or reduction binding returns one structured failure and no partial executable request. |
+| `SectionRowResolutionIsAtomic` | Any invalid row-set, schema, projection, row-query, selection, or reduction binding returns one structured failure with explicit request-wide or declared-row-set scope and no partial executable request. |
 | `SectionRowResultsArePresentationFree` | Row, Count, and failure results contain typed row-set identities, values, exact cardinalities, or owner-issued outcome evidence without headings, formatted cells, diagnostic sentences, or renderer state. |
 
 ## Non-claims
