@@ -279,7 +279,7 @@ while IFS= read -r -d '' file; do
     # graph must compile it as well as the solution. Test hosts, CLI-only projects, and
     # unrelated tools stay on the regular code lane.
     src/UnionPolyfill.cs|src/DotnetInspector.*/*|src/ILInspector.*/*|src/CSharpText/*|src/InertText/*|src/NuGetFetch/*|src/SourceLinkFetch/*) CODE=true; WEB=true ;;
-    src/tsbindgen/*) CODE=true; WEB=true ;;
+    src/ILInspector.TypeScriptGeneration/*|src/ts-jsexport/*|src/tsbindgen/*) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
     tests/ILInspector.MetadataPrimitives.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/*) CODE=true ;;

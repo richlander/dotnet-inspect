@@ -448,7 +448,7 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "src/tsbindgen/JsEmitter.cs",
+            "src/ILInspector.TypeScriptGeneration/TypeScriptFacadeEmitter.cs",
             outputs);
         if (webGenerator["code"] != "true" || webGenerator["web"] != "true")
         {

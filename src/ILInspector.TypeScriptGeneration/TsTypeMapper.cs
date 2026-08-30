@@ -1,7 +1,7 @@
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
-namespace tsbindgen;
+namespace ILInspector.TypeScriptGeneration;
 
 enum TsTypeMappingContext
 {
@@ -47,7 +47,8 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null)
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null)
     {
         string trimmed = csharpType.Trim();
         if (IsBlockedType(trimmed, blockedAliases))
@@ -67,6 +68,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 TsTypeMappingContext.JsInterop)}>";
         }
 
@@ -79,6 +81,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 TsTypeMappingContext.JsInterop)}>";
         }
 
@@ -94,6 +97,7 @@ static class TsTypeMapper
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             TsTypeMappingContext.JsInterop);
     }
 
@@ -112,7 +116,8 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null)
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null)
     {
         string trimmed = csharpType.Trim();
         if (IsBlockedType(trimmed, blockedAliases))
@@ -128,6 +133,7 @@ static class TsTypeMapper
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             TsTypeMappingContext.JsonWire);
 
         if (IsJsonEnvelopeReturnType(trimmed))
@@ -161,7 +167,8 @@ static class TsTypeMapper
             recordNames,
             diagnostics,
             location,
-            blockedAliases);
+            blockedAliases,
+            mappedTypeNames);
     }
 
     public static string MapParameterType(
@@ -169,13 +176,15 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null) =>
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null) =>
         Map(
             csharpType.Trim(),
             recordNames,
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             TsTypeMappingContext.JsInterop);
 
     public static string MapJsonWireType(
@@ -183,13 +192,15 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null) =>
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null) =>
         Map(
             csharpType.Trim(),
             recordNames,
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             TsTypeMappingContext.JsonWire);
 
     static string Map(
@@ -198,6 +209,7 @@ static class TsTypeMapper
         TsBindGenDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
         TsTypeMappingContext mappingContext)
     {
         string trimmed = csharpType.Trim();
@@ -224,6 +236,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 mappingContext);
             if (mappingContext == TsTypeMappingContext.JsonWire)
             {
@@ -244,6 +257,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 mappingContext)} | null";
         }
 
@@ -256,6 +270,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 mappingContext)} | null";
         }
 
@@ -265,10 +280,18 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 mappingContext,
                 out string? dictionaryType))
         {
             return dictionaryType!;
+        }
+
+        if (mappedTypeNames?.TryGetValue(
+                trimmed,
+                out string? mappedTypeName) == true)
+        {
+            return mappedTypeName;
         }
 
         if (recordNames.Contains(trimmed))
@@ -330,6 +353,7 @@ static class TsTypeMapper
         TsBindGenDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
         TsTypeMappingContext mappingContext,
         out string? mappedType)
     {
@@ -355,6 +379,7 @@ static class TsTypeMapper
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             mappingContext);
         string mappedValue = Map(
             valueType!,
@@ -362,6 +387,7 @@ static class TsTypeMapper
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             mappingContext);
         if (mappedKey != "string")
         {

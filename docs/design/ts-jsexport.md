@@ -1,9 +1,10 @@
 # `ts-jsexport` TypeScript facade generation
 
-Status: **proposed**. The current `tsbindgen` implementation emits TypeScript
-declarations and can also emit a JavaScript runtime wrapper. This document
-defines the replacement architecture; its target properties are **unverified**
-until the gates under [Acceptance](#acceptance) exist.
+Status: **implemented at the generator boundary**. The repository contains the
+`ts-jsexport` tool, typed facade emitter, canonical compiled fixture, and the
+compiler/runtime gates under [Acceptance](#acceptance). Inspect-web adoption
+and browser deployment canaries remain separate work under #5003, #4792, and
+issue #4842.
 
 This is the owning document for the `ts-jsexport` TypeScript facade. It defines
 how one
@@ -608,9 +609,10 @@ evidence.
 - bundle the generated runtime module with inspect-web's application assets; or
 - provide runtime JSON schema validation.
 
-## Current mismatches
+## Legacy coexistence
 
-The current implementation predates this decision:
+The legacy `tsbindgen` command temporarily remains for inspect-web's current
+generated artifacts. It still has the pre-decision behavior:
 
 - the command, project, and configured package identity are named `tsbindgen`;
 - stdout is a generated `.d.ts` declaration surface;
@@ -626,25 +628,26 @@ The current implementation predates this decision:
   that remain reachable for hand-composed surfaces, although the SDK's
   JavaScript interop source generator rejects a compiled `[JSExport]`
   `ValueTask` signature with `SYSLIB1072`;
-- owner-issued return-wire facts cover direct serializer completion and one
-  Analysis-authenticated compiler state-machine field across suspension;
+- owner-issued return-wire facts cover direct serializer completion and
+  Analysis-authenticated compiler state-machine fields across suspension;
 - `JsExportSurfaceBuilder` authenticates each generated registration's
   signature hash and preserves the exact dispatch identity as
-  `JsExportFunction.RuntimeDispatchKey`, but the current emitter does not
+  `JsExportFunction.RuntimeDispatchKey`, but the legacy emitter does not
   consume it; and
-- the current emitter traverses declaring-type paths with ordinary property
+- the legacy emitter traverses declaring-type paths with ordinary property
   lookup, invokes a bare runtime method name, rejects same-spelling managed
   operations, and rejects distinct enum or DTO identities with the same simple
   name instead of allocating distinct public names.
 
-Those are migration inputs, not compatibility requirements.
-
-The replacement should retain the surface-authentication and mapping work while
-removing the dual-emitter and direct-JavaScript architecture.
+Those behaviors are compatibility inputs, not requirements for
+`ts-jsexport`. Shared host-side mapping and declaration mechanics live in
+`ILInspector.TypeScriptGeneration`; neither executable project references the
+other. Issue #5003 owns switching the current consumer and removing the legacy
+path.
 
 ## Migration
 
-The implementation effort should:
+The generator implementation performs this migration:
 
 1. rename the command, package, project-facing documentation, and generated
    headers to `ts-jsexport`;
@@ -663,9 +666,9 @@ The implementation effort should:
    `RuntimeAPI` into the public declaration;
 8. consume wire facts issued by `ILInspector.JsExportSurface` without
    inspecting lowering or reconstructing state-machine field provenance;
-9. consume each exact owner-issued runtime dispatch identity after the
-   `ILInspector.JsExportSurface` prerequisite in
-   [#4791](https://github.com/richlander/dotnet-inspect/issues/4791) lands;
+9. consume each exact owner-issued runtime dispatch identity established by
+   the completed `ILInspector.JsExportSurface` prerequisite in
+   [#4791](https://github.com/richlander/dotnet-inspect/issues/4791);
 10. traverse owner-issued declaring-type paths and dispatch keys only through
     own data-property descriptors, failing initialization before publication
     for an inherited, accessor-backed, absent, or non-callable path;
@@ -678,10 +681,8 @@ The implementation effort should:
 13. preserve deterministic output and failure-before-publication behavior.
 
 Steps 9 and 12 are atomic for methods sharing one declaring-type path and
-managed name. Until the exact runtime dispatch identity from #4791 is consumed,
-such overloads remain a visible generation rejection; allocating two facade
-names that both call the ambiguous bare runtime key is never an intermediate
-state.
+managed name. Allocating two facade names that both call an ambiguous bare
+runtime key is never an intermediate state.
 
 ## Consumer migration residual
 
@@ -706,7 +707,11 @@ product decision.
 
 ## Acceptance
 
-The target remains unverified until all of these gates exist:
+The complete generator-and-consumer architecture is accepted through these
+gates. Generator-owned gates are implemented by
+`TypeScriptFacadeEmitterTests`, `TsJsExportCommandTests`, and
+`eng/test-ts-jsexport-typescript.sh`; consumer-owned residuals retain their
+issue references below.
 
 - a project-graph and publish-artifact gate proves that inspect-web's runtime
   dependency closure contains neither `ts-jsexport` nor
@@ -757,7 +762,7 @@ The target remains unverified until all of these gates exist:
   without renaming or replacing module infrastructure, parameter order and
   types remain unchanged, and every wire-type reference resolves to the
   allocated declaration for its exact typed identity;
-- after #4791, an overloaded compiled fixture with distinct results proves each
+- an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;
 - runtime export-aggregate fixtures cover both intermediate path segments and

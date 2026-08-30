@@ -206,6 +206,9 @@ jobs:
       - name: Check generated inspect-web-engine surface for drift
         run: eng/generate-inspect-web-engine-dts.sh --check
 
+      - name: Typecheck generated ts-jsexport facade
+        run: eng/test-ts-jsexport-typescript.sh
+
       - name: Publish browser app
         run: >
           dotnet publish
