@@ -27,6 +27,10 @@ const getNullableWidgetAsyncKey =
   facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
 const getJsonElementKey =
   facadeSource.match(/"(GetJsonElement\.-?\d+)"/)?.[1];
+const observeValueKey =
+  facadeSource.match(/"(ObserveValue\.-?\d+)"/)?.[1];
+const transformValueKey =
+  facadeSource.match(/"(TransformValue\.-?\d+)"/)?.[1];
 const thenMatch = facadeSource.match(
   /export function (operation_[0-9a-f]+)\(value\) \{\n\s+return [^\n]*\["(Then\.-?\d+)"\]\(value\);\n\}/,
 );
@@ -73,6 +77,14 @@ assert.ok(
 assert.ok(
   getJsonElementKey,
   "The generated GetJsonElement runtime dispatch key was not found.",
+);
+assert.ok(
+  observeValueKey,
+  "The generated ObserveValue runtime dispatch key was not found.",
+);
+assert.ok(
+  transformValueKey,
+  "The generated TransformValue runtime dispatch key was not found.",
 );
 assert.ok(
   undefinedKey,
@@ -140,6 +152,12 @@ function managedExports(methods = {}) {
             [getJsonElementKey]:
               methods.getJsonElement
               ?? (() => JSON.stringify({ value: "json" })),
+            [observeValueKey]:
+              methods.observeValue
+              ?? ((callback) => callback(42)),
+            [transformValueKey]:
+              methods.transformValue
+              ?? ((callback) => callback(42, "answer")),
             [undefinedKey]:
               methods.undefinedOperation ?? ((value) => value),
             [thenKey]:
@@ -270,6 +288,17 @@ async function freshFacade() {
     { name: "nullable", count: 1 },
   );
   assert.deepEqual(facade.getJsonElement(), { value: "json" });
+  const observed = [];
+  facade.observeValue((value) => {
+    observed.push(value);
+  });
+  assert.deepEqual(observed, [42]);
+  assert.equal(
+    facade.transformValue(
+      (value, text) => value === 42 && text === "answer",
+    ),
+    true,
+  );
   assert.equal(facade[undefinedOperationName]("defined"), "defined");
   assert.equal(facade[thenOperationName]("importable"), "importable");
   assert.equal(await facade.runEntryPoint("Main.dll", ["one", "two"]), 37);
