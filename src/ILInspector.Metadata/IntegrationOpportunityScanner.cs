@@ -25,6 +25,32 @@ public record IntegrationOpportunityInfo(
     string IntegrationType,
     string LookFor)
 {
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
+    public string Api { get; init; } = Api;
+    public string IntegrationType { get; init; } = IntegrationType;
+    public string LookFor { get; init; } = LookFor;
+
+    internal IntegrationOpportunityInfo(
+        IntegrationConceptDescriptor concept,
+        string api,
+        string integrationType,
+        string lookFor)
+        : this(concept.DisplayLabel, api, integrationType, lookFor)
+    {
+        _concept = concept;
+    }
+
     internal MetadataTypeDefinitionName? SourceTypeDefinition { get; init; }
     internal IntegrationOpportunityTarget? Target { get; init; }
 
@@ -32,6 +58,28 @@ public record IntegrationOpportunityInfo(
         SourceTypeDefinition;
 
     public IntegrationOpportunityTarget? GetTarget() => Target;
+
+    public IntegrationConceptDescriptor? GetConcept() => _concept;
+
+    public IntegrationProducerPolicyDescriptor? GetProducerPolicy()
+    {
+        IntegrationProducerPolicyDescriptor policy =
+            IntegrationConceptCatalog.Opportunity;
+        return _concept is not null
+            && policy.Concepts.Contains(
+                _concept,
+                ReferenceEqualityComparer.Instance)
+                ? policy
+                : null;
+    }
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 
     // Preserve the original four-field row contract. Structured source and
     // target evidence is derived from the same policy and metadata.
@@ -63,9 +111,25 @@ public static class IntegrationOpportunityScanner
 {
     public static List<IntegrationOpportunityInfo> Scan(PEReader peReader, IReadOnlySet<string> existingIntegrations)
     {
+        ArgumentNullException.ThrowIfNull(existingIntegrations);
+        HashSet<IntegrationConceptDescriptor> concepts = new(
+            IntegrationConceptCatalog.Concepts.Where(concept =>
+                existingIntegrations.Contains(concept.DisplayLabel)),
+            ReferenceEqualityComparer.Instance);
+        return Scan(peReader, concepts);
+    }
+
+    public static List<IntegrationOpportunityInfo> Scan(
+        PEReader peReader,
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations)
+    {
+        ArgumentNullException.ThrowIfNull(existingIntegrations);
         if (!peReader.HasMetadata)
             return [];
 
+        HashSet<IntegrationConceptDescriptor> exactExistingIntegrations = new(
+            existingIntegrations,
+            ReferenceEqualityComparer.Instance);
         var reader = peReader.GetMetadataReader();
         Dictionary<string, IntegrationOpportunityInfo> gaps = new(StringComparer.Ordinal);
 
@@ -85,31 +149,31 @@ public static class IntegrationOpportunityScanner
 
             AddAuthDomainGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddCloudClientGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddConfigurationGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddDatabaseGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
             AddAiClientGaps(
                 gaps,
-                existingIntegrations,
+                exactExistingIntegrations,
                 typeName,
                 simpleName,
                 sourceType);
@@ -124,12 +188,12 @@ public static class IntegrationOpportunityScanner
 
     private static void AddAuthDomainGaps(
         Dictionary<string, IntegrationOpportunityInfo> gaps,
-        IReadOnlySet<string> existingIntegrations,
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations,
         string typeName,
         string simpleName,
         MetadataTypeDefinitionName? sourceType)
     {
-        if (Has(existingIntegrations, EcosystemIntegrationNames.Authentication))
+        if (Has(existingIntegrations, IntegrationConceptCatalog.Authentication))
             return;
 
         if (!simpleName.Contains("Cognito", StringComparison.Ordinal)
@@ -138,7 +202,7 @@ public static class IntegrationOpportunityScanner
             return;
 
         AddGap(gaps,
-            integration: EcosystemIntegrationNames.Authentication,
+            concept: IntegrationConceptCatalog.Authentication,
             api: typeName,
             integrationType: "Authentication/Identity registration",
             lookFor: "AuthenticationBuilder, Add*Identity*, Add*Cognito*",
@@ -147,7 +211,7 @@ public static class IntegrationOpportunityScanner
 
     private static void AddCloudClientGaps(
         Dictionary<string, IntegrationOpportunityInfo> gaps,
-        IReadOnlySet<string> existingIntegrations,
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations,
         string typeName,
         string simpleName,
         MetadataTypeDefinitionName? sourceType)
@@ -158,20 +222,20 @@ public static class IntegrationOpportunityScanner
         if (!cloudClient)
             return;
 
-        if (!Has(existingIntegrations, EcosystemIntegrationNames.DependencyInjection))
+        if (!Has(existingIntegrations, IntegrationConceptCatalog.DependencyInjection))
         {
             AddGap(gaps,
-                integration: EcosystemIntegrationNames.DependencyInjection,
+                concept: IntegrationConceptCatalog.DependencyInjection,
                 api: typeName,
                 integrationType: "IServiceCollection registration",
                 lookFor: "IServiceCollection, Add*",
                 sourceType);
         }
 
-        if (!Has(existingIntegrations, EcosystemIntegrationNames.Aspire))
+        if (!Has(existingIntegrations, IntegrationConceptCatalog.Aspire))
         {
             AddGap(gaps,
-                integration: EcosystemIntegrationNames.Aspire,
+                concept: IntegrationConceptCatalog.Aspire,
                 api: typeName,
                 integrationType: "AppHost resource builder",
                 lookFor: "IResourceBuilder<T>, Add*, *Resource",
@@ -181,19 +245,19 @@ public static class IntegrationOpportunityScanner
 
     private static void AddConfigurationGaps(
         Dictionary<string, IntegrationOpportunityInfo> gaps,
-        IReadOnlySet<string> existingIntegrations,
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations,
         string typeName,
         string simpleName,
         MetadataTypeDefinitionName? sourceType)
     {
-        if (Has(existingIntegrations, EcosystemIntegrationNames.Configuration))
+        if (Has(existingIntegrations, IntegrationConceptCatalog.Configuration))
             return;
 
         if (typeName.StartsWith("Azure.Data.AppConfiguration.", StringComparison.Ordinal)
             && simpleName == "ConfigurationClient")
         {
             AddGap(gaps,
-                integration: EcosystemIntegrationNames.Configuration,
+                concept: IntegrationConceptCatalog.Configuration,
                 api: typeName,
                 integrationType: "IConfigurationBuilder source",
                 lookFor: "IConfigurationBuilder, AddAzureAppConfiguration",
@@ -203,7 +267,7 @@ public static class IntegrationOpportunityScanner
 
     private static void AddDatabaseGaps(
         Dictionary<string, IntegrationOpportunityInfo> gaps,
-        IReadOnlySet<string> existingIntegrations,
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations,
         string typeName,
         string simpleName,
         MetadataTypeDefinitionName? sourceType)
@@ -217,20 +281,20 @@ public static class IntegrationOpportunityScanner
         if (!databaseShape)
             return;
 
-        if (!Has(existingIntegrations, EcosystemIntegrationNames.HealthChecks))
+        if (!Has(existingIntegrations, IntegrationConceptCatalog.HealthChecks))
         {
             AddGap(gaps,
-                integration: EcosystemIntegrationNames.HealthChecks,
+                concept: IntegrationConceptCatalog.HealthChecks,
                 api: typeName,
                 integrationType: "IHealthChecksBuilder registration",
                 lookFor: "IHealthChecksBuilder, Add*",
                 sourceType);
         }
 
-        if (!Has(existingIntegrations, EcosystemIntegrationNames.Aspire))
+        if (!Has(existingIntegrations, IntegrationConceptCatalog.Aspire))
         {
             AddGap(gaps,
-                integration: EcosystemIntegrationNames.Aspire,
+                concept: IntegrationConceptCatalog.Aspire,
                 api: typeName,
                 integrationType: "AppHost resource builder",
                 lookFor: "IResourceBuilder<T>, Add*, *Resource",
@@ -240,12 +304,12 @@ public static class IntegrationOpportunityScanner
 
     private static void AddAiClientGaps(
         Dictionary<string, IntegrationOpportunityInfo> gaps,
-        IReadOnlySet<string> existingIntegrations,
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations,
         string typeName,
         string simpleName,
         MetadataTypeDefinitionName? sourceType)
     {
-        if (Has(existingIntegrations, EcosystemIntegrationNames.AI))
+        if (Has(existingIntegrations, IntegrationConceptCatalog.AI))
             return;
 
         var aiClient = (typeName.StartsWith("OpenAI.", StringComparison.Ordinal)
@@ -258,7 +322,7 @@ public static class IntegrationOpportunityScanner
             return;
 
         AddGap(gaps,
-            integration: EcosystemIntegrationNames.AI,
+            concept: IntegrationConceptCatalog.AI,
             api: typeName,
             integrationType: "Microsoft.Extensions.AI adapter",
             lookFor: "IChatClient, AsIChatClient, IEmbeddingGenerator",
@@ -266,26 +330,28 @@ public static class IntegrationOpportunityScanner
             IChatClientTarget());
     }
 
-    private static bool Has(IReadOnlySet<string> integrations, string integration)
-        => integrations.Contains(integration);
+    private static bool Has(
+        IReadOnlySet<IntegrationConceptDescriptor> integrations,
+        IntegrationConceptDescriptor concept)
+        => integrations.Contains(concept);
 
     private static void AddGap(
         Dictionary<string, IntegrationOpportunityInfo> gaps,
-        string integration,
+        IntegrationConceptDescriptor concept,
         string api,
         string integrationType,
         string lookFor,
         MetadataTypeDefinitionName? sourceType,
         IntegrationOpportunityTarget? target = null)
     {
-        var key = $"{integration}\0{integrationType}";
+        var key = $"{concept.Id.Value}\0{integrationType}";
         var formattedApi = TypeResolver.FormatDisplayName(api);
         if (gaps.TryGetValue(key, out var existing)
             && GetEvidenceRank(existing.Api) <= GetEvidenceRank(formattedApi))
             return;
 
         gaps[key] = new IntegrationOpportunityInfo(
-            integration,
+            concept,
             formattedApi,
             integrationType,
             lookFor)

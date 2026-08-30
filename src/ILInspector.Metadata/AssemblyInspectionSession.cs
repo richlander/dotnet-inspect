@@ -225,6 +225,13 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<IntegrationOpportunityInfo> IntegrationOpportunities(IReadOnlySet<string> existingIntegrations)
         => IntegrationOpportunityScanner.Scan(_image.PEReader, existingIntegrations);
 
+    /// <summary>Integration opportunities, excluding exact configured concepts.</summary>
+    public List<IntegrationOpportunityInfo> IntegrationOpportunities(
+        IReadOnlySet<IntegrationConceptDescriptor> existingIntegrations)
+        => IntegrationOpportunityScanner.Scan(
+            _image.PEReader,
+            existingIntegrations);
+
     /// <summary>Discriminated-union types.</summary>
     public List<UnionTypeInfo> UnionTypes()
     {
