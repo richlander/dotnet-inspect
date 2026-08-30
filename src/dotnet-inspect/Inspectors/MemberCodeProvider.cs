@@ -238,6 +238,19 @@ internal static class MemberCodeProvider
                         $"--focus '{request.CaretFocus}' matched no facts here; "
                         + $"available: {string.Join(", ", alternatives)}");
                 }
+                else if (request.CaretFocus is not null)
+                {
+                    // Issue #5022 item 8: --focus promotes only the requested fact
+                    // family to the caret gesture; every other family still uses
+                    // the default trailing comment. Without this note, the mixed
+                    // styling in the rendered body reads as if the caret'd fact
+                    // were somehow "the one that changed," which isn't what
+                    // --focus means -- it's purely a reporting choice.
+                    CommandError.WriteNote(
+                        $"--focus '{request.CaretFocus}' renders that fact family with a caret "
+                        + "underline beneath the statement; every other fact family keeps the "
+                        + "default trailing comment.");
+                }
             }
 
             // Annotated source: raised C# with hidden-fact comments and the

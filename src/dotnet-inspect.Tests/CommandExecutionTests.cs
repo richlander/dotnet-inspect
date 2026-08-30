@@ -15881,7 +15881,10 @@ public partial class CommandExecutionTests
                 "Make", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
 
             Assert.Equal(0, exit);
-            Assert.Empty(error);
+            // A matched --focus now writes its own caret/comment legend note
+            // (issue #5022 item 8); this test's own concern is untrusted-text
+            // containment, not the note's absence.
+            Assert.Contains("--focus 'allocation' renders that fact family with a caret", error);
 
             // Non-vacuity: the caret gesture and the fact must both render, or
             // there would be no untrusted text on the surface under test.
@@ -15940,6 +15943,27 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("matched no facts", error);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_MatchedFocus_ExplainsTheMixedCaretAndCommentStyles()
+    {
+        // Issue #5022 item 8: --focus promotes only the requested fact family
+        // to the caret gesture; every other family keeps the default trailing
+        // comment. Without this note, seeing one fact underlined and the rest
+        // as comments in the same body reads as if the caret'd fact were "the
+        // one that changed" -- it's purely a reporting choice, and needs to
+        // say so every time --focus actually renders a caret, not just when
+        // it fails to match anything (see the sibling
+        // UnknownFocus_SaysSoAndNamesTheAvailableFamilies test above).
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("^^^^", output);
+        Assert.Contains("--focus 'allocation' renders that fact family with a caret", error);
+        Assert.Contains("every other fact family keeps the default trailing comment", error);
     }
 
     /// <summary>
