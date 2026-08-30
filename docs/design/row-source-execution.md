@@ -472,11 +472,12 @@ owner-issued contained disposition and evidence types.
 The contract authorizes no source, endpoint, credential, cache, or filesystem
 path. Host and source owners perform that authorization before execution.
 
-The shared contract must remain host-neutral, NativeAOT-compatible,
-Browser/Wasm-compatible, reflection-free, and free of dedicated-thread,
-filesystem, network, console, process, or native-interop dependencies.
-Adopters may use platform capabilities in their own owning components only
-under those components' existing platform contracts.
+The shared contract must remain host-neutral, reflection-free, and free of
+dedicated-thread, filesystem, network, console, process, or native-interop
+dependencies. Adopters may use platform capabilities in their own owning
+components only under those components' existing platform contracts. Compiler
+and target compatibility remain build concerns rather than runtime behavior
+owned by this protocol.
 
 ## Required gates
 
@@ -511,7 +512,6 @@ named Release gates:
 | `RowSourceContractIsPresentationFree` | Requests, offers, receipts, outcomes, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label. |
 | `RowSourceContractHasOnlyFrameworkDependencies` | The shared contract's evaluated Release compile/runtime/native assets contain only framework references and the contract component. |
 | `RowSourceContractForbidsHostApis` | A static product-closure gate rejects reflection, inspected-assembly loading, filesystem, network, console, process, native-interop, parallel-loop, and dedicated-thread APIs even when they are framework APIs. |
-| `RowSourceContractRunsOnNativeAotAndBrowser` | The request, planning, accepted execution, row-handoff, exact-Count, and not-satisfied reference matrix runs in Release under NativeAOT and single-threaded Browser/Wasm hosts. |
 
 ## Non-claims
 
