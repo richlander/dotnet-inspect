@@ -713,9 +713,10 @@ gates. Generator-owned gates are implemented by
 `eng/test-ts-jsexport-typescript.sh`; consumer-owned residuals retain their
 issue references below.
 
-- a project-graph and publish-artifact gate proves that inspect-web's runtime
-  dependency closure contains neither `ts-jsexport` nor
-  `ILInspector.JsExportSurface`;
+- `InspectWebProjectGraphPolicy` and the `Verify browser site artifact` CI step
+  prove that inspect-web's runtime dependency closure contains none of
+  `ts-jsexport`, `ILInspector.JsExportSurface`, or
+  `ILInspector.TypeScriptGeneration`;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
   excluding separately identified `initializeRuntime` and `runEntryPoint`

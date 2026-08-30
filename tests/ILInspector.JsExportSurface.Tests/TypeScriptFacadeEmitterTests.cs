@@ -1,4 +1,6 @@
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using System.Text;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
@@ -762,6 +764,50 @@ public sealed class TypeScriptFacadeEmitterTests
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
             "function $ownDataProperty(value: unknown, key: string): unknown",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_AllocatesAfterEveryDigestPrefixIsReserved()
+    {
+        JsExportFunction function = Function(
+            "Fixture.Exports",
+            "Collision",
+            "Collision.1",
+            "void");
+        const string Identity = "Fixture.Exports::Collision()";
+        string digest = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(Identity)))
+            .ToLowerInvariant();
+        List<ApiType> records =
+        [
+            new ApiType
+            {
+                Name = "collision",
+                Kind = "class",
+            },
+        ];
+        for (int length = 8; length <= digest.Length; length += 4)
+        {
+            records.Add(new ApiType
+            {
+                Name = $"operation_{digest[..length]}",
+                Kind = "class",
+            });
+        }
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = AssemblyIdentity(),
+                Records = records,
+                Functions = [function],
+            },
+            RuntimeModule);
+
+        Assert.Contains(
+            $"export function operation_{digest}_2()",
             source,
             StringComparison.Ordinal);
     }

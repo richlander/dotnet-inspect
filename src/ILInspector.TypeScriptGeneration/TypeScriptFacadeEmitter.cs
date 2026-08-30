@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -540,8 +541,14 @@ internal static class TypeScriptFacadeEmitter
                     return candidate;
             }
 
-            throw new InvalidOperationException(
-                $"Unable to allocate a unique TypeScript binding for '{identity}'.");
+            for (long suffix = 2; suffix <= (long)bindings.Count + 2; suffix++)
+            {
+                string candidate = $"{fallbackPrefix}_{digest}_{suffix}";
+                if (bindings.Add(candidate))
+                    return candidate;
+            }
+
+            throw new UnreachableException();
         }
 
         static string CanonicalTypeIdentity(ApiType type) =>
