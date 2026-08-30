@@ -8,7 +8,8 @@ shared vocabulary for the output flags
 `--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
-The item-limit and multi-item print passages describe the approved
+The item-limit, projection-role, typed-L2 result, and multi-item print passages
+describe the approved
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677) target, not
 released behavior. [Item and line limits](item-and-line-limits.md) records its
 implementation status and required gates.
@@ -23,6 +24,8 @@ Related docs:
 - [Item and line limits](item-and-line-limits.md) — the approved target for
   `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
   printable payloads
+- [Section-row shaping](section-row-shaping.md) — typed declared-row-set
+  binding, projection roles, and terminal Count semantics
 - [The package query CLI](package-query-cli.md) — a facet-matched package
   corpus row applying this ladder's "declared row unit" discipline, and the
   source of the item-limit design
@@ -39,23 +42,30 @@ descend to a Scalar by selecting a section, then columns, then collapsing.
 | **Vector** | one column: many rows of a single field | just the `Member` column |
 | **Scalar** | a single value, or a text/doc blob | `1234`, a README, a `///` summary |
 
+That descent describes one declared row-set outcome. Count reduces each
+declared row set independently: exactly one outcome reaches Scalar, while
+multiple exact outcomes reassemble as one ordered count Table. Count never
+collapses independent row sets into one request-wide scalar.
+
 - **Document → Table.** A Document is a sequence of sections. Selecting one
   section leaves a single Table (or other single-section payload).
-- **Table → Vector.** A Table is columns × rows. Projecting to one column
-  leaves a Vector — many rows of a single field.
-- **Vector → Scalar.** Collapsing a Vector (count it, or take one row) yields a
-  Scalar. A Scalar is also the natural shape of a non-tabular payload: a count,
-  a single field value, or a text/documentation blob (a README, a decompiled
-  `.cs` body, an XML-doc `///` comment).
+- **Table → Vector.** A Table is columns × rows. Cell-projecting it to one
+  column leaves a Vector — many rows of a single field. A field-set membership
+  projection instead changes which field-entry rows reach this ladder.
+- **Vector → Scalar.** Within one declared row set, collapsing a Vector (count
+  it, or take one row) yields a Scalar. A Scalar is also the natural shape of a
+  non-tabular payload: one count, a single field value, or a
+  text/documentation blob (a README, a decompiled `.cs` body, an XML-doc `///`
+  comment).
 
 Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, a tree, or a graph. Those are still "one section" — the
-Table rung — and they collapse to Scalars the same way. For a call graph, the
-declared row unit is a directed edge: `--count` counts relationships, `-n`
-limits them, and `--rows` selects an absolute range of the same ordered
-relationships whether the graph is rendered as a Markdown edge table,
-standalone tree, standalone Mermaid diagram, or tabular stream. Tree nodes are
-presentation context, not additional rows.
+Table rung — and each declared row set can collapse to a Scalar the same way.
+For a call graph, the declared row unit is a directed edge: `--count` counts
+relationships, `-n` limits them, and `--rows` selects an absolute range of the
+same ordered relationships whether the graph is rendered as a Markdown edge
+table, standalone tree, standalone Mermaid diagram, or tabular stream. Tree
+nodes are presentation context, not additional rows.
 `graph integrations` uses the same row contract: one row is one directed
 logical relationship. Its package groups and finer member/type nodes are
 presentation context, while `--count`, `-n`, and `--rows` count, limit, or
@@ -64,9 +74,9 @@ structured output. Isolated explicit packages remain node/group context in
 graph and JSON views, but never become empty data rows in the default Markdown
 edge table.
 `OutputModes_UseTheSameWindowedLogicalEdges` gates the same selected logical
-edges across the non-count output modes. Its current windowed-count assertion
-migrates to `CountRejectsItemAndLineWindows`: the target rejects `--count` with
-`--rows` instead of returning the size of the selected edge window.
+edges across the non-count output modes. Count observes the same preceding
+semantic stages under
+[Section-row shaping](section-row-shaping.md#count-semantics).
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus
@@ -102,8 +112,11 @@ them. `ProductionShapedEndpoints_RetainPackageOwnership`,
 Four families walk the shape ladder, and a fifth sits before it. A flag in one
 of the ladder families contributes in one of four ways:
 
-- **Shape selectors** narrow the requested shape (`-S`, `--fields`/`--columns`,
-  `--count`).
+- **Shape selectors** narrow the requested data or shape (`-S`,
+  `--fields`/`--columns`, `--count`). Under the target
+  [section-row-shaping contract](section-row-shaping.md#projection-kinds), L2
+  resolves field/column intent as membership or cell projection before a
+  renderer sees it.
 - **Item/range selectors** narrow the rows without changing the shape rung
   (`--where`, `--order-by`, `-n`, `--top`, `--rows`).
 - **Presentation modifiers** change how a selected payload is rendered without
@@ -117,14 +130,19 @@ of the ladder families contributes in one of four ways:
 full output therefore requires a document format: Markdown or JSON.
 Single-table, stream, plain-text, tree, unary projection, and single-row-set
 `--print` output fail closed rather than selecting one inspection or combining
-independent row sets.
-`--count` remains valid because it aggregates across the selected inspections.
+independent row sets. Count remains valid because it preserves the producer's
+declared aggregate or independent row-set scopes.
 
-Shape cardinality is evaluated after both section and subject selection.
-`--table`, `--tsv`, and `--jsonl` require exactly one table shape; `--tree`
-requires exactly one tree shape; standalone `--mermaid` requires exactly one
-graph shape. Selecting one section with `--tfm all` still produces one shape
-per inspection, so it does not satisfy any single-shape contract.
+For unreduced output, shape cardinality is evaluated after both section and
+subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
+shape; `--tree` requires exactly one tree shape; standalone `--mermaid`
+requires exactly one graph shape. Selecting one section with `--tfm all` still
+produces one shape per inspection, so it does not satisfy any unreduced
+single-shape contract.
+
+Count does not apply that eligibility test to its contributing inputs. It first
+consumes the already-bound typed reduction result, then evaluates format
+eligibility against the resulting Scalar or one count Table as defined below.
 
 ### Coordinate carriers sit before the ladder
 
@@ -171,10 +189,16 @@ it with a chosen **formatter**. The shapes map onto Markout concepts directly:
 | Vector | a table projected to one column, or a single-column `WriteList` |
 | Scalar | a single cell, a `CodeSection` payload, or a row count |
 
-Two Markout knobs do the narrowing and the formatting:
+The current product supplies raw field/column names to
+`MarkoutWriterOptions.Projection`, which applies both table-column projection
+and field-set inclusion during serialization. The target
+[section-row-shaping contract](section-row-shaping.md#projection-kinds) moves
+the membership-versus-cell decision into L2; after that adoption, two Markout
+knobs handle remaining cell narrowing and formatting:
 
-- **Projection** (`MarkoutWriterOptions.Projection`) selects which columns/fields
-  a section emits — the Table → Vector step.
+- **Projection** (`MarkoutWriterOptions.Projection`) applies an already-resolved
+  cell projection — the Table → Vector step. It does not implement field-set
+  membership projection.
 - **Table mode** (`MarkoutWriterOptions.TableMode`) picks how tables render:
   Markdown (default), `MarkoutTableMode.Tsv`, or `MarkoutTableMode.Jsonl`.
 
@@ -190,12 +214,13 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
-Cardinality is observed at the structured row seam after section production,
-command-owned filtering, and accepted column/field source selection, but before
-ordering, row-window, or text projection. A formatter can observe those matched
-rows without writing text; rendered Markdown is never parsed back into rows.
-Producers outside Markout, such as metadata tables, expose cardinality from the
-same typed row builders their renderer consumes.
+The current `CountProjectionFormatter` establishes cardinality by intercepting
+structured Markout rows without writing them. Under the target
+[section-row-shaping contract](section-row-shaping.md#result-binding-and-failure),
+formatters instead consume typed L2 Row-outcomes, Count, or failure results and
+do not establish cardinality. Rendered Markdown is never parsed back into rows.
+Producers outside Markout, such as metadata tables, expose the same declared
+logical rows to L2 that their renderers consume.
 
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
@@ -215,41 +240,61 @@ modifier changes how a selected payload is rendered.
 | --- | --- |
 | Document | default view; `-v:q`/`-v:m`/`-v:n`/`-v:d` (breadth presets); `-S a,b` (multiple sections) |
 | Table | `-S OneSection` (a single section) |
-| Vector | `--fields X` / `--columns X` (project to one column) |
-| Scalar | `--count` (row count) |
+| Vector | `--fields X` / `--columns X` when resolved as a one-column cell projection |
+| Scalar or count Table | Count reduction: one declared row-set outcome becomes a Scalar; multiple outcomes become an ordered count Table |
 
-### Count projection
+### Count results
 
-`--count` reduces selected structured table rows after filtering and accepted
-field/column source selection but before ordering or windows. It rejects
-`--row`, item or line `-n`, `--top`, `--rows`, `--head`, `--tail`, `--lines`,
-and `--tail-lines` rather than silently counting a selected window:
+[Section-row shaping](section-row-shaping.md#count-semantics) owns which row
+sets participate, what Count observes, when its evidence is exact, and whether
+L2 binds a successful Count or failure result. This document begins with that
+already-bound typed result and owns only its place on the shape ladder and its
+presentation.
 
-- Every non-empty `--fields`/`--columns` request resolves against the selected
-  sections before reduction. A field-set projection that filters entries
-  changes the count; selecting table columns does not create or remove rows.
-  Unsupported, unmatched, or inapplicable requests reject rather than leaving
-  the unprojected count unchanged.
+- A successful Count result containing one exact declared-row-set entry
+  produces a culture-invariant decimal scalar. Markdown, plain text, pretty
+  table, and TSV emit the same bare value; JSON emits one number; and JSONL
+  emits one numeric record.
+- A successful Count result containing multiple exact declared-row-set entries
+  produces ordered row-set/count rows. Markdown, table, and plain text render
+  those rows as their native table form; TSV emits two columns; JSONL emits one
+  object per row; JSON emits an array of objects. JSON and JSONL counts are
+  numbers rather than numeric strings.
+- Standalone Mermaid rejects every Count result because neither a scalar nor a
+  count map is a graph.
+- An already-bound failure result produces no Scalar or count Table. Failure
+  presentation belongs to the consuming output owner and is not encoded as a
+  numeric value.
 
-- One selected section produces a culture-invariant decimal scalar. The scalar
-  is the complete payload in every format: JSON emits a JSON number and JSONL
-  emits one numeric record; text and tabular formats emit the same bare value.
-- Multiple selected sections produce ordered `section`/`count` rows, including
-  a zero row for a requested section that emitted no table rows. Markdown,
-  table, and plain text render those rows as their native table form; TSV emits
-  two columns; JSONL emits one object per row; JSON emits an array of objects.
-  JSON and JSONL counts are numbers rather than numeric strings. Standalone
-  Mermaid is rejected because a count map is a table, not a graph.
+The multi-row-set reduction is itself one table, so table, TSV, and JSONL
+formats accept a request that resolves to multiple row sets under `--count`.
+Their ordinary one-input-table restriction evaluates the already-bound
+post-reduction shape and therefore accepts this one count-result table without
+inspecting how many declared row sets contributed entries.
 
-The multi-section reduction is itself one table, so table, TSV, and JSONL
-formats accept a category or other multi-section selection under `--count`.
-Their ordinary one-input-table restriction applies before reduction and does
-not reject this count-result table.
+Target adoption must add the non-vacuous Release gate
+`TypedCountResultsRenderByShape`. It feeds already-bound typed results directly
+to the output layer and requires:
 
-For multiple package subjects, `Package Info` and package-file sections count
-their existing cross-package survey rows; other sections merge each package's
-structured section rows. Every selected row set reports its full post-filter
-cardinality within the declared input extent.
+- one exact entry to exercise Markdown, plain-text, pretty-table, TSV, JSON,
+  JSONL, and Mermaid paths, rendering the specified bare numeric value in the
+  first four, one JSON number, one numeric JSONL record, and the Mermaid
+  rejection;
+- multiple entries to preserve identity, order, and numeric counts as a native
+  Markdown, plain-text, and pretty-table result, two-column TSV, JSON array,
+  and object-per-row JSONL result, while the separately exercised Mermaid path
+  rejects and the ordinary single-input-table restriction does not reject the
+  count result;
+- a bound failure to exercise every Markdown, plain-text, pretty-table, TSV,
+  JSON, JSONL, and Mermaid route, each using its owner-defined failure
+  presentation with no Scalar or count Table payload; and
+- fixtures to prove that no tested output path reconstructs cardinality from
+  rendered or intercepted rows.
+
+For multiple package subjects, `Package Info` and package-file sections retain
+their producer-declared cross-package survey row sets. Other sections preserve
+the aggregate or per-package scope declared before shaping. L2 does not infer a
+merge from labels or presentation.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
@@ -787,9 +832,9 @@ for exact payload export.
 
 The stable vocabulary is:
 
-- `--count` is a shape-reduction selector: it collapses a selected table/vector to a
-  single scalar count. It rejects row addresses and item/line windows rather
-  than silently ignoring them.
+- `--count` is a terminal shape reduction over the logical rows surviving every
+  preceding semantic selection stage. One declared row set collapses to a
+  Scalar; multiple sets produce an ordered count Table.
 - `-n N` / bare `-N` select the first N declared items per row set after
   filtering and ordering. `--head` names that direction explicitly and
   `--tail` reverses it when the producer can establish a truthful suffix.

@@ -479,8 +479,11 @@ explicitly.
 
 ## Counts and empty sections
 
-`--count` reports the selected candidate set, including zero-row sections. This
-makes category membership and applicability visible without conflating them.
+A successful Count reports the participating request-complete row sets defined
+by [Section-row shaping](section-row-shaping.md#multiple-row-sets).
+Request-complete empty sets contribute zero; projection-inapplicable sets
+contribute no entry; and a failed, `Absent`, or request-incomplete participating
+set produces the typed Count failure rather than zero.
 
 Ordinary rendering omits ineffective sections. When an exact section was
 selected and has no data, the command exits non-zero, emits no document, and
