@@ -169,14 +169,26 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null) =>
-        Map(
-            csharpType.Trim(),
-            recordNames,
-            diagnostics,
-            location,
-            blockedAliases,
-            TsTypeMappingContext.JsInterop);
+        IReadOnlySet<string>? blockedAliases = null,
+        JsExportDelegateParameter? delegateParameter = null)
+    {
+        string trimmed = csharpType.Trim();
+        return delegateParameter is null
+            ? Map(
+                trimmed,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases,
+                TsTypeMappingContext.JsInterop)
+            : MapAuthenticatedDelegate(
+                trimmed,
+                delegateParameter,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases);
+    }
 
     public static string MapJsonWireType(
         string csharpType,
@@ -366,6 +378,87 @@ static class TsTypeMapper
         return true;
     }
 
+    static string MapAuthenticatedDelegate(
+        string csharpType,
+        JsExportDelegateParameter delegateParameter,
+        IReadOnlySet<string> recordNames,
+        TsBindGenDiagnostics? diagnostics,
+        string? location,
+        IReadOnlySet<string>? blockedAliases)
+    {
+        bool nullable = csharpType.EndsWith("?", StringComparison.Ordinal);
+        string delegateType = nullable ? csharpType[..^1] : csharpType;
+        IReadOnlyList<string> genericArguments = [];
+        bool recognized = delegateParameter.Kind switch
+        {
+            JsExportDelegateKind.Action =>
+                delegateType is "Action" or "System.Action"
+                || TryUnwrapGenericArguments(
+                    delegateType,
+                    "Action",
+                    "System.Action",
+                    out genericArguments),
+            JsExportDelegateKind.Func =>
+                TryUnwrapGenericArguments(
+                    delegateType,
+                    "Func",
+                    "System.Func",
+                    out genericArguments),
+            _ => false,
+        };
+
+        int expectedGenericArguments =
+            delegateParameter.ParameterTypes.Count
+            + (delegateParameter.ReturnType is null ? 0 : 1);
+        if (!recognized
+            || genericArguments.Count != expectedGenericArguments
+            || (delegateParameter.Kind == JsExportDelegateKind.Action
+                && delegateParameter.ReturnType is not null)
+            || (delegateParameter.Kind == JsExportDelegateKind.Func
+                && delegateParameter.ReturnType is null))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? csharpType,
+                csharpType);
+            return "unknown";
+        }
+
+        if (delegateParameter.ReturnType is not null
+            && IsAsyncReturnType(genericArguments[^1]))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? csharpType,
+                csharpType);
+            return "unknown";
+        }
+
+        var parameters = new string[delegateParameter.ParameterTypes.Count];
+        for (int index = 0; index < parameters.Length; index++)
+        {
+            parameters[index] =
+                $"arg{index}: {Map(
+                    genericArguments[index],
+                    recordNames,
+                    diagnostics,
+                    location,
+                    blockedAliases,
+                    TsTypeMappingContext.JsInterop)}";
+        }
+
+        string returnType = delegateParameter.ReturnType is null
+            ? "undefined"
+            : Map(
+                genericArguments[^1],
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases,
+                TsTypeMappingContext.JsInterop);
+        string functionType =
+            $"({string.Join(", ", parameters)}) => {returnType}";
+        return nullable ? $"({functionType}) | null" : functionType;
+    }
+
     static bool TrySplitTopLevelGenericArguments(
         string arguments,
         out string? first,
@@ -398,6 +491,68 @@ static class TsTypeMapper
         first = null;
         second = null;
         return false;
+    }
+
+    static bool TryUnwrapGenericArguments(
+        string typeName,
+        string shortBaseName,
+        string qualifiedBaseName,
+        out IReadOnlyList<string> arguments)
+    {
+        if (!TryUnwrapGeneric(
+                typeName,
+                shortBaseName,
+                out string? argumentText)
+            && !TryUnwrapGeneric(
+                typeName,
+                qualifiedBaseName,
+                out argumentText))
+        {
+            arguments = [];
+            return false;
+        }
+
+        var result = new List<string>();
+        int depth = 0;
+        int start = 0;
+        for (int index = 0; index < argumentText!.Length; index++)
+        {
+            switch (argumentText[index])
+            {
+                case '<':
+                    depth++;
+                    break;
+                case '>':
+                    depth--;
+                    if (depth < 0)
+                    {
+                        arguments = [];
+                        return false;
+                    }
+                    break;
+                case ',' when depth == 0:
+                    string argument =
+                        argumentText[start..index].Trim();
+                    if (argument.Length == 0)
+                    {
+                        arguments = [];
+                        return false;
+                    }
+                    result.Add(argument);
+                    start = index + 1;
+                    break;
+            }
+        }
+
+        string finalArgument = argumentText[start..].Trim();
+        if (depth != 0 || finalArgument.Length == 0)
+        {
+            arguments = [];
+            return false;
+        }
+        result.Add(finalArgument);
+        arguments = result;
+        return true;
     }
 
     static string LastSegment(string typeName)

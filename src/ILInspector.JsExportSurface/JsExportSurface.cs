@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
@@ -91,6 +92,18 @@ public sealed class JsExportFunction
     public IReadOnlyList<ApiParameter> Parameters { get; init; } = [];
 
     /// <summary>
+    /// Authenticated synchronous delegate signatures, correlated to
+    /// <see cref="Parameters"/> by zero-based parameter index.
+    /// </summary>
+    /// <remarks>
+    /// These facts are published only when body analysis proves that the
+    /// generated runtime registration descriptor matches the managed delegate
+    /// definition and every ordered nested marshaler descriptor.
+    /// </remarks>
+    public IReadOnlyList<JsExportDelegateParameter> DelegateParameters
+        { get; init; } = [];
+
+    /// <summary>
     /// The DTO type actually serialized by this method's own body onto its return value, resolved
     /// from a <c>JsonSerializer.Serialize</c> call site — not inferred from the assembly's whole
     /// registered shape vocabulary. Null when the body contains no such call (e.g. <see
@@ -119,4 +132,28 @@ public sealed class JsExportFunction
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> ParameterWireTypeReferences
         { get; init; } = [];
+}
+
+public enum JsExportDelegateKind
+{
+    Action,
+    Func,
+}
+
+/// <summary>
+/// One authenticated synchronous delegate parameter. TypeScript and other
+/// consumers may choose their own function-type spelling from these
+/// target-language-neutral managed facts.
+/// </summary>
+public sealed class JsExportDelegateParameter
+{
+    public required int ParameterIndex { get; init; }
+
+    public required JsExportDelegateKind Kind { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<TypeRef> ParameterTypes { get; init; } = [];
+
+    [JsonIgnore]
+    public TypeRef? ReturnType { get; init; }
 }

@@ -632,6 +632,11 @@ The current implementation predates this decision:
   signature hash and preserves the exact dispatch identity as
   `JsExportFunction.RuntimeDispatchKey`, but the current emitter does not
   consume it; and
+- `JsExportSurfaceBuilder` authenticates synchronous `System.Action` and
+  `System.Func` descriptor graphs and the current declaration emitter projects
+  those owner-issued facts as TypeScript function types; the replacement
+  TypeScript-module emitter must retain that boundary rather than parsing
+  delegate-looking display text; and
 - the current emitter traverses declaring-type paths with ordinary property
   lookup, invokes a bare runtime method name, rejects same-spelling managed
   operations, and rejects distinct enum or DTO identities with the same simple
@@ -671,11 +676,14 @@ The implementation effort should:
     for an inherited, accessor-backed, absent, or non-callable path;
 11. remove `ValueTask` mapping branches, reject such a hand-composed input
     visibly, and retain the SDK compile-time negative;
-12. allocate deterministic operation, parameter, enum, and DTO names from
+12. retain authenticated synchronous delegate facts, preserve callback
+    parameter order and nullability, and reject Promise-returning delegates
+    rather than inventing a JavaScript async callback contract;
+13. allocate deterministic operation, parameter, enum, and DTO names from
     complete managed identities, route every typed reference through that
     allocation, and preserve parameter order and types instead of rejecting
     legal spelling collisions; and
-13. preserve deterministic output and failure-before-publication behavior.
+14. preserve deterministic output and failure-before-publication behavior.
 
 Steps 9 and 12 are atomic for methods sharing one declaring-type path and
 managed name. Until the exact runtime dispatch identity from #4791 is consumed,
@@ -703,6 +711,17 @@ that two generated facade modules attach to one consumer-coordinated runtime
 and retain assembly-specific dispatch without turning its fixture assemblies
 into a proposed production-layer split; #4497 remains the owner of any such
 product decision.
+
+Browser callback-lifetime canaries are likewise consumer evidence rather than
+generator ownership. Same-operation callback routing belongs to the managed
+operation bridge in
+[#5094](https://github.com/richlander/dotnet-inspect/issues/5094), worker-epoch
+lifetime belongs to the worker protocol in
+[#5093](https://github.com/richlander/dotnet-inspect/issues/5093), and both
+depend on inspect-web adopting the generated facade under
+[#5003](https://github.com/richlander/dotnet-inspect/issues/5003). A canary
+against the current main-thread handcrafted browser contract would prove a
+superseded placement rather than the intended architecture.
 
 ## Acceptance
 
@@ -739,6 +758,17 @@ The target remains unverified until all of these gates exist:
   assuming it is the build's only cascading diagnostic, while a hand-composed
   surface test proves the TypeScript mapper also rejects those unsupported
   inputs visibly;
+- compiled synchronous `Action` and `Func` fixtures prove that the owner
+  authenticates the exact generated `Action(...)` and `Function(...)`
+  descriptors, every nested payload descriptor, managed parameter order,
+  signature hash, and wrapper target before publishing delegate facts;
+- TypeScript mapping tests prove that only those authenticated facts become
+  synchronous function types, preserving callback parameter order,
+  nullability, primitive payload types, and return type while unauthenticated
+  delegate-looking text remains a diagnosed `unknown`;
+- an SDK compile-negative fixture requires method-scoped `SYSLIB1072` for a
+  Promise-returning `Func<..., Task<T>>` callback without assuming it is the
+  build's only cascading diagnostic;
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
   rejects an invalid use of the generic runtime API, and proves the

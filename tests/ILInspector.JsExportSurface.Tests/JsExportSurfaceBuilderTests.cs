@@ -27,6 +27,20 @@ public sealed class JsExportSurfaceBuilderTests
         return JsExportSurfaceBuilder.Build(apiSurface);
     }
 
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildFixtureSurfaceWithBodies()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: false);
+        return JsExportSurfaceBuilder.Build(
+            apiSurface,
+            OpenWireContractBodyIndex(path));
+    }
+
     [Fact]
     public void Extract_CapturesStructuredSerializerContextBaseIdentity()
     {
@@ -53,7 +67,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(46, surface.Functions.Count);
+        Assert.Equal(50, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("GetStringArrayAsyncAfterAwait", names);
@@ -63,6 +77,10 @@ public sealed class JsExportSurfaceBuilderTests
             names);
         Assert.Contains("GetWidgetThroughLocalAsync", names);
         Assert.Contains("EchoBytes", names);
+        Assert.Contains("ReportValue", names);
+        Assert.Contains("ReportValueAgain", names);
+        Assert.Contains("ReportNullableText", names);
+        Assert.Contains("TransformValue", names);
         Assert.Contains("GetRegisteredString", names);
         Assert.Contains("Ping", names);
         Assert.Contains("RenameWidget", names);
@@ -117,6 +135,37 @@ public sealed class JsExportSurfaceBuilderTests
 
         JsExportFunction ping = surface.Functions.Single(f => f.Name == "Ping");
         Assert.Contains("Task", ping.ReturnType, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_PublishesAuthenticatedSynchronousDelegateSignatures()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithBodies();
+
+        JsExportDelegateParameter action = Assert.Single(
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "ReportValue")
+            .DelegateParameters);
+        Assert.Equal(0, action.ParameterIndex);
+        Assert.Equal(JsExportDelegateKind.Action, action.Kind);
+        Assert.Equal(
+            "int",
+            Assert.Single(action.ParameterTypes).ToDisplayString());
+        Assert.Null(action.ReturnType);
+
+        JsExportDelegateParameter func = Assert.Single(
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "TransformValue")
+            .DelegateParameters);
+        Assert.Equal(JsExportDelegateKind.Func, func.Kind);
+        Assert.Collection(
+            func.ParameterTypes,
+            type => Assert.Equal("int", type.ToDisplayString()),
+            type => Assert.Equal("string", type.ToDisplayString()));
+        Assert.Equal("int", func.ReturnType?.ToDisplayString());
     }
 
     [Theory]

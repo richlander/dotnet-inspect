@@ -148,6 +148,29 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function reportValue("
+                + "callback: (arg0: number) => undefined): void;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function reportNullableText("
+                + "callback: (arg0: string | null) => undefined): void;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function transformValue("
+                + "callback: (arg0: number, arg1: string) => number): "
+                + "number;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_LeavesDirectInteropArraysMutable()
     {
         string dts = EmitFixtureDts();

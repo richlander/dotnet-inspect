@@ -62,6 +62,21 @@ gates structurally equal owner-issued facts for the paired direct-result
 artifacts. Analysis issue #5025 tracks the missing compiler provenance when a
 serialized value is hoisted through a state-machine field across a suspension.
 
+Authenticated synchronous `System.Action` and `System.Func` parameters map to
+TypeScript function types with deterministic synthetic argument names, managed
+parameter order, nullable payloads, primitive payload types, and the exact
+synchronous return type. `Action` uses an `undefined` return rather than
+TypeScript `void`, so the public callback contract does not intentionally
+accept Promise-returning functions. Delegate-looking C# text without the
+corresponding body-authenticated `JsExportDelegateParameter` fact remains
+diagnosed `unknown`; TypeScript does not reconstruct publication authority from
+display text. `MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
+`MapParameterType_MapsAuthenticatedFuncInManagedOrder`,
+`MapParameterType_DoesNotTrustDelegateLookingText`, and
+`Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes` gate the
+projection. Promise-returning delegates remain unsupported by the SDK source
+generator and by hand-composed mapper inputs.
+
 Generated JSON-wire interfaces are producer-owned snapshots: their properties
 are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. This policy is limited to authenticated JSON

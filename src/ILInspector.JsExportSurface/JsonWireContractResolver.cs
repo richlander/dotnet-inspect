@@ -140,6 +140,7 @@ public static class JsonWireContractResolver
             ReturnTypeReferences =
                 function.ReturnTypeReferences,
             Parameters = function.Parameters,
+            DelegateParameters = function.DelegateParameters,
             ReturnWireType = returnType is not null
                 ? returnType.ToQualifiedDisplayString()
                 : null,

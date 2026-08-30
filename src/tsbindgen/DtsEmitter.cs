@@ -677,7 +677,7 @@ static class DtsEmitter
                     knownTypeNames,
                     knownTypeIdentities));
 
-        var parameters = function.Parameters.Select(p =>
+        var parameters = function.Parameters.Select((p, index) =>
             $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(
                 p.Type,
                 knownTypeNames,
@@ -686,7 +686,10 @@ static class DtsEmitter
                 BlockedAliases(
                     p.TypeReferences,
                     knownTypeNames,
-                    knownTypeIdentities))}");
+                    knownTypeIdentities),
+                function.DelegateParameters.SingleOrDefault(
+                    delegateParameter =>
+                        delegateParameter.ParameterIndex == index))}");
 
         sb.Append("export declare function ")
           .Append(CamelCase.FromPascalCase(function.Name))
