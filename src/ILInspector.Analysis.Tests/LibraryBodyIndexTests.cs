@@ -11946,6 +11946,19 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+
+        Assert.True(index.MemorySafetyRulesEnabled);
+        Assert.NotEqual(0, index.UnsafeModes.Explicit);
+        Assert.DoesNotContain(
+            index.Methods,
+            method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit);
+    }
+
+    [Fact]
     public void CallerUnsafeMode_CallingUnsafeApiIsNotRequiresUnsafe()
     {
         // The authoritative model is RequiresUnsafeAttribute || pointer signature.
