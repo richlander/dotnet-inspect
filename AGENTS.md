@@ -25,7 +25,7 @@ documentation.
   replacements inside the current six-round block dispatch automatically; only
   a new block requires approval. Merge remains separately authorized.
 - **Review normally runs alongside CI.** Each round normally tries status; ordinary
-  non-Markdown rounds continue if unavailable, every third may wait 60 minutes,
+  non-Markdown rounds continue if unavailable, every third round may wait 60 minutes,
   and every sixth boundary needs green CI/mergeability. Conflict recovery and Markdown never wait.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
@@ -395,7 +395,7 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
 6. **A round closes only when reconciled, its applicable local gates are green,
    and its status cadence is satisfied.** Absent a standing adjustment, every
    round tries current-head status. Required CI failure blocks; unresolved
-   status does not block closure when cadence permits dispatch. Every third ordinary non-Markdown round
+   status does not block closure when cadence permits dispatch. A normal-cadence attempt in every third round
    follows [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
    At non-boundary rounds, a Markdown-only PR's gate is pre-commit
    `markdownlint`; its final CI gate follows the detailed transition. A gate
@@ -557,7 +557,7 @@ Put it under `## Demo` above validation in the PR body.
 - For non-Markdown-only PRs, run the focused gate, push promptly, and start
   eligible local suites and CI concurrently. Follow the round's status cadence:
   pending or unavailable status does not block an ordinary round, while every
-  third normal attempt uses the bounded wait; conflict recovery does not. Follow
+  normal attempt in a third round uses the bounded wait; conflict recovery does not. Follow
   [GitHub status queries](docs/github-status-queries.md) instead of polling. If
   an hour passes without an authored change while an independent gate hasn't
   started, fix the sequencing or record the blocker.

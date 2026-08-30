@@ -50,7 +50,7 @@ or the work appears to need multiple normative owners.
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
 | First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, one status attempt, and no observed conflict | CI and mergeability |
-| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
+| Ordinary subsequent round | First-attempt requirements | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
 | Conflict-recovery attempt | Resolution head pushed, one status attempt, round number authorized, and no observed conflict | Post-push local gates, CI, mergeability |
 | Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
@@ -59,12 +59,14 @@ For status cadence, a **normal-cadence attempt** is a first attempt, ordinary
 subsequent attempt, or failed-gate restart for a non-Markdown PR. At rounds not
 divisible by three, one status attempt is enough: pending, missing, rate-limited,
 or transient status may remain pending and reviewer dispatch continues. This is
-the normal cadence, not a user-authorized parallel review exception. Every third
-normal-cadence attempt instead applies the bounded wait before dispatch.
-Conflict-recovery and Markdown-only attempts dispatch and may close after their
-required local gate and status attempt without waiting on unresolved CI or
-mergeability. Fresh green current-head `ci-required` and positive mergeability
-remain mandatory at six-round boundaries and final merge.
+the normal cadence, not a user-authorized parallel review exception. A
+normal-cadence attempt in a round divisible by three instead applies the bounded
+wait before dispatch. Conflict recovery may dispatch after its status attempt
+while post-push local gates remain pending, but closes only after they pass.
+Markdown-only attempts dispatch and may close after `markdownlint` and their
+status attempt without waiting on unresolved CI or mergeability. Fresh green
+current-head `ci-required` and positive mergeability remain mandatory at
+six-round boundaries and final merge.
 
 ### Review-clean, and recovery
 
@@ -169,11 +171,12 @@ values.
 Absent a standing adjustment in `AGENTS.md`, every round attempts one
 current-head snapshot. For a normal-cadence attempt at a round not divisible by
 three, pending, missing, rate-limited, or transient status does not block
-reviewer dispatch or round closure: record it and continue. Every third
-normal-cadence attempt instead enters a status budget of up to 60 minutes;
-expiry publishes the status report and stops without dispatch. Conflict-recovery
-and Markdown-only attempts never enter that reviewer-dispatch wait; after one
-snapshot, unresolved status blocks neither dispatch nor closure.
+reviewer dispatch or round closure: record it and continue. A normal-cadence
+attempt in a round divisible by three instead enters a status budget of up to 60
+minutes; expiry publishes the status report and stops without dispatch.
+Conflict-recovery and Markdown-only attempts never enter that reviewer-dispatch
+wait; after one snapshot, unresolved status blocks neither dispatch nor
+closure.
 
 Any merge or readiness goal uses the same status budget and stops without goal
 completion if it expires. After every sixth completed round, the separate
