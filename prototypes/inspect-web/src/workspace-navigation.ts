@@ -955,9 +955,9 @@ export interface WorkspaceLocationPersistence {
   parseCurrent(): ParsedWorkspaceLocation;
   preflightCurrent(): WorkspaceLocationPreflight;
   build(state: WorkspaceUrlState, base?: string): URL;
-  sync(state: WorkspaceUrlState): void;
-  replace(url: string): boolean;
-  push(url: string): void;
+  sync(state: WorkspaceUrlState, historyState?: unknown): void;
+  replace(url: string, historyState?: unknown): boolean;
+  push(url: string, historyState?: unknown): void;
 }
 
 export interface WorkspaceLocationPreflight {
@@ -970,8 +970,8 @@ export interface WorkspaceLocationPreflight {
 
 export interface WorkspaceLocationDependencies {
   current(): WorkspaceLocationSnapshot;
-  replace(url: string): void;
-  push(url: string): void;
+  replace(url: string, historyState: unknown): void;
+  push(url: string, historyState: unknown): void;
   decode(value: string): BrowserWorkspaceShareDecodeResult;
   encode(stateJson: string): BrowserWorkspaceShareEncodeResult;
 }
@@ -994,25 +994,25 @@ export function createWorkspaceLocationPersistence(
     },
     preflightCurrent,
     build,
-    sync(state) {
+    sync(state, historyState = null) {
       try {
-        dependencies.replace(build(state).toString());
+        dependencies.replace(build(state).toString(), historyState);
       } catch {
         // Sandboxed frames and overlong state can reject address-bar persistence.
       }
     },
-    replace(url) {
+    replace(url, historyState = null) {
       try {
-        dependencies.replace(url);
+        dependencies.replace(url, historyState);
         return true;
       } catch {
         // Sandboxed frames may reject browser-history changes.
         return false;
       }
     },
-    push(url) {
+    push(url, historyState = null) {
       try {
-        dependencies.push(url);
+        dependencies.push(url, historyState);
       } catch {
         // Sandboxed frames may reject browser-history changes.
       }
