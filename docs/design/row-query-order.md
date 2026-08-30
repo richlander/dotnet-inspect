@@ -289,7 +289,7 @@ formatted values are irrelevant to evaluation.
 With an explicit baseline sequence of `NameAscending`:
 
 ```text
-A(score 3), B(score 1), C(score 3), D(score 2)
+A(score 1), B(score 1), C(score 1), D(score 5)
 ```
 
 the plan:
@@ -298,8 +298,9 @@ the plan:
 Head(3) -> Top(2, ScoreDescending)
 ```
 
-first keeps `A, B, C`, then returns `A, C`. Ranking the complete input first
-would incorrectly admit `D`.
+first keeps `A, B, C`, then returns `A, B` because equal scores retain that
+current order. Promoting `ScoreDescending` into the baseline would instead
+produce `D, A`; the two plans are observably different.
 
 ### Baseline default cannot rank implicitly
 
