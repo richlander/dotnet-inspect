@@ -90,7 +90,14 @@ function compileWidenedSource(): WidenedCompilation {
     // `src/` dynamically imports bundled packages by bare specifier, so the throwaway copy
     // needs the same module resolution the real project has. Without this the compile fails
     // with TS2307 and the exhaustiveness evidence below is invalid rather than merely noisy.
-    symlinkSync(join(projectRoot, "node_modules"), join(compilationRoot, "node_modules"), "dir");
+    //
+    // A Windows "dir" symlink needs Developer Mode or an elevated shell, which would make this
+    // test fail for an ordinary Windows checkout. A junction needs no privilege and resolves
+    // the same way for a directory target that is already absolute.
+    symlinkSync(
+      join(projectRoot, "node_modules"),
+      join(compilationRoot, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir");
     cpSync(
       join(projectRoot, "..", "annotated-source-viewer", "src"),
       join(scratch, "annotated-source-viewer", "src"),

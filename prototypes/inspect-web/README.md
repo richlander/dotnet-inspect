@@ -956,14 +956,23 @@ and 5 against that mermaid build. The code comment asserting that DOMPurify
 makes package Markdown safe had been resting on that build. None of it was
 hidden; nothing was in a position to look.
 
-CI now runs `npm audit --omit=dev --audit-level=moderate`. Both parts of that
-are deliberate. Scoping to production dependencies keeps a build tool's
-advisory -- which never reaches a browser -- from failing unrelated pull
-requests, because a gate that cries wolf gets ignored. The `moderate` threshold
-is not a default worth inheriting silently: every one of those 24 advisories is
-rated moderate, so `--audit-level=high` returns success on all of them,
-including all 19 sanitizer bypasses. The stricter-sounding threshold would have
-produced a gate that passes precisely when it matters.
+CI now runs `npm audit --omit=dev --audit-level=low`. Both parts of that are
+deliberate. Scoping to production dependencies keeps a build tool's advisory --
+which never reaches a browser -- from failing unrelated pull requests, because a
+gate that cries wolf gets ignored. That leaves 115 packages, few enough that the
+threshold can be the strictest one rather than a negotiated middle.
+
+The threshold is worth stating precisely, because `npm audit` does not apply it
+to advisories. It buckets each *package* by the highest severity affecting it
+and compares that. Of the 24 advisories above, 19 are moderate and 5 are low;
+both packages bucket as moderate, so `--audit-level=high` returns success on all
+24, including all 19 sanitizer bypasses. The stricter-sounding threshold is the
+one that passes precisely when it matters. `low` is chosen over `moderate` for a
+narrower reason: a package whose advisories are *all* low buckets as low, so a
+future low-only DOMPurify bypass would leave a `moderate` gate green. At 115
+packages that costs nothing today -- the tree is clean at `low` -- and it lets
+the sanitization comment claim a known vulnerability fails the build without
+qualifying the word.
 
 What remains on a CDN is the three Prism scripts in `index.html`. Those are
 markup, they carry digests, and the freshness check reads them -- so the

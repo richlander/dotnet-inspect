@@ -198,7 +198,9 @@ jobs:
         # The runtime libraries are lockfile dependencies, so advisories against the code that
         # actually reaches a user's browser are visible to `npm audit`. Scoped to production
         # dependencies: a build-tool advisory is not shipped and should not fail unrelated PRs.
-        run: npm audit --omit=dev --audit-level=moderate
+        # `npm audit` buckets each package by its highest severity, so `--audit-level=low` is
+        # what makes a package whose advisories are all low still fail.
+        run: npm audit --omit=dev --audit-level=low
 
       - name: Check generated inspect-web-engine surface for drift
         run: eng/generate-inspect-web-engine-dts.sh --check

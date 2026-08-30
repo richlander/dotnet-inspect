@@ -8394,8 +8394,8 @@ function closeGraphSource() {
 //
 // That sanitization claim is only as good as the DOMPurify build behind it, and a CDN URL had
 // no gate at all: the pinned version was never checked against any advisory feed. The gate is
-// now the lockfile pin plus CI's `npm audit --omit=dev`, which fails the build when a shipped
-// dependency has a known vulnerability.
+// now the lockfile pin plus CI's `npm audit --omit=dev --audit-level=low`, which fails the
+// build when a shipped dependency has an advisory of any severity.
 async function markdownLibs() {
   markdownModule ??= Promise.all([
     import("marked"),
