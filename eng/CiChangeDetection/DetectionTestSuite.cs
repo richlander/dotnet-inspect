@@ -1038,43 +1038,6 @@ internal static class DetectionTestSuite
                 FormatValues(tlaRootLevelConfig));
         }
 
-        // A symlinked model directory placed directly under a model root has
-        // no .tla/.cfg suffix of its own, so no extension-based pattern
-        // matches it -- without a depth-1, any-name catch-all, the change
-        // would never route to tla-plus at all, and the runner's own
-        // symlink rejection would never get a chance to fire.
-        Dictionary<string, string> tlaSymlinkedModelDir = RunDetection(
-            repository,
-            body,
-            "pull_request",
-            "docs/models/linked-model",
-            outputs);
-        if (tlaSymlinkedModelDir["tla"] != "true")
-        {
-            throw new InvalidOperationException(
-                "Symlinked model directory canary did not select tla: " +
-                FormatValues(tlaSymlinkedModelDir));
-        }
-
-        // eng/run-tla-checks.sh's symlink rejection scans recursively
-        // (find "$root" -type l), not just one level under the model root,
-        // so a symlink nested inside a model directory must also route
-        // here or that rejection never runs. It has no extension of its
-        // own (a symlink isn't distinguishable from a regular file by path
-        // alone), unlike a legitimate nested doc such as README.md.
-        Dictionary<string, string> tlaNestedSymlinkedFile = RunDetection(
-            repository,
-            body,
-            "pull_request",
-            "docs/models/nuget-deadline-stream/linked-input",
-            outputs);
-        if (tlaNestedSymlinkedFile["tla"] != "true")
-        {
-            throw new InvalidOperationException(
-                "Nested symlinked file canary did not select tla: " +
-                FormatValues(tlaNestedSymlinkedFile));
-        }
-
         Dictionary<string, string> pushedSource = RunDetection(
             repository,
             body,

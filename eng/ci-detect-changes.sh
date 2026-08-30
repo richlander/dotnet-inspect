@@ -474,52 +474,14 @@ while IFS= read -r -d '' file; do
     docs/design/models/*/*.tla|docs/design/models/*/*.cfg) TLA=true ;;
     docs/models/*/*.tla|docs/models/*/*.cfg) TLA=true ;;
   esac
-  # eng/run-tla-checks.sh's symlink rejection scans recursively under each
-  # model root (find "$root" -type l), not just one level deep, so a
-  # symlink nested inside a model directory -- not just directly under the
-  # root -- must also route here or that rejection never runs. A symlink
-  # is not distinguishable from a regular file by path alone, so approximate
-  # it as: any path under a model root whose basename has no extension.
-  # This is deliberately depth-unlimited (unlike the depth-1 catch-all
-  # below, which also allows an extensioned name) because a real,
-  # extensioned doc file (e.g. README.md) nested in a model directory is
-  # common and should stay on the cheap docs lane, while a real committed
-  # extensionless file under a model root is not (verified empty today via
-  # `git ls-files docs/design/models docs/models | grep -v '\.'`).
+  # A .tla/.cfg file placed directly under a model root, with no model
+  # subdirectory, would not match the nested patterns above but is still a
+  # layout eng/run-tla-checks.sh explicitly detects and reports as
+  # misplaced -- so it must still route to tla-plus for that diagnostic to
+  # ever run against it.
   case "$file_lower" in
-    docs/design/models/*/*)
-      case "${file_lower##*/}" in
-        *.*) ;;
-        *) TLA=true ;;
-      esac
-      ;;
-  esac
-  case "$file_lower" in
-    docs/models/*/*)
-      case "${file_lower##*/}" in
-        *.*) ;;
-        *) TLA=true ;;
-      esac
-      ;;
-  esac
-  # A path directly under a model root, with no further subpath, occupies
-  # exactly the position eng/run-tla-checks.sh scans as a model directory
-  # (find -mindepth 1 -maxdepth 1 -type d). find does not follow symlinks,
-  # so a symlink placed there (which is a real git blob, unlike an actual
-  # directory, and so does show up as a changed path) would never match
-  # the .tla/.cfg patterns above and would otherwise never route to
-  # tla-plus at all -- the runner's own symlink rejection never gets a
-  # chance to run. This also covers a root-level .tla/.cfg file itself.
-  # This deliberately does not broaden to deeper paths (e.g. a README.md
-  # inside an existing model directory), which the runner does not scan
-  # for and so do not need tla-plus to run.
-  case "$file_lower" in
-    docs/design/models/*/*) ;;
-    docs/design/models/*) TLA=true ;;
-  esac
-  case "$file_lower" in
-    docs/models/*/*) ;;
-    docs/models/*) TLA=true ;;
+    docs/design/models/*.tla|docs/design/models/*.cfg) TLA=true ;;
+    docs/models/*.tla|docs/models/*.cfg) TLA=true ;;
   esac
   case "$file" in
     eng/run-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;

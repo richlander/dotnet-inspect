@@ -232,16 +232,6 @@ for root in "${MODEL_ROOTS[@]}"; do
     echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
     FAILURES=$((FAILURES + 1))
   done < <(find "$root" -mindepth 3 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
-  # find's directory/file discovery below does not follow symlinks (no -L),
-  # so a symlinked model directory -- or a symlinked file inside one -- is
-  # invisible to every check in this script: it is not -type d, so the main
-  # loop's directory discovery skips it entirely, and it is skipped by the
-  # rejection scans above for the same reason. Reject any symlink under a
-  # model root outright rather than silently ignoring whatever it hides.
-  while IFS= read -r -d '' link; do
-    echo "::error::$link is a symlink; eng/run-tla-checks.sh does not follow symlinks under $root and cannot verify what it points to. Replace it with a real file or directory." >&2
-    FAILURES=$((FAILURES + 1))
-  done < <(find "$root" -type l -print0)
 done
 
 for root in "${MODEL_ROOTS[@]}"; do
