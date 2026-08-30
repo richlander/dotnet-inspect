@@ -17,6 +17,8 @@
   <ItemGroup>
     <ProjectReference Include="../DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
     <InternalsVisibleTo Include="DotnetInspector.Artifacts.Tests" />
+    <InternalsVisibleTo Include="LocalPathAdmissionBrowserProbe" />
+    <InternalsVisibleTo Include="LocalPathAdmissionPlatformProbe" />
   </ItemGroup>
 
 </Project>

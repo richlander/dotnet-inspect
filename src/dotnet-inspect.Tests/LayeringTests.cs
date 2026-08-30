@@ -541,6 +541,13 @@ public sealed class LayeringTests
         Assert.Contains("\"local.file.missing\"", probe);
         Assert.Contains("\"local.file.unsupported-entry\"", probe);
         Assert.Contains(
+            "Browser errno classification did not select only WASI values.",
+            probe);
+        Assert.Contains("LocalPathAdmission.IsUnixMissing(2)", probe);
+        Assert.Contains(
+            "LocalPathAdmission.IsUnixSymbolicLinkLoop(40)",
+            probe);
+        Assert.Contains(
             "<PublishAot>true</PublishAot>",
             nativeProject);
         Assert.Contains(

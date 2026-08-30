@@ -9,6 +9,18 @@ string path = Path.Combine(
 string missingPath = path + ".missing";
 string notDirectoryPath = Path.Combine(path, "child.dll");
 string loopPath = path + ".loop";
+if (OperatingSystem.IsBrowser()
+    && (LocalPathAdmission.IsUnixMissing(2)
+        || LocalPathAdmission.IsUnixMissing(20)
+        || !LocalPathAdmission.IsUnixMissing(44)
+        || !LocalPathAdmission.IsUnixMissing(54)
+        || LocalPathAdmission.IsUnixSymbolicLinkLoop(40)
+        || !LocalPathAdmission.IsUnixSymbolicLinkLoop(32)))
+{
+    throw new InvalidOperationException(
+        "Browser errno classification did not select only WASI values.");
+}
+
 await File.WriteAllBytesAsync(path, [1, 2, 3]);
 try
 {

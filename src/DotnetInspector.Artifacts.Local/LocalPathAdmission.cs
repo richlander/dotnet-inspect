@@ -506,9 +506,12 @@ internal static partial class LocalPathAdmission
     }
 
     private static bool IsWindowsNamespacePath(string path) =>
-        path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith(@"\\.\", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith(@"\??\", StringComparison.OrdinalIgnoreCase);
+        path.StartsWith(@"\??\", StringComparison.OrdinalIgnoreCase)
+        || path.Length >= 4
+        && IsWindowsDirectorySeparator(path[0])
+        && IsWindowsDirectorySeparator(path[1])
+        && path[2] is '.' or '?'
+        && IsWindowsDirectorySeparator(path[3]);
 
     private static LocalPathClassification RequireKind(
         LocalPathClassification classification,
@@ -851,6 +854,9 @@ internal static partial class LocalPathAdmission
                     returned,
                     out WindowsSymbolicLinkReparseBuffer symbolicLink)
                 || symbolicLink.ReparseTag != information.ReparseTag
+                || !TryGetWindowsSymbolicLinkRelativeFlag(
+                    symbolicLink.Flags,
+                    out bool isRelative)
                 || !TryReadWindowsReparseTarget(
                     returned,
                     Marshal.SizeOf<WindowsSymbolicLinkReparseBuffer>(),
@@ -865,9 +871,6 @@ internal static partial class LocalPathAdmission
                     IsRelative: false);
             }
 
-            bool isRelative =
-                (symbolicLink.Flags
-                    & WindowsSymbolicLinkFlagRelative) != 0;
             return new(
                 disposition,
                 isRelative
@@ -898,6 +901,14 @@ internal static partial class LocalPathAdmission
             disposition,
             ProjectWindowsAbsoluteReparseTarget(mountTarget),
             IsRelative: false);
+    }
+
+    internal static bool TryGetWindowsSymbolicLinkRelativeFlag(
+        uint flags,
+        out bool isRelative)
+    {
+        isRelative = flags == WindowsSymbolicLinkFlagRelative;
+        return flags is 0 or WindowsSymbolicLinkFlagRelative;
     }
 
     private static bool TryReadWindowsReparseTarget(
@@ -1004,17 +1015,20 @@ internal static partial class LocalPathAdmission
     private static bool IsMissing(Exception exception) =>
         exception is FileNotFoundException or DirectoryNotFoundException;
 
-    private static bool IsUnixMissing(int error) =>
-        error is UnixErrorNoEntry or UnixErrorNotDirectory
-        || OperatingSystem.IsBrowser()
-        && error is BrowserErrorNoEntry or BrowserErrorNotDirectory;
+    internal static bool IsUnixMissing(int error) =>
+        OperatingSystem.IsBrowser()
+            ? error is BrowserErrorNoEntry or BrowserErrorNotDirectory
+            : error is UnixErrorNoEntry or UnixErrorNotDirectory;
 
-    private static bool IsUnixSymbolicLinkLoop(int error) =>
-        error == 40
-        || OperatingSystem.IsBrowser()
-        && error == BrowserErrorSymbolicLinkLoop
-        || (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD())
-        && error == 62;
+    internal static bool IsUnixSymbolicLinkLoop(int error)
+    {
+        if (OperatingSystem.IsBrowser())
+            return error == BrowserErrorSymbolicLinkLoop;
+
+        return OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()
+            ? error == 62
+            : error == 40;
+    }
 
     private static bool IsClassificationUnsupported(Exception exception) =>
         exception is DllNotFoundException

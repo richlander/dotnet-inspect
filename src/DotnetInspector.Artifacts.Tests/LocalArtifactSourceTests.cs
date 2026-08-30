@@ -347,6 +347,9 @@ public sealed class LocalArtifactSourceTests
                 @"\\?\UNC\server\..\foo.dll"));
         Assert.False(
             LocalPathAdmission.IsSupportedWindowsPathSyntax(
+                @"//?/C:/foo.dll"));
+        Assert.False(
+            LocalPathAdmission.IsSupportedWindowsPathSyntax(
                 @"C:\NUL.dll"));
         Assert.False(
             LocalPathAdmission.IsSupportedWindowsPathSyntax(
@@ -463,6 +466,62 @@ public sealed class LocalArtifactSourceTests
         Assert.Equal(
             WindowsReparseDisposition.Unsupported,
             LocalPathAdmission.ClassifyWindowsReparseTag(0xDEADBEEF));
+        Assert.True(
+            LocalPathAdmission.TryGetWindowsSymbolicLinkRelativeFlag(
+                0,
+                out bool absoluteIsRelative));
+        Assert.False(absoluteIsRelative);
+        Assert.True(
+            LocalPathAdmission.TryGetWindowsSymbolicLinkRelativeFlag(
+                1,
+                out bool relativeIsRelative));
+        Assert.True(relativeIsRelative);
+        Assert.False(
+            LocalPathAdmission.TryGetWindowsSymbolicLinkRelativeFlag(
+                2,
+                out _));
+        Assert.False(
+            LocalPathAdmission.TryGetWindowsSymbolicLinkRelativeFlag(
+                3,
+                out _));
+    }
+
+    [Fact]
+    public void LocalPathAdmission_WindowsAlternateDevicePrefixIsInvalid()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Alternate device-prefix coverage requires Windows.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string target = Path.Combine(root, "target.dll");
+        string directory = Path.Combine(root, "directory");
+        try
+        {
+            File.WriteAllBytes(target, [1]);
+            Directory.CreateDirectory(directory);
+            string driveRoot = Path.GetPathRoot(root)
+                ?? throw new InvalidOperationException(
+                    "The Windows temp path has no drive root.");
+            string rootSuffix = root[driveRoot.Length..].Replace('\\', '/');
+            string requested =
+                $"//?/{driveRoot[0]}:/{rootSuffix}/directory/../target.dll";
+
+            LocalPathClassification classification =
+                LocalPathAdmission.Classify(requested, cancellationToken);
+            Assert.Equal(
+                LocalPathOutcome.Rejected,
+                classification.Outcome);
+            Assert.Equal(
+                LocalPathReason.InvalidPath,
+                classification.Reason);
+            Assert.Null(classification.CanonicalPath);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
