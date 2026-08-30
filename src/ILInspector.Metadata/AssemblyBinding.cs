@@ -407,22 +407,23 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
     {
         try
         {
-            AssemblyBindingSelection selection = request.Target switch
-            {
-                AssemblyBindingTarget.AssemblyReference reference =>
-                    _bindingPolicy is null
-                        ? SelectReference(
-                            reference.Identity,
-                            request.Scope)
-                        : _bindingPolicy.Select(request),
-                AssemblyBindingTarget.IntrinsicCoreLibrary =>
-                    AssemblyBindingSelection.CannotSelect(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.UnsupportedScope)),
-                _ => AssemblyBindingSelection.Invalid(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.InvalidPolicyResult)),
-            };
+            AssemblyBindingSelection selection =
+                _bindingPolicy is not null
+                    ? _bindingPolicy.Select(request)
+                    : request.Target switch
+                    {
+                        AssemblyBindingTarget.AssemblyReference reference =>
+                            SelectReference(
+                                reference.Identity,
+                                request.Scope),
+                        AssemblyBindingTarget.IntrinsicCoreLibrary =>
+                            AssemblyBindingSelection.CannotSelect(
+                                new AssemblyBindingFailure(
+                                    AssemblyBindingFailureKind.UnsupportedScope)),
+                        _ => AssemblyBindingSelection.Invalid(
+                            new AssemblyBindingFailure(
+                                AssemblyBindingFailureKind.InvalidPolicyResult)),
+                    };
             return AssemblyBindingSelection.ValidateForRequest(
                 request,
                 selection);

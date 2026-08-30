@@ -85,6 +85,26 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
+    public void Select_PreservesBindingPolicyIntrinsicSelection()
+    {
+        ResolvedAssemblyReference selected = Descriptor(
+            AssemblyResolutionProvenance.Platform(
+                "platform",
+                frameworkVersion: null,
+                "intrinsic"));
+        var resolver = new RecordingResolverPolicy(
+            AssemblyBindingSelection.Found(selected));
+        var policy = new AssemblyReferenceBindingPolicy(resolver);
+
+        var result = Assert.IsType<AssemblyBindingSelection.Selected>(
+            policy.Select(Request(AssemblyBindingTarget.CoreLibrary())));
+
+        Assert.Same(selected, result.Assembly);
+        Assert.Equal(1, resolver.SelectionCount);
+        Assert.Equal(0, resolver.ResolutionCount);
+    }
+
+    [Fact]
     public void Select_PreservesBindingPolicyShadows()
     {
         ResolvedAssemblyReference selected = Descriptor(

@@ -69,6 +69,12 @@ valid assembly-reference miss answers unchanged. The concrete
 `ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults` and
 `BindingPolicyResolver_PreservesDelegatedNonSelectedResults` gate that Analysis
 and Queries wrappers preserve the same terminal policy currency.
+`Select_PreservesBindingPolicyIntrinsicSelection` gates that the Metadata
+migration adapter preserves structured intrinsic selections.
+`InstalledPlatformFallback_DoesNotOwnAbsentPrefixedName` and
+`AssemblyGroup_AbsentPlatformPrefixedNamePreservesAmbiguity` gate that
+installed-platform name ownership comes from the probed inventory rather than
+simple-name shape and cannot erase retained group ambiguity.
 `EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition` and
 `EcmaEquivalentFacadeIdentity_ResolvesToTargetDefinition` gate that
 caller-scope ownership uses ECMA assembly-identity equivalence when recognizing

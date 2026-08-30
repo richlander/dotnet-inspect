@@ -339,10 +339,11 @@ public sealed partial class AssemblyDependencyResolver :
             || scope == AssemblyResolutionScope.Any
                 && _options.IncludeInstalledPlatformFallback
                 && activeTier is null;
-        bool installedPlatformOwnsName =
+        bool probeInstalledPlatform =
             useInstalledPlatformFallback
             && PlatformResolver.IsPlatformCandidate(identity.Name);
-        if (installedPlatformOwnsName)
+        bool installedPlatformOwnsName = false;
+        if (probeInstalledPlatform)
         {
             var (path, framework, _, _) =
                 _options.PreferImplementationAssemblies
@@ -352,6 +353,7 @@ public sealed partial class AssemblyDependencyResolver :
                     : PlatformResolver.ResolveAssemblyFromSnapshot(
                         identity.Name,
                         _installedPlatformFrameworkSnapshot.Value);
+            installedPlatformOwnsName = path is not null;
             if (path is not null)
             {
                 AssemblyDescriptorResolution descriptor = DescriptorResult(

@@ -1204,8 +1204,8 @@ the complete empty decision.
 
 The Metadata adapter copies the disposition unchanged from
 `AssemblyBindingSelection.Missing` to `AssemblyBindingOutcome.Missing`.
-`AssemblyBindingSnapshot` and every frozen binding dependency include the
-disposition, so cache equality never collapses `NoNameOwner`,
+The frozen Metadata binding outcome and every cached binding dependency include
+the disposition, so cache equality never collapses `NoNameOwner`,
 `NameOwnedNoMatch`, and `Undifferentiated`. A disposition change for an equal
 request is a policy-answer change and therefore requires a different
 `AssemblyBindingPolicyVersion`; #5213 owns the future atomic association
@@ -3724,6 +3724,14 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - `AssemblyReferenceBindingPolicy_NullRemainsUndifferentiated` proves the
   nullable resolver adapter neither invents ownership nor permits
   fallthrough.
+- `Select_PreservesBindingPolicyIntrinsicSelection` proves the migration
+  adapter delegates intrinsic targets when its resolver also owns the
+  structured binding-policy contract.
+- `InstalledPlatformFallback_DoesNotOwnAbsentPrefixedName` and
+  `AssemblyGroup_AbsentPlatformPrefixedNamePreservesAmbiguity` prove a
+  platform-looking simple name triggers an installed-platform probe but does
+  not attest name ownership unless that inventory provides a path, preserving
+  the group composite's retained ambiguity.
 - `ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults` and
   `ScopeFirstBindingPolicy_NoNameOwnerRequiresIdentityPolicy` prove the
   caller-scope wrapper preserves every delegated terminal result and reaches

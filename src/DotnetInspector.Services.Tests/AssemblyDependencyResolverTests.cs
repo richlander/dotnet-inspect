@@ -269,6 +269,38 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void InstalledPlatformFallback_DoesNotOwnAbsentPrefixedName()
+    {
+        string targetPath = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(targetPath)
+            {
+                PackageRoots = [],
+                IncludeTrustedPlatformAssemblies = false,
+                IncludeAspNetCoreSharedFramework = false,
+                IncludeSiblingAssemblies = false,
+                IncludeDepsJsonAssets = false,
+            });
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                new AssemblyReferenceIdentity(
+                    "Microsoft.Absent.PlatformOwnershipProbe",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    "adb9793829ddae60")),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
+            resolver.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+    }
+
+    [Fact]
     public void KnownInventoryBindingPolicy_DistinguishesNameAbsenceFromIdentityMiss()
     {
         string targetPath = typeof(AssemblyDependencyResolverTests)
@@ -634,6 +666,48 @@ public class AssemblyDependencyResolverTests
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
             unavailable.Failure.Kind);
+    }
+
+    [Fact]
+    public void AssemblyGroup_AbsentPlatformPrefixedNamePreservesAmbiguity()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        var requested = new AssemblyReferenceIdentity(
+            "Microsoft.Absent.PlatformOwnershipProbe",
+            new Version(1, 0, 0, 0),
+            null,
+            "adb9793829ddae60");
+        ResolvedAssemblyReference first = ResolvedAssemblyReference.Create(
+            requested with { Version = new Version(2, 0, 0, 0) },
+            path,
+            () => File.OpenRead(path),
+            AssemblyResolutionProvenance.Local(
+                "first absent platform-prefixed root"));
+        ResolvedAssemblyReference second = ResolvedAssemblyReference.Create(
+            requested with { Version = new Version(3, 0, 0, 0) },
+            path,
+            () => File.OpenRead(path),
+            AssemblyResolutionProvenance.Local(
+                "second absent platform-prefixed root"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [
+                (first, (IAssemblyBindingPolicy)
+                    new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(path))),
+                (second, (IAssemblyBindingPolicy)
+                    new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(path))),
+            ]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(requested),
+            AssemblyBindingOrigin.FromAssembly(first),
+            AssemblyResolutionScope.Platform);
+
+        var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
+            group.Select(request));
+
+        Assert.Equal([first, second], ambiguous.Assemblies);
     }
 
     [Fact]
