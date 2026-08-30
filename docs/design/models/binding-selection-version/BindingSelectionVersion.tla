@@ -2,9 +2,9 @@
 EXTENDS FiniteSets, Integers, TLC
 
 \* Owned by docs/design/type-forwarding-resolution.md.
-\* Requests, selection payloads, and descriptor interning are abstract. The
-\* model owns only answer/version association, version non-reuse, cache reuse,
-\* commit validation, and post-commit publication.
+\* Requests, selection payloads, acquisition, and declarations are abstract.
+\* The model owns only answer/version association, version non-reuse, cache
+\* reuse, commit validation, and policy-dependent publication.
 
 CONSTANTS
     StateOne,
@@ -68,14 +68,14 @@ VARIABLES
     commitVersion,
     commitState,
     committed,
-    interned,
-    cacheWritten,
-    published
+    bindingCached,
+    resolutionCached,
+    generationPublished
 
 vars ==
     <<phase, policyState, operation, expectedVersion, returnedVersion,
-      returnedAnswer, commitVersion, commitState, committed, interned, cacheWritten,
-      published>>
+      returnedAnswer, commitVersion, commitState, committed, bindingCached,
+      resolutionCached, generationPublished>>
 
 Init ==
     /\ phase = "Ready"
@@ -87,9 +87,9 @@ Init ==
     /\ commitVersion = NoVersion
     /\ commitState = StateOne
     /\ committed = FALSE
-    /\ interned = FALSE
-    /\ cacheWritten = FALSE
-    /\ published = FALSE
+    /\ bindingCached = FALSE
+    /\ resolutionCached = FALSE
+    /\ generationPublished = FALSE
 
 Capture ==
     /\ phase = "Ready"
@@ -97,8 +97,8 @@ Capture ==
     /\ expectedVersion' = VersionFor(policyState)
     /\ UNCHANGED
         <<policyState, operation, returnedVersion, returnedAnswer,
-          commitVersion, commitState, committed, interned, cacheWritten,
-          published>>
+          commitVersion, commitState, committed, bindingCached,
+          resolutionCached, generationPublished>>
 
 Advance ==
     /\ phase \in {"Active", "Associating", "Validating", "Committed"}
@@ -106,8 +106,8 @@ Advance ==
     /\ policyState' = NextState(policyState)
     /\ UNCHANGED
         <<phase, operation, expectedVersion, returnedVersion,
-          returnedAnswer, commitVersion, committed, interned, cacheWritten,
-          commitState, published>>
+          returnedAnswer, commitVersion, committed, bindingCached,
+          resolutionCached, commitState, generationPublished>>
 
 EvaluateCold ==
     /\ phase = "Active"
@@ -120,9 +120,9 @@ EvaluateCold ==
        ELSE
             /\ phase' = "Associating"
             /\ returnedVersion' = NoVersion
-    /\ interned' = (SideEffectMode = "BeforeValidation")
-    /\ cacheWritten' = (SideEffectMode = "BeforeValidation")
-    /\ published' = (SideEffectMode = "BeforeValidation")
+    /\ bindingCached' = (SideEffectMode = "BeforeValidation")
+    /\ resolutionCached' = (SideEffectMode = "BeforeValidation")
+    /\ generationPublished' = (SideEffectMode = "BeforeValidation")
     /\ UNCHANGED
         <<policyState, operation, expectedVersion, commitVersion, commitState,
           committed>>
@@ -133,8 +133,8 @@ AssociateObservedVersion ==
     /\ returnedVersion' = VersionFor(policyState)
     /\ UNCHANGED
         <<policyState, operation, expectedVersion, returnedAnswer,
-          commitVersion, commitState, committed, interned, cacheWritten,
-          published>>
+          commitVersion, commitState, committed, bindingCached,
+          resolutionCached, generationPublished>>
 
 EvaluateCache ==
     /\ phase = "Active"
@@ -142,9 +142,9 @@ EvaluateCache ==
     /\ phase' = "Validating"
     /\ returnedVersion' = expectedVersion
     /\ returnedAnswer' = AnswerOne
-    /\ interned' = (SideEffectMode = "BeforeValidation")
-    /\ cacheWritten' = (SideEffectMode = "BeforeValidation")
-    /\ published' = (SideEffectMode = "BeforeValidation")
+    /\ bindingCached' = (SideEffectMode = "BeforeValidation")
+    /\ resolutionCached' = (SideEffectMode = "BeforeValidation")
+    /\ generationPublished' = (SideEffectMode = "BeforeValidation")
     /\ UNCHANGED
         <<policyState, operation, expectedVersion, commitVersion, commitState,
           committed>>
@@ -164,14 +164,15 @@ Commit ==
             /\ committed' = FALSE
     /\ UNCHANGED
         <<policyState, operation, expectedVersion, returnedVersion,
-          returnedAnswer, interned, cacheWritten, published>>
+          returnedAnswer, bindingCached, resolutionCached,
+          generationPublished>>
 
 Publish ==
     /\ phase = "Committed"
     /\ phase' = "Done"
-    /\ interned' = TRUE
-    /\ cacheWritten' = TRUE
-    /\ published' = TRUE
+    /\ bindingCached' = TRUE
+    /\ resolutionCached' = TRUE
+    /\ generationPublished' = TRUE
     /\ UNCHANGED
         <<policyState, operation, expectedVersion, returnedVersion,
           returnedAnswer, commitVersion, commitState, committed>>
@@ -205,9 +206,9 @@ TypeOK ==
     /\ commitVersion \in Versions \union {NoVersion}
     /\ commitState \in States
     /\ committed \in BOOLEAN
-    /\ interned \in BOOLEAN
-    /\ cacheWritten \in BOOLEAN
-    /\ published \in BOOLEAN
+    /\ bindingCached \in BOOLEAN
+    /\ resolutionCached \in BOOLEAN
+    /\ generationPublished \in BOOLEAN
 
 ReturnedColdSnapshotIsAtomic ==
     /\ phase \in {"Validating", "Committed", "Done"}
@@ -236,14 +237,14 @@ CachedAnswerNotCommittedAfterStateChange ==
     /\ operation = "Cache"
     => commitState = StateOne
 
-UncommittedGenerationHasNoSideEffects ==
+UncommittedGenerationHasNoPolicyPublication ==
     ~committed =>
-        /\ ~interned
-        /\ ~cacheWritten
-        /\ ~published
+        /\ ~bindingCached
+        /\ ~resolutionCached
+        /\ ~generationPublished
 
-PublicationRequiresCommit ==
-    (interned \/ cacheWritten \/ published) => committed
+PolicyPublicationRequiresCommit ==
+    (bindingCached \/ resolutionCached \/ generationPublished) => committed
 
 SelectionConverges == <>(phase = "Done")
 

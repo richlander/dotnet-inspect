@@ -14,7 +14,8 @@ The models answer these focused questions:
   transition?
 - Can a new answer be accepted under a reused old token?
 - Can an old cache entry become current under a reused token?
-- Can Metadata mutate interned or cached state before the version commit point?
+- Can Metadata publish binding or resolution caches, or make a generation
+  current, before the version commit point?
 - Can a policy change before commit go undetected?
 - Can a policy change after commit incorrectly invalidate historical
   publication?
@@ -36,10 +37,10 @@ after commit but before physical publication.
 The policy configuration atomically returns the answer and version of one
 state, assigns a fresh token to each replacement state, and requires the
 current token still to equal the captured token at the commit linearization
-point. Descriptor interning, cache writes, and generation publication occur
-only after commit. A later policy change does not retroactively invalidate
-that immutable historical generation. The cache branch represents a
-previously frozen `(VersionOne, AnswerOne)` entry.
+point. Binding-cache, resolution-cache, and current-generation publication
+occur only after commit. A later policy change does not retroactively
+invalidate that immutable historical generation. The cache branch represents
+a previously frozen `(VersionOne, AnswerOne)` entry.
 
 ### Transforming composite policy
 
@@ -59,10 +60,15 @@ invalidates the generation and structural binding snapshots decide whether a
 resolution recipe can be reused later.
 
 The models abstract request identity, selection arms and evidence, descriptor
-contents, policy-specific state construction, workspace realization, and host
-retry timing. The selection model represents interning and publication only as
+contents, acquisition registration, retained sessions, inventories,
+declaration caching, resource budgets, policy-specific state construction,
+workspace realization, and host retry timing. The selection model represents
+binding-cache, resolution-cache, and current-generation publication only as
 booleans so it can prove their commit ordering, not their payload correctness.
-The composite model treats routing and delegate answers as abstract state.
+Validated acquisition and declaration evidence may be retained before the
+final comparison under the owning design's existing rules; this model neither
+requires nor proves transactional rollback of those effects. The composite
+model treats routing and delegate answers as abstract state.
 Its refreshed retry runs against stable replacement state. Repeated delegate
 or route changes may supersede repeated generations; convergence under
 continuing policy churn and the timing of another attempt belong to the
@@ -79,13 +85,13 @@ model-to-implementation correspondence is unverified.
 
 | Configuration | Purpose |
 | --- | --- |
-| `BindingSelectionVersionSafety.cfg` | Explores cold and cached requests across every policy-advance timing. It checks atomic returned snapshots, fresh replacement tokens, captured-version answer integrity, commit-point current-version validation, stale-cache rejection, pre-commit non-mutation, and publication only after commit. |
+| `BindingSelectionVersionSafety.cfg` | Explores cold and cached requests across every policy-advance timing. It checks atomic returned snapshots, fresh replacement tokens, captured-version answer integrity, commit-point current-version validation, stale-cache rejection, and policy-dependent publication only after commit. |
 | `BindingSelectionVersionLiveness.cfg` | Checks that every cold or cached request eventually commits or aborts and reaches terminal completion under weak fairness. |
 | `BindingSelectionVersionBrokenAssociation.cfg` | Reads the version separately after answer creation. It must violate `ReturnedColdSnapshotIsAtomic`. |
 | `BindingSelectionVersionBrokenColdAba.cfg` | Reuses `VersionOne` for the third state and new answer. It must violate `CommittedAnswerBelongsToCapturedVersion`. |
 | `BindingSelectionVersionBrokenCachedAba.cfg` | Reuses `VersionOne` so the initial cache entry becomes current in the third state. It must violate `CachedAnswerNotCommittedAfterStateChange`. |
 | `BindingSelectionVersionBrokenFinalValidation.cfg` | Skips the commit-point current-version comparison. It must violate `CommitObservedCapturedVersion`. |
-| `BindingSelectionVersionBrokenPrecommitMutation.cfg` | Mutates interning, cache, and publication state before validation. It must violate `UncommittedGenerationHasNoSideEffects`. |
+| `BindingSelectionVersionBrokenPrecommitMutation.cfg` | Publishes binding and resolution cache state and makes the generation current before validation. It must violate `UncommittedGenerationHasNoPolicyPublication`. |
 
 ### Composite configurations
 
@@ -206,7 +212,7 @@ Each selection mutation exited with TLC status 12 on its intended invariant:
 | Broken cold ABA | 29 / 27 | 6 | The third state reused `VersionOne`, so its new cold answer committed as belonging to the captured first-state version and violated `CommittedAnswerBelongsToCapturedVersion`. |
 | Broken cached ABA | 34 / 32 | 6 | The third state reused `VersionOne`, making the first-state cache entry current again and violating `CachedAnswerNotCommittedAfterStateChange`. |
 | Broken commit validation | 21 / 20 | 5 | Policy state advanced after a valid answer, commit skipped the current-version comparison, and `commitVersion` differed from the captured token. |
-| Broken pre-commit mutation | 6 / 6 | 3 | Cold evaluation mutated interning, cache, and publication state before version validation, violating `UncommittedGenerationHasNoSideEffects`. |
+| Broken pre-commit mutation | 6 / 6 | 3 | Cold evaluation published binding and resolution caches and made the generation current before version validation, violating `UncommittedGenerationHasNoPolicyPublication`. |
 
 The positive composite configurations also completed with no errors:
 
@@ -219,7 +225,9 @@ The composite graph starts all three scenarios. It executed three `Begin`
 transitions, one stable evaluation, one delegate-drift evaluation, one route
 change evaluation, and two refreshed retries.
 
-Each composite mutation exited with TLC status 12 on its intended property:
+The three composite invariant mutations exited with TLC status 12. The broken
+refresh temporal mutation exited with status 13. Every mutation failed on its
+intended property:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |

@@ -1186,7 +1186,7 @@ A Metadata discovery generation uses this protocol:
 2. Reuse a frozen cache entry only under that exact token.
 3. For a cold request, accept a returned selection only when the snapshot's
    version is the captured token. A mismatch supersedes the generation; the
-   selection payload is not interned, frozen, or cached.
+   selection payload is not interpreted, registered, frozen, or cached.
 4. Before publishing any generation result, compare the policy's current
    version with the captured token. This comparison is the generation's commit
    linearization point. A mismatch commits nothing and returns the internal
@@ -1195,23 +1195,35 @@ A Metadata discovery generation uses this protocol:
 
 The per-answer snapshot removes the racy before/after `Version` reads around
 `Select`; the final generation check remains necessary because policy state may
-change after a valid answer returns. Before the commit point, descriptor
-materialization and policy-dependent cache entries remain local provisional
-data; no catalog interning or shared cache entry is published. After a
-successful comparison, no policy call or mutable policy input is consulted;
-Metadata may publish the already-built immutable generation even if a later
-policy change occurs during the physical writes. Those entries remain keyed by
-the retired token and are historical evidence, not claims about the new
-current state.
+change after a valid answer returns. Before the commit point, binding outcomes,
+resolution recipes, and the candidate generation remain local provisional
+data; no policy-version-keyed cache entry or current generation is published.
+After a successful comparison, no policy call or mutable policy input is
+consulted; Metadata may publish the already-built immutable generation even if
+a later policy change occurs during the physical writes. Those entries remain
+keyed by the retired token and are historical evidence, not claims about the
+new current state.
+
+Acquisition registration, retained candidate sessions, inventories, and
+declaration-cache entries remain governed by their existing descriptor- and
+image-scoped contracts. They may be populated while interpreting a snapshot
+that matches the generation's captured version, before the final comparison.
+A later commit mismatch does not roll back that independently reusable
+acquisition and declaration evidence or its existing resource-budget effects;
+none of it publishes a binding answer or makes the failed generation current.
+A foreign per-answer snapshot is rejected before its payload is interpreted,
+so its payload cannot cause those effects.
 
 A version mismatch is generation-control evidence, not a binding verdict.
 Metadata uses the same internal `PolicyVersionChanged` arm for a foreign cold
 snapshot and a failed final comparison. It produces no context, makes no
 generation current, and publishes no binding or resolution cache entry.
 Metadata does not convert it to `Rejected(InvalidPolicyResult)` or any other
-cacheable `AssemblyBindingOutcome`. Null snapshots or null components remain
-invalid policy output and retain the distinct
-`Rejected(InvalidPolicyResult)` path.
+cacheable `AssemblyBindingOutcome`. A final-comparison mismatch may retain the
+acquisition and declaration evidence described above. A null snapshot remains
+invalid policy output and retains the distinct
+`Rejected(InvalidPolicyResult)` path; the snapshot constructor rejects null
+components before a snapshot exists.
 
 `PolicyVersionChanged` is a Metadata-internal result between the generation
 builder and its catalog coordinator. The public `CreateContext*` methods retain
@@ -1266,13 +1278,14 @@ recipe rules.
 This focused contract does not define #5224's miss ownership, #5214's complete
 identity-eligible candidate handoff, #5216's workspace construction and
 replacement, or the #5133 successor's designated/platform arbitration. It
-also does not prescribe host retry timing after a superseded generation.
+also does not prescribe host retry timing after a superseded generation or
+transactional rollback of acquisition and declaration evidence.
 
 The executable
 [binding selection/version models](models/binding-selection-version/README.md)
 checks atomic answer association, version non-reuse, cold and cached ABA
-mutations, commit-point validation, pre-commit non-mutation, and eventual
-publication. Its companion composite model checks matching success,
+mutations, commit-point validation, pre-commit policy-publication exclusion,
+and eventual publication. Its companion composite model checks matching success,
 foreign-snapshot propagation, state refresh, route replacement, and retry
 progress.
 
@@ -1403,13 +1416,13 @@ Type resolution maps it to
 `Rejected(PlanExpansionRequired(Binding(request)))`; adjacency orchestration
 adds the binding root and advances the generation before rendering.
 
-`InspectionAcquisitionPlanVersion` is the internal composite of the package,
-platform, project, and local policy-version references. Binding cache entries
-record their owning policy and version. Across discovery epochs, an unchanged
-policy version carries its frozen binding outcomes forward without invoking
-policy; a changed version refreshes only that owner's binding roots and
-invalidates recipes whose dependency snapshots differ. The atomic snapshot,
-non-reuse, and deterministic-answer obligations are defined above.
+A transforming composite's token governs every Metadata binding and resolution
+cache entry produced through that composite. Replacing the composite token
+invalidates entries keyed by its retired token. A refreshed generation may
+reuse a resolution recipe only after the new binding snapshots compare
+structurally equal under the existing recipe rules. Selective carry-forward for
+one unchanged participant would require an additional per-entry owner/version
+currency and is not defined by this contract.
 
 Package, platform, project, and local acquisition owners implement the public
 `IAssemblyBindingPolicy` and return context-free descriptors through public
@@ -3822,8 +3835,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
   selection through factories but cannot construct catalog candidates.
 - An external fake policy constructs
   `AssemblyBindingSelectionSnapshot` from one non-null public policy version
-  and one non-null public selection; Metadata rejects null snapshots or
-  components as `InvalidPolicyResult`.
+  and one non-null public selection. The constructor rejects null components,
+  and Metadata rejects a null returned snapshot as `InvalidPolicyResult`.
 - `AssemblyBindingSelectionSnapshot_SelectionAndVersionAreAtomic` changes
   policy state between answer computation and a consumer-side version read
   and proves no snapshot can pair one state's selection with another state's
@@ -3838,10 +3851,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
   published from its payload. It receives
   `PolicyVersionChanged(expected, observed)`, distinct from null or invalid
   policy output.
-- `TypeResolutionContext_CommitVersionChangePublishesNothing` changes the
+- `TypeResolutionContext_CommitVersionChangePublishesNoPolicyAnswer` changes the
   current policy version after a valid snapshot returns but before the commit
   comparison and proves no binding or resolution cache entry, current
-  generation, or context is published.
+  generation, or context is published. Validated acquisition registrations,
+  candidate sessions, inventories, resource-budget consumption, and declaration
+  cache entries may remain available under their existing non-policy keys.
 - `TypeResolutionContext_PostCommitVersionChangeKeepsHistoricalGeneration`
   changes the policy immediately after the successful commit comparison and
   proves publication uses only the already-built immutable generation, makes
@@ -3849,12 +3864,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
   token.
 - `TypeResolutionContext_VersionMismatchHasOneTerminalControlPath` proves cold
   snapshot mismatch and commit mismatch return the same internal
-  `PolicyVersionChanged` arm, no context, and no binding outcome; null snapshot
-  or component remains the distinct `InvalidPolicyResult` verdict.
+  `PolicyVersionChanged` arm, no context, and no binding outcome; a null
+  snapshot remains the distinct `InvalidPolicyResult` verdict.
 - `TypeResolutionCatalog_VersionMismatchPreservesPublicFailureBoundary` proves
-  an unconsumed internal supersession publishes no context or cache entry and
-  reaches the public caller through the existing `InvalidOperationException`
-  boundary rather than a binding outcome.
+  an unconsumed internal supersession publishes no context or binding or
+  resolution cache entry and reaches the public caller through the existing
+  `InvalidOperationException` boundary rather than a binding outcome.
 - `TypeResolutionCatalog_ReusedVersionCannotResurrectColdAnswer` changes a
   request's answer across a V1-to-V2-to-V1 mutation and proves the final state
   cannot return the new answer as V1.
@@ -3969,10 +3984,6 @@ Claim: direct callers and transitive call graphs share one definition identity.
   origin.
 - External acquisition owners can construct every structured provenance arm;
   no consumer parses a provenance string.
-- Unchanged `AssemblyBindingPolicyVersion` instances carry binding and
-  adjacency outcomes across progressive epochs without another policy call;
-  replacing one version refreshes only that owner's roots and dependent
-  recipes.
 - Two requesting-assembly origins with the same reference identity and scope
   occupy different binding-cache entries and may select different candidates;
   repeated requests from one origin reuse its outcome.
