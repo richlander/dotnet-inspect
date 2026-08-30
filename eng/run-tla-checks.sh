@@ -95,6 +95,21 @@ CHECKED_MODULES=0
 CHECKED_CONFIGS=0
 TIMEOUTS=0
 
+# This script only discovers .tla/.cfg files exactly one level under each
+# model root (docs/design/models/<model>/*.tla, not deeper). That matches
+# every model directory's actual layout today, but a file nested any deeper
+# would be silently invisible to the discovery loops below while still
+# matching eng/ci-detect-changes.sh's classification (its `case` patterns
+# span `/`, so they are deliberately broader than this script's layout
+# assumption). Fail loudly rather than silently skip such a file.
+for root in "${MODEL_ROOTS[@]}"; do
+  [ -d "$root" ] || continue
+  while IFS= read -r -d '' nested; do
+    echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
+    FAILURES=$((FAILURES + 1))
+  done < <(find "$root" -mindepth 3 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
+done
+
 for root in "${MODEL_ROOTS[@]}"; do
   [ -d "$root" ] || continue
   while IFS= read -r -d '' dir; do
