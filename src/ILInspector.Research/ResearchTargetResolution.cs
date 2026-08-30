@@ -96,6 +96,18 @@ public enum ResearchTargetDiagnosticKind
     DeclaringTypeForwarded,
 
     /// <summary>
+    /// More than one retained type definition or forwarder has the exact
+    /// requested metadata full name.
+    /// </summary>
+    DeclaringTypeAmbiguous,
+
+    /// <summary>
+    /// A Metadata inspection failure may cover the requested declaring type or
+    /// member, so absence cannot be established from the partial surface.
+    /// </summary>
+    IncompleteMetadataSurface,
+
+    /// <summary>
     /// The input is admitted for reference resolution only, so it was never
     /// opened.
     /// </summary>
@@ -114,7 +126,8 @@ public enum ResearchTargetDiagnosticKind
     AssemblyIdentityMismatch,
 
     /// <summary>
-    /// The live image and the Analysis body index do not name the same module.
+    /// The live image, artifact-bound acquisition descriptor, and Analysis
+    /// body index do not name the same module generation.
     /// </summary>
     ModuleIdentityMismatch,
 
@@ -176,6 +189,10 @@ public sealed class ResearchTargetDiagnostic
                 "The declaring type is absent from this admitted input.",
             ResearchTargetDiagnosticKind.DeclaringTypeForwarded =>
                 "The declaring type is forwarded away from this admitted input.",
+            ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous =>
+                "More than one declaration has the requested metadata full name.",
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface =>
+                "The Metadata surface is incomplete for the requested target.",
             ResearchTargetDiagnosticKind.ReferenceOnlyInput =>
                 "This admitted input is reference-only and supplies no implementation target.",
             ResearchTargetDiagnosticKind.DomainAmbiguous =>
@@ -432,7 +449,7 @@ public sealed class ResearchTargetRequest
 
     /// <summary>The pinned API-surface scope this request evaluates.</summary>
     public ResearchTargetSurfaceScope Surface
-        => ResearchTargetSurfaceScope.AllDeclaredMembers;
+        => ResearchTargetSurfaceScope.MetadataApiSurface;
 
     /// <summary>Whether this request is carried or exact-address.</summary>
     public ResearchTargetRequestKind Kind { get; }

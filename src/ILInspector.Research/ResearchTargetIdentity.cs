@@ -239,14 +239,14 @@ public sealed class ResearchTargetDomainKey : IEquatable<ResearchTargetDomainKey
 }
 
 /// <summary>
-/// The pinned API-surface scope every Research target request evaluates
-/// against.
+/// The existing Metadata API-surface scope every Research target request
+/// evaluates against.
 /// </summary>
 /// <remarks>
-/// Every request evaluates the same surface: all declared members, including
-/// compiler-generated ones, with no member-kind filter. Pinning it on the
-/// request keeps selection reproducible from the inert result without
-/// retaining the borrowed image the surface came from.
+/// Every request evaluates the same surface: public and non-public API-surface
+/// members, Metadata-supported compiler-generated types and fields, and no
+/// member-kind filter. Synthesized methods that Metadata excludes from its API
+/// surface are not added back by Research.
 /// <c>ResearchTargetRequests_AreStrictlySideInputAndScopeLocal</c> gates that
 /// every request carries exactly this pinned scope.
 /// </remarks>
@@ -257,13 +257,16 @@ public sealed class ResearchTargetSurfaceScope
     }
 
     /// <summary>The single pinned surface scope.</summary>
-    public static ResearchTargetSurfaceScope AllDeclaredMembers { get; } = new();
+    public static ResearchTargetSurfaceScope MetadataApiSurface { get; } = new();
 
-    /// <summary>Extraction includes non-public declarations.</summary>
-    public bool IncludeAllMembers => true;
+    /// <summary>Extraction includes non-public API-surface members.</summary>
+    public bool IncludeNonPublic => true;
 
-    /// <summary>Extraction includes compiler-generated declarations.</summary>
-    public bool IncludeCompilerGenerated => true;
+    /// <summary>
+    /// Extraction includes Metadata-supported compiler-generated types and
+    /// fields; it does not change Metadata's synthesized-method policy.
+    /// </summary>
+    public bool IncludeCompilerGeneratedTypesAndFields => true;
 
     /// <summary>Extraction materializes members, not types alone.</summary>
     public bool TypesOnly => false;

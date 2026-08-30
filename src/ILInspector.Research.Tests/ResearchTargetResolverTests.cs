@@ -2,7 +2,9 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Artifacts;
 using DotnetInspector.Fixtures;
 
 using ILInspector.Analysis;
@@ -18,6 +20,7 @@ namespace ILInspector.Research.Tests;
 /// </summary>
 public class ResearchTargetResolverTests
 {
+    const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
     const string SampleType = "ILInspector.Research.TargetFixtures.TargetSample";
     const string NestedType =
         "ILInspector.Research.TargetFixtures.TargetOuter.TargetInner";
@@ -66,10 +69,12 @@ public class ResearchTargetResolverTests
                     // descriptor, resolver, or body index; only its intent and
                     // the pinned surface scope.
                     Assert.Same(
-                        ResearchTargetSurfaceScope.AllDeclaredMembers,
+                        ResearchTargetSurfaceScope.MetadataApiSurface,
                         request.Surface);
-                    Assert.True(request.Surface.IncludeAllMembers);
-                    Assert.True(request.Surface.IncludeCompilerGenerated);
+                    Assert.True(request.Surface.IncludeNonPublic);
+                    Assert.True(
+                        request.Surface
+                            .IncludeCompilerGeneratedTypesAndFields);
                     Assert.False(request.Surface.TypesOnly);
                     Assert.Null(request.Surface.KindFilter);
                     Assert.Equal(
@@ -228,6 +233,16 @@ public class ResearchTargetResolverTests
             resolved.Target,
             Diagnostic: null,
             resolved.Candidates);
+        var surface = new ApiSurface();
+        surface.Types.Add(resolved.Target.ApiType);
+        ResearchTargetInputValidationEvidence inputEvidence = new(
+            ReadFailed: false,
+            IsAssembly: true,
+            resolved.Module.AssemblyIdentity,
+            resolved.Module.ModuleVersionId,
+            ArtifactModuleVersionId: null,
+            MethodDefinitionCount: int.MaxValue,
+            surface);
 
         Rejects(
             new ResearchTargetOutcome.Resolved(
@@ -259,17 +274,49 @@ public class ResearchTargetResolverTests
                     []),
                 researchDiagnostic: null,
                 candidates: []));
+        Rejects(resolved, corruptDispositionRequest: true);
+        Rejects(
+            new ResearchTargetOutcome.Failed(
+                Diagnostic(ResearchTargetDiagnosticKind.ResolutionFailed)),
+            evidenceOverride: new(
+                ReadFailed: true,
+                IsAssembly: false,
+                LiveAssemblyIdentity: null,
+                LiveModuleVersionId: Guid.Empty,
+                ArtifactModuleVersionId: null,
+                MethodDefinitionCount: 0,
+                Surface: null),
+            omitMetadataEvidence: true);
 
-        void Rejects(ResearchTargetOutcome corrupted)
+        void Rejects(
+            ResearchTargetOutcome corrupted,
+            bool corruptDispositionRequest = false,
+            ResearchTargetInputValidationEvidence? evidenceOverride = null,
+            bool omitMetadataEvidence = false)
         {
             ResearchTargetAttempt attempt = new(
                 new ResearchTargetAttemptId(request.Id),
                 request,
                 corrupted);
+            ImmutableArray<ResearchTargetInputDisposition> dispositions =
+                domain.Inputs;
+            if (corruptDispositionRequest)
+            {
+                dispositions =
+                [
+                    new(
+                        input.Id,
+                        ResearchTargetInputRole.Implementation,
+                        ResearchTargetDispositionKind.Requested,
+                        notRequestedReason: null,
+                        new ResearchTargetRequestId(domain.Id, input.Id)),
+                ];
+            }
+
             ResearchTargetDomain corruptedDomain = new(
                 domain.Id,
                 domain.Key,
-                domain.Inputs,
+                dispositions,
                 domain.ConflictingInputs,
                 [request],
                 [attempt]);
@@ -288,8 +335,10 @@ public class ResearchTargetResolverTests
                     request,
                     input,
                     ResearchTargetInputRole.Implementation,
-                    resolved.Target.ApiType,
-                    metadata,
+                    evidenceOverride ?? inputEvidence,
+                    omitMetadataEvidence ? null : resolved.Target.ApiType,
+                    omitMetadataEvidence ? null : metadata,
+                    TargetResolutionFailed: false,
                     corrupted),
             ];
 
@@ -947,10 +996,49 @@ public class ResearchTargetResolverTests
 
         // Every declared diagnostic kind has bounded Research-owned text and
         // exactly one terminal arm.
-        foreach (ResearchTargetDiagnosticKind kind in
-            Enum.GetValues<ResearchTargetDiagnosticKind>())
+        Dictionary<ResearchTargetDiagnosticKind, ResearchTargetOutcomeKind>
+            expectedArms = new()
+            {
+                [ResearchTargetDiagnosticKind.DeclaringTypeAbsent] =
+                    ResearchTargetOutcomeKind.NotFound,
+                [ResearchTargetDiagnosticKind.DeclaringTypeForwarded] =
+                    ResearchTargetOutcomeKind.Unavailable,
+                [ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.IncompleteMetadataSurface] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.ReferenceOnlyInput] =
+                    ResearchTargetOutcomeKind.Unavailable,
+                [ResearchTargetDiagnosticKind.DomainAmbiguous] =
+                    ResearchTargetOutcomeKind.Unavailable,
+                [ResearchTargetDiagnosticKind.AssemblyIdentityMismatch] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.ModuleIdentityMismatch] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.StandaloneModule] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.InvalidMethodDefinitionToken] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.AddressEvidenceMismatch] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind
+                    .RelationshipRoleEvidenceMismatch] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.InputUnreadable] =
+                    ResearchTargetOutcomeKind.Failed,
+                [ResearchTargetDiagnosticKind.ResolutionFailed] =
+                    ResearchTargetOutcomeKind.Failed,
+            };
+        Assert.Equal(
+            Enum.GetValues<ResearchTargetDiagnosticKind>().ToHashSet(),
+            expectedArms.Keys.ToHashSet());
+        foreach ((ResearchTargetDiagnosticKind kind,
+            ResearchTargetOutcomeKind arm) in expectedArms)
         {
             Assert.NotEmpty(Diagnostic(kind).Summary);
+            Assert.Equal(
+                arm,
+                ResearchTargetResolutionValidator.ExpectedArm(kind));
         }
     }
 
@@ -1098,6 +1186,64 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
+    public void ResearchTargetDeclaringType_DoesNotInferAbsenceFromPartialSurface()
+    {
+        byte[] image = BuildResearchSurfaceImage(
+            cyclicTypeName: "Rejected",
+            duplicateTypeName: null);
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+
+        ResearchTargetAttempt attempt = Assert.Single(
+            fixture.ResolveDefault("Rejected", "Method").Attempts);
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
+            attempt.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
+            failed.Diagnostic.Kind);
+
+        ResearchTargetAttempt missingMember = Assert.Single(
+            fixture.ResolveDefault("N.Sibling", "Missing").Attempts);
+        var memberFailure = Assert.IsType<ResearchTargetOutcome.Failed>(
+            missingMember.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
+            memberFailure.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void ResearchTargetDeclaringType_RejectsDuplicateExactDeclarations()
+    {
+        byte[] image = BuildResearchSurfaceImage(
+            cyclicTypeName: null,
+            duplicateTypeName: "Duplicate");
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+
+        ResearchTargetAttempt attempt = Assert.Single(
+            fixture.ResolveDefault("N.Duplicate", "Method").Attempts);
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
+            attempt.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous,
+            failed.Diagnostic.Kind);
+
+        byte[] mixedImage = BuildResearchSurfaceImage(
+            cyclicTypeName: null,
+            duplicateTypeName: "Mixed",
+            forwarderTypeName: "Mixed");
+        TargetFixture mixed = TargetFixture.Create(
+            [(Occurrence(mixedImage), null, null)]);
+        var mixedFailure = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                mixed.ResolveDefault("N.Mixed", "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous,
+            mixedFailure.Diagnostic.Kind);
+    }
+
+    [Fact]
     public void ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening()
     {
         // A reference-only input is never opened: its descriptor throws if it
@@ -1187,6 +1333,49 @@ public class ResearchTargetResolverTests
         Assert.Equal(
             ResearchTargetDiagnosticKind.InputUnreadable,
             malformedFailure.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void ResearchTargetInputValidation_RejectsArtifactMvidReplacement()
+    {
+        byte[] selected = File.ReadAllBytes(
+            FixtureCatalog.ResearchTargetSample.AssemblyPath());
+        Guid selectedMvid = ReadModuleVersionId(selected);
+        ArtifactAcquisitionRegistration registration =
+            RegisterArtifact(
+                () => new MemoryStream(selected, writable: false));
+        ResolvedAssemblyReference descriptor =
+            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                registration,
+                () => new MemoryStream(selected, writable: false),
+                AssemblyResolutionProvenance.Project(
+                    "ArtifactReplacement",
+                    tfm: null,
+                    rid: null))
+            ?? throw new InvalidOperationException(
+                "The selected fixture must be a managed assembly.");
+
+        Guid replacementMvid = Guid.NewGuid();
+        ReplaceGuid(selected, selectedMvid, replacementMvid);
+        AssemblyReferenceIdentity identity = ReadAssemblyIdentity(selected);
+        LibraryBodyIndex replacementIndex = LibraryBodyIndex.FromEvidence(
+            [],
+            [],
+            moduleIdentity: new(identity, replacementMvid));
+        var occurrence = new ImplementationComparisonInputOccurrence(
+            descriptor,
+            new NullResolver(),
+            replacementIndex);
+        TargetFixture fixture = TargetFixture.Create(
+            [(occurrence, null, null)]);
+
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                fixture.ResolveDefault(SampleType, "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.ModuleIdentityMismatch,
+            failed.Diagnostic.Kind);
     }
 
     [Fact]
@@ -1570,6 +1759,174 @@ public class ResearchTargetResolverTests
                     rid: null)),
             new NullResolver(),
             index);
+    }
+
+    static ImplementationComparisonInputOccurrence Occurrence(byte[] image)
+    {
+        AssemblyReferenceIdentity identity = ReadAssemblyIdentity(image);
+        Guid mvid = ReadModuleVersionId(image);
+        return new ImplementationComparisonInputOccurrence(
+            ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Project(
+                    identity.Name,
+                    tfm: null,
+                    rid: null)),
+            new NullResolver(),
+            LibraryBodyIndex.FromEvidence(
+                [],
+                [],
+                moduleIdentity: new(identity, mvid)));
+    }
+
+    static AssemblyReferenceIdentity ReadAssemblyIdentity(byte[] image)
+    {
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            pe.GetMetadataReader());
+    }
+
+    static Guid ReadModuleVersionId(byte[] image)
+    {
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        return reader.GetGuid(reader.GetModuleDefinition().Mvid);
+    }
+
+    static ArtifactAcquisitionRegistration RegisterArtifact(
+        Func<Stream> openRead)
+    {
+        var authority = new ArtifactGenerationAuthority();
+        ArtifactAdmissionAuthorization admission =
+            authority.CreateAdmissionAuthorization();
+        ArtifactContribution contribution;
+        using (ArtifactContributionScope scope =
+               authority.BeginContribution(admission))
+        {
+            contribution = scope.Register(
+                TestArtifactProvenance.Instance,
+                openRead);
+        }
+
+        authority.CreateRetainedContent(
+            contribution.Registration,
+            openRead);
+        authority.CompleteAdmission(admission);
+        return contribution.Registration;
+    }
+
+    static void ReplaceGuid(byte[] image, Guid oldValue, Guid newValue)
+    {
+        ReadOnlySpan<byte> oldBytes = oldValue.ToByteArray();
+        int found = -1;
+        for (int index = 0; index <= image.Length - oldBytes.Length; index++)
+        {
+            if (!image.AsSpan(index, oldBytes.Length).SequenceEqual(oldBytes))
+                continue;
+
+            Assert.Equal(-1, found);
+            found = index;
+        }
+
+        Assert.True(found >= 0);
+        newValue.TryWriteBytes(image.AsSpan(found, oldBytes.Length));
+    }
+
+    static byte[] BuildResearchSurfaceImage(
+        string? cyclicTypeName,
+        string? duplicateTypeName,
+        string? forwarderTypeName = null)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("ResearchSurface.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ResearchSurface"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        if (cyclicTypeName is not null)
+        {
+            TypeDefinitionHandle cyclic = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString(cyclicTypeName),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(cyclic, cyclic);
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Sibling"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        if (duplicateTypeName is not null)
+        {
+            StringHandle ns = metadata.GetOrAddString("N");
+            for (int index = 0; index < 2; index++)
+            {
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    ns,
+                    metadata.GetOrAddString(duplicateTypeName),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1));
+            }
+        }
+
+        if (forwarderTypeName is not null)
+        {
+            AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("ForwarderTarget"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+            metadata.AddExportedType(
+                TypeAttributes.Public | Forwarder,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(forwarderTypeName),
+                target,
+                typeDefinitionId: 0);
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    sealed class TestArtifactProvenance : IArtifactProvenance
+    {
+        public static TestArtifactProvenance Instance { get; } = new();
     }
 
     /// <summary>

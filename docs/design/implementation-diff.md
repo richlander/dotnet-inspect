@@ -435,8 +435,9 @@ request retains:
 - its operation, question, scope, domain, side-local admitted-input identity,
   and side;
 - the exact typed `MemberTargetSelector` and declaring-type intent;
-- the pinned API-surface scope it evaluates: all declared members, including
-  compiler-generated ones, with no member-kind filter;
+- the pinned Metadata API-surface scope it evaluates: public and non-public
+  members, Metadata-supported compiler-generated types and fields, Metadata's
+  exclusion of synthesized methods, and no member-kind filter;
 - whether the target is exact or carried from API selection to a physical body
   coordinate; and
 - an optional asserted address and relationship-role intent for an
@@ -488,9 +489,12 @@ resolution:
 Resolution may borrow an implementation input only for the duration of the
 call, and must evaluate all requests for that input from one staged read. Live
 assembly and module identity must agree with the acquisition descriptor and
-Analysis-issued module identity. Member selection remains Metadata-owned,
-covers all declarations including compiler-generated members, and matches the
-exact declaring-type metadata full name. An exact type forwarder makes the
+Analysis-issued module identity, including the descriptor-bound MVID when one
+is present. Member selection remains Metadata-owned, uses its existing API
+surface including its synthesized-method exclusions, and matches the exact
+declaring-type metadata full name. A potentially covering Metadata inspection
+failure prevents Research from asserting absence. Duplicate exact declaring
+types or forwarders fail as ambiguous. An exact type forwarder makes the
 target unavailable rather than absent. A durable address requires an in-range
 `MethodDefinition` handle of the validated module.
 

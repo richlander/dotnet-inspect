@@ -432,6 +432,9 @@ public static class ResearchTargetResolver
         }
         catch (Exception exception) when (IsExpectedInputFailure(exception))
         {
+            SetInputEvidence(
+                requests,
+                ResearchTargetInputValidationEvidence.Unreadable);
             Terminate(
                 requests,
                 ResearchTargetDiagnosticKind.InputUnreadable);
@@ -446,7 +449,10 @@ public static class ResearchTargetResolver
             try
             {
                 reader = source.Reader;
-                if (ValidateImage(reader, occurrence) is
+                ResearchTargetInputValidationEvidence evidence =
+                    CaptureInputEvidence(reader, occurrence);
+                SetInputEvidence(requests, evidence);
+                if (ValidateImage(evidence, occurrence) is
                     ResearchTargetDiagnosticKind invalid)
                 {
                     Terminate(requests, invalid);
@@ -458,10 +464,16 @@ public static class ResearchTargetResolver
                     includeAll: true,
                     typesOnly: false,
                     includeCompilerGenerated: true);
+                SetInputEvidence(
+                    requests,
+                    evidence with { Surface = surface });
             }
             catch (Exception exception) when (
                 IsExpectedMetadataReadFailure(exception))
             {
+                SetInputEvidence(
+                    requests,
+                    ResearchTargetInputValidationEvidence.Unreadable);
                 Terminate(
                     requests,
                     ResearchTargetDiagnosticKind.InputUnreadable);
@@ -482,6 +494,7 @@ public static class ResearchTargetResolver
                 catch (Exception exception) when (
                     IsExpectedTargetResolutionFailure(exception))
                 {
+                    planned.TargetResolutionFailed = true;
                     planned.Outcome = Failed(
                         ResearchTargetDiagnosticKind.ResolutionFailed);
                 }
@@ -493,18 +506,37 @@ public static class ResearchTargetResolver
     /// Validates that the live image, the acquisition descriptor, and the
     /// Analysis body index all name the same assembly and the same module.
     /// </summary>
-    static ResearchTargetDiagnosticKind? ValidateImage(
+    static ResearchTargetInputValidationEvidence CaptureInputEvidence(
         MetadataReader reader,
         ImplementationComparisonInputOccurrence occurrence)
     {
+        bool isAssembly = reader.IsAssembly;
+        AssemblyReferenceIdentity? identity = isAssembly
+            ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+            : null;
+        Guid moduleVersionId =
+            reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        return new ResearchTargetInputValidationEvidence(
+            ReadFailed: false,
+            isAssembly,
+            identity,
+            moduleVersionId,
+            occurrence.Assembly.Registration.ModuleVersionId,
+            reader.MethodDefinitions.Count,
+            Surface: null);
+    }
+
+    static ResearchTargetDiagnosticKind? ValidateImage(
+        ResearchTargetInputValidationEvidence evidence,
+        ImplementationComparisonInputOccurrence occurrence)
+    {
         LibraryBodyModuleIdentity analysis = occurrence.BodyIndex.ModuleIdentity;
-        if (!reader.IsAssembly)
+        if (!evidence.IsAssembly)
             return ResearchTargetDiagnosticKind.StandaloneModule;
         if (analysis.AssemblyIdentity is null)
             return ResearchTargetDiagnosticKind.AssemblyIdentityMismatch;
 
-        AssemblyReferenceIdentity live =
-            AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+        AssemblyReferenceIdentity live = evidence.LiveAssemblyIdentity!;
         if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
                 live,
                 occurrence.Assembly.Identity)
@@ -515,9 +547,9 @@ public static class ResearchTargetResolver
             return ResearchTargetDiagnosticKind.AssemblyIdentityMismatch;
         }
 
-        Guid moduleVersionId =
-            reader.GetGuid(reader.GetModuleDefinition().Mvid);
-        return moduleVersionId == analysis.ModuleVersionId
+        return evidence.LiveModuleVersionId == analysis.ModuleVersionId
+                && (evidence.ArtifactModuleVersionId is not Guid artifact
+                    || artifact == evidence.LiveModuleVersionId)
             ? null
             : ResearchTargetDiagnosticKind.ModuleIdentityMismatch;
     }
@@ -529,27 +561,37 @@ public static class ResearchTargetResolver
         LibraryBodyModuleIdentity module)
     {
         string intent = planned.Request.DeclaringTypeFullName;
-        ApiType? declaring = null;
-        foreach (ApiType candidate in surface.Types)
-        {
-            if (string.Equals(
-                MetadataFullName(candidate),
+        List<ApiType> declaringTypes =
+        [
+            .. surface.Types.Where(
+                candidate => string.Equals(
+                    MetadataFullName(candidate),
+                    intent,
+                    StringComparison.Ordinal)),
+        ];
+        int forwarders = surface.TypeForwarders.Count(
+            forwarder => string.Equals(
+                MetadataFullName(forwarder),
                 intent,
-                StringComparison.Ordinal))
-            {
-                declaring = candidate;
-                break;
-            }
+                StringComparison.Ordinal));
+        if (declaringTypes.Count + forwarders > 1)
+        {
+            return Failed(
+                ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
         }
 
-        if (declaring is null)
+        if (declaringTypes.Count == 0)
         {
-            bool forwarded = surface.TypeForwarders.Any(
-                forwarder => string.Equals(
-                    MetadataFullName(forwarder),
+            if (FindPotentiallyCoveringFailure(
+                    surface,
                     intent,
-                    StringComparison.Ordinal));
-            return forwarded
+                    declaringTypeExists: false) is not null)
+            {
+                return Failed(
+                    ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
+            }
+
+            return forwarders == 1
                 ? Unavailable(
                     ResearchTargetDiagnosticKind.DeclaringTypeForwarded)
                 : new ResearchTargetOutcome.NotFound(
@@ -559,6 +601,7 @@ public static class ResearchTargetResolver
                     candidates: []);
         }
 
+        ApiType declaring = declaringTypes[0];
         planned.DeclaringType = declaring;
         MemberTargetResolution resolution = MemberTargetResolver.Resolve(
             declaring,
@@ -570,6 +613,17 @@ public static class ResearchTargetResolver
 
         if (resolution.Diagnostic is { } diagnostic)
         {
+            if (MapDiagnosticKind(diagnostic.Kind)
+                    == ResearchTargetOutcomeKind.NotFound
+                && FindPotentiallyCoveringFailure(
+                    surface,
+                    intent,
+                    declaringTypeExists: true) is not null)
+            {
+                return Failed(
+                    ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
+            }
+
             return MapDiagnosticKind(diagnostic.Kind) switch
             {
                 ResearchTargetOutcomeKind.NotFound =>
@@ -632,6 +686,50 @@ public static class ResearchTargetResolver
             role.Value,
             module,
             candidates);
+    }
+
+    static ApiSurfaceInspectionFailure? FindPotentiallyCoveringFailure(
+        ApiSurface surface,
+        string declaringTypeFullName,
+        bool declaringTypeExists)
+        => surface.InspectionFailures.FirstOrDefault(
+            failure =>
+                failure.Operation
+                    != ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation
+                && failure.Operation
+                    != ApiSurfaceInspectionFailure
+                        .EnumAttributeTypeIndexOperation
+                && (!declaringTypeExists
+                    || failure.Operation
+                        is not ApiSurfaceInspectionFailure
+                            .TypeForwarderIdentityOperation
+                            and not ApiSurfaceInspectionFailure
+                                .TypeForwarderRowOperation)
+                && MayAffectType(failure, declaringTypeFullName));
+
+    static bool MayAffectType(
+        ApiSurfaceInspectionFailure failure,
+        string declaringTypeFullName)
+    {
+        if (failure.OwningTypeDefinition is { } owner)
+        {
+            return string.Equals(
+                owner.ToMetadataFullName(),
+                declaringTypeFullName,
+                StringComparison.Ordinal);
+        }
+
+        if (!failure.AffectedTypeDefinitions.IsDefaultOrEmpty)
+        {
+            return failure.AffectedTypeDefinitions.Any(
+                affected => string.Equals(
+                    affected.ToMetadataFullName(),
+                    declaringTypeFullName,
+                    StringComparison.Ordinal));
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -740,6 +838,14 @@ public static class ResearchTargetResolver
             planned.Outcome = Failed(kind);
     }
 
+    static void SetInputEvidence(
+        IReadOnlyList<PlannedRequest> requests,
+        ResearchTargetInputValidationEvidence evidence)
+    {
+        foreach (PlannedRequest planned in requests)
+            planned.InputEvidence = evidence;
+    }
+
     static ResearchTargetOutcome Unavailable(ResearchTargetDiagnosticKind kind)
         => new ResearchTargetOutcome.Unavailable(
             new ResearchTargetDiagnostic(kind));
@@ -833,8 +939,10 @@ public static class ResearchTargetResolver
                         planned.Request,
                         planned.Input,
                         planned.Role,
+                        planned.InputEvidence,
                         planned.DeclaringType,
                         planned.MetadataResolution,
+                        planned.TargetResolutionFailed,
                         planned.Outcome
                             ?? throw new InvalidOperationException(
                                 "Every planned request must reach a terminal outcome."))),
@@ -894,9 +1002,13 @@ public static class ResearchTargetResolver
 
         public ResearchExactAddressMemberSelection? Exact { get; } = exact;
 
+        public ResearchTargetInputValidationEvidence? InputEvidence { get; set; }
+
         public ApiType? DeclaringType { get; set; }
 
         public MemberTargetResolution? MetadataResolution { get; set; }
+
+        public bool TargetResolutionFailed { get; set; }
 
         public ResearchTargetOutcome? Outcome { get; set; }
     }
@@ -910,6 +1022,28 @@ internal sealed record ResearchTargetValidationEvidence(
     ResearchTargetRequest Request,
     ResearchAdmittedInput Input,
     ResearchTargetInputRole Role,
+    ResearchTargetInputValidationEvidence? InputEvidence,
     ApiType? DeclaringType,
     MemberTargetResolution? MetadataResolution,
+    bool TargetResolutionFailed,
     ResearchTargetOutcome Outcome);
+
+internal sealed record ResearchTargetInputValidationEvidence(
+    bool ReadFailed,
+    bool IsAssembly,
+    AssemblyReferenceIdentity? LiveAssemblyIdentity,
+    Guid LiveModuleVersionId,
+    Guid? ArtifactModuleVersionId,
+    int MethodDefinitionCount,
+    ApiSurface? Surface)
+{
+    internal static ResearchTargetInputValidationEvidence Unreadable { get; } =
+        new(
+            ReadFailed: true,
+            IsAssembly: false,
+            LiveAssemblyIdentity: null,
+            LiveModuleVersionId: Guid.Empty,
+            ArtifactModuleVersionId: null,
+            MethodDefinitionCount: 0,
+            Surface: null);
+}
