@@ -40,6 +40,14 @@ consumer. The section below is the replacement, written around the two
 primitives that already exist. The bounded decode contract that effort produced
 is retained unchanged.
 
+This consumer extension is **design-only and unverified**. `Resolve` ships; the
+terminal-definition accessibility operation it depends on does not exist yet,
+and none of the `SignatureSpellability_*` gates named below run. The current
+shipping implementation scans selected assemblies into a non-public type-name
+set and reports an unresolvable reference as spellable, which the section below
+requires it to stop doing. No property asserted there is enforced until those
+gates run in Release.
+
 Browser platform call graphs resolve exact graph-target type identities through
 `AssemblyContextTypeResolutionQuery`. The query retains the cumulative
 workspace's immutable participant snapshots, applies its participant-only
@@ -2101,39 +2109,71 @@ Signature spellability asks one Metadata-owned question:
 > occurrence in this metadata signature bind to a terminal definition, and is
 > each definition that participates in C# spelling externally accessible?
 
-Two operations answer it, and Metadata already owns both:
+Two operations answer it:
 
 - `TypeResolutionContext.Resolve(TypeResolutionRequest)` returns a
   `TypeResolutionOutcome` — a terminal definition, or a typed failure carrying
-  the forwarding hops it walked.
-- `TypeResolutionContext.GetTerminalDefinitionAccessibility(ResolvedTypeDefinitionKey)`
-  returns `Accessible`, `Inaccessible`, or `Rejected` for a definition that
-  resolution has already produced.
+  the forwarding hops it walked. **This ships today**
+  (`TypeResolutionContext.cs`), and every other consumer in this document
+  already uses it.
+- A terminal-definition accessibility operation on the same context answers the
+  one question resolution does not: whether a definition it produced can be
+  named from outside its assembly. **This does not exist yet.** It is the single
+  new public primitive this consumer requires, and
+  [§Terminal accessibility](#terminal-accessibility) below is its normative
+  contract.
 
 A speller walks the signature's named occurrences, asks for each to be bound,
-and asks the second question only of the definitions the first one produced. A
-signature is spellable when every occurrence bound and every participating
-definition came back `Accessible`. Anything else is not spellable, and the
-reason is the outcome that stopped it.
+and asks the second question only of the external definitions the first one
+produced. A signature is spellable when every occurrence bound and every
+participating external definition came back accessible. Anything else is not
+spellable, and the reason is the outcome that stopped it.
 
-This is the whole contract. Resolution already models the tri-state a speller
-needs, already carries forwarding evidence, and is already shared by every other
-consumer in this document. Spellability adds exactly one thing resolution does
-not answer — whether the definition it found can be named from outside its
-assembly — and that operation is a public primitive on the same context. A
-consumer that needs a different shape should say so with its own types at its
-own boundary rather than having Metadata issue a second vocabulary for the same
-facts.
+That is the whole contract, and the reason it is this small is that resolution
+already models the tri-state a speller needs and already carries forwarding
+evidence. Spellability adds one primitive, not a vocabulary. A consumer that
+needs a different shape should express it with its own types at its own
+boundary rather than having Metadata issue a second vocabulary for facts
+resolution already reports.
+
+#### The member row is validated before its signature is decoded
+
+A speller is handed a member to describe, and the bytes it decodes are addressed
+by that member's row. A caller must not pair an arbitrary `MetadataReader` with a
+reader-bound `FieldDefinition`, `PropertyDefinition`, or `MethodDefinition`
+value, because a mismatched pairing decodes whatever bytes the wrong row
+addresses and reports the result as a signature.
+
+Before any decode, the catalog-owned inspection session validates, against the
+source candidate it was opened for:
+
+- the verified source MVID and acquisition registration;
+- the token's member table and row bounds;
+- the declaring `TypeDef` ownership of that member;
+- module identity.
+
+A cross-reader row, a wrong member table, an out-of-range row, a declaring-type
+mismatch, or a stale module address is rejected here, before decode, with the
+reason retained. This is a precondition on the operation, not a type a consumer
+constructs and passes back.
 
 #### Occurrence roles and participation
 
-Not every occurrence participates in accessibility.
+Accessibility is asked only of definitions **outside** the source candidate, and
+only for occurrences whose role makes visibility matter.
 
 - Ordinary types and required custom modifiers participate. The generated
-  spelling names them, so an inaccessible definition makes the signature
-  unspellable.
+  spelling names them, so an inaccessible external definition makes the
+  signature unspellable.
 - An optional custom modifier does not participate. It must still bind, but it
   may bind to an inaccessible definition.
+- An occurrence that resolves into the source candidate itself is a local
+  occurrence and is **exempt from external accessibility** regardless of role. A
+  private or internal type in the assembly being inspected is not externally
+  accessible, yet a consumer generating a member into that same assembly may
+  name it perfectly well. Judging it here would reject valid signatures and
+  would pre-empt the consumer precondition described below. Metadata reports
+  that the occurrence resolved locally; it does not grade it.
 - Primitive type codes are direct C# spellings. They add no request.
 - Generic parameters add no named occurrence. Arrays, pointers, function
   pointers, generic arguments, and modified types contribute their named
@@ -2143,6 +2183,82 @@ When several occurrences produce one equal request, the speller may ask once and
 merge participation with logical OR. That is a caching decision inside the
 speller, not a contract; the same definition reached by an ordinary type and by
 an optional modifier participates.
+
+#### Reference scopes and request construction
+
+Each named occurrence carries a `MetadataTypeReferenceScope`. The mapping to a
+resolution request is exhaustive, and every arm has a defined result:
+
+- `AssemblyReference` produces a request whose start is `FromReference`, using
+  the occurrence's exact `AssemblyReferenceIdentity` and the source candidate as
+  binding origin.
+- `CurrentAssembly` produces a request whose start is `FromAssembly` for the
+  source candidate. This is what lets a local occurrence be distinguished from
+  an external definition reached through a forwarder — and a current-assembly
+  occurrence may still forward, so it is resolved rather than assumed local.
+- `IntrinsicCoreLibrary` is a direct C# spelling. It produces no request and
+  retains the occurrence for provenance only.
+- `ModuleReference` produces a request whose start is `FromModule`, which
+  resolution rejects with `UnsupportedModuleReference` until module acquisition
+  exists. The occurrence is not defaulted to spellable.
+
+Initial scope is derived **per occurrence**, not once per signature. Each
+`AssemblyReference` occurrence applies the Metadata-owned scope-tightening
+operation to the source candidate's authorized baseline scope and its own exact
+identity. A platform-token reference therefore tightens to `Platform` without
+constraining an unrelated package reference in the same signature, and a
+confusable local copy of a platform assembly is not selected for it. A
+`CurrentAssembly` occurrence starts from the source baseline scope. Later
+forwarding hops use the same operation and may tighten but never loosen, as
+[§Resolution algorithm](#resolution-algorithm) specifies.
+
+The speller does not perform its own exact-then-versionless retry. It supplies
+the exact per-occurrence target, origin, and scope, and consumes the candidate
+the catalog's binding policy selects.
+
+#### Request discovery
+
+Resolution is manifest-driven: a request that the active discovery manifest does
+not carry is rejected with `PlanExpansionRequired` rather than resolved
+opportunistically. A speller must therefore contribute every request its
+occurrences produce and let the coordinator freeze a replacement context before
+asking for a verdict.
+
+`PlanExpansionRequired` is an orchestration result, not an inaccessible type. A
+speller that cannot perform that expansion returns that rejection and must not
+admit the signature.
+
+#### Terminal accessibility
+
+This is the one new primitive. It takes a `ResolvedTypeDefinitionKey` that
+resolution already issued and returns one closed outcome:
+
+- **Accessible** — the terminal `TypeDef` is public, or is nested public through
+  an entirely externally accessible declaring chain.
+- **Inaccessible** — the chain is completely readable and some required
+  visibility is not externally accessible. This is an authoritative negative,
+  not a missing answer.
+- **Rejected** — a cross-catalog key, a stale-generation key, a catalog-lifetime
+  failure, or the bounded declaring-chain rejection. This is a failure, and it
+  is not spellable.
+
+It reuses the catalog-owned inspection session that produced the definition and
+the existing iterative declaring-chain traversal. It exposes no reader and no
+handle. Resolution cannot issue a key until that candidate's durable session has
+opened successfully, so candidate-open failure is a resolution outcome that
+prevents a key from existing rather than an accessibility outcome; accessibility
+never calls the acquisition opener or demand-opens a second session after
+freeze.
+
+The issuing context caches the outcome by its internal
+`(AssemblyCandidateId, TypeDefinitionToken)` coordinate within one catalog
+generation. Consumers neither hash nor compare the opaque key. Distinct requests
+that reach the same terminal definition share one accessibility read, and a
+replacement generation cannot reuse a stale classification.
+
+An `ExportedType` row is forwarding evidence, not visibility proof. Visibility is
+decided by the terminal definition this operation classifies, never by the
+forwarding row that led to it.
 
 #### Bounded decode
 
@@ -2178,10 +2294,12 @@ consumer's precondition to discharge.
 #### Failure is a failure
 
 An occurrence that does not bind must not read as spellable. This is the defect
-the current implementation has: on resolution failure it loads an empty
-non-public type set, and an empty set contains nothing, so an unresolvable
-reference tests as accessible and the signature reports spellable. A failed read
-must never produce success-shaped output.
+the current implementation has. `SignatureSpellability.LoadNonPublicTypes`
+returns a null-backed `NonPublicTypeSet` when it cannot load the assembly's
+non-public types, and the membership test is `Types?.Contains(name) == true`,
+which evaluates false against a null backing. An unresolvable reference
+therefore tests as "not non-public", reads as accessible, and the signature
+reports spellable. A failed read must never produce success-shaped output.
 
 Every non-success resolution arm — `NotFound`, `UnboundBinding`, `Unavailable`,
 `Ambiguous`, `Rejected` — is fail-closed for every role, including optional
@@ -2190,7 +2308,7 @@ accessibility participates. A caller that wants only a boolean may reduce the
 outcome to one, but the operation returns the reason and the reason is
 attributable.
 
-An `ExportedType` row is forwarding evidence, not visibility proof. A nested
+Forwarding failures keep their own distinctions rather than collapsing. A nested
 exported-type chain is spellable when resolution reaches a terminal definition
 and that definition is accessible. A top-level forwarding row whose target
 assembly is unavailable remains `UnboundBinding`; a target that binds but lacks
@@ -3802,19 +3920,22 @@ internal vocabulary constrains structure rather than behaviour.
   identity is rejected before signature decode, rather than decoding whatever
   bytes the mismatched row addresses.
 - `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
-  function pointers, generic arguments, and modified types, and proves that a
-  rejected decode exposes no partial result.
+  function pointers, generic arguments, generic type and method parameters, and
+  modified types. Generic parameters must contribute no request; manufacturing
+  one for them fails the gate. A rejected decode exposes no partial result.
 - `SignatureSpellability_MapsClosedReferenceScopes` covers all four
   `MetadataTypeReferenceScope` arms, including the direct primitive case that
   issues no request.
 - `SignatureSpellability_ResolvesCurrentAssemblyForwarder` proves that a
   current-assembly occurrence can resolve through an exported-type chain and
   does not default to a local spellable result.
-- `SignatureSpellability_ReportsLocalOccurrenceWithoutJudgingIt` proves that an
-  occurrence resolving into the source candidate is reported as resolved there
-  and that Metadata makes no artifact-inclusion or nameability claim about it.
-  Whether the consumer's generated artifact contains the declaration is #4810's
-  admission precondition, gated on that side.
+- `SignatureSpellability_ExemptsLocalOccurrenceFromExternalAccessibility` uses a
+  signature naming a private or internal type in the source candidate itself. It
+  proves the occurrence resolves to that local definition and that the signature
+  is not reported unspellable on visibility grounds. Applying external
+  accessibility to a local occurrence fails the gate. Whether the consumer's
+  generated artifact contains the declaration is #4810's admission precondition,
+  gated on that side.
 - `SignatureSpellability_RetainsUnsupportedModuleReference` proves that a
   module-scoped occurrence retains `UnsupportedModuleReference` and is not
   spellable.
