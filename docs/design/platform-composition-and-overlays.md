@@ -96,7 +96,10 @@ compatibility-range narrowing, and propagation of highest-version behavior.
 Configuration defaults affect only references declared by that configuration;
 ordinary defaults are not inherited. Ambient command-line and environment
 overrides are not inputs, and roll-forward-to-prerelease retains its disabled
-host default.
+host default. References to one family with equal SemVer precedence but
+different canonical version text reject as ambiguous before reconciliation.
+This deterministic product rule replaces hostfxr's argument-order-dependent
+choice for that case.
 
 The result is independent of dependency, family, version-directory, library,
 and runtime-asset enumeration order. A changed effective reference invalidates
@@ -107,9 +110,10 @@ incompatible requirements, or missing dependencies fail atomically.
 
 Resolution terminates because effective references advance through a finite
 state: requested versions only increase, compatibility and `applyPatches` only
-narrow, and highest-version behavior is only added. Inventories and manifest
-graphs are finite under positive limits. A resolution-work budget bounds
-reconciliation, rebuilds, and expansion.
+narrow, highest-version behavior is only added, and canonical text cannot
+change at equal precedence. Inventories and manifest graphs are finite under
+positive limits. A resolution-work budget bounds reconciliation, rebuilds, and
+expansion.
 
 Each selected runtime member must be one contained regular file, classify as a
 supported ECMA-335 assembly rather than native content, a netmodule, Windows
@@ -130,7 +134,8 @@ crosses that boundary.
 ### Result contract
 
 A successful realization is immutable, bound/non-portable, and not an
-interchange format. Its opaque `InstalledPlatformRealizationIdentity` binds:
+interchange format. Each success mints a fresh opaque
+`InstalledPlatformRealizationGenerationIdentity` that binds:
 
 - the exact hive, request, reached-family inventories, and selected framework
   graph;
@@ -138,10 +143,16 @@ interchange format. Its opaque `InstalledPlatformRealizationIdentity` binds:
 - each member's supplying framework, manifest coordinate, canonical assembly
   identity, and source-attestation digest.
 
-The identity is the generation-scoped proof required by #5139. It is valid only
-with the same realization's live immutable content leases and grants no
-workspace or artifact authority. Absolute paths, handles, streams, openers, and
-mutable buffers do not cross this boundary.
+The generation identity and bound evidence form the proof required by #5139.
+The proof and every member lease are issued as one owner-bound aggregate and
+cannot be rebound across platform generations. Equal content in a later
+realization receives a different generation identity. This discriminator lets
+[issue #5115](https://github.com/richlander/dotnet-inspect/issues/5115)
+reject stale, foreign, replayed, or mixed evidence under its own admission
+contract. The platform generation is distinct from the artifact generation that
+the workspace owner may later create and grants no workspace or artifact
+authority. Absolute paths, handles, streams, openers, and mutable buffers do not
+cross this boundary.
 
 Frameworks are ordered dependency-first with ordinal family tie-breaking.
 Members are ordered by canonical assembly identity and owner-issued coordinate.
@@ -160,14 +171,15 @@ publication decision.
 | `Unavailable` | No `shared/` root; absent root family or exact root version; absent dependency family or compatible version |
 | `Rejected(InvalidRequest)` | Invalid family, version, layout, or positive limit |
 | `Rejected(InvalidManifest)` | Missing, malformed, duplicate-bearing, or unsupported runtime configuration or dependency manifest |
-| `Rejected(InvalidFrameworkGraph)` | Duplicate reference, cycle, incompatible requirements, or equal-precedence dependency ambiguity |
+| `Rejected(InvalidFrameworkGraph)` | Duplicate reference, cycle, incompatible requirements, or equal-precedence candidate/reference ambiguity |
 | `Rejected(InvalidMember)` | Escaping or invalid coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
 | `Rejected(BudgetExceeded)` | Reached-family inventory, name, framework, resolution-work, manifest, member, or byte limit exceeded |
 | `Failed` | Reached-family enumeration or required manifest/member read failed |
 | `Realized` | The complete framework and member closure plus its evidence |
 
 Each arm carries a typed reason identifying the exact family, version,
-coordinate, limit, or read stage. Cancellation remains
+coordinate, limit, or read stage; the listed conditions are distinct reason
+arms rather than collapsible examples. Cancellation remains
 `OperationCanceledException`. Every non-success result publishes no partial
 realization, proof, or content lease.
 
@@ -209,14 +221,21 @@ deterministic closure function.
 
 The required Release evidence is:
 
+Rejection gates derive their expected reason sets from the declarations so
+both missing and stale cases fail.
+`InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle` covers
+only the deterministic domain shared with hostfxr; product-defined ambiguity
+rules are owned by their rejection gates.
+
 | Claim | Named gate |
 | --- | --- |
-| Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure` |
-| Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
+| Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure`, `InstalledPlatformRealization_CoreMembershipMatchesIndependentOracle` |
+| Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_RejectsEqualPrecedenceReferenceAmbiguity`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
 | Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
 | Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
 | No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout` |
-| Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
+| Declared rejection behavior | `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
+| Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_GenerationIsFreshAndProofLeaseBound`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
 | Platform and dependency boundaries | `InstalledPlatformComposition_UsesDesktopAdaptersAndRejectsBrowserBeforeIo`, `BrowserPlatformComposition_DoesNotReferenceInstalledDesktopAdapter`, `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`, `InstalledPlatformAdapter_ExcludesHostFxrInterop` |
 
 ### Non-claims
