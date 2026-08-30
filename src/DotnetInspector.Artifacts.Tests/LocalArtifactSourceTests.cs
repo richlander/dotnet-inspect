@@ -348,6 +348,44 @@ public sealed class LocalArtifactSourceTests
         Assert.False(
             LocalPathAdmission.IsSupportedWindowsPathSyntax(
                 @"//?/C:/foo.dll"));
+        foreach (char first in new[] { '\\', '/' })
+        {
+            foreach (char second in new[] { '\\', '/' })
+            {
+                foreach (char fourth in new[] { '\\', '/' })
+                {
+                    string questionPrefix =
+                        string.Concat(first, second, '?', fourth);
+                    WindowsPathSyntaxDisposition questionDisposition =
+                        first == '\\'
+                        && second == '\\'
+                        && fourth == '\\'
+                            ? WindowsPathSyntaxDisposition.Supported
+                            : WindowsPathSyntaxDisposition.Invalid;
+                    Assert.Equal(
+                        questionDisposition,
+                        LocalPathAdmission.ClassifyWindowsPathSyntax(
+                            $"{questionPrefix}C:\\foo.dll"));
+
+                    string dotPrefix =
+                        string.Concat(first, second, '.', fourth);
+                    WindowsPathSyntaxDisposition dotDisposition =
+                        first == '\\'
+                        && second == '\\'
+                        && fourth == '\\'
+                            ? WindowsPathSyntaxDisposition.Unsupported
+                            : WindowsPathSyntaxDisposition.Invalid;
+                    Assert.Equal(
+                        dotDisposition,
+                        LocalPathAdmission.ClassifyWindowsPathSyntax(
+                            $"{dotPrefix}pipe\\dotnet-inspect"));
+                }
+            }
+        }
+        Assert.Equal(
+            WindowsPathSyntaxDisposition.Invalid,
+            LocalPathAdmission.ClassifyWindowsPathSyntax(
+                @"/??/C:/foo.dll"));
         Assert.False(
             LocalPathAdmission.IsSupportedWindowsPathSyntax(
                 @"C:\NUL.dll"));
@@ -487,6 +525,74 @@ public sealed class LocalArtifactSourceTests
     }
 
     [Fact]
+    public void LocalPathAdmission_WindowsReparsePayloadBoundsAreClosed()
+    {
+        const int PathBufferOffset = 20;
+        byte[] substituteName =
+            System.Text.Encoding.Unicode.GetBytes(@"\??\C:\x.dll");
+        ushort substituteNameLength = (ushort)substituteName.Length;
+        ushort validDataLength =
+            (ushort)(PathBufferOffset - 8 + substituteNameLength);
+        byte[] validPayload = new byte[8 + validDataLength];
+        substituteName.CopyTo(validPayload, PathBufferOffset);
+
+        Assert.True(
+            LocalPathAdmission.TryReadWindowsReparseTarget(
+                validPayload,
+                PathBufferOffset,
+                validDataLength,
+                targetOffset: 0,
+                substituteNameLength,
+                printNameOffset: substituteNameLength,
+                printNameLength: 0,
+                out string target));
+        Assert.Equal(@"\??\C:\x.dll", target);
+
+        byte[] oddDeclaredPayload = new byte[validPayload.Length + 1];
+        validPayload.CopyTo(oddDeclaredPayload, 0);
+        Assert.False(
+            LocalPathAdmission.TryReadWindowsReparseTarget(
+                oddDeclaredPayload,
+                PathBufferOffset,
+                (ushort)(validDataLength + 1),
+                targetOffset: 0,
+                substituteNameLength,
+                printNameOffset: substituteNameLength,
+                printNameLength: 0,
+                out _));
+        Assert.False(
+            LocalPathAdmission.TryReadWindowsReparseTarget(
+                oddDeclaredPayload,
+                PathBufferOffset,
+                validDataLength,
+                targetOffset: 0,
+                substituteNameLength,
+                printNameOffset: substituteNameLength,
+                printNameLength: 0,
+                out _));
+        Assert.False(
+            LocalPathAdmission.TryReadWindowsReparseTarget(
+                validPayload,
+                PathBufferOffset,
+                validDataLength,
+                targetOffset: 0,
+                substituteNameLength,
+                printNameOffset: (ushort)(substituteNameLength + 1),
+                printNameLength: 0,
+                out _));
+        Assert.False(
+            LocalPathAdmission.TryReadWindowsReparseTarget(
+                validPayload,
+                PathBufferOffset,
+                validDataLength,
+                targetOffset: 0,
+                substituteNameLength,
+                printNameOffset: substituteNameLength,
+                printNameLength: 2,
+                out _));
+    }
+
+    [Fact]
     public void LocalPathAdmission_WindowsAlternateDevicePrefixIsInvalid()
     {
         Assert.SkipUnless(
@@ -505,18 +611,24 @@ public sealed class LocalArtifactSourceTests
                 ?? throw new InvalidOperationException(
                     "The Windows temp path has no drive root.");
             string rootSuffix = root[driveRoot.Length..].Replace('\\', '/');
-            string requested =
-                $"//?/{driveRoot[0]}:/{rootSuffix}/directory/../target.dll";
+            foreach (string prefix in new[] { "//?/", @"\\?/" })
+            {
+                string requested =
+                    $"{prefix}{driveRoot[0]}:/{rootSuffix}/" +
+                    "directory/../target.dll";
 
-            LocalPathClassification classification =
-                LocalPathAdmission.Classify(requested, cancellationToken);
-            Assert.Equal(
-                LocalPathOutcome.Rejected,
-                classification.Outcome);
-            Assert.Equal(
-                LocalPathReason.InvalidPath,
-                classification.Reason);
-            Assert.Null(classification.CanonicalPath);
+                LocalPathClassification classification =
+                    LocalPathAdmission.Classify(
+                        requested,
+                        cancellationToken);
+                Assert.Equal(
+                    LocalPathOutcome.Rejected,
+                    classification.Outcome);
+                Assert.Equal(
+                    LocalPathReason.InvalidPath,
+                    classification.Reason);
+                Assert.Null(classification.CanonicalPath);
+            }
         }
         finally
         {

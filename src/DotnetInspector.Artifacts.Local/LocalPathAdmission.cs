@@ -388,6 +388,14 @@ internal static partial class LocalPathAdmission
             return WindowsPathSyntaxDisposition.Unsupported;
         }
 
+        if (IsWindowsNamespacePath(path)
+            && !path.StartsWith(
+                @"\\?\",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return WindowsPathSyntaxDisposition.Invalid;
+        }
+
         int firstComponent;
         if (path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
         {
@@ -506,12 +514,13 @@ internal static partial class LocalPathAdmission
     }
 
     private static bool IsWindowsNamespacePath(string path) =>
-        path.StartsWith(@"\??\", StringComparison.OrdinalIgnoreCase)
-        || path.Length >= 4
+        path.Length >= 4
         && IsWindowsDirectorySeparator(path[0])
-        && IsWindowsDirectorySeparator(path[1])
-        && path[2] is '.' or '?'
-        && IsWindowsDirectorySeparator(path[3]);
+        && IsWindowsDirectorySeparator(path[3])
+        && (IsWindowsDirectorySeparator(path[1])
+            && path[2] is '.' or '?'
+            || path[1] == '?'
+            && path[2] == '?');
 
     private static LocalPathClassification RequireKind(
         LocalPathClassification classification,
@@ -854,6 +863,7 @@ internal static partial class LocalPathAdmission
                     returned,
                     out WindowsSymbolicLinkReparseBuffer symbolicLink)
                 || symbolicLink.ReparseTag != information.ReparseTag
+                || symbolicLink.Reserved != 0
                 || !TryGetWindowsSymbolicLinkRelativeFlag(
                     symbolicLink.Flags,
                     out bool isRelative)
@@ -863,6 +873,8 @@ internal static partial class LocalPathAdmission
                     symbolicLink.ReparseDataLength,
                     symbolicLink.SubstituteNameOffset,
                     symbolicLink.SubstituteNameLength,
+                    symbolicLink.PrintNameOffset,
+                    symbolicLink.PrintNameLength,
                     out string targetPath))
             {
                 return new(
@@ -883,13 +895,16 @@ internal static partial class LocalPathAdmission
                 returned,
                 out WindowsMountPointReparseBuffer mountPoint)
             || mountPoint.ReparseTag != information.ReparseTag
-            || !TryReadWindowsReparseTarget(
-                returned,
-                Marshal.SizeOf<WindowsMountPointReparseBuffer>(),
-                mountPoint.ReparseDataLength,
-                mountPoint.SubstituteNameOffset,
-                mountPoint.SubstituteNameLength,
-                out string mountTarget))
+                || mountPoint.Reserved != 0
+                || !TryReadWindowsReparseTarget(
+                    returned,
+                    Marshal.SizeOf<WindowsMountPointReparseBuffer>(),
+                    mountPoint.ReparseDataLength,
+                    mountPoint.SubstituteNameOffset,
+                    mountPoint.SubstituteNameLength,
+                    mountPoint.PrintNameOffset,
+                    mountPoint.PrintNameLength,
+                    out string mountTarget))
         {
             return new(
                 WindowsReparseDisposition.Unsupported,
@@ -911,32 +926,59 @@ internal static partial class LocalPathAdmission
         return flags is 0 or WindowsSymbolicLinkFlagRelative;
     }
 
-    private static bool TryReadWindowsReparseTarget(
+    internal static bool TryReadWindowsReparseTarget(
         ReadOnlySpan<byte> buffer,
         int pathBufferOffset,
         ushort reparseDataLength,
         ushort targetOffset,
         ushort targetLength,
+        ushort printNameOffset,
+        ushort printNameLength,
         out string target)
     {
-        int start = pathBufferOffset + targetOffset;
         int payloadEnd = sizeof(uint) + sizeof(ushort) + sizeof(ushort)
             + reparseDataLength;
-        if (targetLength == 0
-            || (targetOffset & 1) != 0
-            || (targetLength & 1) != 0
-            || payloadEnd > buffer.Length
+        if ((reparseDataLength & 1) != 0
+            || payloadEnd != buffer.Length
             || pathBufferOffset > payloadEnd
-            || start > buffer.Length
-            || targetLength > payloadEnd - start)
+            || !TryGetWindowsReparseNameRange(
+                pathBufferOffset,
+                payloadEnd,
+                targetOffset,
+                targetLength,
+                requireContent: true,
+                out int targetStart)
+            || !TryGetWindowsReparseNameRange(
+                pathBufferOffset,
+                payloadEnd,
+                printNameOffset,
+                printNameLength,
+                requireContent: false,
+                out _))
         {
             target = string.Empty;
             return false;
         }
 
         target = MemoryMarshal.Cast<byte, char>(
-            buffer.Slice(start, targetLength)).ToString();
+            buffer.Slice(targetStart, targetLength)).ToString();
         return true;
+    }
+
+    private static bool TryGetWindowsReparseNameRange(
+        int pathBufferOffset,
+        int payloadEnd,
+        ushort nameOffset,
+        ushort nameLength,
+        bool requireContent,
+        out int start)
+    {
+        start = pathBufferOffset + nameOffset;
+        return (!requireContent || nameLength != 0)
+            && (nameOffset & 1) == 0
+            && (nameLength & 1) == 0
+            && start <= payloadEnd
+            && nameLength <= payloadEnd - start;
     }
 
     private static string ProjectWindowsAbsoluteReparseTarget(

@@ -983,15 +983,17 @@ only when it is fully qualified and contains no `.` or `..` segment; otherwise
 it is rejected as invalid. Alternate or mixed-separator device-prefix spellings
 such as `//?/` are classified from their raw caller spelling rather than passed
 through `Path.GetFullPath`, which would erase their namespace and dot-segment
-evidence. That coordinate rule does not reject a valid extended link merely
-because its stored target is relative: the target is resolved against the
-link's parent and normalized before final-target classification, with parent
-traversal bounded by the drive, share, or volume root and without rewriting the
-canonical requested coordinate. Absolute extended targets retain their raw
-substitute namespace and remain subject to the final-target syntax rules
-without this relative-target normalization. Managed link resolution must not
-erase that syntax evidence before classification. Any other non-empty path that
-cannot be normalized is also rejected rather than escaping as a platform
+evidence. Every noncanonical separator spelling of the `\\?\`, `\\.\`, and
+`\??\` namespace signatures is invalid rather than being reinterpreted as an
+ordinary UNC coordinate. That coordinate rule does not reject a valid extended
+link merely because its stored target is relative: the target is resolved
+against the link's parent and normalized before final-target classification,
+with parent traversal bounded by the drive, share, or volume root and without
+rewriting the canonical requested coordinate. Absolute extended targets retain
+their raw substitute namespace and remain subject to the final-target syntax
+rules without this relative-target normalization. Managed link resolution must
+not erase that syntax evidence before classification. Any other non-empty path
+that cannot be normalized is also rejected rather than escaping as a platform
 exception. Invalid-path results carry the requested path and no canonical path.
 
 All local coordinates follow symbolic links and supported link-like reparse
@@ -1077,10 +1079,14 @@ final-target syntax classification. A stable ancestor or final-component link
 cycle consumes the same bounded traversal budget and is rejected as an
 unsupported entry. A direct-cycle shortcut compares path spellings ordinally;
 it does not case-fold distinct coordinates on a case-sensitive Windows
-directory. A symbolic-link reparse buffer is supported only when its flags are
-exactly `0` for an absolute target or `SYMLINK_FLAG_RELATIVE` for a relative
-target; reserved flag values are malformed unsupported entries. Classification
-is tag-semantic rather than based only on the name-surrogate bit:
+directory. Raw reparse parsing requires the returned byte count to equal the
+common header plus `ReparseDataLength`, an even payload with a zero reserved
+field, and aligned substitute-name and print-name ranges contained by the
+declared path buffer. A symbolic-link reparse buffer is supported only when its
+flags are exactly `0` for an absolute target or `SYMLINK_FLAG_RELATIVE` for a
+relative target; reserved flag values are malformed unsupported entries.
+Classification is tag-semantic rather than based only on the name-surrogate
+bit:
 
 - symbolic-link and mount-point tags are supported links, so their final target
   is resolved and classified;
@@ -1190,11 +1196,13 @@ Inspect's `platform-test` lane, together with
 `LocalPathAdmission_WindowsGetFileTypeFailureIsFailed` and
 `LocalPathAdmission_WindowsAlternateDevicePrefixIsInvalid`;
 `LocalPathAdmission_WindowsPoliciesAreEnumerated` enforces the closed
-symbolic-link flag matrix. The Browser/Wasm probe also rejects colliding Linux
-errno values. The change-detection suite requires a local-path product change
-to select the Browser/Wasm lane that runs its executable probe. Together these
-gates enforce the shared classifier and explicit-file admission contract. The
-bounded-directory
+symbolic-link flag and namespace-separator matrices, while
+`LocalPathAdmission_WindowsReparsePayloadBoundsAreClosed` enforces exact raw
+payload sizing and both name ranges. The Browser/Wasm probe also rejects
+colliding Linux errno values. The change-detection suite requires a local-path
+product change to select the Browser/Wasm lane that runs its executable probe.
+Together these gates enforce the shared classifier and explicit-file admission
+contract. The bounded-directory
 implementation must exercise the same contract through its public root and
 selected-entry outcomes rather than adding another classifier.
 
