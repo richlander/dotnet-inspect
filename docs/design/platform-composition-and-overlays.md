@@ -181,10 +181,10 @@ contract.
 | --- | --- |
 | `UnsupportedHost` | The desktop adapter is unavailable; no filesystem work occurs |
 | `Unavailable` | No `shared/` root; absent root family or exact root version; absent dependency family or compatible version |
-| `Rejected(InvalidRequest)` | Invalid family, version, layout, or positive limit |
+| `Rejected(InvalidRequest)` | Invalid family, version, or layout; non-positive limit; request limit exceeding the adapter capability |
 | `Rejected(InvalidManifest)` | Missing dependency manifest; malformed, duplicate-bearing, or unsupported present runtime configuration or dependency manifest |
 | `Rejected(InvalidFrameworkGraph)` | Duplicate reference, cycle, incompatible requirements, or equal-precedence candidate/reference ambiguity |
-| `Rejected(InvalidMember)` | Escaping or invalid coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
+| `Rejected(InvalidMember)` | Escaping, invalid, or repeated member coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
 | `Rejected(BudgetExceeded)` | Reached-family inventory, name, framework, resolution-work, manifest, member, or byte limit exceeded |
 | `Failed` | Reached-family enumeration or required manifest/member read failed |
 | `Realized` | The complete framework and member closure plus its evidence |
@@ -250,7 +250,8 @@ rules are owned by their rejection gates.
 | No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout` |
 | Declared rejection behavior | `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
 | Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_GenerationIsFreshAndProofLeaseBound`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
-| Platform and dependency boundaries | `InstalledPlatformComposition_UsesDesktopAdaptersAndRejectsBrowserBeforeIo`, `BrowserPlatformComposition_DoesNotReferenceInstalledDesktopAdapter`, `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`, `InstalledPlatformAdapter_ExcludesHostFxrInterop` |
+| Adapter capability bounds | `InstalledPlatformAdapterCapabilities_DeclareFinitePositiveBounds`, `InstalledPlatformRealization_RequestLimitsOnlyNarrowCapability` |
+| Platform and dependency boundaries | `InstalledPlatformComposition_UsesDesktopAdaptersAndRejectsBrowserBeforeIo`, `BrowserPlatformComposition_DoesNotReferenceInstalledDesktopAdapter`, `InstalledPlatformAdapter_NativeAotPublishAndRun`, `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`, `InstalledPlatformAdapterClosure_ExcludesInspectedAssemblyLoading`, `InstalledPlatformAdapter_ExcludesHostFxrInterop` |
 
 ### Non-claims
 
