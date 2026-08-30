@@ -100,7 +100,7 @@ hypothetical tear would have no visible effect on its result.
 
 [`models/corecache-maintenance-progress/`](models/corecache-maintenance-progress/)
 models this precisely and confirms it with TLC: the configuration matching
-today's implementation (`BrokenTornWriteAndRead.cfg`) finds the tear in six
+today's implementation (`BrokenTornWriteAndRead.cfg`) finds the tear in seven
 states. The model also shows that fixing only one side (a lock-guarded writer
 with an unguarded reader, or vice versa) is insufficient
 (`BrokenTornReadOnly.cfg`, `BrokenTornWriteOnly.cfg`); both sides guarded by
