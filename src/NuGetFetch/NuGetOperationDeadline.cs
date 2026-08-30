@@ -33,7 +33,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
         PackageSourceIdentity? producer,
         PackageSourceKind transportKind)
         : this(
-            new NuGetOperationContext(options, callerToken),
+            new NuGetOperationContext(
+                options.RequestTimeout,
+                options.OperationTimeout,
+                callerToken),
             clientTimeout,
             producer,
             transportKind,

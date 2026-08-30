@@ -26,7 +26,8 @@ public sealed class PackageCoordinateResolverTests
             OperationTimeout = TimeSpan.FromMilliseconds(20),
         };
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         await Task.Delay(
             TimeSpan.FromMilliseconds(40),

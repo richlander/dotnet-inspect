@@ -189,7 +189,9 @@ public sealed record NuGetFetchOptions
                 : options.RequestTimeout;
     }
 
-    private static void ValidateTimeout(TimeSpan timeout, string parameterName)
+    internal static void ValidateTimeout(
+        TimeSpan timeout,
+        string parameterName)
     {
         if (timeout <= TimeSpan.Zero)
         {

@@ -18,24 +18,33 @@ public sealed class NuGetOperationContext : IDisposable
     private int _disposeState;
 
     /// <summary>
-    /// Creates a context with default limits and optional caller cancellation.
+    /// Creates a context with default request and operation deadlines.
     /// </summary>
     public NuGetOperationContext(
         CancellationToken cancellationToken = default)
-        : this(new NuGetFetchOptions(), cancellationToken)
+        : this(
+            NuGetFetchOptions.DefaultRequestTimeout,
+            NuGetFetchOptions.DefaultOperationTimeout,
+            cancellationToken)
     {
     }
 
     /// <summary>
-    /// Creates a context with configured limits and caller cancellation.
+    /// Creates a context with configured request and operation deadlines.
     /// </summary>
     public NuGetOperationContext(
-        NuGetFetchOptions options,
+        TimeSpan requestTimeout,
+        TimeSpan operationTimeout,
         CancellationToken cancellationToken = default)
     {
-        options = NuGetFetchOptions.Validate(options);
-        RequestTimeout = options.RequestTimeout;
-        OperationTimeout = options.OperationTimeout;
+        NuGetFetchOptions.ValidateTimeout(
+            requestTimeout,
+            nameof(requestTimeout));
+        NuGetFetchOptions.ValidateTimeout(
+            operationTimeout,
+            nameof(operationTimeout));
+        RequestTimeout = requestTimeout;
+        OperationTimeout = operationTimeout;
         CancellationToken = cancellationToken;
         _operationStarted = Stopwatch.GetTimestamp();
         _operationCancellation =

@@ -1258,6 +1258,9 @@ retains the timeout diagnostic.
 
 `NuGetOperationContext` is the owner-issued carrier for these bounds. One
 instance records the original caller token and one monotonic operation start.
+Its explicit configuration is limited to request and operation deadlines;
+metadata-body and byte/resource bounds remain source-client policy rather than
+context state.
 Passing it to another built-in `IPackageSourceClient` operation creates a new
 request deadline inside the remaining shared ceiling; it does not create
 another operation ceiling. Retries, authentication exchanges, and retry delays

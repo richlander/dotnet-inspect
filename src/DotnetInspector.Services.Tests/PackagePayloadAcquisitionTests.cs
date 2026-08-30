@@ -91,7 +91,8 @@ public sealed class PackagePayloadAcquisitionTests
             OperationTimeout = TimeSpan.FromMilliseconds(20),
         };
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         await Task.Delay(
             TimeSpan.FromMilliseconds(40),
@@ -2100,6 +2101,11 @@ public sealed class PackagePayloadAcquisitionTests
                 Coordinate(NuGetOrg),
                 store,
                 cancellationToken: cancellation.Token));
+        Assert.Null(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [NuGetCache.GetSourceKey(NuGetOrg.Url)]));
     }
 
     [Fact]
@@ -2107,37 +2113,38 @@ public sealed class PackagePayloadAcquisitionTests
     {
         var options = new NuGetFetchOptions
         {
-                RequestTimeout = TimeSpan.FromMilliseconds(40),
-                OperationTimeout = TimeSpan.FromSeconds(1),
+            RequestTimeout = TimeSpan.FromMilliseconds(40),
+            OperationTimeout = TimeSpan.FromSeconds(1),
         };
         var store = new InMemoryPackageStore();
         using IPackageSourceClient source =
-                PackageSourceClientFactory.CreateGallery(
-                    new GalleryPayloadHandler(
-                        () => new StreamContent(
-                            new StallingStream())),
-                    options);
+            PackageSourceClientFactory.CreateGallery(
+                new GalleryPayloadHandler(
+                    () => new StreamContent(
+                        new StallingStream())),
+                options);
         using var operation = new NuGetOperationContext(
-                options,
+                options.RequestTimeout,
+                options.OperationTimeout,
                 TestContext.Current.CancellationToken);
 
         PackageSourceStreamException error =
-                await Assert.ThrowsAsync<PackageSourceStreamException>(
-                    () => PackagePayloadAcquisition.AcquireAsync(
-                        source,
-                        PackageSourceCoordinate.Create(PackageId, Version),
-                        store,
-                        cancellationToken:
-                            TestContext.Current.CancellationToken,
-                        operationContext: operation));
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    PackageSourceCoordinate.Create(PackageId, Version),
+                    store,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    operationContext: operation));
 
         Assert.Equal(source.Identity, error.Producer);
         Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
         Assert.Equal(
-                new PackageSourceTimeout(
-                    PackageSourceTimeoutKind.Request,
-                    options.RequestTimeout),
-                error.Timeout);
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            error.Timeout);
         Assert.Null(
             store.TryGetCached(
                 PackageId,

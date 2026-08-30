@@ -1228,7 +1228,8 @@ public sealed class PackageSourceClientTests
             OperationTimeout = TimeSpan.FromSeconds(3),
         };
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         using IPackageSourceClient stalled =
             PackageSourceClientFactory.Create(
@@ -1294,7 +1295,8 @@ public sealed class PackageSourceClientTests
             RequestTimeout = TimeSpan.FromMilliseconds(300),
         };
         using var operation = new NuGetOperationContext(
-            contextOptions,
+            contextOptions.RequestTimeout,
+            contextOptions.OperationTimeout,
             TestContext.Current.CancellationToken);
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
@@ -1326,7 +1328,8 @@ public sealed class PackageSourceClientTests
             OperationTimeout = TimeSpan.FromMilliseconds(20),
         };
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         var handler = new RecordingHandler();
         HttpMessageHandler transport = handler;
@@ -1363,7 +1366,8 @@ public sealed class PackageSourceClientTests
             OperationTimeout = TimeSpan.FromMilliseconds(20),
         };
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         using IPackageSourceClient source =
             PackageSourceClientFactory.Create(
@@ -1460,7 +1464,8 @@ public sealed class PackageSourceClientTests
             OperationTimeout = TimeSpan.FromSeconds(10),
         };
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         var handler = new StallingHandler();
         using IPackageSourceClient runtime =
@@ -3132,7 +3137,8 @@ public sealed class PackageSourceClientTests
         };
         var handler = new FaultAndTimeoutRegistrationHandler();
         using var context = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler, options);
@@ -5012,7 +5018,8 @@ public sealed class PackageSourceClientTests
                     new StallingPayloadStream()),
             });
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler, options);
@@ -5107,7 +5114,8 @@ public sealed class PackageSourceClientTests
                     new StallingPayloadStream()),
             });
         using var operation = new NuGetOperationContext(
-            options,
+            options.RequestTimeout,
+            options.OperationTimeout,
             TestContext.Current.CancellationToken);
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler, options);
