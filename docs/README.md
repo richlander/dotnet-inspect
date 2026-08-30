@@ -116,11 +116,17 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [TLA+ Methodology](tla-plus-methodology.md) | TLA+ modeling methodology and curated examples. |
 | [IL Round-trip Tests](../tests/DotnetInspector.ILRoundtrip.Tests/README.md) | Dependency restore and fast/full test commands for the IL round-trip suite. |
 
+The canonical [`adversarial-review-prompt.md`](adversarial-review-prompt.md) is
+the directly usable fixed prefix for every non-trivial reviewer prompt and
+carries the repository trust model and finding-admission contract.
+
 PR templates live under `docs/templates/`: `decompiler-pr.md` (raising,
 structuring, validity, fidelity, or corpus behavior), `decompiler-burndown-fix-pr.md`
 (a focused invalid-`Full` or burndown row fix), and
 `decompiler-compile-back-harness-pr.md` (compile-back harness, fidelity
-skeleton, or ReturnToSender coverage).
+skeleton, or ReturnToSender coverage). The optional
+[`adversarial-review-prompt.md`](templates/adversarial-review-prompt.md)
+template provides the full fill-in form.
 
 ### Design history and backlog
 
