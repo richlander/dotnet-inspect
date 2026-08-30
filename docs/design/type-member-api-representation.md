@@ -97,9 +97,9 @@ The target currencies and their shared result/receipt protocol are owned by
 They preserve the rule that a display string is an output, never a source from
 which identity or provenance is reconstructed. Their properties are unverified
 until that document's named gates exist. Type-form adoption is tracked by
-#5181, member-form adoption by #5183, and complete source-unit aggregation by
-#5142; those owners define their form-specific plans rather than extending the
-shared protocol into an implementation inventory.
+issues #5181 and #5183, while #5142 owns complete source-unit aggregation.
+Those owners define their form-specific plans rather than extending the shared
+protocol into an implementation inventory.
 
 #### `ILInspector.Metadata`
 
