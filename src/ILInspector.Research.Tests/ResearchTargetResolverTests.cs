@@ -275,6 +275,10 @@ public class ResearchTargetResolverTests
                 researchDiagnostic: null,
                 candidates: []));
         Rejects(resolved, corruptDispositionRequest: true);
+        resolved.Target.ApiMember.Member.GetterToken =
+            resolved.Target.ApiMember.Member.MetadataToken;
+        Rejects(resolved);
+        resolved.Target.ApiMember.Member.GetterToken = null;
         Rejects(
             new ResearchTargetOutcome.Failed(
                 Diagnostic(ResearchTargetDiagnosticKind.ResolutionFailed)),
@@ -521,6 +525,26 @@ public class ResearchTargetResolverTests
                 ambiguousOutcome.Diagnostic.Candidates[index],
                 ambiguousOutcome.Candidates[index]);
         }
+    }
+
+    [Theory]
+    [InlineData(false, "Value:2")]
+    [InlineData(true, "Changed:2")]
+    public void ResearchTargetResolution_RejectsNonUniqueAccessorRoles(
+        bool eventMember,
+        string selector)
+    {
+        byte[] image = BuildSharedAccessorImage(eventMember);
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+
+        ResearchTargetAttempt attempt = Assert.Single(
+            fixture.ResolveDefault("N.C", selector).Attempts);
+        var failed =
+            Assert.IsType<ResearchTargetOutcome.Failed>(attempt.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.RelationshipRoleEvidenceMismatch,
+            failed.Diagnostic.Kind);
     }
 
     [Fact]
@@ -1186,6 +1210,45 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
+    public void ResearchTargetDeclaringType_DoesNotInferAbsenceUnderForwarder()
+    {
+        byte[] image = BuildResearchSurfaceImage(
+            cyclicTypeName: null,
+            duplicateTypeName: null,
+            forwarderTypeName: "Outer",
+            nestedForwarderTypeName: "Inner");
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataTypeDefinitionName structuredName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner"])).Name;
+        Assert.IsType<TypeDeclarationResult.Forwarded>(
+            MetadataTypeDeclarationProbe.Probe(
+                pe.GetMetadataReader(),
+                structuredName));
+
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+
+        ResearchTargetAttempt forwarded = Assert.Single(
+            fixture.ResolveDefault("N.Outer.Inner", "Method").Attempts);
+        var unavailable =
+            Assert.IsType<ResearchTargetOutcome.Unavailable>(forwarded.Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeForwarded,
+            unavailable.Diagnostic.Kind);
+
+        ResearchTargetAttempt unrelated = Assert.Single(
+            fixture.ResolveDefault("N.Other.Inner", "Method").Attempts);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
+            Assert.IsType<ResearchTargetOutcome.NotFound>(unrelated.Outcome)
+                .ResearchDiagnostic!.Kind);
+    }
+
+    [Fact]
     public void ResearchTargetDeclaringType_DoesNotInferAbsenceFromPartialSurface()
     {
         byte[] image = BuildResearchSurfaceImage(
@@ -1839,7 +1902,8 @@ public class ResearchTargetResolverTests
     static byte[] BuildResearchSurfaceImage(
         string? cyclicTypeName,
         string? duplicateTypeName,
-        string? forwarderTypeName = null)
+        string? forwarderTypeName = null,
+        string? nestedForwarderTypeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1906,12 +1970,130 @@ public class ResearchTargetResolverTests
                 publicKeyOrToken: default,
                 flags: default,
                 hashValue: default);
-            metadata.AddExportedType(
+            ExportedTypeHandle root = metadata.AddExportedType(
                 TypeAttributes.Public | Forwarder,
                 metadata.GetOrAddString("N"),
                 metadata.GetOrAddString(forwarderTypeName),
                 target,
                 typeDefinitionId: 0);
+            if (nestedForwarderTypeName is not null)
+            {
+                metadata.AddExportedType(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString(nestedForwarderTypeName),
+                    root,
+                    typeDefinitionId: 0);
+            }
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildSharedAccessorImage(bool eventMember)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("SharedAccessor.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SharedAccessor"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(10, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var accessorSignature = new BlobBuilder();
+        new BlobEncoder(accessorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MethodDefinitionHandle accessor = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(eventMember ? "change_Changed" : "Value"),
+            metadata.GetOrAddBlob(accessorSignature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        if (eventMember)
+        {
+            TypeReferenceHandle eventType = metadata.AddTypeReference(
+                coreLibrary,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("EventHandler"));
+            EventDefinitionHandle @event = metadata.AddEvent(
+                EventAttributes.None,
+                metadata.GetOrAddString("Changed"),
+                eventType);
+            metadata.AddEventMap(type, @event);
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Adder,
+                accessor);
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Remover,
+                accessor);
+        }
+        else
+        {
+            var propertySignature = new BlobBuilder();
+            new BlobEncoder(propertySignature).PropertySignature(
+                isInstanceProperty: true).Parameters(
+                    0,
+                    returnType => returnType.Type().Int32(),
+                    _ => { });
+            PropertyDefinitionHandle property = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(propertySignature));
+            metadata.AddPropertyMap(type, property);
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Getter,
+                accessor);
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Setter,
+                accessor);
         }
 
         var pe = new ManagedPEBuilder(

@@ -574,7 +574,12 @@ public static class ResearchTargetResolver
                 MetadataFullName(forwarder),
                 intent,
                 StringComparison.Ordinal));
-        if (declaringTypes.Count + forwarders > 1)
+        bool nestedUnderForwarder = surface.TypeForwarders.Any(
+            forwarder => IsNestedUnder(
+                intent,
+                MetadataFullName(forwarder)));
+        if (declaringTypes.Count + forwarders > 1
+            || (declaringTypes.Count != 0 && nestedUnderForwarder))
         {
             return Failed(
                 ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous);
@@ -591,7 +596,7 @@ public static class ResearchTargetResolver
                     ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
             }
 
-            return forwarders == 1
+            return forwarders == 1 || nestedUnderForwarder
                 ? Unavailable(
                     ResearchTargetDiagnosticKind.DeclaringTypeForwarded)
                 : new ResearchTargetOutcome.NotFound(
@@ -780,17 +785,25 @@ public static class ResearchTargetResolver
                     : null;
         }
 
-        if (token == member.MetadataToken)
-            return ResearchTargetRelationshipRole.Method;
-        if (token == member.GetterToken)
-            return ResearchTargetRelationshipRole.Getter;
-        if (token == member.SetterToken)
-            return ResearchTargetRelationshipRole.Setter;
-        if (token == member.AdderToken)
-            return ResearchTargetRelationshipRole.Adder;
-        if (token == member.RemoverToken)
-            return ResearchTargetRelationshipRole.Remover;
-        return null;
+        ResearchTargetRelationshipRole? role = null;
+        int matches = 0;
+        Match(member.MetadataToken, ResearchTargetRelationshipRole.Method);
+        Match(member.GetterToken, ResearchTargetRelationshipRole.Getter);
+        Match(member.SetterToken, ResearchTargetRelationshipRole.Setter);
+        Match(member.AdderToken, ResearchTargetRelationshipRole.Adder);
+        Match(member.RemoverToken, ResearchTargetRelationshipRole.Remover);
+        return matches == 1 ? role : null;
+
+        void Match(
+            int? candidate,
+            ResearchTargetRelationshipRole candidateRole)
+        {
+            if (candidate != token)
+                return;
+
+            matches++;
+            role = candidateRole;
+        }
     }
 
     /// <summary>
@@ -829,6 +842,11 @@ public static class ResearchTargetResolver
 
     static string MetadataFullName(TypeForwarder forwarder)
         => forwarder.DefinitionName?.ToMetadataFullName() ?? forwarder.TypeName;
+
+    static bool IsNestedUnder(string candidate, string potentialRoot)
+        => candidate.Length > potentialRoot.Length
+            && candidate.StartsWith(potentialRoot, StringComparison.Ordinal)
+            && candidate[potentialRoot.Length] == '.';
 
     static void Terminate(
         IReadOnlyList<PlannedRequest> requests,

@@ -423,7 +423,12 @@ static class ResearchTargetResolutionValidator
                 MetadataFullName(forwarder),
                 intent,
                 StringComparison.Ordinal));
-        if (declaringTypes.Count + forwarders > 1)
+        bool nestedUnderForwarder = surface.TypeForwarders.Any(
+            forwarder => IsNestedUnder(
+                intent,
+                MetadataFullName(forwarder)));
+        if (declaringTypes.Count + forwarders > 1
+            || (declaringTypes.Count != 0 && nestedUnderForwarder))
         {
             RequireNoMetadataResolution(evidence);
             RequireFailure(
@@ -446,7 +451,7 @@ static class ResearchTargetResolutionValidator
                 return;
             }
 
-            if (forwarders == 1)
+            if (forwarders == 1 || nestedUnderForwarder)
             {
                 Require(
                     outcome is ResearchTargetOutcome.Unavailable
@@ -815,17 +820,25 @@ static class ResearchTargetResolutionValidator
                     : null;
         }
 
-        if (token == member.MetadataToken)
-            return ResearchTargetRelationshipRole.Method;
-        if (token == member.GetterToken)
-            return ResearchTargetRelationshipRole.Getter;
-        if (token == member.SetterToken)
-            return ResearchTargetRelationshipRole.Setter;
-        if (token == member.AdderToken)
-            return ResearchTargetRelationshipRole.Adder;
-        if (token == member.RemoverToken)
-            return ResearchTargetRelationshipRole.Remover;
-        return null;
+        ResearchTargetRelationshipRole? role = null;
+        int matches = 0;
+        Match(member.MetadataToken, ResearchTargetRelationshipRole.Method);
+        Match(member.GetterToken, ResearchTargetRelationshipRole.Getter);
+        Match(member.SetterToken, ResearchTargetRelationshipRole.Setter);
+        Match(member.AdderToken, ResearchTargetRelationshipRole.Adder);
+        Match(member.RemoverToken, ResearchTargetRelationshipRole.Remover);
+        return matches == 1 ? role : null;
+
+        void Match(
+            int? candidate,
+            ResearchTargetRelationshipRole candidateRole)
+        {
+            if (candidate != token)
+                return;
+
+            matches++;
+            role = candidateRole;
+        }
     }
 
     static ResearchTargetDiagnosticKind? ValidateImage(
@@ -956,6 +969,11 @@ static class ResearchTargetResolutionValidator
 
     static string MetadataFullName(TypeForwarder forwarder)
         => forwarder.DefinitionName?.ToMetadataFullName() ?? forwarder.TypeName;
+
+    static bool IsNestedUnder(string candidate, string potentialRoot)
+        => candidate.Length > potentialRoot.Length
+            && candidate.StartsWith(potentialRoot, StringComparison.Ordinal)
+            && candidate[potentialRoot.Length] == '.';
 
     static void RequireFailure(
         ResearchTargetOutcome outcome,

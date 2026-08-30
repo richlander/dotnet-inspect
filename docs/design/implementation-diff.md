@@ -360,12 +360,14 @@ gates;
 `ResearchTargetFinalValidation_RejectsBrokenSemanticBindings`,
 `ResearchTargetMethodAddressBinding_RequiresAnInRangeMethodDef`,
 `ResearchTargetResolution_PreservesMetadataDiagnosticsAndAccessorRoles`,
+`ResearchTargetResolution_RejectsNonUniqueAccessorRoles`,
 `ResearchTargetRejectedSelector_PreservesDiagnosticAndBlocksAbsence`,
 `ResearchTargetDomains_EraseOnlyAssemblyVersion`,
 `ResearchTargetDomains_RejectDuplicateSameSideCandidates`,
 `ResearchTargetDomains_BlockOnlyTheirOwnCensus`,
 `ResearchTargetAttempt_AddressEvidenceMismatchBlocksBeforeCensus`,
 `ResearchTargetDeclaringType_DistinguishesAbsentFromForwarded`,
+`ResearchTargetDeclaringType_DoesNotInferAbsenceUnderForwarder`,
 `ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening`,
 `ResearchTargetInputValidation_RejectsMismatchedModuleEvidence`,
 `ResearchTargetResolution_StagesEachAdmittedInputOnce`,
@@ -469,7 +471,9 @@ resolution:
   role. The role is `None`, `Method`, `Getter`, `Setter`, `Adder`, or `Remover`
   and is derived only after successful Metadata selection. `None` is valid only
   for a non-method-like member with no physical method relationship. An
-  asserted exact-address role must match this derived role;
+  asserted exact-address role must match this derived role. A selected
+  MethodDef must occupy exactly one physical relationship role; no matching
+  role or multiple matching roles fail validation;
 - `NotFound` retains the exact Metadata-owned missing-member diagnostic when
   the declaring type exists, the exact Metadata-owned `DigestNotFound`
   diagnostic when no candidate has the requested stable fingerprint, or one
@@ -494,9 +498,10 @@ is present. Member selection remains Metadata-owned, uses its existing API
 surface including its synthesized-method exclusions, and matches the exact
 declaring-type metadata full name. A potentially covering Metadata inspection
 failure prevents Research from asserting absence. Duplicate exact declaring
-types or forwarders fail as ambiguous. An exact type forwarder makes the
-target unavailable rather than absent. A durable address requires an in-range
-`MethodDefinition` handle of the validated module.
+types or forwarders fail as ambiguous. An exact type forwarder, or an intent
+nested beneath a retained root forwarder, makes the target unavailable rather
+than absent. A durable address requires an in-range `MethodDefinition` handle
+of the validated module.
 
 `Resolved` is terminal only after Research validates that the selected target
 and durable address belong to the same admitted assembly and module. A
