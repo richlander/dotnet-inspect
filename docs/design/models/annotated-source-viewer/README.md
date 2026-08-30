@@ -59,7 +59,8 @@ The safety invariants check:
   persistent inspector actions, annotatable-Finding toggles, and
   supported-medium toggles, plus exact availability of selectable nodes and
   every modeled fixed action, including an unanchored inspector witness and
-  pointer **Close** while detail is open;
+  pointer **Close** while detail is open, all witnessed through the actual
+  `Next` transition relation and the transition's recorded action identity;
 - exact rendered-target derivation from active membership and currently
   visible media using each target's owning annotation rather than assuming
   every target owns Finding behavior;
@@ -140,7 +141,7 @@ each for `ToggleAnnotation` and `ToggleMedium`, and 5,976 for
 
 ## Mutation evidence
 
-Fifty-eight deliberate targeted mutations were run against the same
+Sixty deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -204,11 +205,16 @@ Each produced a concrete counterexample:
 | Disable **Clear** when the active set is already empty | `FixedActionAvailabilityIsExact` |
 | Disable hiding coordinates after they are visible | `FixedActionAvailabilityIsExact` |
 | Remove one selectable-node action | `NodeActionsAreExact` |
+| Restrict the `Next` branch for **Explore** to detail-free states | `FixedActionAvailabilityIsExact` |
+| Remove the unanchored Finding's inspector path from `Next` | `InspectorActionsAreAvailable` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify. The three new
 domain, **All**, and embedded-Escape mutations failed in the initial state,
 after 74 generated states, and after 160 generated states, respectively.
+The two `Next`-restriction mutations now fail
+`FixedActionAvailabilityIsExact` after 9 generated states and
+`InspectorActionsAreAvailable` after 7 generated states.
 
 ## Non-claims
 

@@ -792,6 +792,35 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
+NextActionEnabled(action) ==
+  ENABLED (Next /\ lastAction' = action)
+
+NextFindingOpeningEnabled(action, finding, opener, target) ==
+  ENABLED
+    (/\ Next
+     /\ lastAction' = action
+     /\ openedFinding' = finding
+     /\ openedOpener' = opener
+     /\ openedTarget' = target)
+
+NextNodeSelectionEnabled(node) ==
+  ENABLED
+    (/\ Next
+     /\ lastAction' = "SelectModalNode"
+     /\ selectedNode' = node)
+
+NextAnnotationToggleEnabled(finding) ==
+  ENABLED
+    (/\ Next
+     /\ lastAction' = "ToggleAnnotation"
+     /\ toggledFinding' = finding)
+
+NextControlEnabled(action, control) ==
+  ENABLED
+    (/\ Next
+     /\ lastAction' = action
+     /\ activatedControl' = control)
+
 TypeOK ==
   /\ defaults \in SUBSET (Annotatable \cap Findings)
   /\ surface \in Surfaces
@@ -927,51 +956,54 @@ AnnotatableUniverseIsSupported ==
 InspectorActionsAreAvailable ==
   \A finding \in Findings :
     (surface = "Modal") =
-      ENABLED OpenModalFinding(finding, "Inspector", NoValue)
+      NextFindingOpeningEnabled(
+        "OpenModalFinding", finding, "Inspector", NoValue)
 
 EmbeddedChipActionsAreExact ==
   \A target \in FindingTargetIds :
     (/\ surface = "Embedded"
      /\ target \in CSharpTargets
      /\ FindingOf(target) \in defaults) =
-      ENABLED OpenEmbeddedChip(target)
+      NextFindingOpeningEnabled(
+        "OpenEmbeddedChip", FindingOf(target), "Chip", target)
 
 ModalChipActionsAreExact ==
   \A target \in FindingTargetIds :
     (/\ surface = "Modal"
      /\ target \in VisibleTargets(active, visibleMedia)) =
-      ENABLED OpenModalFinding(FindingOf(target), "Chip", target)
+      NextFindingOpeningEnabled(
+        "OpenModalFinding", FindingOf(target), "Chip", target)
 
 AnnotationToggleActionsAreExact ==
   \A finding \in Findings :
     (/\ surface = "Modal"
      /\ finding \in Annotatable) =
-      ENABLED ToggleAnnotation(finding)
+      NextAnnotationToggleEnabled(finding)
 
 MediumToggleActionsAreExact ==
   \A medium \in Media :
     (/\ surface = "Modal"
      /\ medium \in supportedMedia) =
-      ENABLED ToggleMedium(medium)
+      NextControlEnabled("ToggleMedium", medium)
 
 FixedActionAvailabilityIsExact ==
-  /\ (surface = "Embedded") = ENABLED OpenModal
+  /\ (surface = "Embedded") = NextActionEnabled("OpenModal")
   /\ (/\ surface = "Modal"
       /\ modalDetail = NoDetail) =
-       ENABLED DismissModalByEscape
-  /\ (surface = "Modal") = ENABLED DismissModalByPointer
-  /\ (CurrentDetail # NoDetail) = ENABLED CloseCurrentDetail
+       NextActionEnabled("DismissEscape")
+  /\ (surface = "Modal") = NextActionEnabled("DismissPointer")
+  /\ (CurrentDetail # NoDetail) = NextActionEnabled("CloseDetail")
   /\ (/\ surface = "Embedded"
       /\ embeddedDetail = NoDetail) =
-       ENABLED EmbeddedEscapeFallsThrough
-  /\ (surface = "Modal") = ENABLED SetDefault
-  /\ (surface = "Modal") = ENABLED SetAll
-  /\ (surface = "Modal") = ENABLED ClearAll
-  /\ (surface = "Modal") = ENABLED ToggleCoordinates
+       NextActionEnabled("EmbeddedEscape")
+  /\ (surface = "Modal") = NextActionEnabled("SetDefault")
+  /\ (surface = "Modal") = NextActionEnabled("SetAll")
+  /\ (surface = "Modal") = NextActionEnabled("ClearAll")
+  /\ (surface = "Modal") = NextActionEnabled("ToggleCoordinates")
 
 NodeActionsAreExact ==
   \A node \in Nodes :
-    (surface = "Modal") = ENABLED SelectModalNode(node)
+    (surface = "Modal") = NextNodeSelectionEnabled(node)
 
 RenderedTargetsAreExact ==
   \A target \in Targets :
