@@ -36,9 +36,9 @@ survey in
 faithfully implemented a specification that asked for too much: a subject, plan,
 evaluation, evidence and proof vocabulary re-expressing a tri-state that
 `TypeResolutionOutcome` already carries, across 45 public types with no product
-consumer. The section below is the replacement, written around the two
-primitives that already exist. The bounded decode contract that effort produced
-is retained unchanged.
+consumer. The section below is the replacement, written around the resolution
+primitive that ships plus one newly specified accessibility operation. The
+bounded decode contract that effort produced is retained unchanged.
 
 This consumer extension is **design-only and unverified**. `Resolve` ships; the
 terminal-definition accessibility operation it depends on does not exist yet,
@@ -1959,7 +1959,10 @@ Each resolution context is bound to one frozen generation, composes that
 catalog, and caches:
 
 - completed resolutions by
-  `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`.
+  `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)`;
+- terminal-definition accessibility outcomes by
+  `(AssemblyCandidateId, TypeDefinitionToken)` within the generation, described
+  in [§Terminal accessibility](#terminal-accessibility).
 
 `TypeResolutionCacheKey` is an internal projection; it does not use the public
 request object's reference equality. Its start arm contains either the internal
@@ -1974,6 +1977,7 @@ The catalog and resolution caches support concurrent Analysis. Inventory read,
 durable-session open, declaration probe, binding, and completed-resolution
 entries are single-flight:
 parallel body-analysis workers observe one result and one owned session.
+Accessibility outcomes are single-flight on the same terms.
 Synchronization does not hold a cache lock while invoking an external opener or
 binding policy.
 
@@ -2175,9 +2179,11 @@ only for occurrences whose role makes visibility matter.
   would pre-empt the consumer precondition described below. Metadata reports
   that the occurrence resolved locally; it does not grade it.
 - Primitive type codes are direct C# spellings. They add no request.
-- Generic parameters add no named occurrence. Arrays, pointers, function
-  pointers, generic arguments, and modified types contribute their named
-  children rather than collapsing to one outer leaf.
+- Generic parameters add no named occurrence. Arrays, pointers, by-reference
+  types, pinned types, function pointers, generic arguments, and modified types
+  contribute their named children rather than collapsing to one outer leaf. A
+  `ref` or `out` parameter and a ref return are by-reference types, so their
+  element type is a named occurrence like any other.
 
 When several occurrences produce one equal request, the speller may ask once and
 merge participation with logical OR. That is a caching decision inside the
@@ -2212,6 +2218,17 @@ confusable local copy of a platform assembly is not selected for it. A
 forwarding hops use the same operation and may tighten but never loosen, as
 [§Resolution algorithm](#resolution-algorithm) specifies.
 
+The source candidate's authorized baseline scope is owner-issued: the catalog
+records it when the candidate is registered and hands it to the consumer with
+the candidate. A speller neither infers it from assembly names or file paths nor
+substitutes an unconstrained scope when it is absent; a missing baseline is a
+rejection, not a default.
+
+Implementing this requires exposing two things the context currently keeps
+private — the baseline scope carried with a resolved source candidate, and the
+scope-tightening operation, which today lives on the context builder. Both are
+existing behaviour, not new policy.
+
 The speller does not perform its own exact-then-versionless retry. It supplies
 the exact per-occurrence target, origin, and scope, and consumes the candidate
 the catalog's binding policy selects.
@@ -2238,9 +2255,17 @@ resolution already issued and returns one closed outcome:
 - **Inaccessible** — the chain is completely readable and some required
   visibility is not externally accessible. This is an authoritative negative,
   not a missing answer.
-- **Rejected** — a cross-catalog key, a stale-generation key, a catalog-lifetime
-  failure, or the bounded declaring-chain rejection. This is a failure, and it
-  is not spellable.
+- **Rejected** — a cross-catalog key or a stale-generation key. This is a
+  failure, and it is not spellable.
+
+Those are the only rejection arms, and the omissions are deliberate. A disposed
+context or ended catalog generation **throws** `ObjectDisposedException`, as
+every other operation on this context does; it is not converted into a typed
+outcome. And the declaring chain was already walked under its bound when
+resolution issued the definition key, so accessibility does not re-derive it and
+has no separate chain-budget rejection of its own. An arm that no caller can
+reach is structure without a case, which is the failure mode this redesign
+exists to correct.
 
 It reuses the catalog-owned inspection session that produced the definition and
 the existing iterative declaring-chain traversal. It exposes no reader and no
@@ -3916,19 +3941,28 @@ implementation that produces it. A gate that can only be satisfied by one
 internal vocabulary constrains structure rather than behaviour.
 
 - `SignatureSpellability_RejectsForeignMemberRow` proves that a cross-reader
-  row, a wrong member table, a declaring-type mismatch, or a stale module
-  identity is rejected before signature decode, rather than decoding whatever
-  bytes the mismatched row addresses.
+  row, a wrong member table, an out-of-range row number, a declaring-type
+  mismatch, or a stale module identity is rejected before signature decode,
+  rather than decoding whatever bytes the mismatched row addresses. Each case is
+  distinct, and each retains its reason.
 - `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
-  function pointers, generic arguments, generic type and method parameters, and
-  modified types. Generic parameters must contribute no request; manufacturing
-  one for them fails the gate. A rejected decode exposes no partial result.
+  by-reference parameters and ref returns, pinned types, function pointers,
+  generic arguments, generic type and method parameters, and modified types.
+  Every named child must produce its request: dropping the element type of a
+  `ref` or `out` parameter fails the gate. Generic parameters must contribute no
+  request; manufacturing one for them fails the gate. A rejected decode exposes
+  no partial result.
 - `SignatureSpellability_MapsClosedReferenceScopes` covers all four
   `MetadataTypeReferenceScope` arms, including the direct primitive case that
   issues no request.
-- `SignatureSpellability_ResolvesCurrentAssemblyForwarder` proves that a
-  current-assembly occurrence can resolve through an exported-type chain and
-  does not default to a local spellable result.
+- `SignatureSpellability_ResolvesCurrentAssemblyForwarder` uses a
+  current-assembly occurrence that forwards out of the source assembly to a
+  terminal definition that is **not** externally accessible, and proves the
+  signature is unspellable. Locality is decided by the terminal candidate, not
+  by the occurrence's starting scope, so an implementation that exempts the
+  occurrence because it began as `CurrentAssembly` fails the gate. A companion
+  case forwards to an accessible terminal and is spellable, so the gate cannot
+  be satisfied by rejecting all forwarders.
 - `SignatureSpellability_ExemptsLocalOccurrenceFromExternalAccessibility` uses a
   signature naming a private or internal type in the source candidate itself. It
   proves the occurrence resolves to that local definition and that the signature
@@ -3962,7 +3996,9 @@ internal vocabulary constrains structure rather than behaviour.
   controls external accessibility.
 - `SignatureSpellability_RejectsInvalidAccessibilityKey` proves that a
   cross-catalog or stale-generation definition key cannot borrow an
-  accessibility result.
+  accessibility result, and that a disposed context throws rather than returning
+  a rejection outcome. These are the only two rejection arms; the gate is the
+  non-vacuity check that no third arm is added without a reachable case.
 - `SignatureSpellability_AccessibilityReusesResolvedSession` configures the
   terminal candidate opener to fail after resolution records its completed
   inventory and durable-session open count, then proves that accessibility
