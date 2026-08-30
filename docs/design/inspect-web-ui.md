@@ -68,9 +68,9 @@ This document composes four adjacent owner contracts without defining them:
 - [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns stable
   portable fields, versioning, migration, valid combinations, per-coordinate
   view state, canonical packet projection, and restoration.
-- [#4788](https://github.com/richlander/dotnet-inspect/issues/4788) owns any
-  default-feed or acquisition-preference semantics within multi-source package
-  resolution.
+- [Browser package sources](browser-package-sources.md#default-feed-decision)
+  owns browser source selection and the decision that first-run Gallery
+  bootstrap does not become default-feed or acquisition-preference semantics.
 
 Inspect Web renders those owner-issued descriptors and outcomes. Their product
 semantics are not prerequisites for reviewing the UI composition in this
@@ -1224,8 +1224,9 @@ not redefine them.
 The initial UI does not expose feed tabs or in-workspace source switching.
 Settings renders the package-source owner's registration, selection,
 capability, authentication, and cache-action descriptors and submits their
-typed actions. A `Default feed` control appears only when #4788 supplies its
-descriptor and semantics.
+typed actions. There is no `Default feed` control: the source owner bootstraps
+Gallery only when no persisted registry exists, then the selected source set is
+the complete browser policy.
 
 Once a package is acquired, Workspace, package headings, and the data bar show
 its owner-issued compact producer label as read-only context. Source-scoped
@@ -1706,7 +1707,8 @@ outcomes:
 3. Supply an acquired producer label and confirm that Workspace, package
    headings, and the data bar render it as read-only context.
 4. Confirm that no feed tabs or in-workspace feed-switching control appears.
-5. Confirm that `Default feed` is absent until #4788 supplies its descriptor.
+5. Confirm that `Default feed` is absent and that source multi-selection is the
+   complete browser policy after first-run Gallery bootstrap.
 
 ### Search input
 
