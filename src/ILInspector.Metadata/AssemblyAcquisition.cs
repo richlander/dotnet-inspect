@@ -295,9 +295,20 @@ public sealed class ResolvedAssemblyReference
         try
         {
             stream = File.OpenRead(fullPath);
-            peReader = new PEReader(stream);
-            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            try
+            {
+                peReader = new PEReader(stream);
+                if (!MetadataFormatAdmission.AdmitImage(peReader))
+                    return null;
+            }
+            catch (MalformedMetadataRootException)
+            {
+                throw;
+            }
+            catch (BadImageFormatException)
+            {
                 return null;
+            }
 
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(
@@ -311,18 +322,6 @@ public sealed class ResolvedAssemblyReference
                 () => File.OpenRead(fullPath),
                 provenance,
                 File.GetLastWriteTimeUtc(stream.SafeFileHandle));
-        }
-        catch (MalformedMetadataRootException ex)
-        {
-            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
-            peReader = null;
-            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
-            stream = null;
-            throw;
-        }
-        catch (BadImageFormatException)
-        {
-            return null;
         }
         catch (Exception ex)
         {
@@ -407,9 +406,20 @@ public sealed class ResolvedAssemblyReference
                     "The assembly opener did not return a readable stream.");
             }
 
-            peReader = new PEReader(stream);
-            if (!MetadataFormatAdmission.AdmitImage(peReader))
+            try
+            {
+                peReader = new PEReader(stream);
+                if (!MetadataFormatAdmission.AdmitImage(peReader))
+                    return null;
+            }
+            catch (MalformedMetadataRootException)
+            {
+                throw;
+            }
+            catch (BadImageFormatException)
+            {
                 return null;
+            }
 
             MetadataReader metadata =
                 MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -440,18 +450,6 @@ public sealed class ResolvedAssemblyReference
                 openRead,
                 provenance,
                 lastWriteTimeUtc);
-        }
-        catch (MalformedMetadataRootException ex)
-        {
-            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
-            peReader = null;
-            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
-            stream = null;
-            throw;
-        }
-        catch (BadImageFormatException)
-        {
-            return null;
         }
         catch (Exception ex)
         {
