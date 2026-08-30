@@ -98,7 +98,8 @@ INSTANCE PackageRealizationAdmission WITH
     AllowPartialPublish <- FALSE,
     AllowCancellationAbandon <- FALSE,
     AllowCancellationFailure <- FALSE,
-    AllowDuplicateBindingAsDistinct <- FALSE
+    AllowDuplicateBindingAsDistinct <- FALSE,
+    AllowRootOnlyAdmission <- FALSE
 
 ZeroReservationAdmissionObserved ==
     /\ Scenario = ZeroReservationScenario

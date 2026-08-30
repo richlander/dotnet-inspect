@@ -1,10 +1,10 @@
-------------- MODULE PackageRealizationAdmission_DuplicateMutation_MC -------------
+-------------- MODULE PackageRealizationAdmission_RootOnlyMutation_MC --------------
 EXTENDS Naturals, TLC
 
 CONSTANTS
     c1,
-    g1, g2,
-    s1, s2,
+    g1,
+    s1,
     strictOptions,
     d1
 
@@ -36,16 +36,13 @@ VARIABLES
     doubleReturnWitness,
     capacityRejectionWitness
 
-RequestBindingsOfMC ==
-    d1 :> <<<<c1, g1, s1>>, <<c1, g2, s2>>>>
-
 INSTANCE PackageRealizationAdmission WITH
     PackageCoordinates <- {c1},
-    Generations <- {g1, g2},
-    Selections <- {s1, s2},
+    Generations <- {g1},
+    Selections <- {s1},
     Options <- {strictOptions},
     Demands <- {d1},
-    RequestBindingsOf <- RequestBindingsOfMC,
+    RequestBindingsOf <- (d1 :> <<>>),
     OptionsOf <- (d1 :> strictOptions),
     ReservationOf <- (d1 :> 1),
     MaxEntries <- 1,
@@ -61,7 +58,7 @@ INSTANCE PackageRealizationAdmission WITH
     AllowCancellationAbandon <- FALSE,
     AllowCancellationFailure <- FALSE,
     AllowOverCapacity <- FALSE,
-    AllowDuplicateBindingAsDistinct <- TRUE,
-    AllowRootOnlyAdmission <- FALSE
+    AllowDuplicateBindingAsDistinct <- FALSE,
+    AllowRootOnlyAdmission <- TRUE
 
 =============================================================================

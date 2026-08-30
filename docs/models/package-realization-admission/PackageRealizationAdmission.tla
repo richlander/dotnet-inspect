@@ -80,7 +80,8 @@ CONSTANTS
     AllowCancellationAbandon,
     AllowCancellationFailure,
     AllowOverCapacity,
-    AllowDuplicateBindingAsDistinct
+    AllowDuplicateBindingAsDistinct,
+    AllowRootOnlyAdmission
 
 NoDemand == "NoDemand_"
 
@@ -114,6 +115,7 @@ ASSUME
     /\ AllowCancellationFailure \in BOOLEAN
     /\ AllowOverCapacity \in BOOLEAN
     /\ AllowDuplicateBindingAsDistinct \in BOOLEAN
+    /\ AllowRootOnlyAdmission \in BOOLEAN
 
 SequenceSet(s) == {s[i] : i \in 1..Len(s)}
 CoordinateSetOfBoundSequence(s) ==
@@ -135,7 +137,7 @@ HasDuplicateCoordinate(d) ==
     ELSE HasNormalizedCoordinateDuplicate(d)
 
 Eligible(d) ==
-    /\ Len(RequestBindingsOf[d]) > 0
+    /\ (Len(RequestBindingsOf[d]) > 0 \/ AllowRootOnlyAdmission)
     /\ ~HasDuplicateCoordinate(d)
 
 BoundRequestSequence(d) == RequestBindingsOf[d]
@@ -953,6 +955,20 @@ DuplicateCoordinatesCannotAdmit ==
         HasNormalizedCoordinateDuplicate(d)
             => demandState[d]
                 \notin {"Admitting", "Joined", "Leased", "Returned"}
+
+RootOnlyCannotAdmit ==
+    \A d \in Demands :
+        Len(RequestBindingsOf[d]) = 0
+            =>
+                /\ RequestIdentity(d) \notin ActiveEntries
+                /\ demandState[d]
+                    \notin {"Admitting", "Joined", "Leased", "Returned"}
+                /\ IF RequestIdentity(d) \in Coordinates
+                   THEN
+                        /\ cacheRealization[RequestIdentity(d)] = 0
+                        /\ cacheOperation[RequestIdentity(d)] = 0
+                        /\ cleanupStarts[RequestIdentity(d)] = 0
+                   ELSE TRUE
 
 AdmissionCapacityBounded ==
     /\ Cardinality(ActiveEntries) <= MaxEntries

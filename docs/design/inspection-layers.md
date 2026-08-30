@@ -1299,7 +1299,8 @@ The target contract remains unimplemented until these named gates land:
 [`PackageRealizationAdmission.tla`](../models/package-realization-admission/PackageRealizationAdmission.tla)
 checks this target design's own internal soundness: whole-request identity,
 exact-policy, content-generation, and selection isolation; duplicate and
-Root-only front-door outcomes; single-flight admission; atomic publication;
+Root-only front-door exclusion and outcomes; single-flight admission; atomic
+publication;
 cancellation without operation abandonment or caller-induced operation
 failure; consistent shared outcomes; lease issuance and idempotent return;
 workspace-wide admission capacity; disposal-driven draining; no release with

@@ -163,6 +163,7 @@ The model does not cover:
 | `TypeOK` | Every variable remains in its declared state domain. |
 | `SingleFlightPerRequest` | At most one demand leads an admission for each exact request identity. |
 | `DuplicateCoordinatesCannotAdmit` | Two occurrences of one normalized coordinate cannot admit even when their generation or selection tokens differ. |
+| `RootOnlyCannotAdmit` | An empty selected request cannot create or use a cache entry, receive a lease, or request cleanup. |
 | `AdmissionCapacityBounded` | Retained entries, in-flight operations, and aggregate retained-byte reservation remain within workspace limits. |
 | `ConsistentLeaseOutcomeHistory` | Every demand ever issued a lease for one exact request records the same realization identity, including after return. |
 | `CacheStateConsistent` | Cache state, realization identity, leader, cleanup state, and demand lease history remain mutually consistent. |
@@ -190,16 +191,18 @@ and selected assets. The partial-publication mutation makes a cache entry ready
 while one attached demand remains unresolved. The cancellation mutation is
 checked by a transition property that preserves operation state and settlement
 history. The duplicate-binding mutation keeps the coordinate equal while
-changing both occurrence tokens. Three capacity mutations isolate entry,
-in-flight, and byte-reservation limits. These checks observe incorrect behavior
-rather than restating normal guards. Cleanup uses a start counter so a second
-start is observable. Double return is also an explicit transition, proving
-idempotence is not hidden as stutter.
+changing both occurrence tokens. The Root-only mutation admits an empty
+selected request while leaving the normal bypass transition available, proving
+that reachability alone does not establish exclusion. Three capacity mutations
+isolate entry, in-flight, and byte-reservation limits. These checks observe
+incorrect behavior rather than restating normal guards. Cleanup uses a start
+counter so a second start is observable. Double return is also an explicit
+transition, proving idempotence is not hidden as stutter.
 
 ## Configurations
 
-The committed inventory contains 51 configurations: 13 complete correctness
-runs, 22 reachability probes, and 16 deliberate mutations.
+The committed inventory contains 52 configurations: 13 complete correctness
+runs, 22 reachability probes, and 17 deliberate mutations.
 
 | Configuration | Purpose |
 | --- | --- |
@@ -243,6 +246,7 @@ runs, 22 reachability probes, and 16 deliberate mutations.
 | `BrokenInexactReuseContentGeneration.cfg` | Reuses a result whose otherwise equal request differs only by content generation. |
 | `BrokenInexactReuseSelection.cfg` | Reuses a result whose otherwise equal request differs only by selected assets. |
 | `BrokenDuplicateBindingIdentity.cfg` | Treats one duplicate coordinate as distinct because occurrence tokens differ. |
+| `BrokenRootOnlyAdmission.cfg` | Admits an empty selected request instead of keeping it outside the cache. |
 | `BrokenEntryCapacity.cfg` | Admits a second retained entry beyond the workspace entry limit. |
 | `BrokenInFlightCapacity.cfg` | Admits a second physical operation beyond the in-flight limit. |
 | `BrokenByteCapacity.cfg` | Admits a request whose reservation exceeds the workspace byte budget. |
@@ -322,6 +326,10 @@ done
 java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
   -cleanup -noGenerateSpecTE -config BrokenDuplicateBindingIdentity.cfg \
   PackageRealizationAdmission_DuplicateMutation_MC.tla
+
+java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
+  -cleanup -noGenerateSpecTE -config BrokenRootOnlyAdmission.cfg \
+  PackageRealizationAdmission_RootOnlyMutation_MC.tla
 ```
 
 ## TLC evidence
@@ -373,6 +381,7 @@ repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
 | `BrokenInexactReuseContentGeneration.cfg` | `ExactRequestReuse` violated | 94 | 71 | 4 |
 | `BrokenInexactReuseSelection.cfg` | `ExactRequestReuse` violated | 94 | 71 | 4 |
 | `BrokenDuplicateBindingIdentity.cfg` | `DuplicateCoordinatesCannotAdmit` violated | 2 | 2 | 2 |
+| `BrokenRootOnlyAdmission.cfg` | `RootOnlyCannotAdmit` violated | 3 | 3 | 2 |
 | `BrokenEntryCapacity.cfg` | `AdmissionCapacityBounded` violated | 11 | 9 | 3 |
 | `BrokenInFlightCapacity.cfg` | `AdmissionCapacityBounded` violated | 11 | 9 | 3 |
 | `BrokenByteCapacity.cfg` | `AdmissionCapacityBounded` violated | 11 | 9 | 3 |

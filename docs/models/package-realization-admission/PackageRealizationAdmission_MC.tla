@@ -108,6 +108,7 @@ INSTANCE PackageRealizationAdmission WITH
     MaxInFlight <- 2,
     MaxReservedByteUnits <- 2,
     AllowOverCapacity <- FALSE,
-    AllowDuplicateBindingAsDistinct <- FALSE
+    AllowDuplicateBindingAsDistinct <- FALSE,
+    AllowRootOnlyAdmission <- FALSE
 
 =============================================================================
