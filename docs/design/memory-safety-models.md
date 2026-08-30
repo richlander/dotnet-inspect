@@ -32,14 +32,14 @@ all of those owners. Each gap must be addressed through its owning subsystem.
 | Propagates unsafe | Using the member requires the caller to establish an `unsafe` context. Roslyn calls this *requires-unsafe* or caller-unsafe. |
 | Unsafe user | A member with positive evidence that an unsafe context was established for its declaration or implementation. Publishing a caller contract alone is not use. |
 | Safe boundary | Under the updated model, a member that uses an `unsafe` context internally but does not propagate that requirement to its caller. |
-| Unsafe permission | Whether the build permits unsafe syntax and related constructs. In an SDK project this is controlled by `AllowUnsafeBlocks`. |
-| Project policy | The memory-safety rules and unsafe permission requested by project inputs for a particular build. |
+| Unsafe-context permission | Whether the build permits `unsafe` regions and modifiers that require `/unsafe`. In an SDK project this is controlled by `AllowUnsafeBlocks`. |
+| Project policy | The memory-safety rules and unsafe-context permission requested by project inputs for a particular build. |
 | Binary fact | Evidence present in the inspected module's metadata, signatures, or IL. |
 
-Propagation, use, and permission are independent dimensions. A module can use
-the updated model without containing unsafe code. A member can propagate unsafe
-without having an IL body. A safe-boundary method can use unsafe operations
-without propagating unsafe.
+Propagation, use, and unsafe-context permission are independent dimensions. A
+module can use the updated model without containing unsafe code. A member can
+propagate unsafe without having an IL body. A safe-boundary method can use
+unsafe operations without propagating unsafe.
 
 ## Version vocabulary
 
@@ -69,6 +69,11 @@ Consumers must preserve the distinction between these states:
 | Unsupported version | The module attribute contains another integer. Preserve it as unrecognized; Roslyn also applies legacy compatibility inference and reports the unsupported marker when imported methods or accessors are consumed. |
 | Malformed marker | The attribute cannot be decoded according to its expected constructor shape. Preserve the failure; Roslyn likewise uses compatibility inference while treating imported methods and accessors as carrying an unrecognized marker. |
 | Conflicting markers | More than one candidate marker prevents a unique module judgment; member contracts are unavailable. |
+
+The conflicting-marker result is a conservative dotnet-inspect policy, not
+current Roslyn parity. Current Roslyn uses the first matching module attribute,
+so duplicate-marker interpretation is order-sensitive. This product instead
+refuses to invent one authoritative module judgment from conflicting evidence.
 
 The raw integer and the recognized model are separate facts. Reporting an
 actual version must not silently turn every value greater than or equal to `2`
@@ -151,14 +156,15 @@ inside its implementation instead of imposing it on callers. A v2 member with
 `RequiresUnsafeAttribute` is a propagator whether or not its body contains
 unsafe operations.
 
-The metadata carrier depends on the member kind:
+The metadata carrier and association depend on the member kind:
 
-| Contract surface | V2 attribute carrier |
+| Contract surface | Current Roslyn emission and resolution |
 | --- | --- |
 | Method or constructor | MethodDef |
 | Field | FieldDef |
-| Property or accessor | PropertyDef for a property contract; MethodDef for an accessor-specific contract; accessors inherit through MethodSemantics |
-| Event | EventDef; add/remove accessors inherit the event contract through MethodSemantics |
+| Property contract | PropertyDef and inheriting accessor MethodDefs; resolve the PropertyDef association as a fallback |
+| Accessor-specific property contract | The specific accessor MethodDef |
+| Event contract | EventDef and inheriting add/remove MethodDefs; resolve the EventDef association as a fallback |
 
 A TypeDef-level lookalike is not a valid substitute for any of these contracts.
 Same- and cross-assembly resolution must follow the accessor association before
@@ -278,16 +284,17 @@ This repository has a fixture-only `Directory.Build.targets` alias that maps
 text values such as `updated` to the raw compiler feature. That alias is test
 infrastructure, not SDK behavior or user-facing configuration guidance.
 
-### Unsafe permission is independent
+### Unsafe-context permission is independent
 
-`AllowUnsafeBlocks` controls whether the compiler permits unsafe source. It
-does not select a memory-safety model and does not cause
+`AllowUnsafeBlocks` controls whether the compiler permits `unsafe` regions and
+modifiers that require `/unsafe`. It does not select a memory-safety model or
+cause
 `MemorySafetyRulesAttribute` to be emitted.
 There is no corresponding current C# SDK property named `EnableUnsafe`;
 `AllowUnsafeBlocks` is the established permission switch.
 
-The strongest default policy is updated enforcement with unsafe syntax
-disabled:
+The strongest default policy is updated enforcement with unsafe-context
+permission disabled:
 
 ```xml
 <PropertyGroup>
@@ -314,8 +321,8 @@ observations remain independent:
 
 | Evidence plane | Answers | Does not answer |
 | --- | --- | --- |
-| Project declaration or evaluation | Which rules and unsafe permission the build requested | Which model an arbitrary binary actually publishes |
-| Module metadata | The binary's raw rules marker and recognized model | Whether unsafe source was permitted |
+| Project declaration or evaluation | Which rules and unsafe-context permission the build requested | Which model an arbitrary binary actually publishes |
+| Module metadata | The binary's raw rules marker and recognized model | Whether unsafe contexts were permitted |
 | Member metadata and signatures | Which callable members and fields publish or imply caller contracts for that module model | Which bodies actually use unsafe operations |
 | Method-body analysis | Candidate declaration, local, call, and IL-operation evidence for model-aware interpretation | The original lexical source form in every case |
 | Provenance | Whether a project/build corresponds to a binary | The safety meaning of either artifact |
@@ -326,18 +333,39 @@ that one produced the other. It must label their correspondence as
 Matching names, paths, target frameworks, versions, or timestamps is not a
 substitute for typed provenance.
 
+### Source audit declarations
+
+`<safety>` XML documentation and `// SAFETY:` comments are source audit
+declarations. They may explain a caller obligation or how an unsafe region
+discharges one, but their presence does not prove that an unsafe operation
+exists, that the explanation remains applicable, or that the code is correct.
+They are not recoverable binary-model or IL-body facts.
+
+The experimental migration analyzers introduced by
+[dotnet/runtime#131002](https://github.com/dotnet/runtime/pull/131002) use
+[source declarations and `<safety>` documentation](https://github.com/dotnet/runtime/blob/2d981406ac8e3ec2e39bdd50331739d13a46a297/src/tools/illink/src/ILLink.RoslynAnalyzer/UnsafeMemberMissingSafetyDocumentationAnalyzer.cs)
+and
+[pointer-signature shape](https://github.com/dotnet/runtime/blob/2d981406ac8e3ec2e39bdd50331739d13a46a297/src/tools/illink/src/ILLink.RoslynAnalyzer/PointerSignatureRequiresUnsafeAnalyzer.cs)
+to guide incremental migration. The follow-on
+[dotnet/runtime#131484](https://github.com/dotnet/runtime/pull/131484) adds
+[coarse checks for `// SAFETY:` comments](https://github.com/dotnet/runtime/blob/b16bdcaa914bf10866f00192af8a5a81bcc1503a/src/tools/illink/src/ILLink.RoslynAnalyzer/UnsafeBlockMissingSafetyCommentAnalyzer.cs)
+and explicit-`safe` justification. These analyzers are useful source-audit
+models, but at the cited snapshots they are debug-only, disabled by default,
+and do not establish a shipping binary or body-analysis contract for
+dotnet-inspect.
+
 ## Product answer map
 
 | User question | Required evidence | Current product answer |
 | --- | --- | --- |
 | Which model did this binary publish? | Module `MemorySafetyRulesAttribute` constructor integer and recognition rules | Metadata decodes an `int?`; Library Signals displays it. Current scope and unsupported-version handling are incomplete. |
 | Did this project request updated enforcement? | Declared or evaluated `LangVersion`, `Features`, and future supported model property | Not currently answered. The `project` command reads `project.assets.json`, not these project properties. |
-| Was unsafe source permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
+| Were unsafe regions and modifiers permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
 | Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, and the correct v2 attribute carrier | Metadata exposes `ApiMember.IsUnsafe` and Analysis exposes method `CallerUnsafeMode`; both are currently model-incomplete, and neither provides complete field/accessor coverage. |
 | Which methods use unsafe facilities? | Context-requiring operations plus source/build evidence where pointer declarations are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet separate pointer shape from proof that an unsafe context was established. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive body-unsafety evidence | Not currently exposed as a composed query. |
 | How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
-| Is the project configured for the strongest default? | Updated project policy, unsafe permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
+| Is the project configured for the strongest default? | Updated project policy, unsafe-context permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
 
 ## Focused successors
@@ -387,7 +415,7 @@ report would keep every observation and its limitation visible:
 | Observation | Value | Evidence |
 | --- | --- | --- |
 | Requested rules | Updated preview rules | Project `LangVersion` and `Features` |
-| Unsafe source permission | Disabled | Project `AllowUnsafeBlocks` absent or `false` |
+| Unsafe-context permission | Disabled | Project `AllowUnsafeBlocks` absent or `false` |
 | Published binary model | Updated v2 | Module `MemorySafetyRulesAttribute(2)` |
 | Propagating members | 0 | Version-aware member metadata |
 | Unsafe users | 0 | Version-aware declaration and method-body analysis |
@@ -401,16 +429,26 @@ the binary independently demonstrates one compiled artifact.
 
 The model follows the implemented compiler and runtime contracts:
 
+- [Memory-safety overview](https://github.com/dotnet/designs/blob/8f17cc55212fe45f563741aa7137d432d82482d5/accepted/2025/memory-safety/memory-safety.md)
+- [Caller-unsafe design](https://github.com/dotnet/designs/blob/8f17cc55212fe45f563741aa7137d432d82482d5/accepted/2025/memory-safety/caller-unsafe.md)
 - [C# unsafe evolution proposal](https://github.com/dotnet/csharplang/blob/f445f642755a28631b7e37db01f6373c437159c3/proposals/unsafe-evolution.md)
 - [SDK memory-safety enforcement design](https://github.com/dotnet/designs/blob/8f17cc55212fe45f563741aa7137d432d82482d5/accepted/2025/memory-safety/sdk-memory-safety-enforcement.md)
 - [Roslyn memory-safety version handling](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEModuleSymbol.cs)
 - [Roslyn caller-unsafe interpretation](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEMethodSymbol.cs)
+- [Roslyn mixed-model enforcement](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Binder/Binder_Unsafe.cs#L40-L56)
+- [Roslyn duplicate-marker behavior](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Test/CSharp15/UnsafeEvolutionTests.cs#L746-L797)
+- [Roslyn property and accessor contract emission](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Test/CSharp15/UnsafeEvolutionTests.cs#L7787-L7832)
+- [Roslyn constructor-initializer exception](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Binder/LocalBinderFactory.cs#L493-L504)
 - [Roslyn field-contract emission](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Source/SourceMemberFieldSymbol.cs)
 - [Roslyn field-contract import](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEFieldSymbol.cs)
+- [Runtime unsafe migration analyzers and code fixes](https://github.com/dotnet/runtime/pull/131002)
+- [Runtime source safety-documentation analyzers](https://github.com/dotnet/runtime/pull/131484)
 - [Runtime `MemorySafetyRulesAttribute`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/MemorySafetyRulesAttribute.cs)
 - [Runtime `RequiresUnsafeAttribute`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/libraries/System.Private.CoreLib/src/System/Diagnostics/CodeAnalysis/RequiresUnsafeAttribute.cs)
 
 At the cited snapshot, one paragraph in the language proposal anticipates a
 different future version value. Roslyn's implementation and tests emit and
 recognize `2`; the product contract follows emitted compiler behavior while
-preserving the raw integer for future versions.
+preserving the raw integer for future versions. The caller-unsafe design is
+conceptual authority for obligation vocabulary and field motivation; current
+Roslyn remains authoritative for exact emitted metadata carriers.
