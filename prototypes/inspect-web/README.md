@@ -963,30 +963,31 @@ and 5 against that mermaid build. The code comment asserting that DOMPurify
 makes package Markdown safe had been resting on that build. None of it was
 hidden; nothing was in a position to look.
 
-CI now runs `npm audit`, with no scoping and no threshold flags. That plain
-form is the conclusion of two review rounds spent on cleverer versions of the
-same line, and both flags turned out to describe something other than what they
-appeared to.
+CI runs `npm audit --audit-level=info` over the whole tree. Three review rounds
+went into that one line, and each found the same shape of mistake: a flag, or
+the absence of one, meaning something narrower than it appeared to.
 
-`--audit-level` reads as a severity filter over advisories. `npm audit` applies
-it to *packages*: each is bucketed by the highest severity affecting it, and the
-threshold is compared against that. Of the 24 advisories above, 19 are moderate
-and 5 are low, and both packages bucket as moderate -- so `--audit-level=high`
-returns success on all 24, including all 19 sanitizer bypasses. Every threshold
-short of the strictest has some version of that hole: `low` still passes a
-package whose advisories are all `info`.
+`--audit-level` reads as a severity filter over advisories. npm applies it to
+*packages*, bucketing each by the highest severity affecting it. Of the 24
+advisories above, 19 are moderate and 5 are low, and both packages bucket as
+moderate -- so `--audit-level=high` returns success on all 24, including all 19
+sanitizer bypasses.
 
-`--omit=dev` filters by where a package is declared, which is not the same
-question as whether its code reaches a browser. Vite is a devDependency and its
-`__vite__mapDeps` helper is in the shipped bundle, so the dev/production split
-was never the boundary it resembled.
+Omitting the flag does not remove the filter. npm falls back to `low`
+(`options.auditLevel || 'low'` in `npm-audit-report`), which still passes a
+package whose advisories are all `info`. `info` is the only setting that fails
+on any advisory, and it has to be asked for.
 
-Auditing everything at every severity has neither hole and needs no qualifying
-clause to stay true, which is why the sanitization comment can name it plainly.
-It costs nothing today: the tree is 168 packages and clean. It will sometimes
-fail for a build tool rather than for shipped code, and that is the accepted
-trade -- the alternative was a narrower gate whose description had to be exactly
-right, and twice it was not.
+`--omit=dev` is absent for a different reason: it filters by where a package is
+declared, not by whether its code reaches a browser. Vite is a devDependency and
+its `__vite__mapDeps` helper is in the shipped bundle, so that split was never
+the boundary it resembled.
+
+What remains is the strictest available check over all 168 packages, which is
+what lets the sanitization comment name its gate without qualification. It is
+clean today. It will sometimes fail for a build tool rather than for shipped
+code; that is the accepted trade against a narrower gate whose description has
+to be exactly right, and three times was not.
 
 What remains on a CDN is the three Prism scripts in `index.html`. Those are
 markup, they carry digests, and the freshness check reads them -- so the
