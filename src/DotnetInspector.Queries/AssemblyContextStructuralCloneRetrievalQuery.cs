@@ -856,10 +856,14 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     /// nothing, so rejecting a negative length is what makes the starts
     /// non-decreasing. Coverage then supplies the rest, because with the
     /// starts rising the enumerated total is the projected row count
-    /// less the first start plus one; requiring distinct in-range rows
-    /// that total the MethodDef row count forces the first start to row
-    /// 1 and every later start into the table. Neither check is
-    /// redundant: a descending column passes coverage, and a column
+    /// less the first non-null start plus one; requiring distinct
+    /// in-range rows that total the MethodDef row count forces that
+    /// first non-null start to row 1 and holds every later start within
+    /// <c>projectionRows + 1</c>. A null start is not part of that
+    /// chain: ECMA-335 II.22.37 permits it and SRM reports its range as
+    /// length zero rather than as the difference to the next start, so
+    /// leading nulls neither rise nor break the ordering. Neither check
+    /// is redundant: a descending column passes coverage, and a column
     /// starting past row 1 passes the length check.
     /// </para>
     /// <para>

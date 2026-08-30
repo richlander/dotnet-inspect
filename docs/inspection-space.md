@@ -900,8 +900,11 @@ the ranges cover the MethodDef table exactly once, and seed and population
 resolution accept only an image carrying that confirmation. Those two
 requirements bound the underlying `MethodList` column jointly, which is why
 neither is redundant: a negative length is what makes the starts
-non-decreasing, and coverage is what forces the first start to row 1 and every
-later start into the table. A repeated or out-of-range row, a `MethodPtr` table
+non-decreasing, and coverage is what forces the first non-null start to row 1
+and holds every later start within one past the projected table. A null start
+sits outside that chain: ECMA-335 II.22.37 permits it and the reader reports
+its range as length zero rather than as the difference to the next start.
+A repeated or out-of-range row, a `MethodPtr` table
 that aliases one MethodDef row into two types, a descending range, and a
 `MethodList` start past the table -- which SRM reports as an empty or
 negative-length range rather than an error -- are all typed
@@ -922,7 +925,7 @@ repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary. Its
 type-name decode-failure case gates the decode-failure ceiling, paired with a
 below-ceiling case that proves isolated malformed neighbors remain tolerable.
-Eleven cases gate whole-image method ownership across the type-scoped,
+Fourteen cases gate whole-image method ownership across the type-scoped,
 whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
 covering duplicate, out-of-range, cross-type aliased, and silently empty
 projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
@@ -936,11 +939,12 @@ range. Each of these fixtures pins its per-row range lengths, so the shape it
 claims to exercise is gated rather than asserted in prose. A further case starts
 the column past MethodDef row 1 while every range keeps a non-negative length,
 so it is rejected by coverage alone and pins the half of the ordering proof the
-range-length check cannot supply. A twelfth case gates that a null
+range-length check cannot supply. Those fourteen are all rejections; a
+fifteenth case gates that a null
 `MethodList`, which ECMA-335 permits and the runtime reader projects as an
-empty run, is accepted rather than reported as malformed. A thirteenth gates
+empty run, is accepted rather than reported as malformed. A sixteenth gates
 uniqueness of the exact seed member, which a rejected sibling leaves unproven,
-and a fourteenth gates that matching a candidate leaf charges the
+and a seventeenth gates that matching a candidate leaf charges the
 declaring-chain traversal it performs rather than only the names it compares;
 that case pins its fixture's declaring depth, because a shallow fixture would
 exhaust the same budget while leaving the traversal unexercised.

@@ -355,9 +355,14 @@ methods are enumerated.
 
 Order and coverage bound the column jointly, and neither is redundant. A
 non-negative length makes the starts non-decreasing, so the enumerated total is
-the projected row count less the first start plus one; requiring distinct
-in-range rows totalling the MethodDef row count then forces the first start to
-row 1 and every later start into the table. A descending column passes
+the projected row count less the first non-null start plus one; requiring
+distinct in-range rows totalling the MethodDef row count then forces that first
+non-null start to row 1 and holds every later start within `projectionRows + 1`.
+A *null* start is not part of that chain: ECMA-335 II.22.37 permits it and SRM
+reports its range as length zero rather than as the difference to the next
+start, so leading nulls neither rise nor break the ordering.
+`Execute_NullMethodListIsNotRejected` pins that shape, measuring `[0, 2]`.
+A descending column passes
 coverage, and a column starting past row 1 passes the length check, so removing
 either check leaves a malformed column accepted.
 `Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection` and

@@ -1610,6 +1610,14 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         // ordering check must not turn a valid package into a typed
         // inspection failure; coverage remains the guard that a null
         // run does not silently drop methods.
+        //
+        // The null start reports length zero rather than the difference
+        // to the next start, so the first *non-null* start is the one
+        // coverage pins to row 1. Pinned, because this is the shape
+        // that makes the weaker claim the necessary one.
+        Assert.Equal(
+            [0, 2],
+            MeasureMethodRangeLengths(image));
         AssemblyContextStructuralCloneRetrievalResult result =
             Execute(
                 new(
@@ -3263,11 +3271,6 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     /// <summary>
-    /// Builds an assembly whose MethodPtr table carries more rows than
-    /// the MethodDef table, so a row no TypeDef range covers escapes
-    /// projection while the projected rows still cover MethodDef.
-    /// </summary>
-    /// <summary>
     /// Builds an assembly whose module TypeDef starts after the type
     /// that follows it, so its range descends and SRM reports it as
     /// empty while the later type still covers every MethodDef row.
@@ -3281,8 +3284,9 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
 
     /// <summary>
     /// Builds the descending column on an image carrying no MethodPtr
-    /// table, so the final type's range is bounded by the MethodDef
-    /// table itself rather than by a projection table.
+    /// table, so the guard is exercised on the plain metadata shape.
+    /// The descent throws at the module row, before any row is
+    /// projected.
     /// </summary>
     static byte[] BuildDescendingMethodListWithoutMethodPtrAssembly()
     {
@@ -3381,9 +3385,9 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
 
     /// <summary>
     /// Builds the descending column on a MethodPtr image whose pointer
-    /// rows reverse the MethodDef order, so the projected handles differ
-    /// from raw row order and the final type's range end comes from the
-    /// MethodPtr table.
+    /// rows reverse the MethodDef order, so the guard is exercised on
+    /// the unoptimized metadata shape. The descent still throws at the
+    /// module row, so the reordering itself is never projected.
     /// </summary>
     static byte[] BuildDescendingReorderedMethodPtrAssembly()
     {
