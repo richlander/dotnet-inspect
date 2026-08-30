@@ -581,12 +581,17 @@ Returning an outside-group candidate is not invalid role evidence because the
 adjacent policy owns that candidate. The delegated policy's existing
 `Unavailable` and `Rejected` outcomes likewise remain authoritative.
 
-The delegated handoff must distinguish typed `NoNameOwner` from
-`NameOwnedNoMatch`. Only `NoNameOwner` contributes no candidate and permits
-otherwise eligible in-group role arbitration. `NameOwnedNoMatch` returns the
-adjacent policy's `Missing` result and blocks role fallback. An undifferentiated
-legacy `Missing` is treated as authoritative `NameOwnedNoMatch`, never as
-permission to bypass a package, sibling, or other name-owning tier.
+The role-binding policy consumes the Metadata-owned typed no-candidate
+disposition established by
+[#5210](https://github.com/richlander/dotnet-inspect/issues/5210); this design
+does not define or reconstruct name ownership. Only the owner-issued
+`NoNameOwner` disposition contributes no candidate and permits otherwise
+eligible in-group role arbitration. Owner-issued `NameOwnedNoMatch` blocks role
+fallback and preserves the adjacent policy's missing result. Until #5210 lands,
+the current undifferentiated `AssemblyBindingSelection.Missing` is treated as
+authoritative `NameOwnedNoMatch`, so the no-name-owner fallthrough path is
+unavailable rather than guessed from package state, candidate contents, or
+provenance.
 
 Preserving an adjacent result does not authorize it as designated or platform
 in this group. A target delegated policy that performs its own
@@ -678,11 +683,13 @@ authority-bearing field to it.
 - `WorkspaceRoleBinding_DelegatedOutcomesPreserveAdjacentPolicy` covers
   selected and ambiguous results containing in-group role registrations,
   outside-group registrations, and in-group registrations without an authority
-  role, plus `NoNameOwner`, `NameOwnedNoMatch`, and undifferentiated `Missing`.
-  Only an all-role-bearing in-group result or explicit `NoNameOwner` permits
-  role arbitration; every other result and every typed delegated failure
-  remains the adjacent policy's exact outcome without group mutation, role
-  translation, or inactive-shadow promotion.
+  role, plus the Metadata-owned `NoNameOwner` and `NameOwnedNoMatch`
+  dispositions from #5210 and today's undifferentiated `Missing`. Only an
+  all-role-bearing in-group result or owner-issued `NoNameOwner` permits role
+  arbitration; every other result and every typed delegated failure remains
+  the adjacent policy's exact outcome without group mutation, role translation,
+  or inactive-shadow promotion. Before #5210 is available, the same gate proves
+  that undifferentiated `Missing` cannot reach role arbitration.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
   registration, role, delegated-policy, or delegate-version change requires a

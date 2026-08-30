@@ -105,9 +105,11 @@ binding. It does not model legacy provenance values, policy-version object
 identity, group disposal, source-lease lifetime, or admission's rejection of
 replayed platform-realization evidence before `PlatformAuthorized` is granted.
 Pre-publication policy preparation and exact group adoption, delegated-policy
-composition, typed name-owner disposition, and context replacement after a
-delegated `AssemblyBindingPolicyVersion` change are implementation-boundary
-gates rather than additional model states. An all-role-bearing in-group
+composition, the Metadata-owned typed name-owner disposition tracked by #5210,
+and context replacement after a delegated `AssemblyBindingPolicyVersion`
+change are implementation-boundary gates rather than additional model states.
+Before #5210 lands, undifferentiated delegated `Missing` is fail-closed as
+name-owned rather than modeled as no-owner evidence. An all-role-bearing in-group
 delegated result is represented by the modeled registrations, while a result
 containing any outside-group or non-authority candidate remains an
 adjacent-policy outcome. TLC does not establish group-construction,
