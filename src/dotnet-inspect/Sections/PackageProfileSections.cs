@@ -8,6 +8,15 @@ using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
+public sealed record PackageProfileSectionCatalog(
+    CompiledInspectionLens<PackageProfileQueryContext, PackageProfileView> Lens)
+{
+    public SectionCatalog<PackageProfileView> Sections => Lens.Sections;
+    public InspectionQueryCatalog<PackageProfileQueryContext> QueryCatalog =>
+        Lens.QueryCatalog;
+    public SectionPipeline<PackageProfileView> Pipeline => Sections.Pipeline;
+}
+
 /// <summary>
 /// Sections and row projection for a package-prefix profile.
 /// </summary>
@@ -19,22 +28,33 @@ public static class PackageProfileSections
     public static InspectionQueryCatalog<PackageProfileQueryContext>
         QueryCatalog { get; } = BuildQueryCatalog();
 
+    /// <summary>The fixed package-profile producer domain.</summary>
+    public static CompiledInspectionDomain<PackageProfileQueryContext> Domain
+        { get; } = new(QueryCatalog);
+
+    /// <summary>The reusable package-profile lens over the fixed producer domain.</summary>
+    public static CompiledInspectionLens<
+        PackageProfileQueryContext,
+        PackageProfileView> Lens { get; } =
+        Domain.CompileLens<PackageProfileView>(ConfigurePipeline);
+
     /// <summary>The reusable fixed-domain catalog for package-profile sections.</summary>
     public static SectionCatalog<PackageProfileView> SectionCatalog { get; } =
-        CreatePipeline().Compile();
+        Lens.Sections;
 
-    /// <summary>The package-profile lens bound to its reusable query domain.</summary>
-    public static InspectionLensCatalog<
-        PackageProfileQueryContext,
-        PackageProfileView> Catalog { get; } =
-        new(SectionCatalog, QueryCatalog);
+    /// <summary>The complete reusable package-profile section and query catalog.</summary>
+    public static PackageProfileSectionCatalog Catalog { get; } =
+        new(Lens);
 
-    public static InspectionLensCatalog<
-        PackageProfileQueryContext,
-        PackageProfileView> CreateCatalog() => Catalog;
+    public static PackageProfileSectionCatalog CreateCatalog() => Catalog;
 
-    public static SectionPipeline<PackageProfileView> CreatePipeline() =>
-        CreatePipeline(QueryCatalog.CostOf);
+    public static SectionPipeline<PackageProfileView> CreatePipeline()
+    {
+        var pipeline = new SectionPipeline<PackageProfileView>()
+            .UseQueryCosts(QueryCatalog.CostOf);
+        ConfigurePipeline(pipeline);
+        return pipeline;
+    }
 
     public static InspectionQueryRegistry<PackageProfileQueryContext>
         CreateQueryRegistry() =>
@@ -52,13 +72,14 @@ public static class PackageProfileSections
                     cancellationToken))
             .Compile();
 
-    private static SectionPipeline<PackageProfileView> CreatePipeline(
-        Func<InspectionQueryDefinition, InspectionCost> queryCost) =>
-        new SectionPipeline<PackageProfileView>()
+    private static void ConfigurePipeline(
+        SectionPipeline<PackageProfileView> pipeline)
+    {
+        pipeline
             .UseCuratedCatalog()
-            .UseQueryCosts(queryCost)
             .WithoutComputedPoles()
             .Add<PackageRows>(PackageProfileQuery.Definition);
+    }
 
     public static DocumentSchema CreateSchema() =>
         SearchViewContext.Default

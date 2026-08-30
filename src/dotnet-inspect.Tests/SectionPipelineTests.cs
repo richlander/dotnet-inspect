@@ -26,6 +26,14 @@ public class SectionPipelineTests
     // Simple test model
     private record TestModel(string? Name, int Count);
 
+    private sealed class DisposableQueryContext(string value) : IDisposable
+    {
+        public string Value { get; } = value;
+        public bool IsDisposed { get; private set; }
+
+        public void Dispose() => IsDisposed = true;
+    }
+
     // Test descriptors
     private sealed class AlwaysSection : ISectionDescriptor<TestModel>
     {
@@ -1844,6 +1852,17 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void DiffSectionCatalog_UsesCompiledDomainLens()
+    {
+        DiffSectionCatalog catalog = DiffSections.CreateCatalog();
+
+        Assert.Same(DiffSections.Domain, catalog.Lens.Domain);
+        Assert.Same(DiffSections.Lens, catalog.Lens);
+        Assert.Same(DiffSections.QueryCatalog, catalog.QueryCatalog);
+        Assert.Same(DiffSections.SectionCatalog, catalog.Sections);
+    }
+
+    [Fact]
     public void DiffComparisonSections_DemandTheirProducerQueriesAndCosts()
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
@@ -1912,8 +1931,9 @@ public class SectionPipelineTests
             });
         List<InspectionQueryDefinition> analysisExecuted = [];
 
-        catalog.QueryCatalog.Run(
-            catalog.Pipeline.GetRequiredQueries(Verbosity.Minimal, analysis),
+        catalog.Lens.Plan(
+            Verbosity.Minimal,
+            analysis).Run(
             analysisContext,
             (query, _) => analysisExecuted.Add(query));
 
@@ -1928,13 +1948,12 @@ public class SectionPipelineTests
             () => throw new InvalidOperationException(
                 "Changes-only demand must not acquire Implementation inputs."));
         List<InspectionQueryDefinition> changesExecuted = [];
-        catalog.QueryCatalog.Run(
-            catalog.Pipeline.GetRequiredQueries(
+        catalog.Lens.Plan(
                 Verbosity.Minimal,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     DiffSections.Changes.Name,
-                }),
+                }).Run(
             changesContext,
             (query, _) => changesExecuted.Add(query));
 
@@ -1950,13 +1969,12 @@ public class SectionPipelineTests
                 return new ImplementationComparisonInput([], []);
             });
         List<InspectionQueryDefinition> implementationExecuted = [];
-        catalog.QueryCatalog.Run(
-            catalog.Pipeline.GetRequiredQueries(
+        catalog.Lens.Plan(
                 Verbosity.Minimal,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     DiffSections.ImplementationDiff.Name,
-                }),
+                }).Run(
             implementationContext,
             (query, _) => implementationExecuted.Add(query));
 
@@ -1981,15 +1999,14 @@ public class SectionPipelineTests
                 return new ImplementationComparisonInput([], []);
             });
         List<InspectionQueryDefinition> composedExecuted = [];
-        catalog.QueryCatalog.Run(
-            catalog.Pipeline.GetRequiredQueries(
+        catalog.Lens.Plan(
                 Verbosity.Minimal,
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
                     DiffSections.Changes.Name,
                     DiffSections.AnalysisDiff.Name,
                     DiffSections.ImplementationDiff.Name,
-                }),
+                }).Run(
             composedContext,
             (query, _) => composedExecuted.Add(query));
 
@@ -2009,7 +2026,7 @@ public class SectionPipelineTests
     {
         DiffSectionCatalog catalog = DiffSections.CreateCatalog();
 
-        InspectionQueryPlan<DiffQueryContext> singleSection =
+        CompiledInspectionPlan<DiffQueryContext> singleSection =
             DiffCommand.GetRequestedQueryPlan(
                 catalog,
                 new DiffOptions
@@ -2021,7 +2038,7 @@ public class SectionPipelineTests
                         DiffSections.Changes.Name,
                     },
                 });
-        InspectionQueryPlan<DiffQueryContext> composedDocument =
+        CompiledInspectionPlan<DiffQueryContext> composedDocument =
             DiffCommand.GetRequestedQueryPlan(
                 catalog,
                 new DiffOptions
@@ -2034,7 +2051,7 @@ public class SectionPipelineTests
                         DiffSections.AnalysisDiff.Name,
                     },
                 });
-        InspectionQueryPlan<DiffQueryContext> implementationSelection =
+        CompiledInspectionPlan<DiffQueryContext> implementationSelection =
             DiffCommand.GetRequestedQueryPlan(
                 catalog,
                 new DiffOptions
@@ -2046,7 +2063,7 @@ public class SectionPipelineTests
                         DiffSections.ImplementationDiff.Name,
                     },
                 });
-        InspectionQueryPlan<DiffQueryContext> implementationOnly =
+        CompiledInspectionPlan<DiffQueryContext> implementationOnly =
             DiffCommand.GetRequestedQueryPlan(
                 catalog,
                 new DiffOptions
@@ -2057,22 +2074,35 @@ public class SectionPipelineTests
                         DiffSections.ImplementationDiff.Name,
                     },
                 });
+        CompiledInspectionPlan<DiffQueryContext> findingTransitionsOnly =
+            DiffCommand.GetRequestedQueryPlan(
+                catalog,
+                new DiffOptions
+                {
+                    IncludeSections = new HashSet<string>(
+                        StringComparer.OrdinalIgnoreCase)
+                    {
+                        DiffSections.FindingTransitions.Name,
+                    },
+                });
 
         Assert.Equal(
             [BodySignalComparisonQuery.Definition],
-            singleSection.Queries);
+            singleSection.QueryPlan.Queries);
         Assert.Equal(
             [BodySignalComparisonQuery.Definition],
-            implementationSelection.Queries);
+            implementationSelection.QueryPlan.Queries);
         Assert.Equal(
             [ImplementationComparisonQuery.Definition],
-            implementationOnly.Queries);
+            implementationOnly.QueryPlan.Queries);
         Assert.Equal(
             [
                 ApiComparisonQuery.Definition,
                 BodySignalComparisonQuery.Definition,
             ],
-            composedDocument.Queries);
+            composedDocument.QueryPlan.Queries);
+        Assert.Empty(findingTransitionsOnly.RequestedQueries);
+        Assert.Empty(findingTransitionsOnly.QueryPlan.Queries);
     }
 
     [Fact]
@@ -3790,6 +3820,293 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void CompiledDomain_MultipleLensesShareOneQueryCatalog()
+    {
+        var first = new InspectionQuery<int>(
+            "first",
+            InspectionCost.NetworkFree);
+        var second = new InspectionQuery<int>(
+            "second",
+            InspectionCost.NetworkFree);
+        InspectionQueryCatalog<object?> queryCatalog =
+            new InspectionQueryRegistry<object?>()
+                .Add(first, _ => 1)
+                .Add(second, _ => 2)
+                .Compile();
+        var domain = new CompiledInspectionDomain<object?>(queryCatalog);
+
+        CompiledInspectionLens<object?, TestModel> firstLens =
+            domain.CompileLens<TestModel>(
+                pipeline => pipeline.Add<QueryBackedSection>(first));
+        CompiledInspectionLens<object?, TestModel> secondLens =
+            domain.CompileLens<TestModel>(
+                pipeline => pipeline.Add<QueryBackedSection>(second));
+
+        Assert.Same(queryCatalog, firstLens.QueryCatalog);
+        Assert.Same(queryCatalog, secondLens.QueryCatalog);
+        Assert.Same(domain, firstLens.Domain);
+        Assert.Same(domain, secondLens.Domain);
+        Assert.Equal(
+            [first],
+            firstLens.Plan(Verbosity.Minimal).RequestedQueries);
+        Assert.Equal(
+            [second],
+            secondLens.Plan(Verbosity.Minimal).RequestedQueries);
+    }
+
+    [Fact]
+    public void CompiledLens_RejectsQueryOutsideProducerDomain()
+    {
+        var registered = new InspectionQuery<int>(
+            "registered",
+            InspectionCost.NetworkFree);
+        var foreign = new InspectionQuery<int>(
+            "foreign",
+            InspectionCost.NetworkFree);
+        var domain = new CompiledInspectionDomain<object?>(
+            new InspectionQueryRegistry<object?>()
+                .Add(registered, _ => 1)
+                .Compile());
+
+        InspectionQueryException exception =
+            Assert.Throws<InspectionQueryException>(
+                () => domain.CompileLens<TestModel>(
+                    pipeline => pipeline.Add<QueryBackedSection>(foreign)));
+
+        Assert.Contains("foreign", exception.Message);
+        Assert.Contains("outside the compiled inspection domain", exception.Message);
+    }
+
+    [Fact]
+    public void CompiledLens_InstallsPrerequisiteAwareCostsBeforeRegistration()
+    {
+        var prerequisite = new InspectionQuery<int>(
+            "prerequisite",
+            InspectionCost.Moderated);
+        var query = new InspectionQuery<int>(
+            "query",
+            InspectionCost.NetworkFree);
+        var domain = new CompiledInspectionDomain<object?>(
+            new InspectionQueryRegistry<object?>()
+                .Add(prerequisite, _ => 1)
+                .Add(
+                    query,
+                    (_, results) => results.Get(prerequisite),
+                    prerequisite)
+                .Compile());
+
+        CompiledInspectionLens<object?, TestModel> lens =
+            domain.CompileLens<TestModel>(
+                pipeline => pipeline.Add<QueryBackedSection>(query));
+
+        Assert.Equal(
+            SectionCost.Moderated,
+            Assert.Single(lens.Sections.Pipeline.SectionCosts).Cost);
+        Assert.Throws<InvalidOperationException>(
+            () => domain.CompileLens<TestModel>(
+                pipeline => pipeline.UseQueryCosts(
+                    _ => InspectionCost.NetworkFree)));
+    }
+
+    [Fact]
+    public void CompiledLens_LowersEmptySingleAndMultiQueryDemand()
+    {
+        var first = new InspectionQuery<int>(
+            "first",
+            InspectionCost.NetworkFree);
+        var second = new InspectionQuery<int>(
+            "second",
+            InspectionCost.NetworkFree);
+        var host = new InspectionQuery<int>(
+            "host",
+            InspectionCost.NetworkFree);
+        var domain = new CompiledInspectionDomain<object?>(
+            new InspectionQueryRegistry<object?>()
+                .Add(first, _ => 1)
+                .Add(second, _ => 2)
+                .Add(host, _ => 3)
+                .Compile());
+        CompiledInspectionLens<object?, TestModel> lens =
+            domain.CompileLens<TestModel>(
+                pipeline => pipeline
+                    .Add<QueryBackedSection>(first)
+                    .Add<DetailedSection>(second));
+        var firstOnly = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            QueryBackedSection.Name,
+        };
+        var both = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            QueryBackedSection.Name,
+            DetailedSection.Name,
+        };
+        HostQueryDemand hostDemand = new("test host", host);
+
+        CompiledInspectionPlan<object?> empty =
+            lens.Plan(Verbosity.Quiet);
+        CompiledInspectionPlan<object?> single =
+            lens.Plan(Verbosity.Minimal, firstOnly);
+        CompiledInspectionPlan<object?> multi =
+            lens.Plan(Verbosity.Minimal, both);
+        CompiledInspectionPlan<object?> attributedHost =
+            lens.Plan(
+                Verbosity.Quiet,
+                hostDemand: [hostDemand]);
+        CompiledInspectionPlan<object?> overlappingHost =
+            lens.Plan(
+                Verbosity.Minimal,
+                firstOnly,
+                hostDemand: [new HostQueryDemand("same query", first)]);
+
+        Assert.Empty(empty.RequestedQueries);
+        Assert.Empty(empty.QueryPlan.Queries);
+        Assert.Same(
+            domain.QueryCatalog.Plan(Array.Empty<InspectionQueryDefinition>()),
+            empty.QueryPlan);
+        Assert.Equal([first], single.RequestedQueries);
+        Assert.Equal([first], single.QueryPlan.Queries);
+        Assert.Same(domain.QueryCatalog.Plan(first), single.QueryPlan);
+        Assert.Equal([first, second], multi.RequestedQueries);
+        Assert.Equal([first, second], multi.QueryPlan.Queries);
+        Assert.Equal([hostDemand], attributedHost.HostDemand);
+        Assert.Equal([host], attributedHost.RequestedQueries);
+        Assert.Equal([host], attributedHost.QueryPlan.Queries);
+        Assert.Equal(
+            [new HostQueryDemand("same query", first)],
+            overlappingHost.HostDemand);
+        Assert.Equal([first], overlappingHost.RequestedQueries);
+        Assert.Equal([first], overlappingHost.QueryPlan.Queries);
+    }
+
+    [Fact]
+    public void CompiledInspectionPlan_DefaultValueFailsExplicitly()
+    {
+        CompiledInspectionPlan<object?> plan = default;
+
+        Assert.True(plan.IsDefault);
+        Assert.Empty(plan.HostDemand);
+        Assert.Empty(plan.RequestedQueries);
+        Assert.Throws<InvalidOperationException>(() => plan.Run(context: null));
+    }
+
+    [Fact]
+    public void CompiledExecution_DoesNotTransformTypedQueryResults()
+    {
+        var query = new InspectionQuery<object>(
+            "context",
+            InspectionCost.NetworkFree);
+        var domain = new CompiledInspectionDomain<object>(
+            new InspectionQueryRegistry<object>()
+                .Add(query, context => context)
+                .Compile());
+        CompiledInspectionPlan<object> plan =
+            domain.CompileLens<TestModel>(
+                    pipeline => pipeline.Add<QueryBackedSection>(query))
+                .Plan(Verbosity.Minimal);
+        var expected = new object();
+
+        InspectionQueryResults results = plan.Run(expected);
+
+        Assert.Same(expected, results.Get(query));
+    }
+
+    [Fact]
+    public async Task CompiledExecution_ForwardsAsyncCancellation()
+    {
+        var query = new InspectionQuery<int>(
+            "async",
+            InspectionCost.NetworkFree);
+        var entered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken observed = default;
+        var domain = new CompiledInspectionDomain<object?>(
+            new InspectionQueryRegistry<object?>()
+                .AddAsync(
+                    query,
+                    async (_, cancellationToken) =>
+                    {
+                        observed = cancellationToken;
+                        entered.SetResult(true);
+                        await Task.Delay(
+                            Timeout.InfiniteTimeSpan,
+                            cancellationToken);
+                        return 1;
+                    })
+                .Compile());
+        CompiledInspectionPlan<object?> plan =
+            domain.CompileLens<TestModel>(
+                    pipeline => pipeline.Add<QueryBackedSection>(query))
+                .Plan(Verbosity.Minimal);
+        using var cancellation = new CancellationTokenSource();
+
+        Task<InspectionQueryResults> execution = plan.RunAsync(
+            context: null,
+            cancellationToken: cancellation.Token);
+        await entered.Task.WaitAsync(
+            TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => execution);
+        Assert.Equal(cancellation.Token, observed);
+    }
+
+    [Fact]
+    public void CompiledExecution_DoesNotRetainOrDisposeSuppliedContext()
+    {
+        var query = new InspectionQuery<string>(
+            "value",
+            InspectionCost.NetworkFree);
+        var domain = new CompiledInspectionDomain<DisposableQueryContext>(
+            new InspectionQueryRegistry<DisposableQueryContext>()
+                .Add(query, context => context.Value)
+                .Compile());
+        CompiledInspectionPlan<DisposableQueryContext> plan =
+            domain.CompileLens<TestModel>(
+                    pipeline => pipeline.Add<QueryBackedSection>(query))
+                .Plan(Verbosity.Minimal);
+        var first = new DisposableQueryContext("first");
+        var second = new DisposableQueryContext("second");
+
+        InspectionQueryResults firstResults = plan.Run(first);
+        InspectionQueryResults secondResults = plan.Run(second);
+
+        Assert.False(first.IsDisposed);
+        Assert.False(second.IsDisposed);
+        Assert.Equal("first", firstResults.Get(query));
+        Assert.Equal("second", secondResults.Get(query));
+
+        WeakReference releasedContext = RunAndReleaseContext(plan);
+        GC.Collect(
+            GC.MaxGeneration,
+            GCCollectionMode.Forced,
+            blocking: true,
+            compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(
+            GC.MaxGeneration,
+            GCCollectionMode.Forced,
+            blocking: true,
+            compacting: true);
+
+        Assert.False(releasedContext.IsAlive);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference RunAndReleaseContext(
+        CompiledInspectionPlan<DisposableQueryContext> plan)
+    {
+        var context = new DisposableQueryContext("released");
+        _ = plan.Run(context);
+        if (context.IsDisposed)
+            throw new InvalidOperationException("Composition disposed the supplied context.");
+        return new WeakReference(context);
+    }
+
+    [Fact]
     public void LibraryQueryCatalog_RepeatedAcquisitionAndPlanningAllocateNothing()
     {
         InspectionQueryCatalog<InspectionQueryContext> queryCatalog =
@@ -3846,113 +4163,6 @@ public class SectionPipelineTests
                 _ => InspectionCost.NetworkFree));
         Assert.Throws<InvalidOperationException>(
             () => pipeline.WithoutComputedPoles());
-    }
-
-    [Fact]
-    public void InspectionLensCatalog_RejectsAnUnregisteredSectionQuery()
-    {
-        var sectionQuery = new InspectionQuery<int>(
-            "section query",
-            InspectionCost.NetworkFree);
-        SectionCatalog<TestModel> sections =
-            new SectionPipeline<TestModel>()
-                .Add<QueryBackedSection>(sectionQuery)
-                .Compile();
-        InspectionQueryCatalog<object?> queries =
-            new InspectionQueryRegistry<object?>().Compile();
-
-        var exception = Assert.Throws<InspectionQueryException>(
-            () => new InspectionLensCatalog<object?, TestModel>(
-                sections,
-                queries));
-
-        Assert.Contains(sectionQuery.Name, exception.Message);
-    }
-
-    [Fact]
-    public void InspectionLensCatalog_PartitionsOneLensAcrossQueryDomains()
-    {
-        var firstQuery = new InspectionQuery<int>(
-            "first query",
-            InspectionCost.NetworkFree);
-        var secondQuery = new InspectionQuery<int>(
-            "second query",
-            InspectionCost.NetworkFree);
-        SectionCatalog<TestModel> sections =
-            new SectionPipeline<TestModel>()
-                .Add<QueryBackedSection>([firstQuery, secondQuery])
-                .Compile();
-        InspectionQueryCatalog<object?> firstDomain =
-            new InspectionQueryRegistry<object?>()
-                .Add(firstQuery, static _ => 1)
-                .Compile();
-        InspectionQueryCatalog<string> secondDomain =
-            new InspectionQueryRegistry<string>()
-                .Add(secondQuery, static _ => 2)
-                .Compile();
-        InspectionLensCatalog<object?, TestModel> firstPartition =
-            InspectionLensCatalog<object?, TestModel>.CreatePartition(
-                sections,
-                firstDomain);
-        InspectionLensCatalog<string, TestModel> secondPartition =
-            InspectionLensCatalog<string, TestModel>.CreatePartition(
-                sections,
-                secondDomain);
-        InspectionLensCatalog.ValidatePartitions(
-            sections,
-            firstDomain,
-            secondDomain);
-
-        SectionQueryPlan sectionPlan = sections.PlanQueries(
-            Verbosity.Normal,
-            [QueryBackedSection.Name]);
-        InspectionQueryPlan<object?> firstPlan =
-            firstPartition.Plan(sectionPlan);
-        InspectionQueryPlan<string> secondPlan =
-            secondPartition.Plan(sectionPlan);
-
-        Assert.Equal([firstQuery], firstPlan.Queries);
-        Assert.Equal([secondQuery], secondPlan.Queries);
-        Assert.Equal(1, firstPlan.Run(null).Get(firstQuery));
-        Assert.Equal(2, secondPlan.Run("").Get(secondQuery));
-    }
-
-    [Fact]
-    public void InspectionLensCatalog_RejectsMissingOrOverlappingPartitions()
-    {
-        var firstQuery = new InspectionQuery<int>(
-            "first query",
-            InspectionCost.NetworkFree);
-        var secondQuery = new InspectionQuery<int>(
-            "second query",
-            InspectionCost.NetworkFree);
-        SectionCatalog<TestModel> sections =
-            new SectionPipeline<TestModel>()
-                .Add<QueryBackedSection>([firstQuery, secondQuery])
-                .Compile();
-        InspectionQueryCatalog<object?> firstDomain =
-            new InspectionQueryRegistry<object?>()
-                .Add(firstQuery, static _ => 1)
-                .Compile();
-        InspectionQueryCatalog<string> overlappingDomain =
-            new InspectionQueryRegistry<string>()
-                .Add(firstQuery, static _ => 1)
-                .Add(secondQuery, static _ => 2)
-                .Compile();
-
-        InspectionQueryException missing = Assert.Throws<InspectionQueryException>(
-            () => InspectionLensCatalog.ValidatePartitions(
-                sections,
-                firstDomain));
-        InspectionQueryException overlapping =
-            Assert.Throws<InspectionQueryException>(
-                () => InspectionLensCatalog.ValidatePartitions(
-                    sections,
-                    firstDomain,
-                    overlappingDomain));
-
-        Assert.Contains(secondQuery.Name, missing.Message);
-        Assert.Contains(firstQuery.Name, overlapping.Message);
     }
 
     [Fact]
@@ -4129,6 +4339,8 @@ public class SectionPipelineTests
     public void DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing()
     {
         DiffSectionCatalog diffCatalog = DiffSections.CreateCatalog();
+        CompiledInspectionLens<DiffQueryContext, DiffDiscoveryModel> lens =
+            diffCatalog.Lens;
         SectionCatalog<DiffDiscoveryModel> sectionCatalog =
             diffCatalog.Sections;
         InspectionQueryCatalog<DiffQueryContext> queryCatalog =
@@ -4153,6 +4365,14 @@ public class SectionPipelineTests
             sectionCatalog.PlanQueries(
                 Verbosity.Minimal,
                 analysisSelection);
+        CompiledInspectionPlan<DiffQueryContext> changesCompiledPlan =
+            lens.Plan(
+                Verbosity.Minimal,
+                changesSelection);
+        CompiledInspectionPlan<DiffQueryContext> analysisCompiledPlan =
+            lens.Plan(
+                Verbosity.Minimal,
+                analysisSelection);
         InspectionQueryPlan<DiffQueryContext> changesQueryPlan =
             queryCatalog.Plan(changesSectionPlan.Queries[0]);
         InspectionQueryPlan<DiffQueryContext> analysisQueryPlan =
@@ -4164,6 +4384,9 @@ public class SectionPipelineTests
             if (!ReferenceEquals(
                     diffCatalog,
                     DiffSections.CreateCatalog())
+                || !ReferenceEquals(
+                    lens,
+                    DiffSections.Lens)
                 || !ReferenceEquals(
                     sectionCatalog,
                     DiffSections.SectionCatalog)
@@ -4184,6 +4407,16 @@ public class SectionPipelineTests
                         Verbosity.Minimal,
                         analysisSelection))
                 || !ReferenceEquals(
+                    changesCompiledPlan.QueryPlan,
+                    lens.Plan(
+                        Verbosity.Minimal,
+                        changesSelection).QueryPlan)
+                || !ReferenceEquals(
+                    analysisCompiledPlan.QueryPlan,
+                    lens.Plan(
+                        Verbosity.Minimal,
+                        analysisSelection).QueryPlan)
+                || !ReferenceEquals(
                     changesQueryPlan,
                     queryCatalog.Plan(changesSectionPlan.Queries[0]))
                 || !ReferenceEquals(
@@ -4202,9 +4435,7 @@ public class SectionPipelineTests
     [Fact]
     public void PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing()
     {
-        InspectionLensCatalog<
-            PackageProfileQueryContext,
-            PackageProfileView> profileCatalog =
+        PackageProfileSectionCatalog profileCatalog =
             PackageProfileSections.CreateCatalog();
         SectionCatalog<PackageProfileView> sectionCatalog =
             profileCatalog.Sections;
@@ -4222,7 +4453,9 @@ public class SectionPipelineTests
                 Verbosity.Normal,
                 packageSelection);
         InspectionQueryPlan<PackageProfileQueryContext> packageQueryPlan =
-            profileCatalog.Plan(packageSectionPlan);
+            profileCatalog.Lens
+                .Plan(Verbosity.Normal, packageSelection)
+                .QueryPlan;
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int iteration = 0; iteration < 1_000; iteration++)
@@ -4246,7 +4479,9 @@ public class SectionPipelineTests
                         packageSelection))
                 || !ReferenceEquals(
                     packageQueryPlan,
-                    profileCatalog.Plan(packageSectionPlan)))
+                    profileCatalog.Lens
+                        .Plan(Verbosity.Normal, packageSelection)
+                        .QueryPlan))
             {
                 throw new InvalidOperationException(
                     "The package-profile catalog or a precomputed plan changed identity.");
@@ -4315,9 +4550,9 @@ public class SectionPipelineTests
         {
             QueryBackedSection.Name,
         };
-        List<(string Reason, InspectionQueryDefinition Query)> commandDemand =
+        List<HostQueryDemand> commandDemand =
         [
-            ("test command", commandQuery),
+            new("test command", commandQuery),
         ];
         var expectedTrace = new InspectionTrace();
         var actualTrace = new InspectionTrace();
@@ -5147,10 +5382,10 @@ public class SectionPipelineTests
         {
             Target = new InertString(TextPolicy.Field, "target\nError: FORGED"),
         };
-        (string Reason, InspectionQueryDefinition Query)[] commandDemand =
+        HostQueryDemand[] commandDemand =
         [
-            ("discovery catalog", MetadataImageQuery.Definition),
-            ("source availability", SourceAvailabilityQuery.Definition),
+            new("discovery catalog", MetadataImageQuery.Definition),
+            new("source availability", SourceAvailabilityQuery.Definition),
         ];
 
         HashSet<InspectionQueryDefinition> requested = pipeline.GetRequiredQueries(

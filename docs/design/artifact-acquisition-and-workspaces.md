@@ -275,12 +275,19 @@ reauthorizes that exact admission generation, joins the operation, observes
 its typed outcome, and consumes no second reservation. It receives no catalog
 or participant detail until its own query lease later authorizes selection.
 
-Caller cancellation detaches that wait. When no authorized waiter remains, the
-owner requests cancellation and enters a draining state. A new demand does not
-join a draining operation; after cleanup it may start a fresh admission if the
-workspace remains open. An incompatible policy generation likewise cannot join
-or start duplicate work for the same context while the prior admission is
-active; it waits for the terminal transition and replans.
+Caller cancellation is first recorded by the owner, then resolves that demand
+as cancellation before any later admission action can use it. A demand still
+pending behind an incompatible generation is removed and cannot later replan,
+reserve, or acquire. An attached demand detaches even if workspace disposal has
+already moved its admission from in-flight to draining. Adapter completion
+cannot resolve a demand whose cancellation request is recorded.
+
+When no authorized waiter remains, the owner requests adapter cancellation and
+enters a draining state. A new demand does not join a draining operation; after
+cleanup it may start a fresh admission if the workspace remains open. An
+incompatible policy generation likewise cannot join or start duplicate work for
+the same context while the prior admission is active; absent cancellation, it
+waits for the terminal transition and replans.
 
 Workspace disposal first closes admission, rejects new demands, requests
 cancellation of in-flight operations, and prevents a late result from
@@ -302,18 +309,24 @@ with, and never replace, the active operation failure.
 [`docs/models/artifact-session-admission/ArtifactSessionAdmission.tla`](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
 model-checks the admission lifecycle described above: single-flight admission
 across concurrent demands, an incompatible-generation demand's inability to
-join or start duplicate work while a prior admission is active, voluntary
-cancellation draining, disposal-forced draining, the rule that a late adapter
-result must never publish a session or group, and that a published group's
-artifact leases release only as part of the disposal cleanup path once the
-group is quiescent. It abstracts away budget arithmetic, adapter identity,
-content digests, and query-lease authorization, and it bounds the state space
-to one outstanding published group's lease lifecycle at a time (a fresh
-admission cannot publish while the previous group awaits lease release); this
-is a scope-bounding simplification of the model, not a claim about real
-concurrent groups. A demand's requested generation is also fixed once it
-arrives; the model does not represent a caller re-deriving a different
-generation when it replans after an incompatible admission terminates.
+join or start duplicate work while a prior admission is active, cancellation
+before attachment, attached cancellation before or after disposal enters
+draining, voluntary cancellation draining, disposal-forced draining, the rule
+that a late adapter result must never publish a session or group, and that a
+published group's artifact leases release only as part of the disposal cleanup
+path once the group is quiescent. Its
+[model guide](../models/artifact-session-admission/README.md) records the
+checked properties, focused negative controls, reachability probes, commands,
+and results.
+
+The model abstracts away budget arithmetic, adapter identity, content digests,
+and query-lease authorization, and it bounds the state space to one outstanding
+published group's lease lifecycle at a time (a fresh admission cannot publish
+while the previous group awaits lease release); this is a scope-bounding
+simplification of the model, not a claim about real concurrent groups. A
+demand's requested generation is also fixed once it arrives; the model does not
+represent a caller re-deriving a different generation when it replans after an
+incompatible admission terminates.
 
 The model checks the design intent stated in the prose above, not the current
 `ArtifactSetSession` implementation. `ArtifactSetSession`'s own doc comment
@@ -326,15 +339,33 @@ tracked as future implementation work, not a defect this model found.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
-checked the model with 3 demands and 2 admission generations: 16,790 states
-generated, 8,292 distinct states, no invariant violations, and no
-counterexamples for the checked liveness properties. The invariants include
-the headline `DisposalPreventsPublication` (`disposed => admission #
-"InFlight"`, since only `"InFlight"` can transition to a published outcome)
-and independent guard-witness invariants that re-derive, at the point of
-action, the exact condition each of `DisposalPreventsPublication`, the
-lease-release ordering, and outcome authorization (only a demand attached to
-the admission immediately beforehand may receive its outcome) depends on.
+checked the target model with 3 demands and 2 admission generations: 65,395
+states generated, 24,305 distinct states, maximum depth 16, no invariant
+violations, and no counterexamples for the checked liveness properties. The
+invariants include the headline `DisposalPreventsPublication` (`disposed =>
+admission # "InFlight"`, since only `"InFlight"` can transition to a published
+outcome), cancellation authorization and detachment, exact-race request and
+completion witnesses, and independent guard-witness invariants that re-derive,
+at the point of action, the exact condition each of disposal publication
+safety, lease-release ordering, outcome authorization, pending cancellation,
+and attached cancellation depends on.
+
+Disabling pending cancellation explored 49,489 generated and 21,311 distinct
+states before violating
+`IncompatiblePendingCancellationEventuallyCompletes`; disabling draining
+cancellation explored 51,071 generated and 20,378 distinct states before
+violating `PostDisposalDrainingCancellationEventuallyCompletes`. Removing the
+request guard from pending or attached cancellation violated its independent
+guard witness after 15 or 90 generated states, respectively.
+
+Dedicated reachability configurations now require the exact races. The pending
+trace starts one generation, leaves another demand pending on the incompatible
+generation, records its request, and cancels it. The draining trace starts
+admission, begins disposal, records the attached waiter's request only after
+admission is draining, and cancels it. They violate only their intentional
+`PendingCancellationNotReached` and `DrainingCancellationNotReached`
+invariants. These results establish the bounded model properties, not
+implementation conformance.
 
 The companion model
 [`docs/design/models/artifact-generation-access/ArtifactGenerationAccess.tla`](models/artifact-generation-access/ArtifactGenerationAccess.tla)
@@ -447,6 +478,419 @@ represent incompatible framework or runtime contexts.
 
 The artifact set therefore owns content lifetime but not assembly grouping.
 
+### Explicit local/designated/platform assembly context
+
+One focused context shape composes:
+
+- one exact local assembly as the inspection root;
+- zero or more exact local files designated by the caller; and
+- one exact installed-platform realization.
+
+This section owns acquisition, role assignment, lifetime, and atomic workspace
+publication for that shape. It consumes shared local-path admission from #5096
+and admission-scoped assembly projection from #5143,
+and the platform closure and overlay policy from
+[platform composition and overlays](platform-composition-and-overlays.md);
+it does not redefine local path normalization or entry classification,
+assembly identity/MVID construction, assembly-identity matching,
+designated-over-platform precedence, or request-level compatibility.
+
+#### Typed request and outcome
+
+The host-neutral request consists of one `ExactLocalFileCoordinate` root, a
+sequence of `ExactLocalFileCoordinate` designations, and one
+`InstalledPlatformCoordinate`. The coordinates are acquisition requests, not
+paths that later consumers may reinterpret as provenance or authority.
+Directory, package, project, dependency-manifest, sibling-discovery, Browser
+upload, and remote-platform coordinates are not accepted by this request
+shape.
+
+The workspace derives an `AuthorizedExplicitAssemblyContextDemand` from one
+current query-plan demand, the exact request, the complete source-policy
+generation, and finite local-file, platform-artifact, acquisition-byte,
+retained-byte, and group-snapshot limits. It snapshots those inputs and owns
+the resulting admission authorization. The realizer accepts only that
+owner-issued demand; an inert workspace definition, absent query demand,
+stale/narrowed plan, or direct request cannot reserve budget, call an adapter,
+or mint a role.
+
+Before reservation, the workspace frames one syntactic context-generation key
+from every request field, the policy generation, all admission-affecting
+limits, and the selected adapter capability identities, including the path
+spellings exactly as supplied. Length framing prevents coordinate-boundary
+ambiguity without interpreting a path. Only demands with equal complete keys
+are compatible and single-flight under the existing admission lifecycle.
+Different limits wait for the active generation to terminate and then replan;
+they cannot join it. Different spellings are different generations even when
+issue #5096 later gives them the same canonical local-coordinate identity;
+cross-spelling single-flight convergence is not a claim of this context.
+
+The installed platform adapter registration must declare finite maximum member
+and byte bounds within the authorized demand. Raw local-coordinate cardinality
+and the declared adapter bounds compute a conservative combined reservation
+with checked arithmetic; the workspace reserves it from the same aggregate
+account as every other in-flight or retained context before local-path
+admission or either adapter begins. Duplicate coordinates may leave part of
+that reservation unused; publication or cleanup releases the remainder under
+the ordinary session rules.
+
+`ExactLocalFileCoordinate` frames one path spelling with the expected
+regular-file kind. Shared local-path admission from #5096 owns normalization,
+entry classification, link policy, supported-host behavior, and the canonical
+coordinate identity this context consumes. A coordinate admitted as any other
+entry kind is rejected visibly and is never expanded into directory members.
+
+The realization outcome is one of:
+
+- `Realized`, a non-owning opaque context handle identifying one
+  workspace-owned sealed `AssemblyContextGroup`, its exact root
+  `AssemblyContextParticipant`, its `ArtifactGenerationIdentity`, and the
+  artifact-owner and Metadata-owner registrations that relate every
+  participant to its retained bytes and acquisition evidence;
+- `NotRealized`, carrying typed invalid-input, unavailable, rejected, failed,
+  unsupported-capability, budget, projection, or role-conflict evidence.
+
+Caller cancellation first records an owner-visible request, then throws
+`OperationCanceledException` after that demand is detached; it does not occupy
+`NotRealized` or become an acquisition failure. A demand cancelled while
+pending behind an incompatible generation is removed from pending state and
+cannot later replan, reserve, or acquire. Other compatible waiters keep the
+shared admission alive. When the final waiter detaches, the workspace requests
+adapter cancellation and enters draining, but the detached caller does not wait
+for that owner-managed cleanup to finish. If workspace disposal has already
+moved an attached admission to draining, the caller still detaches and returns
+cancellation without waiting for adapter cleanup. Reservation release still
+waits for cleanup, and a new demand cannot join the draining operation.
+
+The root participant is reference-identical to exactly one member of the
+group. A successful outcome never asks a consumer to rediscover the root by
+path or assembly name. `Realized` does not expose that group, root, catalog, or
+participant correspondence directly. `Realized.OpenContext` accepts a current
+authorized query plan. The workspace validates that plan against the original
+demand's complete request, source-policy generation, and authorization scope,
+issues the corresponding query authorization and lease internally, and returns
+a disposable lease-bound context view that identifies the group and exact root
+and mediates their query operations. The caller never mints or supplies a raw
+`ArtifactQueryLease`. A changed, revoked, incompatible, or ended plan rejects
+view acquisition.
+
+Every operation on an existing view revalidates its current authorization
+before participant lookup, callback invocation, or returning a cached image or
+cached failure. Replaced or revoked authorization and view disposal therefore
+reject cached and cold paths alike without exposing participant or image facts.
+
+Before publication, the artifact owner issues one admission-scoped guarded
+content projection for each required artifact. The realizer passes that
+projection to #5143 and receives Metadata-owned assembly registration,
+identity, and bound-MVID facts with no retained opener or lease. Each fact
+preserves the exact `ArtifactAcquisitionRegistration`; the admission
+capability expires on group publication or abort and is never retained by a
+participant.
+
+After publication, a query-authorized `ArtifactContentReference` is an internal
+handoff from the artifact owner to group-owned image acquisition. Neither
+`Realized` nor its context view returns that reference, a
+`ResolvedAssemblyReference`, a readable path, or a `Stream`.
+
+The lease-bound context view mediates bounded image operations using
+context-specific `ExplicitAssemblyImageView` and
+`ExplicitAssemblyImageAccessResult<TResult>` types. The view is stack-only and
+contains only an opaque `AssemblyContextParticipantIdentity` and immutable
+content span. A rejected result contains that same opaque identity and a typed
+open failure. Owner-supplied members in the complete public property and result
+closure contain only that identity, span, and failure; the caller's generic
+result remains caller-owned. No public type exposes an assembly descriptor,
+artifact authorization or lease, opener delegate, or other content capability.
+
+The group opens retained content under the view's query lease, validates and
+snapshots the image, closes the internal stream, and only then invokes the
+consumer callback. It may adapt its existing `AssemblyImageView` internally,
+but that descriptor-bearing view and the existing descriptor-bearing rejection
+result do not cross this context boundary. A foreign participant is rejected
+before content access.
+
+The workspace remains the sole owner of the group and artifact session.
+Disposing a context view revokes that query access but does not release the
+session, and dropping a `Realized` handle has no lifetime effect. This focused
+shape adds no independently disposable context: the session, group, count, and
+retained-byte charges remain until workspace disposal. Workspace disposal
+closes admission, ends every generation, and follows the content-quiescence
+contract in the
+[generation-access interaction model](models/artifact-generation-access/README.md).
+Both adapters must honor owner cancellation during acquisition and
+materialization and provide bounded snapshot openers that cannot wait on their
+original source. This focused view creates no consumer-owned stream, so it does
+not adopt or resolve the general artifact API's abandoned-stream termination
+policy.
+
+Downstream consumers receive participant identity and correspondence under
+their current query lease, then use the group's bounded immutable-image
+callback. They do not reopen the local source or installed platform path.
+
+#### Admission and roles
+
+The workspace registers the authorized demand under its syntactic generation
+key and reserves one aggregate admission. The realizer then obtains #5096
+admission for each local coordinate, coalesces equal admitted identities, and
+invokes the exact-file local adapter and installed-platform adapter within one
+`ArtifactSetSession`. Every supplied local coordinate and every selected
+platform member is required. It projects managed assembly participants only
+after all acquisitions succeed, using #5143's admission-scoped assembly facts,
+then atomically publishes the sealed session and group. An invalid managed
+image, missing required platform member, failed acquisition, projection
+failure, role conflict, or budget exhaustion publishes neither a shortened
+group nor a partial session. Cancellation remains cancellation and follows the
+session cleanup contract.
+
+Workspace admission, rather than an adapter or downstream assembly consumer,
+assigns these roles:
+
+| Input | Context role | Workspace role |
+| --- | --- | --- |
+| Exact root | inspection root | `CallerDesignated` |
+| Exact designated file | participant | `CallerDesignated` |
+| Root also named as designated | inspection root | `CallerDesignated` |
+| Installed-platform member | participant | `PlatformAuthorized` |
+
+The platform role is granted only after validating the platform owner's
+generation-scoped realization evidence against the authorized demand, selected
+hive coordinate, contributing artifact registrations, and current workspace
+generation. One closure proof may authorize all of its member registrations
+inside that admission; foreign, stale, ended-generation, mismatched, or
+replayed evidence cannot authorize another admission and produces typed
+failure without publication. Local provenance does not grant designation, and
+platform provenance does not grant authority by itself. The exact-local
+request grants designation to each file the caller names, including the root;
+it grants nothing to a sibling. Adapters return acquisition facts; admission
+grants policy roles.
+
+Before group construction, the realizer derives one immutable projection from
+each participant's assembly registration to its workspace roles and preserves
+that projection in the context generation. This owner does not translate a
+role into source provenance or define how a binding policy selects among
+registrations. Platform-policy consumption of this output belongs to
+[platform composition and overlays](platform-composition-and-overlays.md) and
+is tracked by #5133. Until that contract lands, correspondence from these roles
+to the current provenance-based binding policy is unverified.
+
+The installed-platform coordinate selects one exact coherent closure through
+the installed-platform adapter. For this context it contains one owner-issued
+installed-hive identity, one platform family, one exact version, and the
+implementation-layout kind. The adapter returns the immutable
+`InstalledPlatformRealization` owned by
+[platform composition and overlays](platform-composition-and-overlays.md) and
+tracked by #5139.
+
+This realizer validates that proof against the authorized demand, selected
+hive, family, version, layout kind, member registrations, and current
+generation. It does not construct or reinterpret closure membership. Missing
+or mismatched proof, an unavailable requested closure, or a realization that
+violates the owner-issued uniqueness contract fails visibly without
+publication. Exact closure membership and fallback exclusions remain
+unverified until #5139 lands.
+
+#### Duplicate and collision policy
+
+Local-coordinate equality is the canonical identity issued by shared
+local-path admission #5096. This context neither compares raw path strings nor
+adds a second physical-file, casing, link, or host rule. Distinct admitted
+coordinate identities remain distinct even when later assembly projection
+finds equal metadata identity.
+
+Duplicates and cross-role collisions then have these outcomes:
+
+- repeated spellings of one designated coordinate acquire and register that
+  local artifact once when #5096 assigns them the same canonical coordinate
+  identity, preserving first-occurrence order;
+- when the root is also designated, one local acquisition and participant
+  carries both the root context role and `CallerDesignated`;
+- a local root or designation whose admitted source path also appears in the
+  platform realization remains distinct from the platform acquisition. Each
+  keeps its own artifact and assembly registration, provenance, and role.
+  Shared retained storage may deduplicate equal immutable bytes, but it must
+  not merge those identities or grants;
+- a platform realization that repeats one platform asset coordinate, reuses a
+  registration, or projects two distinct members with one canonical assembly
+  identity is rejected as a typed incoherent-realization conflict under
+  #5139. An admission plan that attaches a local-only role to a platform
+  realization is rejected as a typed role conflict;
+- different files that decode to the same assembly identity remain distinct
+  participants. The binding-policy owner, not path normalization, decides
+  whether that identity set is selected, shadowed, ambiguous, or invalid.
+
+Consequently, a designated/platform same-path case can preserve both the
+designated candidate and the platform-backed candidate. The workspace does not
+erase the evidence that the binding policy needs, and it does not promote an
+ordinary sibling merely because that sibling is nearby.
+
+The public request cannot directly assign roles. The role-conflict arm protects
+the workspace boundary against an internally inconsistent adapter realization
+or admission plan; its gate uses a controlled adapter seam rather than claiming
+that ordinary request normalization can produce that state.
+
+#### Host capability and interaction scope
+
+The request and outcome surfaces contain no platform-specific implementation
+types and remain portable. A host without exact-local-file or
+installed-platform adapters returns a typed unsupported-capability result
+before admission. Browser/Wasm does not reinterpret an upload as a local file
+or silently switch to remote platform acquisition; those are separate context
+shapes.
+
+Realization is one-shot and immutable. All adapters finish before publication,
+and adding, removing, or replacing any input requires a new session and
+generation in the owning workspace. Concurrent realization and retained
+contexts draw from that workspace's one aggregate budget. Artifact-count and
+retained-byte charges remain until workspace disposal releases the session.
+This design introduces no incremental admission, independently disposable
+context, cross-spelling convergence, mutable candidate set, or publication
+schedule beyond the existing workspace admission lifecycle. The existing
+[artifact-session admission model](../models/artifact-session-admission/ArtifactSessionAdmission.tla)
+covers one demand generation's single-flight lifecycle, pending cancellation,
+attached cancellation before and after disposal enters draining, and aggregate
+publication ordering, while the
+[generation-access model](models/artifact-generation-access/README.md) covers
+one generation's content-access and workspace-disposal handoff.
+`ExplicitAssemblyContext_FailurePublishesNoPartialGroup`, not the admission
+model, owns evidence that several source acquisitions publish all-or-nothing.
+Designated/platform selection remains covered by the
+[platform-overlay model](models/platform-overlay-resolution/README.md). A new
+TLA+ model is therefore not warranted for this composition; the lifecycle
+models' existing multi-generation non-claims do not become claims here.
+Introducing incremental inputs, cross-spelling convergence, per-context
+release, concurrent realization outside the existing admission lifecycle, or
+mutable role grants requires stopping and modeling those interactions first.
+
+#### Mock realization
+
+The documentation-only design can be read against this typed mock:
+
+```text
+request
+  root        = /work/App.dll
+  designated  = [/work/System.Collections.dll,
+                 /work/./System.Collections.dll]
+  platform    = installed hive h1
+                / Microsoft.NETCore.App @ 10.0.4
+                / implementation
+
+realized generation g1
+  root        = participant p1 / artifact a1 / local
+                / root + caller-designated
+  participant = p2 / artifact a2 / local / caller-designated
+  participant = p3 / artifact a3 / platform / System.Collections
+  participant = p4 / artifact a4 / platform / System.Private.CoreLib
+```
+
+The two designation spellings produce only `a2`. The local and platform
+`System.Collections` participants remain distinct even if their source paths
+or bytes coincide. The mock demonstrates realization, not which binding
+candidate later wins. As a neighboring negative case,
+`designated = [/work/]` produces typed rejected local-path-admission evidence
+for an unexpected entry kind and no published session; it does not designate
+`App.dll`, `System.Collections.dll`, or any sibling.
+
+#### Required implementation gates
+
+These properties remain unverified until the named Release gates land:
+
+- `ExplicitAssemblyContext_ExactInputsFormOneSealedGroup` proves a compiled
+  root fixture, one exact designation, and an installed platform closure enter
+  one group with distinct owner-issued roles, `CallerDesignated` on every exact
+  local input, and one unambiguous root;
+- `ExplicitAssemblyContext_QueryDemandAuthorizesAdmission` proves the exact
+  query demand issues the admission authority covering both adapters and that
+  absent, stale, narrowed, definition-only, or direct-request access cannot
+  reserve, acquire, or publish;
+- `ExplicitAssemblyContext_QueryPlanIssuesLeaseBoundView` proves an authorized
+  plan obtains the group/root view and absent, incompatible, revoked, or ended
+  authorization cannot obtain one;
+- `ExplicitAssemblyContext_ContextViewRevalidatesEveryOperation` warms image
+  and failure caches, then replaces/revokes authorization or disposes the view
+  and proves later access rejects before participant lookup, cached-result
+  return, or callback invocation;
+- `ExplicitAssemblyContext_CancellationDetachesOneWaiter` proves a cancelling
+  joined waiter throws after detachment without stopping or waiting for the
+  shared admission, while final-waiter cancellation enters draining and blocks
+  a new join until owner cleanup releases the reservation;
+- `ExplicitAssemblyContext_PendingCancellationCannotReplan` holds one demand
+  pending behind an incompatible active generation, records cancellation, lets
+  the active generation terminate, and proves the cancelled demand cannot
+  later replan, reserve, invoke either adapter, or publish;
+- `ExplicitAssemblyContext_DrainingCancellationDetachesWaiter` begins
+  workspace disposal with an attached waiter, records that waiter's
+  cancellation after admission enters draining, and proves the caller detaches
+  and throws without waiting for adapter cleanup or receiving a late adapter
+  outcome;
+- `ExplicitAssemblyContext_SyntacticGenerationKeyIsSingleFlight` proves
+  identical framed requests join one admission while different path spellings
+  remain different generations even when #5096 later assigns equal canonical
+  local-coordinate identity within each realization;
+- `ExplicitAssemblyContext_GenerationCompatibilityIncludesEveryLimit` proves
+  concurrent demands with different limits or adapter capability identities
+  cannot join and replan after the active generation terminates;
+- `ExplicitAssemblyContext_RoleProjectionPreservesEveryGrant` proves the
+  context generation preserves each participant registration and exact
+  workspace-role set without provenance translation;
+- `ExplicitAssemblyContext_AdmissionProjectionRetainsNoContentAuthority`
+  proves #5143 projection runs before publication under the exact admission
+  authority and returns matching artifact/assembly registration, identity, and
+  MVID facts without retaining a path, opener, content reference, or lease;
+- `ExplicitAssemblyContext_PlatformRoleRequiresCurrentOwnerEvidence` proves
+  only matching current-generation platform realization evidence can mint
+  `PlatformAuthorized`; foreign, stale, ended, mismatched, or replayed evidence
+  fails without publication;
+- `ExplicitAssemblyContext_RequiresOwnerIssuedPlatformClosure` proves only the
+  exact current #5139 realization for the requested hive, family, version, and
+  implementation layout can contribute members; mismatched or absent proof
+  fails without publication;
+- `ExplicitAssemblyContext_UsesAdmittedLocalCoordinateIdentity` proves
+  #5096-issued canonical identities drive duplicate handling without a second
+  path classifier on Windows, Linux, and macOS;
+- `ExplicitAssemblyContext_RepeatedAdmittedDesignationHasOneRegistration`
+  proves repeated spellings admitted as one canonical coordinate acquire one
+  designated registration;
+- `ExplicitAssemblyContext_PathCollisionsPreserveRoleSemantics` covers
+  root/designated coalescing and distinct designated/platform and root/platform
+  registrations;
+- `ExplicitAssemblyContext_EqualIdentityDesignationsRemainDistinct` proves two
+  distinct designated coordinates with equal assembly identity retain separate
+  registrations and ambiguity evidence;
+- `ExplicitAssemblyContext_IncoherentPlatformRealizationDoesNotPublish` covers
+  a repeated platform coordinate, reused registration, and two distinct
+  platform members with one canonical assembly identity through a controlled
+  platform-adapter seam;
+- `ExplicitAssemblyContext_NonExactInputsCannotAcquireDesignation` covers
+  directories, siblings, packages, projects, and dependency manifests;
+- `ExplicitAssemblyContext_SelectedImageUsesRetainedArtifactBytes` mutates the
+  source after realization and proves selected image access uses the admitted
+  immutable bytes;
+- `ExplicitAssemblyContext_ViewExposesOnlyBoundedImageAccess` proves the public
+  context surface and the transitive public closure of its callback and result
+  types return no `ArtifactContentReference`, `ResolvedAssemblyReference`,
+  descriptor-bearing `AssemblyImageView`, `ArtifactAuthorization`,
+  `ArtifactAdmissionLease`, `ArtifactQueryLease`, opener delegate, readable
+  path, or `Stream`, and closes its internal stream before invoking the image
+  callback;
+- `ExplicitAssemblyContext_RetainedHandoffRejectsForeignAuthority` proves the
+  participant-to-image operation rejects a foreign participant, query lease,
+  or ended generation;
+- `ExplicitAssemblyContext_WorkspaceOwnsContextLifetime` proves disposing a
+  context view or dropping the opaque handle does not release its group,
+  session, or budget charge, while workspace disposal ends later access and
+  joins the ordinary quiescent cleanup;
+- `ExplicitAssemblyContext_FailurePublishesNoPartialGroup` covers invalid
+  managed images, absent platform versions, role conflicts, artifact and group
+  snapshot-budget exhaustion, local success followed by platform failure, and
+  platform success followed by local failure;
+- `ExplicitAssemblyContext_UnsupportedHostIsTyped` proves a host without the
+  two required adapters fails before admission rather than changing source
+  kinds.
+
+This realization does not resolve members or call targets and does not define
+CLI options, sections, rows, verbosity, or exit status. Those downstream
+components consume this owner-issued outcome without extending its authority.
+
 ### Acquisition outcomes
 
 An adapter returns a typed outcome, conceptually:
@@ -482,10 +926,11 @@ It returns artifacts and leases; it does not create an assembly session.
 
 ### Local adapter
 
-The local adapter accepts explicit files under host policy. It opens local
-content without acquiring package or remote-storage dependencies. Directory
-enumeration, containment, symlink policy, and bounded entry selection remain a
-later local-adapter slice.
+The local adapter accepts explicit file and bounded directory coordinates under
+host policy. It opens local content without acquiring package or remote-storage
+dependencies. The explicit-file implementation exists; the directory contract
+below is target design tracked by
+[#4999](https://github.com/richlander/dotnet-inspect/issues/4999).
 
 Before registration, `DotnetInspector.Artifacts.Local` opens an explicit file
 once, copies it under a loop-enforced byte limit, and records path, exact copied
@@ -499,6 +944,398 @@ snapshot.
 
 The ordinary retained snapshot does not compute a digest eagerly. The target
 owner-mediated on-demand digest remains unverified.
+
+#### Shared local-path admission
+
+`DotnetInspector.Artifacts.Local` owns one package-free admission contract for
+every path coordinate it consumes. The contract is internal to the local
+adapter; it does not add filesystem policy to source-neutral artifact
+contracts. It has two stages over one classifier:
+
+1. Classification accepts a non-empty requested path and returns a canonical
+   path plus the observed final kind, `RegularFile` or `Directory`, or a typed
+   path outcome.
+2. Admission adds one required kind and rejects a classified target that does
+   not match it. Regular-file admission then opens and verifies the content
+   handle; directory admission returns the canonical path.
+
+Direct coordinates always admit one required kind:
+
+- `RegularFile` for an explicit-file coordinate or a selected directory entry;
+  or
+- `Directory` for a bounded-directory root.
+
+There is no "any filesystem entry" admission. Classification exposes only the
+two admissible observed kinds; non-regular or unclassifiable entries remain
+typed outcomes. Bounded-directory candidate filtering is the only consumer that
+uses an observed kind before choosing whether the candidate becomes an admitted
+coordinate.
+
+The classifier retains the original non-empty requested path and converts it
+once with `Path.GetFullPath`. Successful normalization adds the canonical path
+used by provenance and ordinary diagnostics. For ordinary paths, this lexical
+normalization makes the coordinate absolute and removes relative path segments,
+but it does not resolve links, normalize case, or mint physical file identity.
+Windows treats extended `\\?\` paths as already normalized and leaves their
+segments unchanged. An extended disk or UNC coordinate is therefore admitted
+only when it is fully qualified and contains no `.` or `..` segment; otherwise
+it is rejected as invalid. Any other non-empty path that cannot be normalized
+is also rejected rather than escaping as a platform exception. Invalid-path
+results carry the requested path and no canonical path.
+
+All local coordinates follow symbolic links and supported link-like reparse
+points to their final target. The same policy preserves existing explicit-file
+behavior and supports symlinked build outputs without making directory
+acquisition a second policy domain. A dangling link is unavailable. A link
+whose final target has the wrong kind is rejected. A reparse entry whose tag
+denotes an unsupported link, a non-regular entry, or an unknown meaning is
+rejected rather than opened. Recognized non-link data-bearing reparse entries
+retain their own expected kind; the `ReparsePoint` attribute alone does not
+reject them.
+
+The canonical requested path remains the coordinate after link resolution. The
+adapter does not publish a physical target path or require the target to remain
+beneath the lexical parent. Consequently, a top-level directory entry that is a
+link may resolve outside the requested root and still contribute the regular
+file named by that entry. This is coordinate behavior, not a containment
+boundary: the caller selected the local location, and local actors are outside
+the hostile-input model. Hard links are ordinary regular files and are not
+collapsed.
+
+Classification and admission have these semantic results. Exact implementation
+type names are deferred, but consumers cannot replace them with
+exception-message matching:
+
+| Condition | Result |
+| --- | --- |
+| The final target is a regular file or directory | Internal classified result carrying the observed kind |
+| The path is missing, a link is dangling, or the entry disappears before the file open | `Unavailable` |
+| The path cannot be normalized | `Rejected` with an invalid-path reason and no canonical path |
+| The final target has the wrong expected kind | `Rejected` with a kind-mismatch reason |
+| The final target is a FIFO, socket, block device, character device, Windows device or pipe coordinate, or an unsupported, special, ambiguous, or unknown reparse entry | `Rejected` with a non-regular or unsupported-entry reason |
+| Metadata inspection, native classification, or the file open fails for a reason other than absence | `Failed` with an admission-failed reason |
+| The current host has no supported classifier | `Failed` with a classification-unsupported reason |
+| Cancellation is observed | `OperationCanceledException` |
+
+The shared result carries a typed reason, requested path, and optional canonical
+path, not a source-neutral artifact outcome. The explicit-file and directory
+operations project it into their existing `LocalArtifactDiagnostic` surface.
+The target diagnostic adds a requested path and nullable canonical path;
+existing `FullPath` remains a compatibility display projection of
+`CanonicalPath ?? RequestedPath`. Provenance is produced only after successful
+normalization and always uses the canonical path. Equivalent admission reasons
+must retain the same result arm and meaning across direct coordinates;
+coordinate-specific context may refine the diagnostic code and summary.
+Explicit-file projection preserves `local.file.missing`,
+`local.file.read-failed`, and `local.file.size-limit`: path-specific metadata,
+open, and read failures continue to use `Failed` with
+`local.file.read-failed`. Invalid paths use `Rejected` with
+`local.file.invalid-path`; an existing target that is a directory, non-regular
+entry, or unsupported reparse entry uses `Rejected` with
+`local.file.unsupported-entry`. Unexpected absence of a required platform
+classifier uses `Failed` with `local.file.classification-unsupported`, not the
+generic read-failure code. The unsupported-entry projection deliberately
+changes the current directory-target behavior from
+`Failed`/`local.file.read-failed` because the present path is now proven not to
+satisfy the explicit regular-file coordinate. Failures after a regular file is
+admitted, including bounded snapshot-copy failures, remain read failures owned
+by the consuming acquisition rather than being relabeled as path admission.
+
+Admission occurs before any operation known to block on a stable non-regular
+entry. Managed attributes are insufficient on Unix: a FIFO, a character device,
+and an empty regular file can all appear as normal zero-length files. Supported
+non-Windows hosts therefore classify the final target with the .NET runtime's
+normalized `SystemNative_Stat` ABI. `stat` follows links and exposes the stable
+mode mask needed to distinguish directories, regular files, FIFOs, sockets,
+and block or character devices without opening the entry.
+
+Windows admission first rejects device and pipe namespaces and reserved DOS
+device coordinates. Extended-length disk and UNC paths are not rejected merely
+for using the `\\?\` prefix after their segments satisfy the normalization rule
+above. An ordinary drive root such as `C:\` is a supported `Directory`
+coordinate; bounded-directory limits still govern its top-level enumeration.
+An ordinary regular file directly beneath that root, such as `C:\foo.dll`, is a
+supported `RegularFile` coordinate. Neither form is a device coordinate.
+Ordinary filesystem paths are inspected through managed attributes. For a final
+reparse point, a metadata handle opened without following the point queries its
+tag. Classification is tag-semantic rather than based only on the name-surrogate
+bit:
+
+- symbolic-link and mount-point tags are supported links, so their final target
+  is resolved and classified;
+- tags that can denote a special file or an unsupported link are rejected,
+  including AF_UNIX, WSL FIFO/character/block entries, and the entire NFS tag
+  unless a later design adds bounded subtype parsing;
+- audited non-link data-bearing tags, including cloud-placeholder,
+  deduplication, and projection forms, retain their own file or directory
+  attributes and proceed to expected-kind and post-open checks; and
+- unknown tags are rejected rather than assumed to be data-bearing.
+
+The tag policy is one enumerated classifier whose coverage gate fails when an
+implemented known-tag constant lacks a disposition. This step must prove a file
+or directory target before a file-content open.
+
+Regular-file admission then opens the canonical requested path exactly once and
+returns that owned read-only stream or handle to the consuming acquisition.
+Before returning it, the adapter classifies the handle again:
+
+- non-Windows hosts use `SystemNative_FStat` and require regular-file mode; and
+- Windows requires `GetFileType` to report `FILE_TYPE_DISK` and handle-based
+  attributes not to report a directory.
+
+A post-open kind mismatch is rejected and the handle is disposed. The explicit
+file and future directory-entry copy therefore consume the same verified open
+generation; neither reopens the path after admission. Size limits, last-write
+observation, copying, provenance construction, and contribution registration
+remain with the consuming acquisition.
+
+Directory-root admission performs the same normalization, link policy, and
+pre-open expected-kind classification, then returns the canonical requested
+path for enumeration. It does not promise handle-relative or transactional
+enumeration. If the root changes after classification, ordinary enumeration
+failure remains visible through the directory contract below.
+
+This contract prevents a stable non-regular entry from predictably reaching a
+blocking content open. It does not make path classification and open atomic. A
+local process can replace a regular file with a FIFO after classification and
+before open, or replace a directory before enumeration. Defending against that
+same-machine mutation would require a native nonblocking or handle-relative
+filesystem protocol and is outside the local-actor threat model. Once file
+admission returns an open regular-file handle, later link retargeting or path
+replacement cannot change the generation that is copied; immutable retained
+snapshot lifetime remains owned by
+[#4816](https://github.com/richlander/dotnet-inspect/issues/4816).
+
+The implementation remains package-free, source-generated-interop compatible,
+and NativeAOT-friendly. `LibraryImport` of the runtime-normalized `Stat` and
+`FStat` entry points works on ordinary Unix hosts and Browser/Wasm; Windows uses
+managed file APIs plus source-generated `kernel32` interop. No currently
+supported target is intentionally excluded. A missing native library or entry
+point is a visible classification-unsupported failure, never permission to
+open an unclassified path.
+
+This does not inherit the CLI-only physical-identity exception in
+[`schema-query.md`](schema-query.md#effective-filtering). That provider's
+contract needs stable device/inode identity and intentionally restricts the
+hosts on which it deduplicates physical files. Local-path admission consumes
+only the normalized mode field and does not mint physical identity. The
+portable gate must run the actual `Stat` and `FStat` imports under 32-bit
+Browser/Wasm as well as NativeAOT. If that gate fails on a supported target, the
+platform design reopens; returning classification-unsupported is an operational
+failure mode, not approval to ship an unsupported-platform degradation.
+
+The implementation is complete when focused gates prove:
+
+- canonicalization, including extended-path segment rejection, expected-kind
+  mismatches, requested-path retention when canonicalization fails,
+  final-target link following, dangling links, name-surrogate handling, special
+  and unknown reparse rejection, audited data-bearing reparse treatment, and
+  hard-link non-deduplication have the same semantics for every consuming local
+  coordinate;
+- stable FIFOs, sockets, devices, and their link aliases are rejected before a
+  blocking content open, while an empty regular file remains admissible;
+- a regular-file consumer receives the once-opened, post-classified handle and
+  cannot reopen the coordinate;
+- unavailable, rejected, failed, and cancellation results remain distinct; and
+- the normalized `Stat` and `FStat` classifier compiles and runs under both
+  NativeAOT and Browser/Wasm, while Windows gates cover disk files,
+  drive-root directories, regular files directly beneath a drive root,
+  traversable links, reserved device names, named-pipe coordinates, allowed
+  data-bearing reparse tags, every supported special-tag family, and an unknown
+  tag.
+
+These properties are represented by
+`LocalPathAdmission_ExpectedKindsAndLinksAreShared`,
+`LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`,
+`LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
+`LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
+`LocalPathAdmission_PlatformClassifiersRemainPortable`. They are unverified
+until those gates exist. The bounded-directory implementation must exercise
+the same contract through its public root and selected-entry outcomes rather
+than adding another classifier.
+
+Admission is sequential and adds no publication, interleaving, or concurrent
+ownership state. A new TLA+ model would duplicate the existing artifact-session
+model without checking a new state machine. Native classification and
+cross-platform executable canaries are the evidence this contract needs.
+
+#### Bounded directory coordinate
+
+A directory coordinate contributes opaque artifacts from one explicit local
+root. It does not decide which artifact is an inspection target, decode managed
+metadata, resolve dependencies, assign workspace roles, or establish binding
+precedence. A directory is an artifact source, not an assembly context.
+
+The target peer API is
+`LocalArtifactSource.AcquireDirectoryAsync(scope, path, options,
+cancellationToken)`. `LocalDirectoryArtifactAcquisitionOptions` contains:
+
+- `ExcludedFileNames`, an `IReadOnlyCollection<string>` copied before the first
+  await;
+- `IncludedFileExtensions`, an `IReadOnlyCollection<string>` copied before the
+  first await and defaulting to `.dll`;
+- `MaxObservedEntries`, defaulting to 1,024 observed top-level entries;
+- `MaxSelectedFiles`, defaulting to 1,024 selected files;
+- `MaxFileBytes`, defaulting to 512 MiB; and
+- `MaxTotalBytes`, defaulting to 512 MiB across selected files.
+
+The limits are standalone adapter ceilings, not workspace reservations, and
+the package-free local project does not depend on `ArtifactSetSessionLimits`.
+Each limit is positive and each byte limit fits the array-backed snapshot
+implementation. A workspace host passes stricter selected-file and byte limits
+when required by the supplemental capacity obtained through
+[#5010](https://github.com/richlander/dotnet-inspect/issues/5010), then passes
+them to this adapter. #5010 owns reservation and session behavior.
+
+Selection is top-level and source-neutral. Each included extension is a
+non-empty extension such as `.dll`, not a glob or path; extension matching is
+ordinal-ignore-case on every platform. Each exclusion is one non-rooted file
+name with no separator or parent traversal and is also matched
+ordinal-ignore-case, preventing a lexical case difference from reacquiring an
+explicit file on a case-insensitive volume. On a case-sensitive volume that
+conservatively excludes case-only aliases; callers needing both acquire them
+explicitly. Selection never establishes semantic kind or artifact identity,
+and physical aliases are not collapsed. Recursion or richer selection requires
+a later contract.
+
+Acquisition follows this order:
+
+1. Validate and copy options before filesystem work.
+2. Admit the requested root as a directory through the
+   [shared contract](#shared-local-path-admission). Preserve its visible
+   unavailable, rejected, failed, and cancellation outcomes.
+3. Enumerate top-level entries incrementally. Count every observed entry before
+   classifying it and stop with a typed rejection as soon as
+   `MaxObservedEntries` is exceeded.
+4. Derive one direct-child relative name per observed entry and sort by that
+   name with `StringComparer.Ordinal`. Filesystem enumeration order is never
+   publication order.
+5. Use enumeration attributes only to discard an entry already proven to be a
+   non-reparse directory. Apply the extension allow list and exclusions to the
+   remaining observed names, producing lexical candidates without deciding
+   their final target kind.
+6. In sorted order, classify each candidate through the shared contract. Ignore
+   a classified directory. For each classified regular file, increment the
+   selected-file count, reject the batch if `MaxSelectedFiles` is exceeded,
+   then continue shared admission through its verified open handle and consume
+   that handle into an adapter-private snapshot while enforcing
+   `MaxFileBytes` and the remaining `MaxTotalBytes`. Any `Unavailable`,
+   `Rejected`, or `Failed` classification or admission result aborts the atomic
+   batch without publishing and preserves that exact outcome arm.
+7. Register the complete batch in one contribution scope only after every
+   selected snapshot succeeds. Any enumeration, candidate admission,
+   selected-entry, limit, registration, or outcome-construction failure
+   publishes no contribution from the batch.
+
+Copying stops before retaining a byte that would exceed either bound. The bound
+that would be exceeded first determines the rejection; when the same byte would
+exceed both, the per-file limit takes precedence. A read failure after admission
+is a failed directory acquisition, not a path-admission outcome.
+
+An existing directory with no selected files returns `Acquired` with an empty
+artifact list and `ArtifactAcquisitionLeases.None`. That is a successful answer
+to an optional source coordinate, not a shortened successful batch. Required
+workspace acquisition retains its existing empty-batch failure; #5010 owns the
+supplemental path that can compose this result.
+
+Root and selected-entry admission outcomes remain those of the shared contract.
+A lexical candidate classified as a directory is used for filtering, not
+admitted as a selected coordinate, and emits no path outcome. Every other
+candidate classification or admission outcome remains visible. Directory path
+diagnostics retain the requested root, its canonical path when available, and
+the observed relative candidate name when applicable:
+
+| Condition | Outcome | Diagnostic code |
+| --- | --- | --- |
+| Root is missing or a root link is dangling | `Unavailable` | `local.directory.root-missing` |
+| Root path is invalid | `Rejected` | `local.directory.root-invalid-path` |
+| Root has the wrong kind or unsupported entry kind | `Rejected` | `local.directory.root-unsupported` |
+| Root classification fails | `Failed` | `local.directory.root-admission-failed` |
+| Candidate is missing, dangling, or disappears | `Unavailable` | `local.directory.entry-missing` |
+| Candidate is non-regular or unsupported | `Rejected` | `local.directory.entry-unsupported` |
+| Candidate classification or open fails | `Failed` | `local.directory.entry-admission-failed` |
+
+Directory-specific enumeration and snapshot-copy diagnostics use the canonical
+root and, when applicable, the observed relative name:
+
+| Condition | Outcome | Diagnostic code |
+| --- | --- | --- |
+| Observed entry count exceeds the limit | `Rejected` | `local.directory.entry-limit` |
+| Selected file count exceeds the limit | `Rejected` | `local.directory.selected-file-limit` |
+| Selected file exceeds the per-file limit | `Rejected` | `local.directory.file-size-limit` |
+| Selected files exceed the aggregate limit | `Rejected` | `local.directory.total-size-limit` |
+| Selected file cannot be read after admission | `Failed` | `local.directory.read-failed` |
+| Directory enumeration fails | `Failed` | `local.directory.enumeration-failed` |
+
+Cancellation remains `OperationCanceledException` and is never translated into
+a diagnostic arm.
+
+Each contribution records a `LocalDirectoryArtifactProvenance`:
+
+- the canonical requested root;
+- the direct-child relative name as observed;
+- the full observed entry path;
+- the exact copied length; and
+- the last-write observation from the same open file used to copy the snapshot.
+
+The artifact kind is `local-directory-entry`; the entry name, matched extension,
+and bytes do not establish media or semantic kind.
+
+The adapter establishes an immutable batch of the bytes it actually copied,
+not a transactional filesystem snapshot. A file created after enumeration is
+outside that acquisition. Any candidate classification, admission, or selected
+entry failure aborts the whole batch with its defined outcome rather than
+shortening it. Shared admission owns the residual local-path race and
+classification guarantees; mutation after copying cannot change the retained
+snapshot.
+
+The implementation is complete when focused gates prove:
+
+- bounded top-level selection is deterministic and source-neutral;
+- plain and linked directory targets are ignored through the shared
+  final-target classification, while links to regular files remain selectable;
+- empty selection registers nothing, while enumeration failure remains failed
+  rather than becoming empty success, and neither it nor entry admission,
+  per-file and aggregate overflow with their defined precedence, read failure,
+  or registration failure can publish a partial batch; and
+- directory provenance, immutable batch snapshots, and cancellation are
+  preserved.
+
+These properties are represented by
+`LocalDirectoryAcquisition_BoundedDeterministicSelection`,
+`LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing`, and
+`LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved`.
+
+#### Directory composition scenarios
+
+The adapter contract has the same meaning in each scenario; only host
+composition differs:
+
+| Scenario | Local artifact acquisitions | Boundary left to the workspace |
+| --- | --- | --- |
+| One DLL requested; its directory supplies candidates | Acquire the exact DLL once, then optionally acquire its directory with that top-level name excluded. Zero remaining DLLs is a successful empty candidate batch. | Supplemental workspace acquisition from [#5010](https://github.com/richlander/dotnet-inspect/issues/5010) contributes discovered candidates without making the batch a required context member; the exact-file registration alone may receive caller designation. |
+| Several DLLs requested from one directory | Acquire each exact requested file, then optionally acquire the directory once with all of their names excluded. | Optional workspace acquisition contributes remaining candidates; context planning decides whether the requested roots share a group. |
+| Several DLLs requested from different directories | Acquire each exact file and optionally acquire at most one bounded candidate batch per explicitly authorized directory. | Optional workspace acquisition contributes candidates; binding policy, not directory order, handles collisions and precedence. |
+| Directory configured as a NuGet source | Do not use this adapter unless loose-file acquisition was separately requested. | The package adapter and #3759 own folder-feed identity, package enumeration, and asset selection. |
+
+The same physical directory can be authorized separately as a loose-artifact
+source and as a NuGet folder feed. Those coordinates share no provenance,
+roles, selection policy, or cache identity.
+
+This sequential adapter design adds no concurrency or publication state
+machine. `ArtifactSetSession` retains ownership of admission, cancellation,
+materialization, and publication interleavings, so a new TLA+ model would
+duplicate that owner without checking a new interaction. Parallel directory
+copying, directory-level single-flight, or independent partial publication
+would reopen that decision and require a focused interaction model.
+
+After shared local-path admission is implemented, one local-adapter PR adds
+this API, options, provenance, directory-specific diagnostics, and
+outcome-level gates without changing `AssemblySetResolver`, CLI defaults,
+assembly projection, workspace admission, or binding policy. Adoption follows
+[#5010](https://github.com/richlander/dotnet-inspect/issues/5010) and may choose
+which directories a scenario authorizes; it may not weaken adapter bounds or
+reinterpret directory provenance as caller designation.
 
 This adapter is the proof that the abstraction is independently useful. The
 package-free fixture composes:
@@ -858,6 +1695,15 @@ Several current types are migration inputs, not target precedent:
 - `DotnetInspector.Queries` references `DotnetInspector.Packages` directly.
 - `WorkspaceContextLoader` realizes package and platform coordinates inside the
   core query project.
+- No current realizer owns the explicit local/designated/installed-platform
+  request above. `ArtifactWorkspaceRole` exposes `CallerDesignated` but not
+  `PlatformAuthorized`; no package-free installed-platform adapter contributes
+  a validated closure to an `ArtifactSetSession`; and #5139 has not yet defined
+  the exact implementation-closure membership proof.
+- Current artifact-backed Metadata projection requires a query-authorized
+  `ArtifactContentReference` from an already published session and returns a
+  descriptor with public path/opener compatibility surfaces. #5143 owns the
+  missing admission-scoped, opener-free projection used by this context.
 - `AssemblyContextSourceQueryContext` exposes package-owned `IPdbStore`,
   `IPackageSourceAuthorization`, and `NuGetSourceOptions` even for
   assembly-authored-source queries.
@@ -931,14 +1777,24 @@ The migration is intentionally incremental:
    adapters land only with their own typed coordinates, capabilities, limits,
    and provenance gates.
 
-Each slice must preserve current visible diagnostics and selection semantics.
-The migration does not justify a success-shaped fallback or an unbounded eager
-materialization.
+Each slice must preserve current visible diagnostics and selection semantics
+unless its owning design names an intentional change. Shared local-path
+admission deliberately changes an explicit-file coordinate that resolves to a
+directory or another non-regular entry from
+`Failed`/`local.file.read-failed` to
+`Rejected`/`local.file.unsupported-entry`; its missing, size-limit, and genuine
+path-specific metadata, open, or read failures retain their current
+projections. `local.file.classification-unsupported` identifies an unexpected
+platform-classifier deployment failure rather than disguising it as a read
+failure. The migration does not justify a success-shaped fallback or an
+unbounded eager materialization.
 
 ## Required gates
 
 The target is complete only when tests equivalent to these exist:
 
+- every gate under
+  [Explicit local/designated/platform assembly context](#required-implementation-gates)
 - `ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
 - `ArtifactWorkspaceClosure_ExcludesMetadataPackagesAndStorageImplementations`
 - `LocalArtifactAdapterClosure_ExcludesMetadataPackagesAndStorageImplementations`
@@ -986,6 +1842,14 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
 - `ArtifactContentReference_BindsIdentityRegistrationRoleAndContent`
 - `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
+- `LocalPathAdmission_ExpectedKindsAndLinksAreShared`
+- `LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen`
+- `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`
+- `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`
+- `LocalPathAdmission_PlatformClassifiersRemainPortable`
+- `LocalDirectoryAcquisition_BoundedDeterministicSelection`
+- `LocalDirectoryAcquisition_EmptyOrFailedBatchPublishesNothing`
+- `LocalDirectoryAcquisition_ProvenanceSnapshotAndCancellationArePreserved`
 - `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
 - `RequiredAcquisitionFailure_DoesNotShortenWorkspaceContext`
@@ -1054,7 +1918,14 @@ owner-bound content references that cannot mix descriptor, registration, role,
 or bytes across artifacts or generations.
 `LocalArtifactSourceTests` enforce pre-registration local snapshots, typed
 missing/limit diagnostics, mutation and deletion resistance, and cancellation
-remaining cancellation. `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
+remaining cancellation. The three named `LocalDirectoryAcquisition_*` gates
+remain unverified. Together they require bounded deterministic top-level
+selection, source-neutral exclusions, atomic empty and failure outcomes,
+directory provenance, immutable batch snapshots, and cancellation
+preservation. Shared local-path admission remains with the
+[local adapter](#shared-local-path-admission) rather than these directory
+gates.
+`LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
 a source-path fallback cannot satisfy the gate.

@@ -262,9 +262,7 @@ public class FindCommandTests
     [Fact]
     public void PackageProfileSection_BindsProfileQueryAndProjectsDependencySecond()
     {
-        InspectionLensCatalog<
-            PackageProfileQueryContext,
-            PackageProfileView> catalog =
+        PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
         SectionPipeline<PackageProfileView> pipeline =
             catalog.Pipeline;
@@ -415,13 +413,11 @@ public class FindCommandTests
     public async Task PackageProfileCatalog_MaterializesSourceExecutionOnce()
     {
         var source = new CountingPackageSource();
-        InspectionLensCatalog<
-            PackageProfileQueryContext,
-            PackageProfileView> catalog =
+        PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
 
         InspectionQueryResults results =
-            await catalog
+            await catalog.Lens
                 .Plan(
                     Verbosity.Normal,
                     [PackageProfileSections.Packages])
@@ -453,13 +449,11 @@ public class FindCommandTests
         var source = new DefaultScalePackageSource(
             candidateCount,
             dependenciesPerManifest);
-        InspectionLensCatalog<
-            PackageProfileQueryContext,
-            PackageProfileView> catalog =
+        PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
 
         InspectionQueryResults results =
-            await catalog
+            await catalog.Lens
                 .Plan(
                     Verbosity.Normal,
                     [PackageProfileSections.Packages])

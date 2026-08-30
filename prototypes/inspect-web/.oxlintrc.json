@@ -4,6 +4,14 @@
     "correctness": "error",
     "suspicious": "error"
   },
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "jsdoc",
+    "promise"
+  ],
   "env": {
     "browser": true,
     "es2022": true

@@ -228,45 +228,104 @@ does not rebuild dependency state per assembly. The mutable
 and focused extensions; its `Compile` method snapshots it into a catalog
 without allowing later registrations to mutate that snapshot.
 
-## Compiled lenses and query domains
+## Compiled inspection domain composition
 
-`InspectionLensCatalog<TContext, TModel>` is the reusable L2 composition
-between one immutable section lens and one immutable L1 query domain. It does
-not create another producer registry: `InspectionQueryCatalog<TContext>`
-remains the owner of producer identity, dependencies, cost, planning, and
-execution, while `SectionCatalog<TModel>` remains the owner of section
-selection and direct producer demand.
+**Compiled Inspection Domain Composition** owns the L1/L2 binding between one
+immutable typed-query domain and one or more immutable section lenses. It is a
+focused composition owner: Queries continues to own producer registration,
+dependency closure, cost, planning, and execution, while the Section Pipeline
+continues to own section candidates and direct producer demand.
 
-A complete lens binding validates at construction that every query declared by
-its sections belongs to the bound query catalog. Multiple section lenses may
-share the same query catalog, which is the intended shape for commands with
-alternate views over one producer domain. Package Profile is the first adopter:
-its command now asks the generic lens catalog to lower the selected `Packages`
-section directly to the reusable query plan.
-`InspectionLensCatalog_RejectsAnUnregisteredSectionQuery` and
+The composition contract is:
+
+```text
+InspectionQueryCatalog<TContext>
+  -> CompiledInspectionDomain<TContext>
+       -> CompiledInspectionLens<TContext, TView>
+            -> selected section demand + attributed host demand
+                 -> CompiledInspectionPlan<TContext>
+                      -> InspectionQueryPlan<TContext>
+```
+
+The domain creates each lens pipeline and installs its prerequisite-aware
+`CostOf` callback before the lens registers a section. A lens therefore cannot
+forget cost binding or silently understate an expensive producer. Compilation
+also rejects any section query that is not registered in the domain. Multiple
+lenses may retain different section models and selection policies while
+sharing the same immutable producer declarations.
+
+Planning retains three different values:
+
+- section-to-query demand, owned by the section lens;
+- optional reason-to-query host demand, supplied by the caller; and
+- the dependency-ordered query plan, issued by the L1 query catalog.
+
+Demand attribution is neutral data. A CLI host may project it into
+`InspectionTrace`, but the composition owner does not depend on that sink.
+The owner lowers empty, single-query, and multi-query demand through the query
+catalog's existing planning APIs; it does not rebuild prerequisite closure or
+execution order.
+
+`CompiledInspectionPlan<TContext>` is immutable and reusable. Each execution
+creates the query owner's fresh `InspectionQueryResults`, accepts a
+caller-supplied request or workspace context, and forwards synchronous timing
+or asynchronous cancellation callbacks. The plan stores no context, owns no
+acquisition or disposal, catches no producer failure, and does not transform
+typed payloads. It is a readonly value containing the immutable section and
+query plans, so repeatedly lowering a precomputed empty or single-query
+selection adds no allocation.
+
+`HostQueryDemand` is the shared neutral attribution value used by compiled
+plans, mutable-pipeline compatibility, and `InspectionTrace` projection.
+Composition snapshots host demand and de-duplicates only the requested query
+set; repeated reasons and overlap with section demand remain valid attribution.
+
+The Diff catalog is the first production canary and now exposes one
+`CompiledInspectionDomain<DiffQueryContext>` and one compiled section lens.
+`DiffCommand` obtains and runs its query plan through that lens. Its request-owned
+`DiffQueryContext`, multiple independently selectable producers, a queryless
+Finding Transitions selection that lowers to the empty plan, and pre-existing
+allocation gates exercise the seam without introducing
+assembly or workspace lifetime. API, Type, and Member migration remains
+follow-up work.
+
+Package Profile is the second production adopter. Its fixed query catalog and
+`Packages` section compile into one reusable lens, and `FindCommand` obtains and
+runs the selected query plan through that lens rather than manually lowering a
+section plan. `PackageProfileCatalog_MaterializesSourceExecutionOnce` and
 `PackageProfileCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing`
-gate registration completeness and the allocation-free common planning path.
+gate single execution and the allocation-free common planning path.
 
-A section lens may span producers that require different context types.
-`CreatePartition` binds one such query domain and plans only the selected
-queries registered there. The composing host must call `ValidatePartitions`
-over all bindings; it rejects both unclaimed and multiply claimed
-section-declared queries. A query and its complete required dependency closure
-must remain in one partition. Partial-partition filtering is request-time
-composition and may allocate; commands compile it once per request rather than
-rebuilding it for every inspected item.
-`InspectionLensCatalog_PartitionsOneLensAcrossQueryDomains` and
-`InspectionLensCatalog_RejectsMissingOrOverlappingPartitions` gate that
-boundary.
+Release conformance is enforced by
+`CompiledDomain_MultipleLensesShareOneQueryCatalog`,
+`CompiledLens_RejectsQueryOutsideProducerDomain`,
+`CompiledLens_InstallsPrerequisiteAwareCostsBeforeRegistration`,
+`CompiledLens_LowersEmptySingleAndMultiQueryDemand`,
+`CompiledExecution_DoesNotTransformTypedQueryResults`,
+`CompiledExecution_ForwardsAsyncCancellation`,
+`CompiledExecution_DoesNotRetainOrDisposeSuppliedContext`,
+`DiffQueryCatalog_RunsOnlySelectedSectionDemand`, and
+`DiffCatalog_RepeatedAcquisitionAndCommonPlanningAllocateNothing` in
+`dotnet-inspect.Tests`.
 
-The lens catalog does not own request context construction, workspace
-admission, acquisition lifetime, analysis-request semantics, semantic row
-selection, sink projection, or rendering. Those owners provide the context or
-consume the typed query results. In particular, row selection remains a
-post-production operation, and display-bound artifact text remains
-`InertString` when projected to sink models. Synchronous and asynchronous
-execution, cancellation, failure visibility, and execution ordering remain
-properties of the bound query plan.
+The executable
+[compiled inspection domain model](models/compiled-inspection-domain/README.md)
+checks foreign-lens rejection, independent request planning, cancellation
+winning over success, and caller-context release and non-disposal across
+interleaved requests. TLC evidence establishes properties of that bounded
+design model, not implementation conformance.
+
+This owner does not:
+
+- define query registration, prerequisite, cost, capability, execution, or
+  failure semantics;
+- own acquisition, workspace admission, assembly groups, contexts, or resource
+  budgets;
+- merge Library's per-assembly and assembly-group catalogs into one
+  multi-context executor;
+- define row selection, output shapes, Markout rendering, or format selection;
+- construct or sanitize `InertString`; typed values cross opaquely; or
+- define the view-facet registry, subject navigation, or host UI behavior.
 
 ## Resource declarations
 

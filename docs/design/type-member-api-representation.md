@@ -58,6 +58,21 @@ of repeated in every row.
 | `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
 | `MetadataNameArity` | One metadata-name segment, or a name in a stated nesting spelling | Whether a trailing `` `N `` is the canonical CLR generic-arity suffix, and the simple name left once it is removed | Whether the remaining name is spellable, unique, or resolvable, or where a namespace ends |
 
+`ApiMemberIdentity` owns the complete SRM-to-`MemberAnchor` projection.
+Its caller-owned cumulative overload charges MethodDef, generic-parameter, and
+declaring-type names together with signature trees, rendered signatures,
+canonical identity, selector output, and fingerprint input. Exhaustion is a
+visible `BadImageFormatException` and consumes the shared counter; the ordinary
+single-anchor overload keeps the same identity without adopting an
+operation-wide policy.
+`CreateMethodAnchorInfo_RepeatedLongNamesExhaustSharedProjectionBudget`,
+`CreateMethodAnchorInfo_HighGenericArityExhaustsBeforeContextAllocation`, and
+`CreateMethodAnchorInfo_BoundedProjectionPreservesIdentity` gate the aggregate
+bound and identity parity. The selector, fingerprint, and stable-selector
+`CreateMethodAnchorInfo_*ProjectionHasANonVacuousBudgetGate` tests each exhaust
+at its named projection stage, so removing one charge cannot leave the safety
+claim green.
+
 The target [assembly image lifetime](assembly-image-lifetime.md) contract adds
 owner-authorized image binding before current MVID and row validation. That
 binding is unverified pending
@@ -564,7 +579,9 @@ string SimpleName)` is private to
 `CSharpDeclarationWriter`.
 
 **The model duplication is a committed decision, not drift.**
-`docs/architecture.md` records it as principle 9, and
+The
+[architecture map](../architecture.md#representation-specific-identities)
+records the boundary, and
 `docs/metadata-primitives.md` preserves the evidence while reopening only the
 bounded mechanics below the models. Analysis needs semantic structure for
 evidence matching; Metadata produces API/display projections; Decompiler
@@ -769,7 +786,6 @@ This document is the map. Each document below keeps its own mechanics.
 | --- | --- |
 | `type-spelling-identity-display.md` | Identity-vs-display conflation; `RenderCanonical()`; the multi-projection model and its two review rounds |
 | `metadata-primitives.md` | Shared bounded SRM mechanics; why semantic `TypeRef` models remain local; convergence sequencing |
-| `architecture.md` (principle 9) | Analysis's local structural type model and its Metadata-owned correspondence boundary |
 | `finding-coordinates.md` | Finding coordinate axes; why there is no generic anchor |
 | `member-target-resolution.md` | Selector → resolver → anchor; API vs body identity ownership |
 | `member-body-substrate.md` | `filter → render` producer contract; scope-per-type |

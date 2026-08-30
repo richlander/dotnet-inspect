@@ -40,16 +40,16 @@ public class LibraryCommand
     /// Passed into <see cref="SectionPipeline{TModel}.GetRequiredQueries"/> rather than added to its result,
     /// so the one method that computes the requested set is also the one that records it.
     /// </summary>
-    internal static readonly (string Reason, InspectionQueryDefinition Query)[] DiscoveryQueries =
+    internal static readonly HostQueryDemand[] DiscoveryQueries =
     [
-        ("discovery catalog", MetadataImageQuery.Definition),
-        ("References applicability", AssemblyReferencesQuery.Definition),
+        new("discovery catalog", MetadataImageQuery.Definition),
+        new("References applicability", AssemblyReferencesQuery.Definition),
     ];
 
-    internal static readonly (string Reason, InspectionQueryDefinition Query)[]
+    internal static readonly HostQueryDemand[]
         BareDiscoveryQueries =
         [
-            ("Unsafe Members applicability",
+            new("Unsafe Members applicability",
                 UnsafeEvidencePresenceQuery.Definition),
         ];
 
@@ -508,7 +508,7 @@ public class LibraryCommand
 
         if (trace is not null)
             trace.Verbosity = new InertString(TextPolicy.Field, options.Verbosity.ToString());
-        List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
+        List<HostQueryDemand> commandQueryDemand = [];
         if (discoveryInspection)
         {
             commandQueryDemand.AddRange(DiscoveryQueries);
@@ -516,7 +516,12 @@ public class LibraryCommand
                 commandQueryDemand.AddRange(BareDiscoveryQueries);
         }
         if (options.CollectReferenceTree)
-            commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        {
+            commandQueryDemand.Add(
+                new HostQueryDemand(
+                    "reference tree",
+                    AssemblyReferencesQuery.Definition));
+        }
         SectionQueryPlan sectionPlan = sections.PlanQueries(
             discoveryInspection && !fullEffectiveDiscovery
                 ? Verbosity.Quiet
@@ -532,7 +537,8 @@ public class LibraryCommand
             && options.PerformanceTriage.HasCandidateFilters)
         {
             commandQueryDemand.Add(
-                ("Body Shapes performance predicates",
+                new HostQueryDemand(
+                    "Body Shapes performance predicates",
                     OptimizationOpportunitiesQuery.Definition));
         }
 
@@ -1855,7 +1861,13 @@ public class LibraryCommand
 
         return ShapeProjectionOutput.Write(
             rows,
-            new ShapeProjectionOptions(kind, options.ProjectionRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+            new ShapeProjectionOptions(
+                kind,
+                options.ProjectionRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private static async Task<int> WriteLibraryPrintProjectionAsync(LibraryInspection inspection, LibraryOptions options)
@@ -1886,7 +1898,7 @@ public class LibraryCommand
                 options.Jsonl,
                 options.JsonArray,
                 Bare: false,
-                OutputPath: null));
+                Destination: new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private sealed record PrintProjectionResult(IReadOnlyList<PrintableDocument> Documents, string? Error = null);
