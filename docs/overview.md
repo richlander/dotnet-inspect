@@ -194,6 +194,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
   interaction grammar, and visual composition rules.
+- [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
+  viewer-local disclosure, actions, selection, annotations, media, Escape, and
+  focus inside the embedded reader and modal viewer.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.
