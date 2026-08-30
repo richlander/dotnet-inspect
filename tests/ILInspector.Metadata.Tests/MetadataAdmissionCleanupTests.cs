@@ -11,8 +11,16 @@ public sealed class MetadataAdmissionCleanupTests
     [Fact]
     public void TypeDeclarationInventory_CleanupCannotReplaceFormatRejection()
     {
+        ThrowingDisposeMemoryStream? opened = null;
         AssemblyTypeDeclarationInventoryOutcome outcome =
-            AssemblyTypeDeclarationInventoryReader.Read(Descriptor());
+            AssemblyTypeDeclarationInventoryReader.Read(
+                ResolvedAssemblyReference.Create(
+                    Identity(),
+                    path: null,
+                    () => opened = new ThrowingDisposeMemoryStream(
+                        BuildManagedWindowsMetadata()),
+                    AssemblyResolutionProvenance.Local(
+                        "format admission test")));
 
         var rejected =
             Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Rejected>(
@@ -20,6 +28,7 @@ public sealed class MetadataAdmissionCleanupTests
         Assert.Equal(
             CandidateOpenFailureKind.UnsupportedMetadataFormat,
             rejected.Failure.Kind);
+        Assert.Equal(1, opened!.DisposeCount);
     }
 
     [Fact]
@@ -98,32 +107,60 @@ public sealed class MetadataAdmissionCleanupTests
     [Fact]
     public void StreamIfManaged_NoMetadataCleanupCannotReplaceRejection()
     {
+        ThrowingDisposeMemoryStream? opened = null;
         ResolvedAssemblyReference? assembly =
             ResolvedAssemblyReference.CreateFromStreamIfManaged(
-                () => new ThrowingDisposeMemoryStream(
+                () => opened = new ThrowingDisposeMemoryStream(
                     BuildNoMetadataImage()),
                 AssemblyResolutionProvenance.Local(
                     "format admission test"));
 
         Assert.Null(assembly);
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void Snapshot_CleanupCannotReplaceDirectRejection()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        AssemblyImageSnapshotResult outcome =
+            AssemblyImageSnapshot.Open(
+                ResolvedAssemblyReference.Create(
+                    Identity(),
+                    path: null,
+                    () => opened = new ThrowingDisposeMemoryStream(
+                        BuildManagedWindowsMetadata()),
+                    AssemblyResolutionProvenance.Local(
+                        "format admission test")),
+                static _ => false,
+                static _ => { });
+
+        var rejected =
+            Assert.IsType<AssemblyImageSnapshotResult.Rejected>(
+                outcome);
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            rejected.Failure.Kind);
+        Assert.Equal(1, opened!.DisposeCount);
     }
 
     static void AssertFallback(byte[] image)
     {
         AssemblyReferenceIdentity fallback = Identity();
+        ThrowingDisposeMemoryStream? opened = null;
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
-                () => new ThrowingDisposeMemoryStream(image),
+                () => opened = new ThrowingDisposeMemoryStream(image),
                 fallback,
                 AssemblyResolutionProvenance.Local("format admission test"),
                 out bool usedFallback);
         Assert.True(usedFallback);
         Assert.Equal(fallback, assembly.Identity);
+        Assert.Equal(1, opened!.DisposeCount);
     }
 
-    static ResolvedAssemblyReference Descriptor(byte[]? image = null)
+    static ResolvedAssemblyReference Descriptor(byte[] image)
     {
-        image ??= BuildManagedWindowsMetadata();
         return ResolvedAssemblyReference.Create(
             Identity(),
             path: null,
@@ -211,7 +248,7 @@ public sealed class MetadataAdmissionCleanupTests
         return image.ToArray();
     }
 
-    static byte[] BuildNoMetadataImage()
+    internal static byte[] BuildNoMetadataImage()
     {
         byte[] image = BuildManagedModule();
         using var peReader = new PEReader(
@@ -227,8 +264,12 @@ public sealed class MetadataAdmissionCleanupTests
     internal sealed class ThrowingDisposeMemoryStream(byte[] image)
         : MemoryStream(image, writable: false)
     {
+        public int DisposeCount { get; private set; }
+
         protected override void Dispose(bool disposing)
         {
+            if (disposing)
+                DisposeCount++;
             base.Dispose(disposing);
             if (disposing)
             {

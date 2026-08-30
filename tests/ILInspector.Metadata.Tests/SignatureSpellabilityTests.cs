@@ -130,10 +130,10 @@ public sealed class SignatureSpellabilityTests
     [Fact]
     public void InspectField_CleanupCannotDegradeFormatRejection()
     {
-        using var fixture = OpenFixture(
-            new ThrowingCleanupImageResolver(
-                MetadataAdmissionCleanupTests
-                    .BuildManagedWindowsMetadata()));
+        var resolver = new ThrowingCleanupImageResolver(
+            MetadataAdmissionCleanupTests
+                .BuildManagedWindowsMetadata());
+        using var fixture = OpenFixture(resolver);
 
         Assert.Throws<UnsupportedMetadataFormatException>(
             () => fixture.Spellability.InspectField(
@@ -145,6 +145,31 @@ public sealed class SignatureSpellabilityTests
                 GenericContext.ForType(
                     fixture.Reader,
                     fixture.Type)));
+        Assert.Equal(1, resolver.Opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void InspectField_NoMetadataCleanupCannotDegradeFallback()
+    {
+        var resolver = new ThrowingCleanupImageResolver(
+            MetadataAdmissionCleanupTests
+                .BuildNoMetadataImage());
+        using var fixture = OpenFixture(resolver);
+
+        SignatureSpellabilityResult result =
+            fixture.Spellability.InspectField(
+                fixture.Reader,
+                GetField(
+                    fixture.Reader,
+                    fixture.Type,
+                    "VisibleField"),
+                GenericContext.ForType(
+                    fixture.Reader,
+                    fixture.Type));
+
+        Assert.True(result.CanSpell);
+        Assert.Null(result.DecodeStatus);
+        Assert.Equal(1, resolver.Opened!.DisposeCount);
     }
 
     static Fixture OpenFixture(IAssemblyReferenceResolver? resolver = null)
@@ -329,14 +354,18 @@ public sealed class SignatureSpellabilityTests
     sealed class ThrowingCleanupImageResolver(byte[] image)
         : IAssemblyReferenceResolver
     {
+        public MetadataAdmissionCleanupTests.ThrowingDisposeMemoryStream?
+            Opened { get; private set; }
+
         public ResolvedAssemblyReference? Resolve(
             AssemblyReferenceIdentity identity,
             AssemblyResolutionScope scope) =>
             ResolvedAssemblyReference.Create(
                 identity,
                 path: null,
-                () => new MetadataAdmissionCleanupTests
-                    .ThrowingDisposeMemoryStream(image),
+                () => Opened =
+                    new MetadataAdmissionCleanupTests
+                        .ThrowingDisposeMemoryStream(image),
                 AssemblyResolutionProvenance.Local(
                     "deferred unsupported image"));
     }

@@ -76,7 +76,9 @@ public static class AssemblyTypeDeclarationInventoryReader
         try
         {
             stream = assembly.OpenRead();
-            peReader = new PEReader(stream);
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
             if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 return Reject(

@@ -64,6 +64,7 @@ public sealed class MetadataSourceFormatAdmissionTests
     public void OpenFromResolvedAssembly_CleanupCannotReplaceFormatRejection()
     {
         byte[] image = BuildManagedWindowsMetadata();
+        ThrowingDisposeMemoryStream? opened = null;
         var assembly = ResolvedAssemblyReference.Create(
             new AssemblyReferenceIdentity(
                 "Unsupported",
@@ -71,13 +72,14 @@ public sealed class MetadataSourceFormatAdmissionTests
                 Culture: null,
                 PublicKeyToken: null),
             path: null,
-            () => new ThrowingDisposeMemoryStream(image),
+            () => opened = new ThrowingDisposeMemoryStream(image),
             AssemblyResolutionProvenance.Local("format admission test"));
 
         Assert.Throws<UnsupportedMetadataFormatException>(
             () => MetadataSource.OpenWithoutSymbols(
                 assembly,
                 TestAssemblyReferenceResolvers.None));
+        Assert.Equal(1, opened!.DisposeCount);
     }
 
     static byte[] BuildManagedWindowsMetadata()
@@ -127,8 +129,12 @@ public sealed class MetadataSourceFormatAdmissionTests
     sealed class ThrowingDisposeMemoryStream(byte[] image)
         : MemoryStream(image, writable: false)
     {
+        public int DisposeCount { get; private set; }
+
         protected override void Dispose(bool disposing)
         {
+            if (disposing)
+                DisposeCount++;
             base.Dispose(disposing);
             if (disposing)
             {

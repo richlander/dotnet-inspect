@@ -190,7 +190,9 @@ those distinct mechanisms as unsupported-input and malformed-input results.
 They must not translate either to `null`, an empty projection, or partial rows.
 An admission owner that rejects an image disposes every reader and stream it
 has not transferred, but a cleanup failure must not replace the admission
-failure or turn a typed rejection into degraded success.
+failure or turn a typed rejection into degraded success. When an owner retains
+separate reader and stream handles, it leaves the stream open in the reader and
+disposes each handle exactly once.
 Workspace realization uses
 `WorkspaceContextLoadFailureKind.UnsupportedMetadataFormat` consistently for
 package, platform, and embedded members; grouped package preflight retains the
@@ -221,7 +223,8 @@ no-metadata boundary. Neither it nor a malformed-root result is translated to
 Acquisition owners call it before exposing metadata sessions. Public or
 reusable `PEReader` entry points that can bypass those owners call it directly.
 That closure includes `AssemblyImage`, `PdbContext`, Decompiler
-`MetadataSource`, `MetadataImageInspector`, every `MetadataTableProjector`
+`MetadataSource`, Analysis `LibraryBodyIndex` and its referenced-image
+consumers, `MetadataImageInspector`, every `MetadataTableProjector`
 table/row/reference/heap operation, and the defensive
 `MethodSemanticsRowReader` leaf check. `MDP017` in
 [member inspection planning and Metadata
@@ -240,11 +243,16 @@ raw `PEReader.HasMetadata` predicate from running before that admission in the
 Metadata assembly.
 `LayeringTests.Decompiler_MetadataSourceRequiresFormatAdmission` applies the
 same compiled-IL closure to Decompiler `MetadataSource` predicates and reader
-construction. `MetadataAdmissionCleanupTests`,
+construction. The `Analysis_MetadataReadersRequireFormatAdmission` and
+`Analysis_MetadataPredicatesRequireFormatAdmission` gates close the same raw
+reader and predicate paths across the Analysis assembly.
+`MetadataAdmissionCleanupTests`,
 `MetadataSourceFormatAdmissionTests`, and
 `SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
 gate cleanup precedence across the stream-backed Metadata and Decompiler
-admission consumers. Browser projection
+admission consumers. `MetadataFormatAdmissionTests` and
+`AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation.
+Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.
 These focused gates do not close `MDP017`'s separately planned cache,

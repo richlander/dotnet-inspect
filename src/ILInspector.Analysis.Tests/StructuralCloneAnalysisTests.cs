@@ -1282,6 +1282,10 @@ public class StructuralCloneAnalysisTests
             static blocker =>
                 blocker.Kind
                     == StructuralCloneBlockerKind.MetadataReadFailure);
+        Assert.Contains(
+            nameof(MalformedMetadataRootException),
+            Assert.Single(comparison.Blockers).Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]

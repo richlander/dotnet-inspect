@@ -165,6 +165,8 @@ static class AnalysisIndexCache
     static Exception SnapshotFailure(CandidateOpenFailure failure) =>
         failure.Kind switch
         {
+            CandidateOpenFailureKind.UnsupportedMetadataFormat =>
+                new UnsupportedMetadataFormatException(),
             CandidateOpenFailureKind.Unreadable =>
                 new IOException(failure.Detail),
             CandidateOpenFailureKind.InvalidImage =>

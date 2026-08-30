@@ -433,8 +433,11 @@ public sealed class LibraryBodyIndex
         ImmutableArray<MethodIdentity> methods)
     {
         using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream);
-        var reader = peReader.GetMetadataReader();
+        using var peReader = new PEReader(
+            stream,
+            PEStreamOptions.LeaveOpen);
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
         var methodMap = MethodDefinitionMap.Create(methods);
         return
         [
@@ -1204,7 +1207,9 @@ public sealed class LibraryBodyIndex
             ? PEStreamOptions.PrefetchEntireImage
             : PEStreamOptions.Default;
         using var stream = File.OpenRead(path);
-        using var peReader = new PEReader(stream, streamOptions);
+        using var peReader = new PEReader(
+            stream,
+            streamOptions | PEStreamOptions.LeaveOpen);
         return BuildFromReader(
             path,
             peReader,
@@ -1241,7 +1246,8 @@ public sealed class LibraryBodyIndex
                 bodyTypeScope);
 
         using var peReader = new PEReader(image);
-        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
         LibraryBodyRootSnapshot? rootSnapshot =
             resolver is not null
                 && reader.IsAssembly
@@ -1304,12 +1310,12 @@ public sealed class LibraryBodyIndex
         string path,
         PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return false;
 
         using var builder = new LibraryBodyAnalysisBuilder(
             path,
-            peReader.GetMetadataReader(),
+            MetadataFormatAdmission.GetMetadataReader(peReader),
             peReader);
         return builder.HasUnsafeEvidence();
     }
@@ -1321,9 +1327,10 @@ public sealed class LibraryBodyIndex
         IAssemblyReferenceResolver? resolver,
         LibraryBodyRootSnapshot? rootSnapshot)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             throw new BadImageFormatException($"No managed metadata: {path}");
-        var reader = peReader.GetMetadataReader();
+        MetadataReader reader =
+            MetadataFormatAdmission.GetMetadataReader(peReader);
         LibraryBodyModuleIdentity moduleIdentity =
             LibraryBodyModuleIdentity.FromImage(reader);
         IAssemblyReferenceResolver? analysisResolver =
@@ -1416,13 +1423,14 @@ public sealed class LibraryBodyIndex
             PEStreamOptions.LeaveOpen
                 | PEStreamOptions.PrefetchMetadata))
         {
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 throw new BadImageFormatException(
                     $"No managed metadata: {path}");
             }
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
             if (!reader.IsAssembly)
                 return null;
             identity =

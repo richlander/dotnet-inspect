@@ -115,6 +115,15 @@ public sealed class AssemblyImageSnapshot
             AssemblyImageSnapshot snapshot;
             Stream stream = OpenSource(assembly);
             Exception? primaryFailure = null;
+            bool rejectionEstablished = false;
+            AssemblyImageSnapshotResult RejectOpenedImage(
+                CandidateOpenFailureKind kind,
+                string detail)
+            {
+                rejectionEstablished = true;
+                return Reject(kind, detail);
+            }
+
             try
             {
                 DateTime? lastWriteTimeUtc = stream is FileStream fileStream
@@ -125,7 +134,7 @@ public sealed class AssemblyImageSnapshot
                 if (length > int.MaxValue
                     || !tryReserveBytes(length))
                 {
-                    return Reject(
+                    return RejectOpenedImage(
                         CandidateOpenFailureKind.ResourceBudget,
                         "The retained-image budget was exhausted.");
                 }
@@ -140,7 +149,7 @@ public sealed class AssemblyImageSnapshot
                 using var peReader = new PEReader(content);
                 if (!MetadataFormatAdmission.AdmitImage(peReader))
                 {
-                    return Reject(
+                    return RejectOpenedImage(
                         CandidateOpenFailureKind.InvalidImage,
                         "The selected image has no managed metadata.");
                 }
@@ -152,7 +161,7 @@ public sealed class AssemblyImageSnapshot
                         reader);
                 if (!IdentityMatches(assembly.Identity, identity))
                 {
-                    return Reject(
+                    return RejectOpenedImage(
                         CandidateOpenFailureKind.InvalidImage,
                         "The opened image identity does not match its descriptor.");
                 }
@@ -172,15 +181,20 @@ public sealed class AssemblyImageSnapshot
             }
             finally
             {
-                if (primaryFailure is null)
-                {
-                    stream.Dispose();
-                }
-                else
+                if (primaryFailure is not null)
                 {
                     OwnedResourceCleanup.DisposeAfterFailure(
                         stream,
                         primaryFailure);
+                }
+                else if (rejectionEstablished)
+                {
+                    OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                        stream);
+                }
+                else
+                {
+                    stream.Dispose();
                 }
             }
 

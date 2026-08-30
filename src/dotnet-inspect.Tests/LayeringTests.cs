@@ -413,6 +413,22 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void Analysis_MetadataReadersRequireFormatAdmission()
+    {
+        Assert.Empty(
+            MetadataReaderConstructionSites(
+                typeof(LibraryBodyIndex).Assembly.Location));
+    }
+
+    [Fact]
+    public void Analysis_MetadataPredicatesRequireFormatAdmission()
+    {
+        Assert.Empty(
+            MetadataHasMetadataSites(
+                typeof(LibraryBodyIndex).Assembly.Location));
+    }
+
+    [Fact]
     public void MetadataPrimitives_MethodSemanticsReaderIsIsolated()
     {
         string project = Path.Combine(

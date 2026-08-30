@@ -293,7 +293,9 @@ public sealed class MetadataSource : IDisposable
         PEReader? peReader = null;
         try
         {
-            peReader = new PEReader(stream);
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
             if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {path}");
             var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -360,7 +362,9 @@ public sealed class MetadataSource : IDisposable
         PEReader? peReader = null;
         try
         {
-            peReader = new PEReader(stream);
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
             if (!MetadataFormatAdmission.AdmitImage(peReader))
                 throw new BadImageFormatException($"No managed metadata: {assembly.Identity.Name}");
             var reader = MetadataFormatAdmission.GetMetadataReader(peReader);

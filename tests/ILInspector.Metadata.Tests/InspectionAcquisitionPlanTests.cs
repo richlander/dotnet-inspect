@@ -179,7 +179,7 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
-    public void CreateFromStreamIfManaged_UnsupportedMetadataCleansUpBothOwners()
+    public void CreateFromStreamIfManaged_UnsupportedMetadataDisposesStreamOnce()
     {
         byte[] image = BuildUnsupportedMetadataAssembly();
         DisposeCountingMemoryStream? opened = null;
@@ -189,7 +189,7 @@ public class InspectionAcquisitionPlanTests
                 () => opened = new DisposeCountingMemoryStream(image),
                 AssemblyResolutionProvenance.Local("test")));
 
-        Assert.Equal(2, opened!.DisposeCount);
+        Assert.Equal(1, opened!.DisposeCount);
     }
 
     [Fact]

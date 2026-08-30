@@ -438,11 +438,13 @@ public sealed class CallerScopeReachabilityPlan
             using Stream stream = assembly.OpenRead();
             using var pe = new PEReader(
                 stream,
-                PEStreamOptions.PrefetchMetadata);
-            if (!pe.HasMetadata)
+                PEStreamOptions.PrefetchMetadata
+                    | PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(pe))
                 return CandidateSnapshot.Unopenable(assembly);
 
-            MetadataReader reader = pe.GetMetadataReader();
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(pe);
             try
             {
                 foreach (AssemblyReferenceHandle handle
@@ -512,6 +514,10 @@ public sealed class CallerScopeReachabilityPlan
             {
                 complete = false;
             }
+        }
+        catch (MalformedMetadataRootException)
+        {
+            throw;
         }
         catch (Exception ex) when (
             ex is IOException

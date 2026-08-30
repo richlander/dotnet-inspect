@@ -257,7 +257,7 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
         PEReader peReader) : IDisposable
     {
         public MetadataReader Reader { get; } =
-            peReader.GetMetadataReader();
+            MetadataFormatAdmission.GetMetadataReader(peReader);
 
         internal static ReferencedAssemblyMetadata? TryOpen(
             ResolvedAssemblyReference assembly)
@@ -267,8 +267,10 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
             try
             {
                 stream = assembly.OpenRead();
-                peReader = new PEReader(stream);
-                if (!peReader.HasMetadata)
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+                if (!MetadataFormatAdmission.AdmitImage(peReader))
                     return null;
                 var metadata =
                     new ReferencedAssemblyMetadata(
@@ -277,6 +279,14 @@ internal sealed class LibraryBodyReferenceMetadataResolver : IDisposable
                 stream = null;
                 peReader = null;
                 return metadata;
+            }
+            catch (UnsupportedMetadataFormatException)
+            {
+                throw;
+            }
+            catch (MalformedMetadataRootException)
+            {
+                throw;
             }
             catch (Exception ex) when (
                 ex is IOException

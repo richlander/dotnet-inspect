@@ -460,7 +460,14 @@ public static partial class StructuralCloneAnalysis
         bool hasMetadata;
         try
         {
-            hasMetadata = image.HasMetadata;
+            hasMetadata =
+                MetadataFormatAdmission.AdmitImage(image);
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            reader = null!;
+            failure = new("metadata root", ex);
+            return false;
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -482,7 +489,7 @@ public static partial class StructuralCloneAnalysis
 
         try
         {
-            reader = image.GetMetadataReader();
+            reader = MetadataFormatAdmission.GetMetadataReader(image);
             failure = default;
             return true;
         }

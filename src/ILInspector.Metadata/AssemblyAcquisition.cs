@@ -421,7 +421,9 @@ public sealed class ResolvedAssemblyReference
 
             try
             {
-                peReader = new PEReader(stream);
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
                 if (!MetadataFormatAdmission.AdmitImage(peReader))
                 {
                     rejectionEstablished = true;

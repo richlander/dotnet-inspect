@@ -136,10 +136,13 @@ public sealed class SignatureSpellability
         var types = new HashSet<string>(StringComparer.Ordinal);
         Stream? stream = null;
         PEReader? pe = null;
+        bool noMetadataEstablished = false;
         try
         {
             stream = resolved.OpenRead();
-            pe = new PEReader(stream);
+            pe = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
             resolved.ValidateArtifactContent(pe);
             if (MetadataFormatAdmission.AdmitImage(pe))
             {
@@ -149,6 +152,10 @@ public sealed class SignatureSpellability
                     if (!IsExternallyVisible(reader, handle))
                         types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
                 }
+            }
+            else
+            {
+                noMetadataEstablished = true;
             }
         }
         catch (Exception ex) when (
@@ -173,8 +180,17 @@ public sealed class SignatureSpellability
         }
         finally
         {
-            pe?.Dispose();
-            stream?.Dispose();
+            if (noMetadataEstablished)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref pe,
+                    ref stream);
+            }
+            else
+            {
+                pe?.Dispose();
+                stream?.Dispose();
+            }
         }
 
         return new NonPublicTypeSet(types);
