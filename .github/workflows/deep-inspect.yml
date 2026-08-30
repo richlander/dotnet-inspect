@@ -20,7 +20,9 @@ on:
     # Daily release certification: full slow tests, the decompiler corpus, and
     # Windows/macOS/latest-Ubuntu compatibility.
     - cron: '0 6 * * *'
-    # Weekly discovery: current packages and the authored-corpus ratchet.
+    # Daily authored-corpus regression detection, separate from certification.
+    - cron: '0 9 * * *'
+    # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
 
 env:
@@ -661,7 +663,7 @@ jobs:
     #
     # Note what must NOT be done instead: merely omitting --ratchet-baseline selects the
     # historical perfection contract (invalid == 0), which this ~5,200-invalid corpus
-    # cannot satisfy, so the job would fail every week and file a scheduled-failure
+    # cannot satisfy, so the job would fail every night and file a scheduled-failure
     # issue every time. Permanently red reports exactly as much as permanently green.
     # --integrity-only, which this lane carried until the bootstrap was crossed, claims
     # only that the measurement was sound and declines to judge quality at all.
@@ -672,13 +674,12 @@ jobs:
     # than it claimed and a quality metric on such a run is meaningless. It also archives
     # the run JSON, which is the input to appending a trend-store row.
     if: >-
-      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * 1') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 9 * * *') ||
       inputs.lane == 'authored-corpus' ||
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
-    # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
-    # roughly 45-60 minutes, plus the package sweep. The budget is deliberately loose
-    # because this job has never run in CI.
+    # The complete lane measured 59 minutes on main. The budget stays deliberately
+    # loose for restore and runner variance.
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v6
