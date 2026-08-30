@@ -134,9 +134,10 @@ public sealed class StateMachineCompletenessTests
         Assert.True(
             offenders.Count == 0,
             $"""
-            {offenders.Count} of {examined} measured assemblies in this test's own
-            output directory did not authenticate every structural state machine
-            they carry ({notManaged} further file(s) were not managed assemblies).
+            {offenders.Count} file(s) in this test's own output directory could
+            not be measured consistently or did not authenticate every structural
+            state machine they carry. {examined} assemblies were measured and
+            {notManaged} file(s) were classified as non-managed.
 
             {Truncated(offenders)}
             """);
@@ -352,12 +353,12 @@ public sealed class StateMachineCompletenessTests
                 ({totals.Structural} structural, {totals.Resolved} resolved,
                 {totals.Absent} absent).
 
-                A refusal has two possible causes, and the failure kinds listed
-                below do not reliably distinguish them. Either an attribute
-                claimed the type and the claim failed its role requirements, or
-                the module failed to index at all, in which case every structural
-                machine in it reports Rejected regardless of whether anything
-                claimed it (see #4833).
+                A refusal has two cause classes, and the failure kinds listed
+                below do not reliably distinguish them. Either a claim involving
+                the type failed identity or role authentication, or the module
+                failed to index at all, in which case every structural machine in
+                it reports Rejected regardless of whether anything claimed it
+                (see #4833).
 
                 A known cause of the first is trimming: ILLink removes
                 SetStateMachine, which both ClassicAsync and AsyncIterator require,
@@ -451,12 +452,13 @@ public sealed class StateMachineCompletenessTests
                 Path.Combine(corpus, "good.dll"));
             File.WriteAllText(
                 Path.Combine(corpus, "notes.txt"), "not a portable executable");
+            File.WriteAllBytes(Path.Combine(corpus, "_._"), []);
 
             string? problems = SweepProblems(corpus, out string surveyed);
 
             Assert.True(problems is null, $"{surveyed}\n\n{problems}");
             AssertSurvey(
-                "1 managed assemblies measured, 1 non-managed skipped, "
+                "1 managed assemblies measured, 2 non-managed skipped, "
                     + "0 unclassifiable, 0 unreadable.",
                 surveyed);
         }
@@ -487,6 +489,7 @@ public sealed class StateMachineCompletenessTests
             Assert.NotEqual(0, report.Structural);
             Assert.Equal(0, report.Resolved);
             Assert.Equal(report.Structural, report.Rejected);
+            Assert.Equal("Unresolved", Assert.Single(report.RejectionKinds));
 
             string? problems = SweepProblems(corpus, out string surveyed);
 
@@ -936,6 +939,9 @@ public sealed class StateMachineCompletenessTests
     /// </summary>
     enum ClaimExitSite
     {
+        /// <summary>An empty file makes no managed claim.</summary>
+        EmptyFile,
+
         /// <summary>The first signature byte is present and is not <c>M</c>.</summary>
         SignatureFirstByteWrong,
 
@@ -1003,8 +1009,14 @@ public sealed class StateMachineCompletenessTests
             Span<byte> dos = stackalloc byte[64];
             int read = stream.ReadAtLeast(dos, dos.Length, throwOnEndOfStream: false);
 
-            // A present wrong signature byte proves non-PE; a missing byte
-            // leaves managed status indeterminate.
+            // An empty file and a present wrong byte prove non-PE; a missing
+            // second signature byte leaves managed status indeterminate.
+            if (read == 0)
+            {
+                exitSite = ClaimExitSite.EmptyFile;
+                return ManagedClaim.No;
+            }
+
             if (read >= 1 && dos[0] != (byte)'M')
             {
                 exitSite = ClaimExitSite.SignatureFirstByteWrong;
