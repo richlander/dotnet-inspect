@@ -2,23 +2,20 @@
 (***************************************************************************)
 (* C5 of docs/design/state-machine-relationship-index.md.                  *)
 (*                                                                         *)
-(* Production creates one union-find node per published rejection. A node  *)
-(* connects through tagged identities in four domains: kickoff MethodDef,  *)
-(* state-machine TypeDef, implementation MethodDef, and a claimed type name *)
-(* registered for reuse by RejectKickoffCandidates. A claimed name carried  *)
-(* only as diagnostic evidence is not thereby a link.                      *)
-(* It separately contributes diagnostic evidence. This model preserves     *)
-(* that separation: `links` determine connectivity; `payload` determines   *)
+(* A rejection publication is the model's node. It connects through tagged *)
+(* identities in four domains: kickoff MethodDef, state-machine TypeDef,    *)
+(* implementation MethodDef, and claimed type name admitted for reuse. A   *)
+(* claimed name carried only as diagnostic evidence is not thereby a link. *)
+(* `links` determine connectivity; `payload` separately determines         *)
 (* accumulated evidence.                                                   *)
 (*                                                                         *)
-(* MergeKeys collapses the four dictionaries into one finite set. Read     *)
-(* every value as domain-tagged: the same numeric token in two domains is   *)
-(* two different keys. EvidenceItems is tagged the same way across kickoff  *)
-(* candidates, state-machine candidates, and claimed types. Claimed-name   *)
-(* links have the same connectivity semantics even though production stores *)
-(* their representative in a separate dictionary. Which representative a   *)
-(* dictionary retains cannot change connected components; `LatestOwners`   *)
-(* derives one representative per key from the publication history.        *)
+(* MergeKeys abstracts the four domains into one finite set. Read every     *)
+(* value as domain-tagged: the same numeric token in two domains is two     *)
+(* different keys. EvidenceItems is tagged the same way across kickoff      *)
+(* candidates, state-machine candidates, and claimed types. Every link has *)
+(* the same connectivity semantics. `LatestOwners` derives one model       *)
+(* representative per key from publication history; representative choice  *)
+(* cannot change connected components.                                     *)
 (***************************************************************************)
 
 EXTENDS FiniteSets, Naturals
@@ -32,7 +29,7 @@ CONSTANTS
 
 (***************************************************************************)
 (*   MergeMode  = "Component"       merge every existing component reached *)
-(*              = "NewOnly"         publish without MergeExisting           *)
+(*              = "NewOnly"         publish without joining prior nodes     *)
 (*              = "Representatives" merge only current representatives      *)
 (*              = "All"             merge unrelated publications too        *)
 (*                                                                         *)
@@ -65,7 +62,7 @@ VARIABLES
     payload,        \* publication -> contributed diagnostic evidence
     claimKind,      \* publication -> its own failure kind
     claimDetail,    \* publication -> its own failure detail
-    component,      \* publication -> union-find component id
+    component,      \* publication -> abstract component id
     frozenEvidence, \* publication -> component evidence membership
     frozenKind,     \* publication -> selected component kind
     frozenDetail    \* publication -> selected component detail

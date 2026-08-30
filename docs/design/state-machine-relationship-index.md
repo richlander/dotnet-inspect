@@ -231,7 +231,7 @@ this population matches only that one interface.
 
 Each invariant below names the gate that enforces it, or is marked
 `unverified`, per
-[`AGENTS.md`](../../AGENTS.md#asserted-properties-name-their-gate).
+[`Asserted properties name their gate`](../evidence-and-validation.md#asserted-properties-name-their-gate).
 References to #4835 describe proposed evidence, not gates on `main`.
 
 ### C1 — Totality
