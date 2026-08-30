@@ -276,6 +276,13 @@ while IFS= read -r -d '' file; do
     TLA=true
     continue
   fi
+  # Portable lowercase fold (avoids bash 4+ ${var,,}, since local dev on
+  # macOS defaults to bash 3.2): used only where extension case must not
+  # affect classification, e.g. the TLA+ patterns below, since
+  # eng/run-tla-checks.sh discovers .tla/.cfg files case-insensitively
+  # (find -iname) and a mismatch here would silently exempt an
+  # uppercase/mixed-case module or config from the tla-plus job.
+  file_lower=$(printf '%s' "$file" | tr '[:upper:]' '[:lower:]')
   case "$file" in
     # The browser engine is a real product consumer, so changes in its product dependency
     # graph must compile it as well as the solution. Test hosts, CLI-only projects, and
@@ -416,10 +423,14 @@ while IFS= read -r -d '' file; do
   # (the docs lane is otherwise a cheap markdownlint-only pass).
   case "$file" in
     .github/workflows/ci.yml) TLA=true ;;
+  esac
+  case "$file_lower" in
     docs/design/models/*.tla|docs/design/models/*.cfg) TLA=true ;;
     docs/design/models/*/*.tla|docs/design/models/*/*.cfg) TLA=true ;;
     docs/models/*.tla|docs/models/*.cfg) TLA=true ;;
     docs/models/*/*.tla|docs/models/*/*.cfg) TLA=true ;;
+  esac
+  case "$file" in
     eng/run-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;
   esac
   # The decompiler docket/byte-neutrality gates cost ~8 minutes, so

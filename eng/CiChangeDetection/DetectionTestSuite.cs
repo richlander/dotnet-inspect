@@ -878,6 +878,23 @@ internal static class DetectionTestSuite
                 FormatValues(tlaOverrides));
         }
 
+        // eng/run-tla-checks.sh discovers .tla/.cfg files case-insensitively
+        // (find -iname), so a file with an uppercase or mixed-case
+        // extension must still route to the tla-plus job -- otherwise the
+        // job is silently skipped for content the runner would check.
+        Dictionary<string, string> tlaUppercaseModule = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/semantic-row-selection/Uppercase.TLA",
+            outputs);
+        if (tlaUppercaseModule["tla"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Uppercase-extension TLA+ module canary did not select tla: " +
+                FormatValues(tlaUppercaseModule));
+        }
+
         Dictionary<string, string> nonModelDoc = RunDetection(
             repository,
             body,

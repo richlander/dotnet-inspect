@@ -95,22 +95,70 @@ CHECKED_MODULES=0
 CHECKED_CONFIGS=0
 TIMEOUTS=0
 
-# Reject a duplicate cfg key in the override file up front: override_module_for
-# returns on the first match, so a second, conflicting entry for the same cfg
-# path would otherwise be silently ignored and the cfg checked against
-# whichever module happened to be listed first, rather than the file being
-# treated as a config error.
+# Validate the whole override file up front, before any model checking
+# begins, so a config mistake in it fails loudly and specifically instead of
+# silently degrading to "no override" (which falls through to the sole-.tla
+# / same-basename fallback and can pair a .cfg against the wrong module) or
+# aborting this script with no diagnostic at all.
 if [ -f "$MODULE_OVERRIDES_FILE" ]; then
-  duplicate_keys=$(
-    grep -v -e '^[[:space:]]*$' -e '^[[:space:]]*#' "$MODULE_OVERRIDES_FILE" \
-      | cut -d= -f1 | sort | uniq -d
-  )
+  seen_keys_file=$(mktemp)
+  line_no=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_no=$((line_no + 1))
+    case "$line" in
+      ""|"#"*) continue ;;
+    esac
+    case "$line" in
+      *=*) ;;
+      *)
+        echo "::error::$MODULE_OVERRIDES_FILE:$line_no is malformed ('$line'): expected '<cfg-path>=<module>'." >&2
+        FAILURES=$((FAILURES + 1))
+        continue
+        ;;
+    esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    trimmed_key="${key#"${key%%[![:space:]]*}"}"
+    trimmed_key="${trimmed_key%"${trimmed_key##*[![:space:]]}"}"
+    trimmed_value="${value#"${value%%[![:space:]]*}"}"
+    trimmed_value="${trimmed_value%"${trimmed_value##*[![:space:]]}"}"
+    if [ "$key" != "$trimmed_key" ] || [ "$value" != "$trimmed_value" ]; then
+      echo "::error::$MODULE_OVERRIDES_FILE:$line_no has leading or trailing whitespace around '=' ('$line'); remove it so the mapping is unambiguous." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if [ -z "$key" ] || [ -z "$value" ]; then
+      echo "::error::$MODULE_OVERRIDES_FILE:$line_no has an empty cfg path or module name ('$line')." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    if [ ! -f "$key" ]; then
+      # A stale/typo'd key never matches any real .cfg, so it silently does
+      # nothing -- the override is dropped and, if a .cfg later exists at a
+      # path close enough to fall into the same-basename/sole-.tla fallback,
+      # it can be silently checked against the wrong module instead.
+      echo "::error::$MODULE_OVERRIDES_FILE:$line_no names '$key', which does not exist. Fix the path or remove the stale entry." >&2
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+    printf '%s\n' "$key" >> "$seen_keys_file"
+  done < "$MODULE_OVERRIDES_FILE"
+
+  # override_module_for() returns on the first key match, so a second,
+  # conflicting entry for the same cfg path would otherwise be silently
+  # ignored and the cfg checked against whichever module happened to be
+  # listed first, rather than the file being treated as a config error.
+  # sort/uniq on a file with zero well-formed lines (e.g. comment-only, or
+  # entirely malformed) is not itself an error -- there is simply nothing to
+  # deduplicate -- so this must not raise a spurious failure in that case.
+  duplicate_keys=$(sort "$seen_keys_file" | uniq -d)
   if [ -n "$duplicate_keys" ]; then
     while IFS= read -r key; do
       echo "::error::$MODULE_OVERRIDES_FILE has more than one entry for '$key'. Remove the duplicate so the module mapping is unambiguous." >&2
       FAILURES=$((FAILURES + 1))
     done <<< "$duplicate_keys"
   fi
+  rm -f "$seen_keys_file"
 fi
 
 # The discovery loop below only picks up .tla/.cfg files that live exactly
@@ -131,6 +179,16 @@ for root in "${MODEL_ROOTS[@]}"; do
     echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
     FAILURES=$((FAILURES + 1))
   done < <(find "$root" -mindepth 3 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
+  # find's directory/file discovery below does not follow symlinks (no -L),
+  # so a symlinked model directory -- or a symlinked file inside one -- is
+  # invisible to every check in this script: it is not -type d, so the main
+  # loop's directory discovery skips it entirely, and it is skipped by the
+  # rejection scans above for the same reason. Reject any symlink under a
+  # model root outright rather than silently ignoring whatever it hides.
+  while IFS= read -r -d '' link; do
+    echo "::error::$link is a symlink; eng/run-tla-checks.sh does not follow symlinks under $root and cannot verify what it points to. Replace it with a real file or directory." >&2
+    FAILURES=$((FAILURES + 1))
+  done < <(find "$root" -type l -print0)
 done
 
 for root in "${MODEL_ROOTS[@]}"; do
