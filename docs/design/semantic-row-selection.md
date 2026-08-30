@@ -657,10 +657,9 @@ The implementation must add these named Release gates:
 The
 [typed row-source execution](row-source-execution.md) contract owns the
 required equivalence gate comparing every optimized offer it supports with this
-complete-sequence reference executor. Its current outcome algebra does not
-transport owner-domain semantic or callback failures, so strict windows and
-potentially throwing callbacks, comparers, or resolvers are permit barriers.
-The gate proves those offers decline before execution. Any later extension
-that transports those failures must also compare strict windows before and
-after lenient stages, reached-stage resolver cardinality, and callback/failure
-precedence.
+complete-sequence reference executor. Delegation follows that owner's
+[permit failure-observability boundary](row-source-execution.md#other-delegated-observations):
+`OwnerFailureObservable` operations remain in the reference or row-handoff
+residual path. Any later extension that transports those failures must also
+compare strict windows before and after lenient stages, reached-stage resolver
+cardinality, and callback/failure precedence.

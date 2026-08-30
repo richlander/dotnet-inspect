@@ -22,8 +22,8 @@ Related designs:
 - [Inspection layers](inspection-layers.md) assigns executable request and
   result binding to L2.
 - [Typed row-source execution](row-source-execution.md) owns source offer
-  negotiation, receipts, completion-evidence binding, and the equivalence gate
-  for accepted upstream Count.
+  negotiation, receipts, completion-evidence binding, and the equivalence gates
+  for accepted upstream Count and row handoff.
 - [Item and line selection composition](item-and-line-limits.md) sequences L2
   with source execution and presentation without redefining either owner.
 
@@ -510,8 +510,8 @@ The optimized result must also preserve:
 
 If an optimization cannot establish those properties, sufficient rows return
 to L2 for residual shaping. A fast incomplete number is not a Count result.
-An operation whose owner-domain failure cannot cross the current source
-outcome algebra remains on that reference or residual path before acceptance.
+An operation classified `OwnerFailureObservable` by its owner remains on that
+reference or residual path before acceptance.
 
 This optimization property remains unverified until an adoption implements the
 applicable conditional Release gates from the focused source design.
