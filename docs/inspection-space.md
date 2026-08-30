@@ -895,17 +895,22 @@ retrieval rather than multiplying per-row work. Each candidate type-name
 attempt consumes structural-name work, and decode failures also count against
 the decode-failure ceiling. Method projection is validated once per image
 rather than at each projection site: the query admits a reader only after
-confirming that the TypeDef method ranges cover the MethodDef table exactly
-once, and seed and population resolution accept only an image carrying that
-confirmation. A repeated or out-of-range row, a `MethodPtr` table that aliases
-one MethodDef row into two types, and a `MethodList` start past the table --
-which SRM reports as an empty range rather than an error -- are all typed
+confirming that no TypeDef method range reports a negative length and that
+the ranges cover the MethodDef table exactly once, and seed and population
+resolution accept only an image carrying that confirmation. Those two
+requirements bound the underlying `MethodList` column jointly, which is why
+neither is redundant: a negative length is what makes the starts
+non-decreasing, and coverage is what forces the first start to row 1 and every
+later start into the table. A repeated or out-of-range row, a `MethodPtr` table
+that aliases one MethodDef row into two types, a descending range, and a
+`MethodList` start past the table -- which SRM reports as an empty or
+negative-length range rather than an error -- are all typed
 metadata failures in the participant role that read the image, instead of
 reaching Analysis as untyped argument errors, being reported as a member
 ambiguity, or returning a success-shaped empty population. The check is a
-single pass over the image's own tables; it is not a claim that every
-malformed image is diagnosed before Analysis. It introduces no network,
-source, Research, Finding, Decompiler, or presentation capability.
+single pass over the image's own tables and reads no raw table bytes; it is not
+a claim that every malformed image is diagnosed before Analysis. It introduces
+no network, source, Research, Finding, Decompiler, or presentation capability.
 `AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
 product-result preservation, type and whole-assembly population behavior,
 exact-member, extension-member, and token selection, ambiguity, limit
@@ -921,7 +926,13 @@ Ten cases gate whole-image method ownership across the type-scoped,
 whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
 covering duplicate, out-of-range, cross-type aliased, and silently empty
 projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
-metadata declaring no TypeDef rows. An eleventh case gates that a null
+metadata declaring no TypeDef rows. Three of the descending cases separate the
+shapes the derived bound depends on: a `MethodPtr`-free image bounded by the
+MethodDef table, and a reordered `MethodPtr` permutation whose final range end
+comes from a different table than the one being covered. A further case starts
+the column past MethodDef row 1 while every range keeps a non-negative length,
+so it is rejected by coverage alone and pins the half of the ordering proof the
+range-length check cannot supply. An eleventh case gates that a null
 `MethodList`, which ECMA-335 permits and the runtime reader projects as an
 empty run, is accepted rather than reported as malformed. A twelfth gates
 uniqueness of the exact seed member, which a rejected sibling leaves unproven,

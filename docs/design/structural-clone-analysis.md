@@ -317,11 +317,15 @@ The
 `Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection`,
 `Execute_MalformedMethodRangeIsAVisibleRejection`,
 `Execute_UncoveredMethodPtrRowIsAVisibleRejection`,
-`Execute_TypeDeflessImageIsAVisibleRejection`, and
-`Execute_DescendingMethodListIsAVisibleRejection` gates cover those boundaries.
-Removing the ownership check fails seven of them; removing the `MethodPtr`
-row-count, TypeDef-presence, and `MethodList` ordering guards each fails one
-more.
+`Execute_TypeDeflessImageIsAVisibleRejection`,
+`Execute_DescendingMethodListIsAVisibleRejection`,
+`Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection`,
+`Execute_DescendingReorderedMethodPtrIsAVisibleRejection`, and
+`Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` gates cover those
+boundaries.
+Removing the range-length check fails the three descending cases; removing
+coverage fails the start-past-row-1 case; removing the `MethodPtr` row-count
+and TypeDef-presence guards each fails one more.
 
 Covering the MethodDef table does not by itself prove the `MethodPtr` table is
 a permutation of it, because a row that no TypeDef range reaches is never
@@ -332,22 +336,35 @@ Requiring equal row counts closes that gap: with every projected row distinct,
 in range, and covering the MethodDef table, equal counts leave no `MethodPtr`
 row uncovered.
 
-Coverage is also blind to range *order*. SRM reports a descending range as
-empty rather than as an error, so a TypeDef whose `MethodList` start exceeds
-the following TypeDef's start contributes nothing to the projection while a
-later row still covers the table on its own. The column is therefore read
-directly and required to be non-decreasing and in range. SRM exposes no
-`MethodList` accessor, but the column is the final TypeDef field and its width
-follows SRM's own rule, so public table geometry locates it without parsing the
-metadata header. That check accepts all 41,085 sampled assemblies, 9 of which
-exercise the four-byte index width.
+Coverage is also blind to range *order*. SRM enumerates a descending range as
+empty rather than reporting an error, so a TypeDef whose `MethodList` start
+exceeds the following TypeDef's start contributes nothing to the projection
+while a later row still covers the table on its own. That range is not silent
+in every respect, though: SRM reports its `Count` as negative. Requiring every
+range to report a non-negative length therefore restores order without reading
+the column, provided the check runs on each TypeDef row before that row's
+methods are enumerated.
+
+Order and coverage bound the column jointly, and neither is redundant. A
+non-negative length makes the starts non-decreasing, so the enumerated total is
+the projected row count less the first start plus one; requiring distinct
+in-range rows totalling the MethodDef row count then forces the first start to
+row 1 and every later start into the table. A descending column passes
+coverage, and a column starting past row 1 passes the length check, so removing
+either check leaves a malformed column accepted.
+`Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection` and
+`Execute_DescendingReorderedMethodPtrIsAVisibleRejection` separate the two
+shapes the derived bound rests on -- a range end supplied by the MethodDef
+table, and one supplied by a reordering `MethodPtr` table --  while
+`Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` pins the coverage
+half by starting the column past row 1 with every length non-negative.
 
 Ordering is required, but a *null* start is not a violation of it. ECMA-335
 II.22.37 permits a null `MethodList`, and the reader projects such a run as
-empty, so the column may legally begin at zero. The ordering floor therefore
-starts at zero rather than one. A null that follows a populated run still
-fails, because it would leave the column unsorted for declaring-type lookup,
-and a null that actually drops methods still fails coverage.
+empty, so the column may legally begin at zero and a length check accepts that
+without special handling. A null that follows a populated run still fails,
+because the preceding range then reports a negative length, and a null that
+actually drops methods still fails coverage.
 `Execute_NullMethodListIsNotRejected` gates that a legal null run is not
 reported as malformed metadata.
 

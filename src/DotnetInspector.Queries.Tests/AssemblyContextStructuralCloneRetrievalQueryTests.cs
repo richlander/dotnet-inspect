@@ -1381,9 +1381,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         AssemblyContextParticipant participant =
             Assert.Single(group.Participants);
 
-        // The descending range reads as empty, so the later type covers
-        // both rows on its own and coverage alone accepts a MethodList
-        // column that is not a partition.
+        // The descending range reports a negative length and enumerates
+        // nothing, so the later type covers both rows on its own and
+        // coverage alone accepts a MethodList column that is not a
+        // partition. Only the range-length check rejects this image.
         var failed = Assert.IsType<
             AssemblyContextStructuralCloneRetrievalResult.Failed>(
                 Execute(
@@ -1405,6 +1406,128 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             failed.Failure.Kind);
         Assert.Contains(
             "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDescendingMethodListWithoutMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // The final range is bounded by the MethodDef table, so this
+        // pins the derived bound on the path where no projection table
+        // stands between the column and the methods it names.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_DescendingReorderedMethodPtrIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDescendingReorderedMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // The MethodPtr rows reverse MethodDef order, so the projected
+        // handles differ from raw row order and the final range end is
+        // supplied by MethodPtr. That is the one shape where the derived
+        // bound rests on a different table than the one being covered.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "non-decreasing",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_FirstMethodListStartPastRowOneIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildFirstStartPastRowOneAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // Every range here reports a non-negative length, so the
+        // range-length check accepts the column and coverage is the only
+        // thing that rejects it. Ordering is a joint property of the two
+        // checks; this pins the half that the length check cannot see.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(2))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "cover the MethodDef table exactly once",
             failed.Failure.Detail);
     }
 
@@ -3090,6 +3213,88 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     static byte[] BuildDescendingMethodListAssembly()
     {
         byte[] bytes = BuildMethodPtrAssembly(1, 2);
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds the descending column on an image carrying no MethodPtr
+    /// table, so the final type's range is bounded by the MethodDef
+    /// table itself rather than by a projection table.
+    /// </summary>
+    static byte[] BuildDescendingMethodListWithoutMethodPtrAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds a column that starts past MethodDef row 1 while staying
+    /// non-decreasing and in range, so every method range reports a
+    /// non-negative length and only the coverage requirement rejects
+    /// the image. This is the half of the ordering proof that the
+    /// range-length check does not supply.
+    /// </summary>
+    static byte[] BuildFirstStartPastRowOneAssembly()
+    {
+        byte[] bytes = BuildTwoTypeTwoMethodAssembly();
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
+        WriteMethodListStart(bytes, typeDefRow: 1, start: 2);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds a well-formed image whose module TypeDef and
+    /// <c>N.Fixture</c> both start at MethodDef row 1, carrying no
+    /// MethodPtr table.
+    /// </summary>
+    static byte[] BuildTwoTypeTwoMethodAssembly()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "DescendingNoMethodPtr",
+            new Guid("2B7E1C4A-58D3-4F60-9A21-7C0E5D8B3F94"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Class | TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Fixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddSyntheticMethod(metadata, encoder, "M0");
+        AddSyntheticMethod(metadata, encoder, "M1");
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    /// <summary>
+    /// Builds the descending column on a MethodPtr image whose pointer
+    /// rows reverse the MethodDef order, so the projected handles differ
+    /// from raw row order and the final type's range end comes from the
+    /// MethodPtr table.
+    /// </summary>
+    static byte[] BuildDescendingReorderedMethodPtrAssembly()
+    {
+        byte[] bytes = BuildMethodPtrAssembly(2, 1);
         WriteMethodListStart(bytes, typeDefRow: 0, start: 2);
         return bytes;
     }
