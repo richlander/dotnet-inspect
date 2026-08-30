@@ -57,8 +57,9 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and
   type-view layer over Metadata shapes.
   [Structured declaration provenance](design/csharp-structured-declaration-provenance.md)
-  owns `CSharpFormatter`'s declaration-slot classification, composition,
-  compatibility, and visible-failure contract. `CSharpTypePrinter` composes
+  owns `CSharpFormatter`'s declaration-slot classification, representability,
+  evidence-preserving fallback/degradation, and failure contract.
+  `CSharpTypePrinter` composes
   exact typed requests, including skeleton, full, stub, mixed-accessor,
   primary-constructor, and nested-type shapes, without taking a Decompiler or
   Research dependency.
@@ -164,8 +165,8 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
 - [C# structured declaration provenance](design/csharp-structured-declaration-provenance.md):
-  CSharp-owned slot classification, composition, compatibility, and failure
-  contract for model-bound declarations.
+  CSharp-owned slot classification, representability, evidence-preserving
+  fallback/degradation, and failure contract for model-bound declarations.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.
