@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -21,6 +22,27 @@ public sealed class MetadataFormatAdmissionTests
         {
             Assert.Throws<UnsupportedMetadataFormatException>(
                 () => LibraryBodyIndex.Open(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LibraryBodyIndex_PathPreservesUnmappableMetadataDirectory()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-analysis-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildUnmappableMetadataDirectory());
+        try
+        {
+            var exception = Assert.Throws<MalformedMetadataRootException>(
+                () => LibraryBodyIndex.Open(path));
+            Assert.Equal(
+                MetadataRootMalformedReason.UnmappableMetadataDirectory,
+                exception.Reason);
         }
         finally
         {
@@ -111,5 +133,19 @@ public sealed class MetadataFormatAdmissionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    internal static byte[] BuildUnmappableMetadataDirectory()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MetadataFormatAdmissionTests).Assembly.Location);
+        using var peReader = new PEReader(
+            ImmutableArray.Create(image));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 8,
+                sizeof(int)),
+            int.MaxValue);
+        return image;
     }
 }

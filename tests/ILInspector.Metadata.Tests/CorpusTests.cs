@@ -103,6 +103,125 @@ namespace ILInspector.Metadata.Tests
 
             Assert.Empty(outcome.Results);
             Assert.Contains(missing, outcome.SkippedAssemblies);
+            Assert.Equal(
+                CorpusSearchFailureKind.Unreadable,
+                Assert.Single(outcome.Failures).Kind);
+        }
+
+        [Fact]
+        public void Searches_preserve_typed_metadata_admission_failures()
+        {
+            string root = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-corpus-admission-").FullName;
+            try
+            {
+                string noMetadata = Path.Combine(root, "native.dll");
+                string unsupported = Path.Combine(root, "windows.winmd");
+                string malformed = Path.Combine(root, "malformed.dll");
+                string invalid = Path.Combine(root, "invalid.dll");
+                File.WriteAllBytes(
+                    noMetadata,
+                    MetadataAdmissionCleanupTests.BuildNoMetadataImage());
+                File.WriteAllBytes(
+                    unsupported,
+                    MetadataAdmissionCleanupTests
+                        .BuildManagedWindowsMetadata());
+                File.WriteAllBytes(
+                    malformed,
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot());
+                File.WriteAllBytes(
+                    invalid,
+                    MetadataImageOverviewTests
+                        .SelfWithCorruptTableStream());
+                var corpus = new Corpus(
+                [
+                    new CorpusMember
+                    {
+                        AssemblyPath = noMetadata,
+                        Source = "native",
+                    },
+                    new CorpusMember
+                    {
+                        AssemblyPath = unsupported,
+                        Source = "winmd",
+                    },
+                    new CorpusMember
+                    {
+                        AssemblyPath = malformed,
+                        Source = "malformed",
+                    },
+                    new CorpusMember
+                    {
+                        AssemblyPath = invalid,
+                        Source = "invalid",
+                    },
+                ]);
+
+                CorpusTypeSearchOutcome outcome =
+                    corpus.SearchTypes(["Anything"]);
+
+                Assert.Empty(outcome.Results);
+                Assert.Equal(
+                    [noMetadata, unsupported, malformed, invalid],
+                    outcome.SkippedAssemblies);
+                AssertAdmissionFailures(outcome.Failures);
+
+                CorpusMemberSearchOutcome memberOutcome =
+                    corpus.SearchMembers(["Anything"]);
+
+                Assert.Empty(memberOutcome.Results);
+                Assert.Equal(
+                    [noMetadata, unsupported, malformed, invalid],
+                    memberOutcome.SkippedAssemblies);
+                AssertAdmissionFailures(memberOutcome.Failures);
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+
+        static void AssertAdmissionFailures(
+            IReadOnlyList<CorpusSearchFailure> failures)
+        {
+            Assert.Collection(
+                    failures,
+                    failure =>
+                    {
+                        Assert.Equal(
+                            CorpusSearchFailureKind.NoMetadata,
+                            failure.Kind);
+                        Assert.Equal("native", failure.Member.Source);
+                        Assert.Null(failure.MetadataRootReason);
+                    },
+                    failure =>
+                    {
+                        Assert.Equal(
+                            CorpusSearchFailureKind
+                                .UnsupportedMetadataFormat,
+                            failure.Kind);
+                        Assert.Equal("winmd", failure.Member.Source);
+                        Assert.Null(failure.MetadataRootReason);
+                    },
+                    failure =>
+                    {
+                        Assert.Equal(
+                            CorpusSearchFailureKind.MalformedMetadataRoot,
+                            failure.Kind);
+                        Assert.Equal("malformed", failure.Member.Source);
+                        Assert.Equal(
+                            MetadataRootMalformedReason.InvalidSignature,
+                            failure.MetadataRootReason);
+                    },
+                    failure =>
+                    {
+                        Assert.Equal(
+                            CorpusSearchFailureKind.InvalidImage,
+                            failure.Kind);
+                        Assert.Equal("invalid", failure.Member.Source);
+                        Assert.Null(failure.MetadataRootReason);
+                    });
         }
 
         [Fact]

@@ -158,6 +158,31 @@ public class CallerScopeReachabilityPlanTests
     }
 
     [Fact]
+    public void Candidate_PreservesUnmappableMetadataDirectory()
+    {
+        byte[] targetImage = BuildTarget();
+        var candidate = ResolvedAssemblyReference.Create(
+            UnsupportedIdentity(),
+            path: null,
+            () => new MemoryStream(
+                MetadataFormatAdmissionTests
+                    .BuildUnmappableMetadataDirectory(),
+                writable: false),
+            AssemblyResolutionProvenance.Local(
+                "analysis format admission test"));
+
+        var exception = Assert.Throws<MalformedMetadataRootException>(
+            () => CallerScopeReachabilityPlan.Create(
+                new ExactPolicy([]),
+                Descriptor(targetImage),
+                ReadTargetDefinition(targetImage),
+                [candidate]));
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataDirectory,
+            exception.Reason);
+    }
+
+    [Fact]
     public void Candidate_NoMetadataCleanupCannotReplaceUnopenable()
     {
         byte[] targetImage = BuildTarget();

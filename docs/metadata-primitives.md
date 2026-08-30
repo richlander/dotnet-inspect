@@ -181,6 +181,11 @@ complete metadata directory for a lazy `PEReader`; that acquisition-owner cost
 is visible and measured separately. Once the block is available, classifier
 work and allocation are fixed by the root prefix and 256-byte ceiling and do
 not scale with stream, heap, table, or row content.
+An acquisition owner that relies on the classifier's typed mapping constructs
+the assembly reader lazily rather than requesting
+`PEStreamOptions.PrefetchMetadata`, because constructor-time metadata
+materialization would surface a raw `BadImageFormatException` before admission
+can classify an unmappable directory.
 Acquisition or direct projection APIs whose established return shape has no
 failure arm throw `UnsupportedMetadataFormatException` carrying no artifact
 text for unsupported Windows Metadata and
@@ -256,6 +261,9 @@ reader and predicate paths across the Analysis assembly.
 across Decompiler, Research, ILDiff, Queries, Services, and TypeScript
 generation without treating wrapper state or portable-PDB readers as
 assembly-metadata admission sites.
+`Product_AssemblyReadersDoNotPrefetchMetadataBeforeAdmission` prevents
+constructor-time assembly metadata materialization from bypassing the typed
+classifier.
 `Instructions_DoesNotExposeAssemblyImageEntryPoints` keeps the lower
 Instructions layer from publishing a raw assembly-image bypass.
 `MetadataAdmissionCleanupTests`,
@@ -263,18 +271,27 @@ Instructions layer from publishing a raw assembly-image bypass.
 `SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
 gate cleanup precedence across the stream-backed Metadata and Decompiler
 admission consumers, including no-metadata results from Metadata scanners and
-descriptor-backed inspection, constructor failures, and prefetched-image
-ownership transfer. Typed snapshot, declaration-inventory, and
+descriptor-backed inspection, `AssemblyImage` disposal, constructor failures,
+and prefetched-image ownership transfer. Typed snapshot,
+declaration-inventory, and
 structural-clone failure receipts retain the classifier's exact malformed-root
 reason without changing `CandidateOpenFailure`'s two-position public record
 contract.
-`MetadataFormatAdmissionTests` and `AnalysisIndexCacheAdmissionTests` gate
-Analysis and Research propagation.
+`MetadataFormatAdmissionTests`,
+`CallerScopeReachabilityPlanTests.Candidate_PreservesUnmappableMetadataDirectory`,
+and `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation,
+including lazy admission before metadata-directory materialization.
 `IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata`,
 `IlAssemblyDiffTests.ReaderTakingOverloads_RejectWindowsMetadata`, and the
 Services `MetadataFormatAdmissionTests` gate ILDiff and Services propagation.
 `TypeScriptFacadeEmitterTests.SurfaceLoader_PreservesMalformedMetadataRoot`
-gates TypeScript-generation propagation.
+gates TypeScript-generation propagation; the malformed-root command tests in
+`TsBindGenCommandTests` and `TsJsExportCommandTests` gate their bounded
+diagnostics and non-zero exits.
+`CorpusTests.Searches_preserve_typed_metadata_admission_failures` gates typed
+per-member no-metadata, unsupported-format, malformed-root, and invalid-image
+receipts for both Corpus search operations while retaining
+`SkippedAssemblies` as the path-only compatibility projection.
 Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.

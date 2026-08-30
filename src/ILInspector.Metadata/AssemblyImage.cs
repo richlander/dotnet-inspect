@@ -16,6 +16,7 @@ public sealed class AssemblyImage : IDisposable
 {
     readonly Stream? _stream;
     readonly Action? _ensureLenderAlive;
+    readonly bool _hasMetadata;
     readonly bool _ownsReader;
     bool _disposed;
 
@@ -26,13 +27,19 @@ public sealed class AssemblyImage : IDisposable
         PEReader peReader,
         bool ownsReader,
         Action? ensureLenderAlive = null,
-        bool admissionEstablished = false)
+        bool? admittedHasMetadata = null)
     {
-        if (!admissionEstablished)
+        bool hasMetadata;
+        if (admittedHasMetadata is bool retainedAdmission)
+        {
+            hasMetadata = retainedAdmission;
+        }
+        else
         {
             try
             {
-                _ = MetadataFormatAdmission.AdmitImage(peReader);
+                hasMetadata =
+                    MetadataFormatAdmission.AdmitImage(peReader);
             }
             catch (Exception ex)
             {
@@ -44,13 +51,20 @@ public sealed class AssemblyImage : IDisposable
 
         _stream = stream;
         PEReader = peReader;
+        _hasMetadata = hasMetadata;
         _ownsReader = ownsReader;
         _ensureLenderAlive = ensureLenderAlive;
     }
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
-    public bool HasMetadata =>
-        MetadataFormatAdmission.AdmitImage(PEReader);
+    public bool HasMetadata
+    {
+        get
+        {
+            EnsureAlive();
+            return _hasMetadata;
+        }
+    }
 
     /// <summary>Opens an image from a file path.</summary>
     public static AssemblyImage Open(string path) => FromStream(File.OpenRead(path));
@@ -113,22 +127,28 @@ public sealed class AssemblyImage : IDisposable
 
         Stream? ownedStream = stream;
         PEReader? peReader = null;
+        bool? hasMetadata = null;
         try
         {
             peReader = new PEReader(
                 ownedStream,
                 PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
-            _ = MetadataFormatAdmission.AdmitImage(peReader);
+            hasMetadata =
+                MetadataFormatAdmission.AdmitImage(peReader);
 
             Stream streamToDispose = ownedStream;
             ownedStream = null;
-            streamToDispose.Dispose();
+            if (hasMetadata.Value)
+                streamToDispose.Dispose();
+            else
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    streamToDispose);
 
             var image = new AssemblyImage(
                 stream: null,
                 peReader,
                 ownsReader: true,
-                admissionEstablished: true);
+                admittedHasMetadata: hasMetadata.Value);
             peReader = null;
             return image;
         }
@@ -175,8 +195,17 @@ public sealed class AssemblyImage : IDisposable
             return;
         _disposed = true;
 
+        if (_hasMetadata)
+        {
+            if (_ownsReader)
+                PEReader.Dispose();
+            _stream?.Dispose();
+            return;
+        }
+
         if (_ownsReader)
-            PEReader.Dispose();
-        _stream?.Dispose();
+            OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                PEReader);
+        OwnedResourceCleanup.DisposeWithoutReplacingOutcome(_stream);
     }
 }

@@ -1,4 +1,5 @@
 using System.CommandLine;
+using ILInspector.Metadata;
 using ILInspector.TypeScriptGeneration;
 
 namespace TsJsExport;
@@ -55,13 +56,26 @@ public static class TsJsExportCommand
                     "ts-jsexport: --runtime-module requires a non-empty module specifier.");
                 return 1;
             }
-            if (!JsExportSurfaceLoader.TryLoad(
-                    assemblyPath,
-                    "ts-jsexport",
-                    stderr,
-                    out global::ILInspector.JsExportSurface.JsExportSurface?
-                        surface))
+            global::ILInspector.JsExportSurface.JsExportSurface? surface;
+            try
             {
+                if (!JsExportSurfaceLoader.TryLoad(
+                        assemblyPath,
+                        "ts-jsexport",
+                        stderr,
+                        out surface))
+                {
+                    return 1;
+                }
+            }
+            catch (UnsupportedMetadataFormatException ex)
+            {
+                stderr.WriteLine($"ts-jsexport: {ex.Message}");
+                return 1;
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                stderr.WriteLine($"ts-jsexport: {ex.Message}");
                 return 1;
             }
 

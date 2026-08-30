@@ -431,6 +431,36 @@ public sealed class LayeringTests
     }
 
     [Fact]
+    public void Product_AssemblyReadersDoNotPrefetchMetadataBeforeAdmission()
+    {
+        string sourceRoot = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src");
+        string[] sites = Directory.EnumerateFiles(
+                sourceRoot,
+                "*.cs",
+                SearchOption.AllDirectories)
+            .Where(path => !path.Contains(
+                $"{Path.DirectorySeparatorChar}obj"
+                    + Path.DirectorySeparatorChar,
+                StringComparison.Ordinal))
+            .Where(path => !path.Contains(
+                ".Tests" + Path.DirectorySeparatorChar,
+                StringComparison.Ordinal))
+            .Where(path => File.ReadAllText(path).Contains(
+                "PEStreamOptions.PrefetchMetadata",
+                StringComparison.Ordinal))
+            .Select(path => Path.GetRelativePath(sourceRoot, path))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            sites.Length == 0,
+            "Assembly readers must remain lazy until format admission: "
+                + string.Join(", ", sites));
+    }
+
+    [Fact]
     public void RemainingProduct_MetadataReadersRequireFormatAdmission()
     {
         AssertAdmissionClosed(

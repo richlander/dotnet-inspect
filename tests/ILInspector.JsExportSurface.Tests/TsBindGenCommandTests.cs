@@ -298,11 +298,73 @@ public sealed class TsBindGenCommandTests
             int exitCode = TsBindGenCommand.Invoke([notAnAssembly], output, error);
 
             Assert.Equal(1, exitCode);
-            Assert.Contains("could not read", error.ToString(), StringComparison.Ordinal);
+            Assert.Contains(
+                "metadata root is malformed",
+                error.ToString(),
+                StringComparison.Ordinal);
         }
         finally
         {
             File.Delete(notAnAssembly);
+        }
+    }
+
+    [Fact]
+    public void Invoke_WithMalformedMetadataRoot_ReturnsOneAndReportsTypedError()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            $"tsbindgen-malformed-root-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                MetadataAdmissionFixture.WithUnmappableMetadataDirectory(
+                    FixtureAssemblyPath));
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke([path], output, error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "UnmappableMetadataDirectory",
+                error.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Invoke_WithWindowsMetadata_ReturnsOneAndReportsTypedError()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            $"tsbindgen-windows-metadata-{Guid.NewGuid():N}.winmd");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                MetadataAdmissionFixture.ManagedWindowsMetadata());
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke([path], output, error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "Windows Metadata",
+                error.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 

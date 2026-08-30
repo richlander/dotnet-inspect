@@ -1,5 +1,6 @@
 using System.CommandLine;
 using ILInspector.JsExportSurface;
+using ILInspector.Metadata;
 
 namespace tsbindgen;
 
@@ -49,13 +50,27 @@ public static class TsBindGenCommand
             string? diffAgainst = parseResult.GetValue(diffOption);
             string? emitJsPath = parseResult.GetValue(emitJsOption);
 
-            if (!JsExportSurfaceLoader.TryLoad(
-                    assemblyPath,
-                    "tsbindgen",
-                    stderr,
-                    out global::ILInspector.JsExportSurface.JsExportSurface?
-                        jsExportSurface))
+            global::ILInspector.JsExportSurface.JsExportSurface?
+                jsExportSurface;
+            try
             {
+                if (!JsExportSurfaceLoader.TryLoad(
+                        assemblyPath,
+                        "tsbindgen",
+                        stderr,
+                        out jsExportSurface))
+                {
+                    return 1;
+                }
+            }
+            catch (UnsupportedMetadataFormatException ex)
+            {
+                stderr.WriteLine($"tsbindgen: {ex.Message}");
+                return 1;
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                stderr.WriteLine($"tsbindgen: {ex.Message}");
                 return 1;
             }
             if (emitJsPath is not null

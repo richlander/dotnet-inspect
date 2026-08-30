@@ -441,8 +441,7 @@ public sealed class CallerScopeReachabilityPlan
             stream = assembly.OpenRead();
             pe = new PEReader(
                 stream,
-                PEStreamOptions.PrefetchMetadata
-                    | PEStreamOptions.LeaveOpen);
+                PEStreamOptions.LeaveOpen);
             if (!MetadataFormatAdmission.AdmitImage(pe))
             {
                 unavailableEstablished = true;

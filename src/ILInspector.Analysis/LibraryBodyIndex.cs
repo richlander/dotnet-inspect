@@ -1420,8 +1420,7 @@ public sealed class LibraryBodyIndex
         using (FileStream stream = File.OpenRead(fullPath))
         using (var peReader = new PEReader(
             stream,
-            PEStreamOptions.LeaveOpen
-                | PEStreamOptions.PrefetchMetadata))
+            PEStreamOptions.LeaveOpen))
         {
             if (!MetadataFormatAdmission.AdmitImage(peReader))
             {

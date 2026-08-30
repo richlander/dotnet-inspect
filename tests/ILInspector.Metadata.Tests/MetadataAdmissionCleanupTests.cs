@@ -113,6 +113,27 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void AssemblyImage_NoMetadataCleanupCannotReplaceEstablishedOutcome()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        AssemblyImage image = AssemblyImage.Open(
+            ResolvedAssemblyReference.Create(
+                Identity(),
+                path: null,
+                () => opened = new ThrowingDisposeMemoryStream(
+                    BuildNoMetadataImage()),
+                AssemblyResolutionProvenance.Local(
+                    "format admission test")));
+
+        Assert.False(image.HasMetadata);
+        image.Dispose();
+
+        Assert.Equal(1, opened!.DisposeCount);
+        Assert.Throws<ObjectDisposedException>(
+            () => _ = image.HasMetadata);
+    }
+
+    [Fact]
     public void ApiSurface_ReaderConstructionFailureDisposesStreamOnce()
     {
         var stream = new UnreadableDisposeCountingStream();
