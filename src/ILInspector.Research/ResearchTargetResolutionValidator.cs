@@ -423,12 +423,17 @@ static class ResearchTargetResolutionValidator
                 MetadataFullName(forwarder),
                 intent,
                 StringComparison.Ordinal));
+        int failedTypeDefinitions =
+            CountFailedTypeDefinitions(surface, intent);
         bool nestedUnderForwarder = surface.TypeForwarders.Any(
             forwarder => IsNestedUnder(
                 intent,
                 MetadataFullName(forwarder)));
-        if (declaringTypes.Count + forwarders > 1
-            || (declaringTypes.Count != 0 && nestedUnderForwarder))
+        int exactDeclarations =
+            declaringTypes.Count + forwarders + failedTypeDefinitions;
+        if (exactDeclarations > 1
+            || (declaringTypes.Count + failedTypeDefinitions != 0
+                && nestedUnderForwarder))
         {
             RequireNoMetadataResolution(evidence);
             RequireFailure(
@@ -441,8 +446,7 @@ static class ResearchTargetResolutionValidator
         {
             if (FindPotentiallyCoveringFailure(
                     surface,
-                    intent,
-                    declaringTypeExists: false) is not null)
+                    intent) is not null)
             {
                 RequireNoMetadataResolution(evidence);
                 RequireFailure(
@@ -510,8 +514,7 @@ static class ResearchTargetResolutionValidator
             if (expected == ResearchTargetOutcomeKind.NotFound
                 && FindPotentiallyCoveringFailure(
                     surface,
-                    intent,
-                    declaringTypeExists: true) is not null)
+                    intent) is not null)
             {
                 RequireFailure(
                     outcome,
@@ -922,8 +925,7 @@ static class ResearchTargetResolutionValidator
 
     static ApiSurfaceInspectionFailure? FindPotentiallyCoveringFailure(
         ApiSurface surface,
-        string declaringTypeFullName,
-        bool declaringTypeExists)
+        string declaringTypeFullName)
         => surface.InspectionFailures.FirstOrDefault(
             failure =>
                 failure.Operation
@@ -932,13 +934,18 @@ static class ResearchTargetResolutionValidator
                 && failure.Operation
                     != ApiSurfaceInspectionFailure
                         .EnumAttributeTypeIndexOperation
-                && (!declaringTypeExists
-                    || failure.Operation
-                        is not ApiSurfaceInspectionFailure
-                            .TypeForwarderIdentityOperation
-                            and not ApiSurfaceInspectionFailure
-                                .TypeForwarderRowOperation)
                 && MayAffectType(failure, declaringTypeFullName));
+
+    static int CountFailedTypeDefinitions(
+        ApiSurface surface,
+        string declaringTypeFullName)
+        => surface.InspectionFailures.Count(
+            failure =>
+                failure.OwningTypeDefinition is { } owner
+                && string.Equals(
+                    owner.ToMetadataFullName(),
+                    declaringTypeFullName,
+                    StringComparison.Ordinal));
 
     static bool MayAffectType(
         ApiSurfaceInspectionFailure failure,

@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -1307,6 +1308,58 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
+    public void ResearchTargetDeclaringType_RejectsFailedExactDuplicate()
+    {
+        byte[] image = BuildFailedExactDuplicateImage();
+        ApiSurface surface = ExtractSurface(image);
+        Assert.Single(
+            surface.Types,
+            type => type.DefinitionName?.ToMetadataFullName() == "N.C");
+        Assert.Single(
+            surface.InspectionFailures,
+            failure =>
+                failure.OwningTypeDefinition?.ToMetadataFullName() == "N.C");
+
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                fixture.ResolveDefault("N.C", "M").Attempts).Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeAmbiguous,
+            failed.Diagnostic.Kind);
+    }
+
+    [Fact]
+    public void ResearchTargetAbsence_UnscopedForwarderFailureBlocksOnlyAbsence()
+    {
+        byte[] image = BuildMalformedForwarderImage();
+        ApiSurface surface = ExtractSurface(image);
+        Assert.Empty(surface.TypeForwarders);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            ApiSurfaceInspectionFailure.TypeForwarderIdentityOperation,
+            failure.Operation);
+        Assert.Null(failure.OwningTypeDefinition);
+
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                fixture.ResolveDefault("N.C", "Missing").Attempts).Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
+            failed.Diagnostic.Kind);
+
+        Assert.IsType<ResearchTargetOutcome.Resolved>(
+            Assert.Single(
+                fixture.ResolveDefault("N.C", "M").Attempts).Outcome);
+    }
+
+    [Fact]
     public void ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening()
     {
         // A reference-only input is never opened: its descriptor throws if it
@@ -2104,6 +2157,149 @@ public class ResearchTargetResolverTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildFailedExactDuplicateImage()
+    {
+        MetadataBuilder metadata = CreatePartialSurfaceMetadata();
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(2));
+        AddAbstractMethod(metadata, "M", ValidMethodSignature(metadata));
+        var malformedSignature = new BlobBuilder();
+        malformedSignature.WriteByte(0xff);
+        AddAbstractMethod(
+            metadata,
+            "Broken",
+            metadata.GetOrAddBlob(malformedSignature));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildMalformedForwarderImage()
+    {
+        MetadataBuilder metadata = CreatePartialSurfaceMetadata();
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AddAbstractMethod(metadata, "M", ValidMethodSignature(metadata));
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("ForwarderTarget"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddExportedType(
+            TypeAttributes.Public | Forwarder,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            target,
+            typeDefinitionId: 0);
+
+        byte[] image = Serialize(metadata);
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        int typeNameOffset =
+            pe.PEHeaders.MetadataStartOffset
+            + reader.GetTableMetadataOffset(TableIndex.ExportedType)
+            + sizeof(uint)
+            + sizeof(uint);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(typeNameOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
+    }
+
+    static MetadataBuilder CreatePartialSurfaceMetadata()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("PartialSurface.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("PartialSurface"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        return metadata;
+    }
+
+    static BlobHandle ValidMethodSignature(MetadataBuilder metadata)
+    {
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        return metadata.GetOrAddBlob(signature);
+    }
+
+    static void AddAbstractMethod(
+        MetadataBuilder metadata,
+        string name,
+        BlobHandle signature)
+        => metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(name),
+            signature,
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static ApiSurface ExtractSurface(byte[] image)
+    {
+        using var pe = new PEReader(
+            new MemoryStream(image, writable: false));
+        return ApiSurfaceExtractor.Extract(
+            pe,
+            includeAll: true,
+            typesOnly: false,
+            includeCompilerGenerated: true);
     }
 
     sealed class TestArtifactProvenance : IArtifactProvenance

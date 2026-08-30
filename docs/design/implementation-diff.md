@@ -366,8 +366,10 @@ gates;
 `ResearchTargetDomains_RejectDuplicateSameSideCandidates`,
 `ResearchTargetDomains_BlockOnlyTheirOwnCensus`,
 `ResearchTargetAttempt_AddressEvidenceMismatchBlocksBeforeCensus`,
+`ResearchTargetAbsence_UnscopedForwarderFailureBlocksOnlyAbsence`,
 `ResearchTargetDeclaringType_DistinguishesAbsentFromForwarded`,
 `ResearchTargetDeclaringType_DoesNotInferAbsenceUnderForwarder`,
+`ResearchTargetDeclaringType_RejectsFailedExactDuplicate`,
 `ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening`,
 `ResearchTargetInputValidation_RejectsMismatchedModuleEvidence`,
 `ResearchTargetResolution_StagesEachAdmittedInputOnce`,
@@ -497,11 +499,13 @@ Analysis-issued module identity, including the descriptor-bound MVID when one
 is present. Member selection remains Metadata-owned, uses its existing API
 surface including its synthesized-method exclusions, and matches the exact
 declaring-type metadata full name. A potentially covering Metadata inspection
-failure prevents Research from asserting absence. Duplicate exact declaring
-types or forwarders fail as ambiguous. An exact type forwarder, or an intent
-nested beneath a retained root forwarder, makes the target unavailable rather
-than absent. A durable address requires an in-range `MethodDefinition` handle
-of the validated module.
+failure, including an unscoped forwarder failure, prevents Research from
+asserting absence but does not suppress an otherwise established local target.
+Retained TypeDefs, exact forwarders, and exact owner-scoped failed TypeDefs
+participate in the declaration census; duplicate exact declarations fail as
+ambiguous. An exact type forwarder, or an intent nested beneath a retained root
+forwarder, makes the target unavailable rather than absent. A durable address
+requires an in-range `MethodDefinition` handle of the validated module.
 
 `Resolved` is terminal only after Research validates that the selected target
 and durable address belong to the same admitted assembly and module. A
