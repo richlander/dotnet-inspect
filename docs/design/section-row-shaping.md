@@ -258,13 +258,25 @@ Resolution is fail-fast in this total order:
    3. every participating row set and sequence key to occur exactly once in
       the immutable forward and reverse result-binding maps.
 
-The first failure wins and no later category is evaluated. Its failure variant
-names request-wide scope for steps 1-3, projection-wide scope for the unmatched
-request in step 5, the reached declared row-set or association reference in
-steps 4, 6, and 7, or the first participating row-set identity of an invalid
-cohort in step 8. Atomicity prevents a partial executable request; it does not
-permit an implementation to choose among simultaneous invalid bindings. This
-list is complete; there is no unordered "remaining invariant" bucket.
+The first failure wins and no later category is evaluated. Its failure scope
+is:
+
+- request-wide for steps 1-3, an unmatched projection request in step 5, a
+  malformed or empty association in step 6.2, or an unknown row-set reference
+  in step 6.3;
+- the reached declared row-set identity for step 4, a duplicate association or
+  missing participating-set association in step 6, or per-set validation in
+  step 7; and
+- the first participating row-set identity for an invalid cohort in step 8.
+
+A request-wide association failure retains the typed association ordinal and,
+for an unknown reference, its reference ordinal and supplied row-set token in
+the structured reason. It does not manufacture a declared-row-set scope for an
+entry that never bound successfully.
+
+Atomicity prevents a partial executable request; it does not permit an
+implementation to choose among simultaneous invalid bindings. This list is
+complete; there is no unordered "remaining invariant" bucket.
 
 ## Reference composition
 
@@ -487,7 +499,7 @@ The implementation must add these named Release gates:
 | `StrictWindowFailurePreemptsCount` | Closed, prefix, and suffix windows return their semantic failure rather than a partial cardinality when the required position is absent. |
 | `HeadCountAcceptsProvenPrefixCompletion` | N ordered applicable rows with proof sufficient for `Head(N) -> Count` return exact N without corpus exhaustion; fewer than N without proof that no later applicable row exists returns source failure rather than a count. |
 | `CountPreservesDeclaredRowSetScope` | One participating request-complete set produces one exact entry; multiple participating request-complete sets retain declaration order and identity; no total is invented unless the producer declared one aggregate set. |
-| `RowIntentBindingIdentityIsOwnerIssued` | Repeated use of one typed intent instance shares one request-local identity; structurally equal separately declared instances remain distinct; unknown, duplicate, or missing participating-set associations reject in the exact resolution order. |
+| `RowIntentBindingIdentityIsOwnerIssued` | Repeated use of one typed intent instance shares one request-local identity and structurally equal separately declared instances remain distinct. A malformed association, empty associated-row-set list, or unknown reference returns request-wide failure with its typed association/reference position; a duplicate or missing participating-set association returns row-set-scoped failure, all in the exact resolution order. |
 | `NoRowIntentUsesDefaultBinding` | A request with no row-intent associations assigns one default request-local identity to every participating set; each schema resolves empty predicates, its effective baseline order, and an empty semantic plan, and plain Rows and Count requests complete through the ordinary cohort path. |
 | `ShapingCohortIdentityIsOwnerIssued` | Exactly one cohort identity is minted per schema-identity/intent-binding-identity pair; sets sharing it reuse one resolved contract and named semantic invocation; no structural intent, plan, or catalog comparison participates. |
 | `HeterogeneousSchemasFormOrderedCohorts` | Different cohort identities follow first participating declaration; two schemas with different `Top` bindings use their own resolvers; a sentinel failure skips every later cohort without replaying or rolling back earlier callbacks; successful results reassemble in declared order. |
@@ -498,7 +510,7 @@ The implementation must add these named Release gates:
 | `CohortExecutionFailureOrderIsDeterministic` | Cohorts execute in order; each prepares row sets in declaration order before its semantic invocation; competing row-query exceptions and semantic failures select the first reached cursor outcome and skip later work. |
 | `CrossCohortRowsAreAtomicOnExecutionFailure` | A successful earlier cohort followed by a later row-query exception or strict Window failure publishes no earlier Row-outcomes payload; exceptions propagate unchanged and semantic failure returns only its bound failure. |
 | `SectionRowResolutionIsAtomic` | Any invalid row-set, schema, projection, row-query, selection, or reduction binding returns one structured failure with explicit request-wide or declared-row-set scope and no partial executable request. |
-| `SectionRowResolutionFailureOrderIsDeterministic` | Simultaneous failures within and across request, row-set, projection, intent-binding, cohort, and result-map checks return the first exact step above; the row-query substep preserves its owner's internal order. |
+| `SectionRowResolutionFailureOrderIsDeterministic` | Simultaneous failures within and across request, row-set, projection, intent-binding, cohort, and result-map checks return the first exact step and request-wide or row-set scope above; the row-query substep preserves its owner's internal order. |
 | `SectionRowResultsArePresentationFree` | Row, Count, and failure results contain typed row-set identities, values, exact cardinalities, or owner-issued outcome evidence without headings, formatted cells, diagnostic sentences, or renderer state. |
 
 ## Non-claims
