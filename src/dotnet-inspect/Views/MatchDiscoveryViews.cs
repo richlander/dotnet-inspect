@@ -1,3 +1,4 @@
+using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using DotnetInspector.Queries;
 using ILInspector.Analysis;
@@ -29,6 +30,11 @@ internal sealed class MatchDiscoveryNames
 
     MatchDiscoveryNames(Dictionary<int, string> names) => this.names = names;
 
+    /// <summary>
+    /// Builds the token-to-name projection for one image. The caller must pass the surface of the
+    /// image whose tokens will be displayed: a MethodDef token is a table row and names nothing
+    /// outside its own image.
+    /// </summary>
     internal static MatchDiscoveryNames Build(ApiSurface api)
     {
         var names = new Dictionary<int, string>();
@@ -49,10 +55,10 @@ internal sealed class MatchDiscoveryNames
     /// non-public method without <c>--all</c>, or a compiler-generated body). The token is always
     /// shown so every row stays addressable by pairwise <c>match</c>.
     /// </summary>
-    internal string Display(int token)
-        => names.TryGetValue(token, out string? name)
+    internal string Display(MetadataMethodAddress address)
+        => names.TryGetValue(address.Token, out string? name)
             ? CSharpIdentifier.ContainRenderedText(name)
-            : $"MethodDef 0x{token:X8}";
+            : $"MethodDef 0x{address.Token:X8}";
 }
 
 [MarkoutSerializable(
@@ -161,7 +167,21 @@ public sealed record MatchDiscoveryDocument(
     MatchDiscoveryReceiptDocument? Receipt,
     ImmutableArray<MatchDiscoveryBlockerDocument> Blockers,
     ImmutableArray<MatchDiscoveryCandidateDocument> Candidates,
+    ImmutableArray<MatchDiscoveryMethodOutcomeDocument> MethodOutcomes,
     MatchDiscoveryFailureDocument? Failure);
+
+/// <summary>
+/// One candidate method's retrieval outcome, including the methods that produced no candidate.
+/// The receipt counts them in aggregate; this is what says which method each count refers to.
+/// </summary>
+public sealed record MatchDiscoveryMethodOutcomeDocument(
+    string Member,
+    string Token,
+    string Disposition,
+    ImmutableArray<MatchDiscoveryBlockerDocument> Blockers,
+    int Instructions,
+    int Blocks,
+    int Edges);
 
 public sealed record MatchDiscoveryLimitsDocument(
     int MaximumMethods,
@@ -285,6 +305,7 @@ internal static class MatchDiscoveryFormatter
             Receipt: null,
             Blockers: [],
             Candidates: [],
+            MethodOutcomes: [],
             Failure: failure);
         return (view, document);
     }
@@ -324,7 +345,7 @@ internal static class MatchDiscoveryFormatter
                 .Select(candidate => new MatchDiscoveryCandidateRow
                 {
                     Rank = candidate.Rank,
-                    Member = names.Display(candidate.Method.Token),
+                    Member = names.Display(candidate.Method),
                     Token = $"0x{candidate.Method.Token:X8}",
                     Score = candidate.Similarity.Score,
                     Operations = candidate.Similarity.OperationScore,
@@ -347,7 +368,7 @@ internal static class MatchDiscoveryFormatter
             Disclosure,
             LimitsOf(request),
             new MatchDiscoverySeedDocument(
-                names.Display(retrieval.Seed.Method.Token),
+                names.Display(retrieval.Seed.Method),
                 $"0x{retrieval.Seed.Method.Token:X8}",
                 retrieval.Seed.Disposition.ToString(),
                 [.. retrieval.Seed.Blockers.Select(
@@ -369,9 +390,20 @@ internal static class MatchDiscoveryFormatter
                     blocker.Kind.ToString(), blocker.Detail))],
             [.. candidates.Select(candidate => new MatchDiscoveryCandidateDocument(
                 candidate.Rank,
-                names.Display(candidate.Method.Token),
+                names.Display(candidate.Method),
                 $"0x{candidate.Method.Token:X8}",
                 Similarity(candidate.Similarity)))],
+            // Never bounded by --top: this is the per-method evidence behind the receipt counts.
+            [.. retrieval.Methods.Select(outcome => new MatchDiscoveryMethodOutcomeDocument(
+                names.Display(outcome.Method),
+                $"0x{outcome.Method.Token:X8}",
+                outcome.Disposition.ToString(),
+                [.. outcome.Blockers.Select(
+                    blocker => new MatchDiscoveryBlockerDocument(
+                        blocker.Kind.ToString(), blocker.Detail))],
+                outcome.Receipt.Instructions,
+                outcome.Receipt.Blocks,
+                outcome.Receipt.Edges))],
             Failure: null);
 
         return (view, document);

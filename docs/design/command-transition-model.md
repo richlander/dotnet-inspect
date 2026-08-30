@@ -430,9 +430,15 @@ A-vs-A' needs no new source grammar.
 
 Presentation and product limits stay orthogonal: `--top` bounds rendered rows,
 while `--max-results` and `--max-methods` move the product retrieval limits.
-Structured output retains every candidate, outcome, blocker, and receipt
-regardless of `--top`, so a text-shaping flag can never silently discard
-evidence.
+Structured output retains every candidate, per-method outcome, blocker, and
+receipt regardless of `--top`, so a text-shaping flag can never silently discard
+evidence. The per-method outcomes are what make the receipt's aggregate counts
+attributable: a count of skipped methods that names no method is not evidence.
+
+The disclosure follows the rendering rather than the format's convenience.
+Markdown carries it as a paragraph and structured output as a field, but table,
+TSV, and JSONL carry rows without prose, so it is written to stderr. That keeps
+the obligation unconditional without corrupting a parsed stream.
 
 ## Timeline and bisect consequences
 

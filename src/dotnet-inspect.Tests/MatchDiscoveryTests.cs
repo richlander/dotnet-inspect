@@ -1,4 +1,10 @@
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.Views;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Fixtures;
@@ -377,7 +383,161 @@ public sealed class MatchDiscoveryTests
         Assert.Contains("\"relation\": \"Exact\"", output);
         Assert.DoesNotContain("\"disclosure\":", output);
     }
+
+    // ---- Round 1 review findings ----
+
+    /// <summary>
+    /// ".." means two things in one argument: a parent directory and a range separator. Splitting
+    /// on the first occurrence rejects "--library ../a.dll", which pairwise match accepts.
+    /// </summary>
+    [Theory]
+    [InlineData("a.dll", -1)]
+    [InlineData("../a.dll", -1)]
+    [InlineData("..\\a.dll", -1)]
+    [InlineData("a/../b.dll", -1)]
+    [InlineData("a/..", -1)]
+    [InlineData("../../a.dll", -1)]
+    [InlineData("old.dll..new.dll", 7)]
+    [InlineData("a/../v1/F.dll..b/v2/F.dll", 13)]
+    [InlineData("a.dll..b.dll..c.dll", -2)]
+    public void RangeSeparator_TreatsParentSegmentsAsPathsAndNotRanges(string value, int expected)
+        => Assert.Equal(expected, MatchDiscovery.FindRangeSeparator(value));
+
+    /// <summary>
+    /// The end-to-end consequence of the rule above: a parent-relative library path is one library,
+    /// not a malformed range.
+    /// </summary>
+    [Fact]
+    public async Task Similar_ParentRelativeLibraryPath_IsASingleLibrary()
+    {
+        string directory = Path.GetDirectoryName(TestAssembly)!;
+        string relative = Path.Combine(
+            directory, "..", Path.GetFileName(directory), Path.GetFileName(TestAssembly));
+
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyPath = relative,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Equal("Completed", Parse(output).GetProperty("disposition").GetString());
+    }
+
+    /// <summary>
+    /// Table, TSV, and JSONL carry no prose, so the Markout description is dropped. The disclosure
+    /// is not optional, so it must still reach the reader -- on stderr, which keeps the parsed
+    /// stream on stdout intact.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Similar_TabularRenderings_StillCarryTheDisclosure(bool tsv, bool jsonl)
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            Tabular = true,
+            Tsv = tsv,
+            Jsonl = jsonl,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("does not establish", error);
+        Assert.DoesNotContain("does not establish", output);
+    }
+
+    /// <summary>
+    /// The receipt counts unsupported, limit-reached, and failed methods. Without the per-method
+    /// outcomes those counts name no method, so the structured output cannot say which method was
+    /// skipped or why.
+    /// </summary>
+    [Fact]
+    public async Task Similar_Json_IdentifiesEveryMethodOutcomeBehindTheReceiptCounts()
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyWide = true,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, _) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        JsonElement document = Parse(output);
+        JsonElement receipt = document.GetProperty("receipt");
+        JsonElement outcomes = document.GetProperty("method_outcomes");
+
+        int unsupported = outcomes.EnumerateArray()
+            .Count(outcome => outcome.GetProperty("disposition").GetString() == "Unsupported");
+        Assert.Equal(receipt.GetProperty("unsupported_methods").GetInt32(), unsupported);
+
+        // Non-vacuity: a run with no skipped method would prove nothing about attribution.
+        Assert.True(unsupported > 0, "Expected the whole-assembly population to skip some method.");
+        Assert.All(
+            outcomes.EnumerateArray().Where(
+                outcome => outcome.GetProperty("disposition").GetString() != "Completed"),
+            outcome => Assert.NotEmpty(outcome.GetProperty("blockers").EnumerateArray()));
+    }
+
+    /// <summary>--top shapes text; it must not shorten the per-method evidence.</summary>
+    [Fact]
+    public async Task Similar_MethodOutcomes_AreNotBoundedByTop()
+    {
+        MatchOptions bounded = Seeded(SampleSeed) with { JsonOutput = true, Top = 1 };
+        MatchOptions unbounded = Seeded(SampleSeed) with { JsonOutput = true };
+
+        var (_, boundedOutput, _) = await RunAsync(bounded);
+        var (_, unboundedOutput, _) = await RunAsync(unbounded);
+
+        int expected = Parse(unboundedOutput).GetProperty("method_outcomes").GetArrayLength();
+        Assert.True(expected > 1, "Expected more than one outcome for this to prove anything.");
+        Assert.Equal(expected, Parse(boundedOutput).GetProperty("method_outcomes").GetArrayLength());
+    }
+
+    /// <summary>
+    /// <c>System.Runtime</c> is a pure facade: it forwards <c>System.String</c> to
+    /// <c>System.Private.CoreLib</c> and defines no bodies at all. Scoping discovery to a
+    /// forwarded type must read the image that defines it, not the facade that only points at it.
+    /// Because a MethodDef token is a table row that means nothing across images, opening the
+    /// wrong side does not merely fail to find candidates -- it can name the wrong members -- so
+    /// this gate pins the reported names, not just a non-empty result.
+    /// </summary>
+    [Fact]
+    public async Task Similar_TypeScopeFollowsAForwarderToTheDefiningImage()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(
+            Path.GetDirectoryName(coreLibrary)!,
+            "System.Runtime.dll");
+        Assert.True(File.Exists(facade), facade);
+
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyPath = $"{TestAssembly}..{facade}",
+            JsonOutput = true,
+            RightSelector = "System.String",
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.Equal("Completed", document.GetProperty("disposition").GetString());
+
+        // The facade defines no bodies, so a facade-scoped run cannot rank anything.
+        string[] members = Candidates(document).Select(candidate => candidate.Member).ToArray();
+        Assert.NotEmpty(members);
+        Assert.All(members, member => Assert.StartsWith("System.String.", member));
+    }
 }
+
 
 /// <summary>
 /// A purpose-built candidate population for discovery gates: one seed, one structurally exact

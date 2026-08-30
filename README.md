@@ -316,9 +316,10 @@ pairwise form on the selected pair.
 
 The default candidate population is the seed's declaring type. `--assembly-wide`
 opts into whole-assembly retrieval, which costs materially more. `--top` bounds
-rendered rows only; `--json` retains every candidate, outcome, blocker, and
-receipt regardless. `--max-results` and `--max-methods` move the product
-retrieval limits themselves.
+rendered rows only; `--json` retains every candidate, per-method outcome,
+blocker, and receipt regardless. `--max-results` and `--max-methods` move the
+product retrieval limits themselves. In `--table`, `--tsv`, and `--jsonl`, which
+carry no prose, the disclosure is written to stderr so stdout stays parseable.
 
 ### Relationships and graphs
 
