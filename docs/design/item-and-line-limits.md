@@ -74,8 +74,12 @@ option strings, field names, or rendered text.
 Source optimization changes physical execution, not logical ownership or
 meaning. A source may satisfy part or all of a typed request only when its
 focused design can prove an exact equivalent result and report honest
-completion. Otherwise it returns sufficient rows for the owning L2 and
-semantic components to finish the residual request.
+completion. Before acceptance, an unsupported exact-result candidate may be
+declined, or the caller may choose a row-handoff candidate that returns
+sufficient rows for the owning L2 and semantic components to finish the
+residual request. After acceptance, the
+[source-delegation effect protocol](source-delegation.md#effect-protocol)
+forbids switching result shapes or retrying another strategy.
 
 The later source handoff is distinct from row execution. When projection needs
 content for already-selected payload identities, L3 sends a typed
@@ -87,8 +91,10 @@ Count is one example of that separation.
 [Section-row shaping](section-row-shaping.md#count-semantics) defines the
 logical row sets and stage it observes. A source such as package search may
 answer that count upstream when it can prove exact equivalence and completion;
-otherwise L2 counts the applicable rows. This map does not define the proof or
-source capability.
+before source acceptance, the caller otherwise retains a strategy in which L2
+counts the applicable rows. After exact-Count acceptance, insufficient evidence
+returns `NotSatisfied` rather than falling back. This map does not define the
+proof or source capability.
 
 Every presentation format receives the same typed result. A renderer may add
 headings, table headers, graph context, framing, or other presentation, but it

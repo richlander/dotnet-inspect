@@ -324,8 +324,8 @@ member disposition = NotSatisfiedMember(member, disposition,
 ```
 
 Results are constructed from the accepted plan's member list, so every member
-appears exactly once, in offer order, with its identity carried explicitly —
-by construction, not by validation.
+appears exactly once, in execution-group order, with its identity carried
+explicitly — by construction, not by validation.
 
 - **`RowHandoff`** is valid only for a row-handoff candidate. Each
   `RowValues` entry is Rows-usable for the complete accepted candidate and
@@ -467,7 +467,7 @@ the named Release gates below rather than by runtime identity policing.
 | --- | --- |
 | A result answers exactly one accepted plan | The result type is constructed from, and refers to, the accepted plan. |
 | Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. `SourceDelegationAcceptanceExecutesOnce` proves the implementation invokes and publishes once. |
-| Member maps are complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection; `SourceDelegationPartitionMatchesReference` proves exact member-domain binding. |
+| Member maps are complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection; `SourceDelegationPartitionMatchesReference` proves exact candidate binding, and the three result-branch gates prove exact result binding. |
 | Evidence reaches the caller only inside a member entry | Evidence is carried by the entries it accompanies rather than as free-standing values; whether a referenced basis and scope establish each entry's claim remains the semantic check owned by `SourceDelegationCompletionEvidenceBasisIsAccepted`. |
 | The residual is caller-owned | The residual is a caller-held continuation; the candidate the source sees does not contain it. |
 | The source cannot rewrite the plan | No result branch carries operations, cursors, or plan fragments. |
@@ -516,6 +516,7 @@ shape, not checks.
 | `SourceDelegationPartitionMatchesReference` | The caller's adoption gate proves that candidate construction binds exactly the execution group's complete ordered member-identity sequence with no missing, extra, or duplicate member, and that every row-handoff member delegates one contiguous reference-order prefix (possibly empty) while retaining the exact disjoint suffix in its residual, with complete coverage and no duplicated operation; it rejects a malformed or non-prefix partition before planning, and the delegated prefix transported in the candidate is exactly the proven prefix. Every exact-Count candidate covers the complete resolved plan. |
 | `SourceClosedDeclarationsMatchOwnerContracts` | Each operation owner's gate proves its source-closed declaration against its reference failure and invocation contract; an operation is delegable only under its owner's current declaration. |
 | `OwnerObservationsRemainReferenceBarriers` | An operation not declared source-closed never enters delegated work; retained in the residual or reference path, it preserves exact invocation, failure identity, scope, all-or-failure behavior, and precedence. |
+| `SourceDelegationRowHandoffIsComplete` | `RowHandoff` occurs only for a row-handoff candidate and contains exactly one outcome for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member. Every outcome is exactly one `RowValues` or `Unavailable` entry; only `RowValues` carries fully acquired rows. |
 | `SourceDelegationExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate, contains one non-negative exact value and accepted completion evidence per member, carries no rows, and publishes no partial map or invented total. |
 | `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns one disposition-and-evidence entry per member with no row or Count payload; the broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
 | `SourceDelegationCompletionEvidenceBasisIsAccepted` | A result satisfies its completion requirement only through logical exhaustion or a requirement-witness basis that the requirement accepts; incomplete-stop and unavailable-outcome evidence never satisfy it. A member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, absence is not exhaustion, and exact Count requires proof of every member value. |

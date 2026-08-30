@@ -508,10 +508,12 @@ The optimized result must also preserve:
 - the same request-wide versus per-set failure boundary; and
 - honest evidence that every exact count is complete for the logical request.
 
-If an optimization cannot establish those properties, sufficient rows return
-to L2 for residual shaping. A fast incomplete number is not a Count result.
-An operation its owner has not declared source-closed remains on that
-reference or residual path.
+Before acceptance, an unsupported exact-Count candidate may be declined, or
+the caller may select a row-handoff candidate whose sufficient rows return to
+L2 for residual shaping. After exact-Count acceptance, insufficient evidence
+returns terminal `NotSatisfied` with no rows, residual execution, or retry. A
+fast incomplete number is not a Count result. An operation its owner has not
+declared source-closed remains on the reference or row-handoff residual path.
 
 This optimization property remains unverified until an adoption implements the
 applicable conditional Release gates from the focused source design.
