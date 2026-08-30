@@ -340,164 +340,26 @@ substitute for typed provenance.
 | Is the project configured for the strongest default? | Updated project policy, unsafe permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
 
-## Current implementation coverage and gaps
+## Focused successors
 
-### Metadata and Library Signals
+Implementation findings are preserved in owner-specific issues rather than
+specified here:
 
-`AssemblyDetailScanner` currently:
+| Owner | Successor | Dependency |
+| --- | --- | --- |
+| Metadata module and member contracts | [#5252](https://github.com/richlander/dotnet-inspect/issues/5252) | First binary-evidence dependency |
+| Metadata API representation | [#5253](https://github.com/richlander/dotnet-inspect/issues/5253) | After #5252 |
+| Analysis | [#5254](https://github.com/richlander/dotnet-inspect/issues/5254) | After #5252; parallel with Decompiler |
+| Decompiler | [#5255](https://github.com/richlander/dotnet-inspect/issues/5255) | After #5252; parallel with Analysis |
+| Project build-policy inspection | [#5256](https://github.com/richlander/dotnet-inspect/issues/5256) | Independent of binary work |
+| C# declaration spelling | [#5257](https://github.com/richlander/dotnet-inspect/issues/5257) | After #5253 |
+| JS-export admission | [#5258](https://github.com/richlander/dotnet-inspect/issues/5258) | After #5253 |
+| Research summaries | [#5259](https://github.com/richlander/dotnet-inspect/issues/5259) | After #5253 and #5254 |
+| Library Signals | [#5260](https://github.com/richlander/dotnet-inspect/issues/5260) | After #5252 |
 
-- decodes the integer constructor argument into
-  `AssemblyAuditMetadata.MemorySafetyRulesVersion`; and
-- counts `RequiresUnsafeAttribute` occurrences.
-
-`ApiSurfaceExtractor` also publishes `ApiMember.IsUnsafe`. That Boolean feeds
-user-visible `api --unsafe` filtering and API-diff facts, C# declaration
-spelling, Decompiler member shells, Research summaries, and JsExportSurface
-admission.
-
-`AuditSignalBuilder` presents those facts as the **Memory safety model** and
-**RequiresUnsafe members** signals. This is the existing user-visible answer
-for the binary marker.
-
-The following gaps remain with Metadata and presentation:
-
-- marker discovery is not restricted to exactly one module-level attribute;
-- malformed, duplicate, and absent markers collapse into insufficiently
-  distinct states; and
-- Signals currently labels every integer greater than or equal to `2` as
-  updated, although current Roslyn recognizes exactly version `2`;
-- method `ApiMember.IsUnsafe` combines pointer shape and
-  `RequiresUnsafeAttribute` without interpreting the module model;
-- property `ApiMember.IsUnsafe` uses pointer shape without reading its v2
-  PropertyDef/accessor contract, while events and fields do not currently set
-  `IsUnsafe`; and
-- consumers use `ApiMember.IsUnsafe` for distinct questions: whether to spell
-  an `unsafe` modifier, summarize a contract, or reject an unsupported export.
-  Changing the Boolean to mean only caller contract would silently change
-  structural pointer policy in those consumers; and
-- there is no shared association-aware resolver for MethodDef, FieldDef,
-  PropertyDef, and EventDef contracts, including the fixed-size-buffer
-  compatibility exception.
-
-### Analysis
-
-`LibraryBodyPrimaryMetadataResolver` owns the current module judgment and
-creates method identities with `CallerUnsafeMode`.
-`MethodSafetyAnalysis` separately records unsafe API, signature, local, call,
-and opcode evidence.
-`LibraryBodyIndex` composes those facts into the existing
-`OpaqueUnsafeMethods()` and `HollowUnsafeMethods()` classifications:
-opaque means a caller-unsafe contract is hidden from the pointer signature,
-while hollow means no unsafe operation is directly visible in the scanned
-body. Neither classification is a safe-boundary query.
-
-The following gaps remain with Analysis:
-
-- the module judgment tests attribute presence rather than decoding and
-  recognizing the integer version;
-- it accepts an assembly-level marker as a fallback;
-- method contract lookup checks MethodDef and invalid TypeDef lookalikes but
-  does not follow PropertyDef or EventDef associations for accessors;
-- `ComputeCallerUnsafeMode` combines pointer signatures and
-  `RequiresUnsafeAttribute` before testing the model, so a pointer-bearing v2
-  member without `RequiresUnsafeAttribute` is incorrectly classified as an
-  explicit propagator;
-- declaration and local evidence currently treats pointer types as proof of
-  unsafe use. The unsafe-evolution language feature can make those declarations
-  safe independently of the module model, so binary pointer shape must remain
-  structural evidence unless a context-requiring operation or corresponding
-  source/build evidence is available;
-- operation evidence treats every `localloc` as a realized unsafe operation,
-  although its reconstructed source form may be safe under the
-  unsafe-evolution language feature;
-- call evidence currently considers selected API types and pointer-bearing
-  signatures, but `MemberRef` carries no callee rules model or caller contract.
-  Analysis therefore misses pointerless `RequiresUnsafe` calls and treats
-  pointer-bearing v2 calls without that attribute as unsafe; and
-- field-access evidence has no equivalent version-aware field contract; and
-- no query composes model, propagation, and body evidence into a safe-boundary
-  classification.
-
-### Decompiler
-
-The Decompiler uses the presence of a module marker to choose updated-rule
-rendering, or can simulate updated rules explicitly. Its rendering contract is
-owned by [Memory-safety rendering modes](memory-safety-modes.md).
-
-The following gaps remain with Decompiler:
-
-- the inspected module's marker presence is treated as updated without decoding
-  and recognizing the integer;
-- same-assembly call rendering applies pointer-signature compatibility without
-  classifying the callee module model;
-- cross-assembly resolution reads `RequiresUnsafeAttribute` from a target
-  member without also reading the target module's rules model; and
-- same- and cross-assembly method resolution checks MethodDef and invalid
-  TypeDef lookalikes rather than following PropertyDef and EventDef accessor
-  associations;
-- pointer-target stack allocation, pointer arithmetic, and pointer comparison
-  are currently treated as requiring an unsafe context even though the
-  unsafe-evolution language feature permits them in safe contexts;
-- string-pinning `fixed` headers and pointer-bearing lambda declarations are
-  also currently marked as requiring an unsafe context solely from their
-  pointer declarations;
-- constructor-chain rendering does not model the rule that an `unsafe`
-  constructor establishes context for its `base(...)` or `this(...)`
-  initializer but not its body; and
-- field-access contracts are not carried through the current method-oriented
-  requires-unsafe path.
-
-### Project inspection
-
-The `project` command currently locates and parses `project.assets.json` for
-restored package information. It does not read or evaluate
-`AllowUnsafeBlocks`, `LangVersion`, `Features`, or a future supported
-`MemorySafetyRules` property.
-
-Adding those facts requires a focused project-inspection design. This document
-defines how such evidence composes with binary evidence, not how MSBuild
-evaluation is hosted.
-
-## Staged adoption
-
-Implementation should proceed through focused owner changes:
-
-1. Metadata introduces the normalized per-module rules state, exact marker
-   validation, and the member-kind-aware contract resolver, including
-   PropertyDef/EventDef accessor association, the fixed-size-buffer exception,
-   and an unavailable result for conflicting markers.
-2. Library Signals renders the module fact without independently interpreting
-   raw version numbers.
-3. The Metadata API projection publishes caller contract and structural pointer
-   shape as distinct facts before retiring or narrowing `ApiMember.IsUnsafe`.
-   CSharp, Decompiler member shells, Research, and JsExportSurface migrate in
-   owner-scoped slices: declaration spelling follows the contract and selected
-   language semantics, while export admission retains any independent
-   unsupported pointer-shape rule.
-4. Analysis consumes the shared state and applies pointer compatibility only
-   to legacy modules. Call and field evidence resolve target contracts through
-   Metadata across assembly boundaries and apply the caller/target enforcement
-   matrix. Operation evidence separates raw `localloc` and pointer shapes from
-   context-requiring source operations. The same stage re-states and gates the
-   resulting
-   `OpaqueUnsafeMethods()` and `HollowUnsafeMethods()` populations in
-   [Memory-safety rendering modes](memory-safety-modes.md), because correcting
-   `CallerUnsafeMode` and realized-operation evidence changes their inputs.
-5. Decompiler consumes the shared state for conservative replay while keeping
-   its explicit simulation mode. Same- and cross-assembly call and field paths
-   consume Metadata's target contract, including accessor associations, before
-   deciding where source needs an unsafe context. Rendering follows the selected
-   language semantics rather than treating relaxed pointer declarations or
-   operations as unsafe because of the module model, and constructor-chain
-   rendering handles the initializer exception without widening the
-   constructor body.
-6. Project inspection acquires declared or evaluated rule and permission
-   facts through its own design.
-7. A composition query joins project policy, binary contracts, body evidence,
-   and optional provenance to answer policy and safe-boundary questions.
-
-Each stage must leave unsupported, malformed, conflicting, and unavailable
-evidence visible rather than producing a legacy- or safety-shaped default.
+Each successor re-derives its own contract in the named owning document. This
+composition document owns only the vocabulary, evidence-plane boundaries, and
+typed handoffs among them.
 
 ## Demo
 

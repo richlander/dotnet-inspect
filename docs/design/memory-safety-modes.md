@@ -12,26 +12,23 @@ For the legacy and updated rule models that supply this binary evidence, see
 
 There are two coherent ways for the decompiler to treat the new rules:
 
-- **Conservative ("replay").** Reconstruct only the unsafe contexts justified by
-  the recognized module model, member contracts, and recoverable operation
-  evidence. The original lexical context is not generally preserved in a
-  binary, so replay means a minimal evidence-backed rendering rather than exact
-  source recovery.
+- **Conservative ("replay").** Reproduce only what the compiler *forced* the source
+  to do. If a binary exists, it already satisfied whatever rules it was compiled
+  under, and the metadata records the proof (a module-level `MemorySafetyRulesAttribute`,
+  a member's `RequiresUnsafeAttribute`). We replay those facts and nothing more.
 - **Optimistic ("simulate").** Show the code as the new rules *would* require, even
   for input that never had to satisfy them — a migration preview that deliberately
   overlaps a source fixer.
 
 ## Decision
 
-**Conservative is the default; optimistic is an opt-in mode.** Contractually,
-new-rules behavior keys off Metadata's recognized-v2 module state. Legacy and
-unsupported-version or malformed-marker modules retain compatibility
-interpretation while the invalid marker remains visible. Conflicting markers
-produce unavailable contract evidence.
-`IrImporter.ModuleUsesUpdatedMemorySafetyRules` currently tests only for
-attribute presence; that is an implementation gap, not the rendering contract.
-Features C (body `unsafe` blocks) and D (signature `unsafe`) currently use that
-path.
+**Conservative is the default; optimistic is an opt-in mode.** Conservative is
+principled and self-gating: new-rules behavior keys off the module-level
+`MemorySafetyRulesAttribute` (`IrImporter.ModuleUsesUpdatedMemorySafetyRules`),
+so a legacy module's output is byte-identical to what it was before the feature
+existed, and a new-rules module replays the `unsafe` contexts the compiler
+demanded. It is the path Features C (body `unsafe` blocks) and D (signature
+`unsafe`) already follow.
 
 Optimistic ("simulate") mode is selected explicitly
 (`MetadataSource.SimulateNewRules`; the decompiler harness exposes it as
@@ -42,15 +39,11 @@ labeled, because it can invent contexts the original binary never had to satisfy
 
 ## What forces the split: recoverability
 
-The deciding factor is whether the fact needed to justify a context leaves a
-trace in the binary.
+The deciding factor is whether a construct leaves a trace in the binary.
 
-- The rules model and caller contract are recoverable from valid
-  `MemorySafetyRulesAttribute` / `RequiresUnsafeAttribute` metadata. Some
-  context-requiring operations are also recoverable from IL. The original
-  lexical `unsafe` block or modifier placement is not generally recoverable, so
-  conservative rendering synthesizes the narrowest context justified by those
-  facts.
+- The `unsafe` *context* is recoverable: the compiler stamps `MemorySafetyRulesAttribute`
+  / `RequiresUnsafeAttribute`, and pointer/`calli`/stackalloc operations are visible in
+  IL. So replaying `unsafe` blocks is faithful.
 - The `scoped` modifier on a **local** is generally *not* recoverable: it is
   compile-time-only escape analysis and emits no IL or metadata (only `scoped`
   *parameters* get `ScopedRefAttribute`). A decompiler reading IL has zero signal
@@ -131,15 +124,11 @@ nothing unsafe. This is the new-rules analogue of the pointerless `unsafe` metho
 discussed above: under the updated rules the attribute survives, so the fact is
 *recoverable as an annotation* even though the signature hides it.
 
-The intended classification is **positive and sound** once
-`CallerUnsafeMode` comes from the version-aware contract model — it states that
-the contract is invisible in the signature, never that the body is safe (a
-`mode != None` pointerless method may still do real unsafe work, e.g.
-`ContractUnsafe(int[])` which hardcodes an element index as an unenforced caller
-precondition). It joins no body evidence; it reads `CallerUnsafeMode` alone.
-The current model-incomplete `CallerUnsafeMode` can mispopulate this set; the
-adoption step is owned by
-[Memory-safety models and evidence](memory-safety-models.md). Specimens in
+The classification is **positive and sound** — it states that the contract is
+invisible in the signature, never that the body is safe (a `mode != None`
+pointerless method may still do real unsafe work, e.g. `ContractUnsafe(int[])`
+which hardcodes an element index as an unenforced caller precondition). It joins
+no body evidence; it reads `CallerUnsafeMode` alone. Specimens in
 `UnsafeChainA.LibraryA`: positives `M1`, `HollowUnsafe`, `ContractUnsafe`;
 negatives are the pointer-signature methods (`RealUnsafePointer`,
 `SignatureOnlyUnsafe`, `DelegatedUnsafe`, `EscapingStackPointer`) and the safe
@@ -150,14 +139,10 @@ control (`Safe`).
 The dual axis to opaque-contract is **hollow-unsafe**: a requires-unsafe method
 (`CallerUnsafeMode != None`) whose body shows no directly-visible unsafe operation
 (`HollowUnsafe.IsHollow` / `LibraryBodyIndex.HollowUnsafeMethods`). A *realized*
-unsafe operation is anchored to an IL offset in `UnsafeEvidence`; structural
-evidence (a pointer in the signature, a pointer/pinned local) is not. The
-current implementation includes pointer dereference, `calli`,
-`localloc`/`cpblk`/`initblk`, and calls into its unsafe surface in that set.
-`localloc` and call classification require the language- and model-aware
-corrections defined by
-[Memory-safety models and evidence](memory-safety-models.md). The IL offset is
-the current discriminator — a method is hollow when none of its evidence
+unsafe operation (a pointer dereference, `calli`, `localloc`/`cpblk`/`initblk`, or
+a call into the unsafe surface) is anchored to an IL offset in `UnsafeEvidence`;
+structural evidence (a pointer in the signature, a pointer/pinned local) is not.
+The IL offset is the discriminator — a method is hollow when none of its evidence
 carries one.
 
 Unlike opaque-contract, this is an **absence** claim, so it is deliberately
