@@ -119,7 +119,9 @@ PR templates live under `docs/templates/`: `decompiler-pr.md` (raising,
 structuring, validity, fidelity, or corpus behavior), `decompiler-burndown-fix-pr.md`
 (a focused invalid-`Full` or burndown row fix), and
 `decompiler-compile-back-harness-pr.md` (compile-back harness, fidelity
-skeleton, or ReturnToSender coverage).
+skeleton, or ReturnToSender coverage). The canonical
+`adversarial-review-prompt.md` starts every non-trivial fixed-head reviewer
+prompt and carries the repository trust model and finding-admission contract.
 
 ### Design history and backlog
 
