@@ -981,6 +981,10 @@ identify one selectable occurrence. `Producer` distinguishes feeds, but it is
 source identity rather than immutable content-generation identity. A store may
 replace bytes under the same package/version/producer key, so coordinate
 equality alone cannot authorize reuse.
+That observation conflicts with the current realized-coordinate documentation
+that promises transporting the coordinate can reacquire the same bytes.
+Acquisition issue #5121 must resolve that owner contract rather than admission
+choosing one interpretation.
 
 Each selected request member therefore also carries an acquisition-owned,
 opaque content-generation identity. Equal generation identities within the
@@ -998,6 +1002,12 @@ selection identities guarantee the same selection arm and, for `Selected`, the
 same ordered surface and implementation asset sequences. Admission compares
 that token without defining TFM matching, asset paths, selection ordering, or
 selection failure semantics.
+
+The generation and selection guarantees consumed here are target guarantees,
+not current verified product facts. They remain unverified until
+`PackageRootGenerationIdentity_ReplacementChangesIdentity`,
+`PackageRootSelectionIdentity_DifferentAssetsChangeIdentity`, and
+`RealizedPackageCoordinate_ReacquisitionContractIsCoherent` land under #5121.
 
 Individual assembly content still has no equivalent independent coordinate, so
 this layer does not admit by assembly identity and does not replace
@@ -1065,6 +1075,28 @@ independent lease over its retained result. Overlapping requests, reordered
 requests, and requests with different options use different entries even when
 some package coordinates are equal.
 
+Admission is capacity-bounded across the whole workspace. Workspace
+configuration supplies validated positive limits for:
+
+- retained or in-flight exact-request entries;
+- concurrently in-flight package-role operations; and
+- aggregate retained-byte reservation across all admitted entries.
+
+An absent request atomically reserves one entry, one operation slot, and its
+exact `MaxAggregateRetainedImageBytes` option value before the executor starts.
+Joining an in-flight entry or leasing a ready entry consumes no additional
+capacity. Operation settlement releases the operation slot. Failure before
+publication also releases the entry and byte reservation; successful ready
+publication retains both until terminal cleanup completes. Caller cancellation
+does not release capacity still owned by the physical operation.
+
+If any reservation would exceed its workspace limit, that demand receives a
+typed capacity rejection before an operation id is minted or package-role work
+starts. Capacity rejection is not cached and does not disturb an existing
+entry. The retained caller in #5123 must choose explicit workspace limits; the
+admission implementation cannot inherit unbounded cardinality from caller
+input.
+
 One operation publishes one combined result atomically. Every demand attached
 to that operation receives the same success and realization identity, or every
 attached demand receives the same visible failure. No prefix, per-coordinate
@@ -1119,14 +1151,23 @@ completion is a prerequisite (#5122); this admission owner only retains it and
 issues leases.
 
 The projection must not expose a caller-disposable
-`AssemblyContextGroup`. It may expose non-owning query/session capabilities
-over the shared groups, but only the workspace-owned package-role completion
-can initiate group release. Disposing or returning one projection releases
-its lease only. `AssemblyContextGroup.RetainAssemblyReference` can create an
-independent non-pooled snapshot whose lifetime already outlives group
-disposal. #5122 must decide explicitly whether the projection exposes that
-capability; returning the lease ends access through the projection but cannot
-revoke an independently retained snapshot.
+`AssemblyContextGroup` or any capability whose completion terminally releases
+a shared participant or group. "Non-owning" is insufficient:
+`AssemblyContextIntegrationsQuery.ExecuteParticipantAsync` leaves its group
+undisposed but permanently releases the selected participant for every
+sharer. Only the workspace-owned package-role completion can initiate
+participant or group release. Disposing or returning one projection releases
+its lease only.
+
+Projection use and lease return have one atomic linearization. A use that
+linearizes after return receives a typed returned-lease rejection and cannot
+begin group access. A use that linearizes before return may finish after the
+lease is removed; package-role quiescence prevents terminal cleanup from
+completing until that already-started use ends. `AssemblyContextGroup`
+`RetainAssemblyReference` can create an independent non-pooled snapshot whose
+lifetime already outlives group disposal. #5122 must decide explicitly whether
+the projection exposes that capability; returning the lease ends access
+through the projection but cannot revoke an independently retained snapshot.
 
 ### Shared-realization lifetime
 
@@ -1149,11 +1190,12 @@ cleanup authority. A returned lease cannot be used again. Because one lease
 covers one whole combined realization, cancellation or failure cannot require
 rollback of a partially leased coordinate prefix.
 
-Workspace disposal atomically closes every request entry. Pending demands are
-rejected, in-flight entries become draining, and ready entries become closing
-before any later demand can join or receive a lease. Existing lease holders
-retain access to an already-published realization until they return their
-leases. A closing entry cannot be reused, reopened, or returned to ready.
+In the target contract, workspace disposal atomically closes every request
+entry. Pending demands are rejected, in-flight entries become draining, and
+ready entries become closing before any later demand can join or receive a
+lease. Existing lease holders retain access to an already-published
+realization until they return their leases. A closing entry cannot be reused,
+reopened, or returned to ready.
 
 An operation that succeeds after disposal does not publish or issue leases.
 Its newly created combined realization transfers directly into closing with
@@ -1171,7 +1213,11 @@ neither releases an `AssemblyContextGroup` directly nor reinterprets a
 workspace disposers and a last-returning lease observe or await the same
 completion.
 
-Workspace disposal is asynchronous. It may wait indefinitely for a lease whose
+Target workspace disposal is asynchronous. Current
+`InspectionWorkspace.Dispose()` instead synchronously disposes every directly
+registered group, so #5156 is a separate prerequisite for sole release
+authority, lease-draining access, late-completion cleanup, and a non-blocking
+workspace close path. The target may wait indefinitely for a lease whose
 holder never returns it; weak-fairness model results therefore state the
 explicit caller assumption that every issued lease is eventually returned.
 The implementation gate must separately prove that the target path uses
@@ -1191,7 +1237,10 @@ Implementation of #4960 must not begin until:
   identity (#5121);
 - the package-role boundary supplies a shareable completion and demand-local
   participant projection instead of the caller-owned disposable compatibility
-  result (#5122); and
+  result (#5122);
+- the assembly-context workspace supplies sole release authority and
+  asynchronous lease-draining disposal for completion-owned groups (#5156);
+  and
 - an approved retained multi-call workspace caller makes exact-request join or
   reuse reachable (#5123).
 
@@ -1200,6 +1249,13 @@ The target contract remains unimplemented until these named gates land:
 - `PackageRealizationRootOnly_BypassesAdmissionWithoutLeaseOrCleanup`
 - `PackageRealizationDuplicateCoordinates_RejectBeforeAdmission`
 - `PackageRealizationExactRequest_AdmitsOneCombinedOperation`
+- `PackageRealizationCapacity_RejectsBeforeStartingOperation`
+- `PackageRealizationCapacity_BoundsEntryCount`
+- `PackageRealizationCapacity_BoundsInFlightOperationCount`
+- `PackageRealizationCapacity_BoundsReservedRetainedBytes`
+- `PackageRealizationFailure_ReleasesReservedCapacity`
+- `PackageRealizationCleanupCompletion_ReleasesReservedCapacity`
+- `PackageRealizationCanceledOperation_RetainsCapacityUntilSettlement`
 - `PackageRealizationOverlappingRequest_DoesNotPartiallyReuse`
 - `PackageRealizationReorderedRequest_DoesNotShare`
 - `PackageRealizationDifferentOptions_DoNotShare`
@@ -1215,7 +1271,10 @@ The target contract remains unimplemented until these named gates land:
 - `PackageRealizationOperation_YieldsBetweenSelectedAssets`
 - `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
 - `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
+- `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`
 - `PackageRealizationLeaseHolder_CannotReleaseSharedGroup`
+- `PackageRealizationReturnedLease_RejectsProjectionAccess`
+- `PackageRealizationConcurrentUseAndReturn_LinearizesBeforeCleanup`
 - `PackageRealizationReadyReuse_IssuesIndependentLeases`
 - `PackageRealizationReadyEntry_RemainsCachedWithoutLeases`
 - `PackageRealizationLease_ReturnIsIdempotent`
@@ -1235,14 +1294,15 @@ exact-policy, content-generation, and selection isolation; duplicate and
 Root-only front-door outcomes; single-flight admission; atomic publication;
 cancellation without operation abandonment or caller-induced operation
 failure; consistent shared outcomes; lease issuance and idempotent return;
-disposal-driven draining; no release with an active lease; exactly-once
-cleanup; terminal closure; and eventual settlement of open and draining
-operations. Every bounded request topology has a complete safety/liveness
-configuration in addition to focused reachability and mutation probes. The
-model's weak-fairness progress checks assume every lease holder eventually
-returns its lease and every physical operation eventually settles; they do not
-prove implementation conformance, cooperative executor yields, a reachable
-retained caller, or non-blocking waits. See its companion
+workspace-wide admission capacity; disposal-driven draining; no release with
+an active lease; exactly-once cleanup; terminal closure; and eventual
+settlement of open and draining operations. Every bounded request topology has
+a complete safety/liveness configuration in addition to focused reachability
+and mutation probes. The model's weak-fairness progress checks assume every
+lease holder eventually returns its lease and every physical operation
+eventually settles; they do not prove implementation conformance, projection
+use/return quiescence, cooperative executor yields, a reachable retained
+caller, or non-blocking waits. See its companion
 [`README.md`](../models/package-realization-admission/README.md) for checked
 configurations.
 

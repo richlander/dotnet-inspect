@@ -12,8 +12,8 @@
 (* combined binding topology, applies identity-collision checks across it,  *)
 (* and enforces request-wide assembly-count and retained-byte limits.        *)
 (* Overlapping requests do not share partial realizations. Request order is *)
-(* part of identity because the compatibility API exposes ordered           *)
-(* participant collections.                                                *)
+(* part of identity because construction, binding, and demand projection    *)
+(* consume ordered participants.                                           *)
 (*                                                                         *)
 (* Owning design: docs/design/inspection-layers.md's "Package-realization   *)
 (* exact-request admission" section. That section is deliberately separate *)
@@ -36,7 +36,8 @@
 (* Request sequences contain only package Roots with a selected, non-empty  *)
 (* surface role. Root-only successes are omitted; an empty selected sequence *)
 (* bypasses this admission cache without a lease or cleanup request. A      *)
-(* duplicate normalized coordinate is rejected before cache lookup. Each    *)
+(* duplicate normalized coordinate is rejected before cache lookup even     *)
+(* when its positional generation or selection tokens differ. Each          *)
 (* generation token is acquisition-owned proof that equal coordinates still *)
 (* name the same immutable content generation. The selection token proves   *)
 (* that equal entries chose the same ordered surface/implementation assets. *)
@@ -46,9 +47,11 @@
 (* replacement content receives a different identity. This model only      *)
 (* compares the owner-issued value as part of exact request identity.       *)
 (*                                                                         *)
-(* Once a request's realization succeeds it is retained while the          *)
-(* workspace remains open, even with zero leases. Disposal then drains     *)
-(* leases and requests the adjacent package-role cleanup exactly once.     *)
+(* Admission reserves workspace-wide retained-entry, in-flight-operation,   *)
+(* and aggregate retained-byte capacity before physical work starts. Once a *)
+(* request's realization succeeds it is retained while the workspace remains *)
+(* open, even with zero leases. Disposal then drains leases and requests the *)
+(* adjacent package-role cleanup exactly once.                              *)
 (* This model does not re-derive `AssemblyContextGroup`'s own              *)
 (* disposal/quiescence lifecycle -- that is                                *)
 (* `AssemblyContextGroupLifecycle.tla`'s scope, not this one's.            *)
@@ -61,10 +64,12 @@ CONSTANTS
     Selections,
     Options,
     Demands,
-    RequestSequenceOf,
-    GenerationOf,
-    SelectionOf,
+    RequestBindingsOf,
     OptionsOf,
+    ReservationOf,
+    MaxEntries,
+    MaxInFlight,
+    MaxReservedByteUnits,
     AllowLeaseAfterClose,
     AllowReleaseWithActiveLease,
     AllowLatePublish,
@@ -73,16 +78,31 @@ CONSTANTS
     AllowInexactReuse,
     AllowPartialPublish,
     AllowCancellationAbandon,
-    AllowCancellationFailure
+    AllowCancellationFailure,
+    AllowOverCapacity,
+    AllowDuplicateBindingAsDistinct
 
 NoDemand == "NoDemand_"
 
 ASSUME
     /\ NoDemand \notin Demands
-    /\ RequestSequenceOf \in [Demands -> Seq(PackageCoordinates)]
-    /\ GenerationOf \in [Demands -> [PackageCoordinates -> Generations]]
-    /\ SelectionOf \in [Demands -> [PackageCoordinates -> Selections]]
+    /\ RequestBindingsOf
+        \in [
+            Demands ->
+                Seq(
+                    {
+                        <<c, g, s>> :
+                            c \in PackageCoordinates,
+                            g \in Generations,
+                            s \in Selections
+                    }
+                )
+        ]
     /\ OptionsOf \in [Demands -> Options]
+    /\ ReservationOf \in [Demands -> Nat \ {0}]
+    /\ MaxEntries \in Nat \ {0}
+    /\ MaxInFlight \in Nat \ {0}
+    /\ MaxReservedByteUnits \in Nat \ {0}
     /\ AllowLeaseAfterClose \in BOOLEAN
     /\ AllowReleaseWithActiveLease \in BOOLEAN
     /\ AllowLatePublish \in BOOLEAN
@@ -92,6 +112,8 @@ ASSUME
     /\ AllowPartialPublish \in BOOLEAN
     /\ AllowCancellationAbandon \in BOOLEAN
     /\ AllowCancellationFailure \in BOOLEAN
+    /\ AllowOverCapacity \in BOOLEAN
+    /\ AllowDuplicateBindingAsDistinct \in BOOLEAN
 
 SequenceSet(s) == {s[i] : i \in 1..Len(s)}
 CoordinateSetOfBoundSequence(s) ==
@@ -101,20 +123,22 @@ CoordinateSequenceOfBoundSequence(s) ==
 CoordinateGenerationSequenceOfBoundSequence(s) ==
     [i \in 1..Len(s) |-> <<s[i][1], s[i][2]>>]
 
+HasNormalizedCoordinateDuplicate(d) ==
+    Len(RequestBindingsOf[d])
+        # Cardinality(CoordinateSetOfBoundSequence(RequestBindingsOf[d]))
+
 HasDuplicateCoordinate(d) ==
-    Len(RequestSequenceOf[d]) # Cardinality(SequenceSet(RequestSequenceOf[d]))
+    IF AllowDuplicateBindingAsDistinct
+    THEN
+        Len(RequestBindingsOf[d])
+            # Cardinality(SequenceSet(RequestBindingsOf[d]))
+    ELSE HasNormalizedCoordinateDuplicate(d)
 
 Eligible(d) ==
-    /\ Len(RequestSequenceOf[d]) > 0
+    /\ Len(RequestBindingsOf[d]) > 0
     /\ ~HasDuplicateCoordinate(d)
 
-BoundRequestSequence(d) ==
-    [i \in 1..Len(RequestSequenceOf[d]) |->
-        <<
-            RequestSequenceOf[d][i],
-            GenerationOf[d][RequestSequenceOf[d][i]],
-            SelectionOf[d][RequestSequenceOf[d][i]]
-        >>]
+BoundRequestSequence(d) == RequestBindingsOf[d]
 
 RequestIdentity(d) == <<BoundRequestSequence(d), OptionsOf[d]>>
 EligibleDemands == {d \in Demands : Eligible(d)}
@@ -124,6 +148,28 @@ EligibleDemands == {d \in Demands : Eligible(d)}
 \* values are exact request identities, not individual package coordinates.
 Coordinates == {RequestIdentity(d) : d \in EligibleDemands}
 CoordinateOf == [d \in Demands |-> RequestIdentity(d)]
+
+ASSUME
+    \A d1, d2 \in EligibleDemands :
+        CoordinateOf[d1] = CoordinateOf[d2]
+            => ReservationOf[d1] = ReservationOf[d2]
+
+ASSUME
+    \A d1, d2 \in Demands :
+        OptionsOf[d1] = OptionsOf[d2]
+            => ReservationOf[d1] = ReservationOf[d2]
+
+ReservationFor(c) ==
+    ReservationOf[CHOOSE d \in EligibleDemands : CoordinateOf[d] = c]
+
+RECURSIVE ReservationSum(_)
+
+ReservationSum(entries) ==
+    IF entries = {}
+    THEN 0
+    ELSE
+        LET c == CHOOSE entry \in entries : TRUE
+        IN ReservationFor(c) + ReservationSum(entries \ {c})
 
 DemandStates ==
     {"Pending", "Bypassed", "Admitting", "Joined", "Leased", "Returned",
@@ -159,7 +205,8 @@ VARIABLES
     zeroLeaseRetentionWitness,
     disposalWaitWitness,
     drainedSuccessWitness,
-    doubleReturnWitness
+    doubleReturnWitness,
+    capacityRejectionWitness
 
 vars == <<
     workspaceState, cacheState, cacheRealization, cacheOperation, leader,
@@ -169,12 +216,27 @@ vars == <<
     publishSafetyWitness, cleanupSafetyWitness, joinWitness,
     retryAfterFailureWitness, consistentOutcomeWitness,
     zeroLeaseRetentionWitness, disposalWaitWitness, drainedSuccessWitness,
-    doubleReturnWitness
+    doubleReturnWitness, capacityRejectionWitness
     >>
+
+capacityVars == <<capacityRejectionWitness>>
 
 ActiveLeases(c) ==
     {d \in Demands :
         CoordinateOf[d] = c /\ demandState[d] = "Leased"}
+
+ActiveEntries ==
+    {c \in Coordinates : cacheState[c] \notin {"Absent", "Released"}}
+
+InFlightEntries ==
+    {c \in Coordinates : cacheState[c] \in {"InFlight", "Draining"}}
+
+ReservedByteUnits == ReservationSum(ActiveEntries)
+
+HasCapacity(d) ==
+    /\ Cardinality(ActiveEntries) < MaxEntries
+    /\ Cardinality(InFlightEntries) < MaxInFlight
+    /\ ReservedByteUnits + ReservationOf[d] <= MaxReservedByteUnits
 
 TypeOK ==
     /\ workspaceState \in WorkspaceStates
@@ -202,6 +264,7 @@ TypeOK ==
     /\ disposalWaitWitness \in BOOLEAN
     /\ drainedSuccessWitness \in BOOLEAN
     /\ doubleReturnWitness \in BOOLEAN
+    /\ capacityRejectionWitness \in BOOLEAN
 
 Init ==
     /\ workspaceState = "Open"
@@ -229,6 +292,7 @@ Init ==
     /\ disposalWaitWitness = FALSE
     /\ drainedSuccessWitness = FALSE
     /\ doubleReturnWitness = FALSE
+    /\ capacityRejectionWitness = FALSE
 
 (***************************************************************************)
 (* A request with no selected assembly-role packages remains a host-owned   *)
@@ -237,7 +301,7 @@ Init ==
 BypassRootOnly(d) ==
     /\ workspaceState = "Open"
     /\ demandState[d] = "Pending"
-    /\ Len(RequestSequenceOf[d]) = 0
+    /\ Len(RequestBindingsOf[d]) = 0
     /\ demandState' = [demandState EXCEPT ![d] = "Bypassed"]
     /\ UNCHANGED <<
         workspaceState, cacheState, cacheRealization, leader, demandResult,
@@ -247,7 +311,8 @@ BypassRootOnly(d) ==
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
         drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityVars
         >>
 
 (***************************************************************************)
@@ -267,7 +332,8 @@ RejectDuplicate(d) ==
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
         drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityVars
         >>
 
 (***************************************************************************)
@@ -284,6 +350,7 @@ Admit(d) ==
         /\ demandState[d] = "Pending"
         /\ Eligible(d)
         /\ cacheState[c] = "Absent"
+        /\ (HasCapacity(d) \/ AllowOverCapacity)
         /\ cacheState' = [cacheState EXCEPT ![c] = "InFlight"]
         /\ cacheOperation' =
             [cacheOperation EXCEPT ![c] = nextRealizationId]
@@ -298,7 +365,8 @@ Admit(d) ==
             disposedWithLease, drainedSuccess, leaseSafetyWitness,
             publishSafetyWitness, cleanupSafetyWitness, joinWitness,
             consistentOutcomeWitness, zeroLeaseRetentionWitness,
-            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            capacityRejectionWitness
             >>
 
 (***************************************************************************)
@@ -319,7 +387,8 @@ Join(d) ==
         publishSafetyWitness, cleanupSafetyWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
         disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityVars
         >>
 
 (***************************************************************************)
@@ -362,7 +431,8 @@ ReuseReadyFrom(d, c) ==
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, disposalWaitWitness,
         drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityVars
         >>
 
 ReuseReady(d) ==
@@ -390,7 +460,8 @@ CancelDemand(d) ==
             drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
             cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
             consistentOutcomeWitness, zeroLeaseRetentionWitness,
-            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            capacityVars
             >>
 
 (***************************************************************************)
@@ -421,7 +492,8 @@ AbandonOnFinalCancellation(d) ==
             drainedSuccess, leaseSafetyWitness, publishSafetyWitness,
             cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
             consistentOutcomeWitness, zeroLeaseRetentionWitness,
-            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            capacityRejectionWitness
             >>
 
 (***************************************************************************)
@@ -453,7 +525,8 @@ FailOnFinalCancellation(d) ==
             publishSafetyWitness, cleanupSafetyWitness, joinWitness,
             retryAfterFailureWitness, consistentOutcomeWitness,
             zeroLeaseRetentionWitness, disposalWaitWitness,
-            drainedSuccessWitness, doubleReturnWitness
+            drainedSuccessWitness, doubleReturnWitness,
+            capacityRejectionWitness
             >>
 
 (***************************************************************************)
@@ -503,7 +576,8 @@ CompleteSuccess(c) ==
             cleanupStarts, cleanupOutcome, returnAttempts, disposedWithLease,
             drainedSuccess, cleanupSafetyWitness, joinWitness,
             retryAfterFailureWitness, zeroLeaseRetentionWitness,
-            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            capacityVars
             >>
 
 (***************************************************************************)
@@ -546,7 +620,8 @@ PublishPartial(c) ==
             cleanupStarts, cleanupOutcome, returnAttempts, disposedWithLease,
             drainedSuccess, cleanupSafetyWitness, joinWitness,
             retryAfterFailureWitness, zeroLeaseRetentionWitness,
-            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness
+            disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
+            capacityVars
             >>
 
 (***************************************************************************)
@@ -576,7 +651,7 @@ CompleteFailure(c) ==
             joinWitness, retryAfterFailureWitness, consistentOutcomeWitness,
             zeroLeaseRetentionWitness, disposalWaitWitness,
             drainedSuccessWitness, doubleReturnWitness,
-            canceledOperation
+            canceledOperation, capacityRejectionWitness
             >>
 
 (***************************************************************************)
@@ -603,8 +678,33 @@ Dispose ==
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
         disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityVars
         >>
+
+(***************************************************************************)
+(* An absent exact request that cannot reserve all workspace-wide capacity *)
+(* is rejected before an operation id is minted or physical work starts.   *)
+(***************************************************************************)
+RejectAtCapacity(d) ==
+    LET c == CoordinateOf[d]
+    IN  /\ workspaceState = "Open"
+        /\ demandState[d] = "Pending"
+        /\ Eligible(d)
+        /\ cacheState[c] = "Absent"
+        /\ ~HasCapacity(d)
+        /\ demandState' = [demandState EXCEPT ![d] = "Rejected"]
+        /\ capacityRejectionWitness' = TRUE
+        /\ UNCHANGED <<
+            workspaceState, cacheState, cacheRealization, cacheOperation,
+            leader, demandResult, canceledOperation, nextRealizationId,
+            settledOperations, cleanupStarts, cleanupOutcome, returnAttempts,
+            disposedWithLease, drainedSuccess,
+            leaseSafetyWitness, publishSafetyWitness, cleanupSafetyWitness,
+            joinWitness, retryAfterFailureWitness, consistentOutcomeWitness,
+            zeroLeaseRetentionWitness, disposalWaitWitness,
+            drainedSuccessWitness, doubleReturnWitness
+            >>
 
 (***************************************************************************)
 (* A pending demand after disposal receives a visible terminal rejection.  *)
@@ -621,7 +721,8 @@ RejectAfterClose(d) ==
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
         drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityVars
             >>
 
 (***************************************************************************)
@@ -651,7 +752,7 @@ CompleteDrainedSuccess(c) ==
             disposedWithLease, leaseSafetyWitness, publishSafetyWitness,
             cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
             consistentOutcomeWitness, zeroLeaseRetentionWitness,
-            disposalWaitWitness, doubleReturnWitness
+            disposalWaitWitness, doubleReturnWitness, capacityVars
             >>
 
 (***************************************************************************)
@@ -679,7 +780,7 @@ CompleteDrainedFailure(c) ==
             joinWitness, retryAfterFailureWitness, consistentOutcomeWitness,
             zeroLeaseRetentionWitness, disposalWaitWitness,
             drainedSuccessWitness, doubleReturnWitness,
-            canceledOperation
+            canceledOperation, capacityRejectionWitness
             >>
 
 (***************************************************************************)
@@ -698,7 +799,8 @@ ReturnLease(d) ==
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
         disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
-        cacheOperation, canceledOperation, settledOperations
+        cacheOperation, canceledOperation, settledOperations,
+        capacityVars
         >>
 
 (***************************************************************************)
@@ -718,7 +820,7 @@ ReturnLeaseAgain(d) ==
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
         drainedSuccessWitness, cacheOperation, canceledOperation,
-        settledOperations
+        settledOperations, capacityVars
         >>
 
 (***************************************************************************)
@@ -753,7 +855,7 @@ BeginCleanup(c) ==
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, drainedSuccessWitness,
         doubleReturnWitness, cacheOperation, canceledOperation,
-        settledOperations
+        settledOperations, capacityVars
         >>
 
 (***************************************************************************)
@@ -773,7 +875,8 @@ CompleteCleanup(c, outcome) ==
         cleanupSafetyWitness, joinWitness, retryAfterFailureWitness,
         consistentOutcomeWitness, zeroLeaseRetentionWitness,
         disposalWaitWitness, drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityRejectionWitness
         >>
 
 (***************************************************************************)
@@ -793,13 +896,14 @@ Resurrect(c) ==
         retryAfterFailureWitness, consistentOutcomeWitness,
         zeroLeaseRetentionWitness, disposalWaitWitness,
         drainedSuccessWitness, doubleReturnWitness,
-            cacheOperation, canceledOperation, settledOperations
+            cacheOperation, canceledOperation, settledOperations,
+            capacityVars
         >>
 
 Next ==
     \/ \E d \in Demands :
-        BypassRootOnly(d) \/ RejectDuplicate(d) \/ Admit(d) \/ Join(d)
-            \/ ReuseReady(d) \/ CancelDemand(d)
+        BypassRootOnly(d) \/ RejectDuplicate(d) \/ RejectAtCapacity(d)
+            \/ Admit(d) \/ Join(d) \/ ReuseReady(d) \/ CancelDemand(d)
             \/ AbandonOnFinalCancellation(d) \/ FailOnFinalCancellation(d)
             \/ RejectAfterClose(d)
             \/ ReturnLease(d) \/ ReturnLeaseAgain(d)
@@ -814,8 +918,9 @@ Next ==
 Fairness ==
     /\ \A d \in Demands :
         WF_vars(
-            BypassRootOnly(d) \/ RejectDuplicate(d) \/ Admit(d) \/ Join(d)
-                \/ ReuseReady(d) \/ RejectAfterClose(d)
+            BypassRootOnly(d) \/ RejectDuplicate(d) \/ RejectAtCapacity(d)
+                \/ Admit(d) \/ Join(d) \/ ReuseReady(d)
+                \/ RejectAfterClose(d)
         )
     /\ \A d \in Demands : WF_vars(ReturnLease(d))
     /\ \A c \in Coordinates :
@@ -842,6 +947,17 @@ SingleFlightPerRequest ==
         Cardinality(
             {d \in Demands : CoordinateOf[d] = c /\ demandState[d] = "Admitting"}
         ) <= 1
+
+DuplicateCoordinatesCannotAdmit ==
+    \A d \in Demands :
+        HasNormalizedCoordinateDuplicate(d)
+            => demandState[d]
+                \notin {"Admitting", "Joined", "Leased", "Returned"}
+
+AdmissionCapacityBounded ==
+    /\ Cardinality(ActiveEntries) <= MaxEntries
+    /\ Cardinality(InFlightEntries) <= MaxInFlight
+    /\ ReservedByteUnits <= MaxReservedByteUnits
 
 (* Every demand that has ever received a lease for one exact request sees  *)
 (* the same realization identity. Returning a lease cannot make this       *)
@@ -1055,10 +1171,14 @@ NoReorderedRequestIsolationObserved ==
         /\ cacheState[c2] = "InFlight"
 NoDuplicateRejectionObserved ==
     ~\E d \in Demands :
-        HasDuplicateCoordinate(d) /\ demandState[d] = "Rejected"
+        /\ HasNormalizedCoordinateDuplicate(d)
+        /\ Len(RequestBindingsOf[d])
+            = Cardinality(SequenceSet(RequestBindingsOf[d]))
+        /\ demandState[d] = "Rejected"
 NoRootOnlyBypassObserved ==
     ~\E d \in Demands :
-        Len(RequestSequenceOf[d]) = 0 /\ demandState[d] = "Bypassed"
+        Len(RequestBindingsOf[d]) = 0 /\ demandState[d] = "Bypassed"
+NoCapacityRejectionObserved == ~capacityRejectionWitness
 NoDetachedCancellationObserved ==
     ~\E d \in Demands :
         /\ demandState[d] = "Canceled"

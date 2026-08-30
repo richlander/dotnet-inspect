@@ -58,21 +58,29 @@ VARIABLES
     zeroLeaseRetentionWitness,
     disposalWaitWitness,
     drainedSuccessWitness,
-    doubleReturnWitness
+    doubleReturnWitness,
+    capacityRejectionWitness
 
-RequestSequenceOfMC ==
-    (d1 :> <<c1, c2>>)
-        @@ (d2 :> <<c1, c2>>)
+BaseBindings == <<<<c1, g1, s1>>, <<c2, g2, s2>>>>
+
+RequestBindingsOfMC ==
+    (d1 :> BaseBindings)
+        @@ (d2 :> BaseBindings)
         @@ (
             d3 :>
                 CASE Scenario \in {
-                        OptionScenario, ContentScenario, SelectionScenario,
-                        CancellationScenario
-                    } -> <<c1, c2>>
-                  [] Scenario = DuplicateScenario -> <<c1, c1>>
+                        OptionScenario, CancellationScenario
+                    } -> BaseBindings
+                  [] Scenario = ContentScenario
+                    -> <<<<c1, g1, s1>>, <<c2, g4, s2>>>>
+                  [] Scenario = SelectionScenario
+                    -> <<<<c1, g1, s1>>, <<c2, g2, s4>>>>
+                  [] Scenario = DuplicateScenario
+                    -> <<<<c1, g1, s1>>, <<c1, g4, s4>>>>
                   [] Scenario = RootOnlyScenario -> <<>>
-                  [] Scenario = ReorderedScenario -> <<c2, c1>>
-                  [] OTHER -> <<c2, c3>>
+                  [] Scenario = ReorderedScenario
+                    -> <<<<c2, g2, s2>>, <<c1, g1, s1>>>>
+                  [] OTHER -> <<<<c2, g2, s2>>, <<c3, g3, s3>>>>
         )
 
 OptionsOfMC ==
@@ -85,37 +93,7 @@ OptionsOfMC ==
                 ELSE strictOptions
         )
 
-BaseGeneration ==
-    (c1 :> g1) @@ (c2 :> g2) @@ (c3 :> g3)
-
-AlternateGeneration ==
-    (c1 :> g1) @@ (c2 :> g4) @@ (c3 :> g3)
-
-GenerationOfMC ==
-    (d1 :> BaseGeneration)
-        @@ (d2 :> BaseGeneration)
-        @@ (
-            d3 :>
-                IF Scenario = ContentScenario
-                THEN AlternateGeneration
-                ELSE BaseGeneration
-        )
-
-BaseSelection ==
-    (c1 :> s1) @@ (c2 :> s2) @@ (c3 :> s3)
-
-AlternateSelection ==
-    (c1 :> s1) @@ (c2 :> s4) @@ (c3 :> s3)
-
-SelectionOfMC ==
-    (d1 :> BaseSelection)
-        @@ (d2 :> BaseSelection)
-        @@ (
-            d3 :>
-                IF Scenario = SelectionScenario
-                THEN AlternateSelection
-                ELSE BaseSelection
-        )
+ReservationOfMC == [d \in {d1, d2, d3} |-> 1]
 
 INSTANCE PackageRealizationAdmission WITH
     PackageCoordinates <- {c1, c2, c3},
@@ -123,9 +101,13 @@ INSTANCE PackageRealizationAdmission WITH
     Selections <- {s1, s2, s3, s4},
     Options <- {strictOptions, looseOptions},
     Demands <- {d1, d2, d3},
-    RequestSequenceOf <- RequestSequenceOfMC,
-    GenerationOf <- GenerationOfMC,
-    SelectionOf <- SelectionOfMC,
-    OptionsOf <- OptionsOfMC
+    RequestBindingsOf <- RequestBindingsOfMC,
+    OptionsOf <- OptionsOfMC,
+    ReservationOf <- ReservationOfMC,
+    MaxEntries <- 2,
+    MaxInFlight <- 2,
+    MaxReservedByteUnits <- 2,
+    AllowOverCapacity <- FALSE,
+    AllowDuplicateBindingAsDistinct <- FALSE
 
 =============================================================================
