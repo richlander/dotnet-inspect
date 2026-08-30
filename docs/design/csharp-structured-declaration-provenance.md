@@ -123,14 +123,18 @@ authoritative outcome unchanged; this protocol constrains the CSharp payload.
 | --- | --- | --- |
 | `Representable` | CSharp proved a complete faithful declaration | contained declaration text, exact namespace requirements, and a complete receipt containing only faithfully admitted dispositions |
 | `FallbackRequired` | Metadata facts are complete but C# cannot faithfully represent them | stable reason, complete typed fallback facts, optional subordinate compatibility text, and an optional receipt that may contain compatibility or opaque entries |
-| `Degraded` | Input facts or their status are incomplete or ambiguous | exact input status, bounded nonauthoritative typed evidence, and an optional partial receipt for attempted occurrences; no declaration or compatibility text |
-| `Unavailable` | Metadata could not produce the declaration facts | one or more exact Metadata failures and bounded typed diagnostics; no declaration text, compatibility text, or receipt |
+| `Degraded` | The owner-issued outcome reports degraded input | exact input status, bounded nonauthoritative typed evidence, and an optional partial receipt for attempted occurrences; no declaration-text or compatibility-text payload |
+| `Unavailable` | The owner-issued outcome reports Metadata declaration failure | one or more exact Metadata failures, bounded typed diagnostics, and an optional receipt for earlier attempted occurrences; no declaration-text or compatibility-text payload |
 
-Only an actual Metadata declaration failure produces `Unavailable`.
-Unsupported C# spelling over complete facts, including an opaque admission, is
-`FallbackRequired`, not `Degraded` or `Unavailable`. Incomplete or ambiguous
-input facts are `Degraded`, not a plausible declaration. A missing or invalid
-receipt entry is a result-construction failure, not another result arm.
+The Metadata status and failure mapping is forwarded unchanged from
+`member-inspection-planning-and-metadata-projection.md`. CSharp does not infer
+an arm from fact shape: an owner-issued degraded signature stays `Degraded`,
+while an owner-issued rejected signature stays `Unavailable` even though both
+may lack complete facts. Only complete owner-issued facts proceed to CSharp
+admission, where faithful spelling produces `Representable` and unsupported
+spelling, including an opaque admission, produces `FallbackRequired`. A
+missing or invalid receipt entry is a result-construction failure, not another
+result arm.
 
 ## Closed value classes
 
@@ -158,8 +162,8 @@ one occurrence:
 - `Rendered`: the typed input was faithfully rendered as contained C#;
 - `Escaped`: an identifier was faithfully represented with C# escaping;
 - `Synthesized`: CSharp chose syntax from typed facts rather than copied text;
-- `Composed`: contained text and its receipt were imported from a subordinate
-  representable result;
+- `Composed`: a subordinate representable result was admitted and its receipt
+  was imported;
 - `CompatibilityContained`: inert evidence was retained outside declaration
   text;
 - `Opaque`: CSharp cannot establish the occurrence's C# meaning.
@@ -171,9 +175,11 @@ result arm and receipt, never by accepting its text alone.
 The value class and disposition are separate closed axes. Each disposition
 accepts only the value classes and typed evidence compatible with its meaning:
 for example, `Escaped` requires `MetadataIdentifier`, `Composed` requires a
-`ContainedFragment` and its child receipt, and `CompatibilityContained`
-requires `CompatibilityFragment`. A combined class/disposition enum is not an
-equivalent receipt.
+successfully admitted `ContainedFragment` and carries its child receipt, and
+`CompatibilityContained` requires `CompatibilityFragment`. A `Composed` entry
+attests admission but does not copy or retain the fragment bytes; only a
+representable parent's declaration-text payload uses them. A combined
+class/disposition enum is not an equivalent receipt.
 
 ## Result invariants
 
@@ -202,31 +208,35 @@ faithful C# declaration exists, but neither replaces those required payloads.
 A consumer can render a fallback lens without mistaking it for compilable
 source.
 
-A receipt is optional when the producer reports only complete fallback facts
-and their reason. If compatibility text or other occurrence evidence is
-present, a receipt is required and covers every attempted occurrence exactly
-once. Every compatibility fragment is attached to its semantic path through a
-`CompatibilityContained` entry; equal fragments cannot collapse occurrences.
-Unattempted slots remain authoritative in the complete fallback facts rather
-than acquiring invented receipt entries.
+A receipt is absent only when no occurrence was attempted anywhere in the
+selected subtree. Once admission attempts an occurrence, the result carries a
+receipt covering every attempted occurrence exactly once, even when no
+compatibility text is retained. Every compatibility fragment is attached to
+its semantic path through a `CompatibilityContained` entry; equal fragments
+cannot collapse occurrences. Unattempted slots remain authoritative in the
+complete fallback facts rather than acquiring invented receipt entries.
 
 If a subordinate result requires fallback, the enclosing declaration cannot be
 `Representable`. The enclosing producer retains the subordinate typed facts
-and maps its outcome according to the completeness of its own evidence.
+and combines its own owner-issued outcome with the child under the composition
+rule below.
 
 ### Degraded
 
 `Degraded` names the exact incomplete or ambiguous input status and bounds any
-nonauthoritative typed evidence. If admission began before the incomplete
-input was reached, a partial receipt preserves each attempted occurrence
-exactly once. It never carries `CSharpDeclarationText` or
-`CSharpCompatibilityText`. Later composition cannot upgrade it by selecting
+nonauthoritative typed evidence. If admission began before the owner-issued
+degraded status was reached, a partial receipt preserves each attempted
+occurrence exactly once. It never carries a declaration-text or
+compatibility-text payload. Later composition cannot upgrade it by selecting
 the plausible parts.
 
 ### Unavailable
 
 `Unavailable` retains every Metadata failure that prevented declaration facts
-from being produced. CSharp admission failure cannot manufacture this arm.
+from being produced. If another occurrence was attempted before that
+owner-issued failure was reached, its receipt remains attached without
+retaining a declaration-text payload. CSharp admission failure cannot
+manufacture this arm.
 
 ## Diagnostic containment
 
@@ -247,27 +257,33 @@ receipt, or an empty fallback-fact collection.
 
 Composition follows the result algebra rather than string concatenation.
 
-- If any selected child is `Unavailable`, the parent is `Unavailable` and
-  retains every causative Metadata failure.
-- Otherwise, if any selected child is `Degraded`, the parent is `Degraded` and
-  retains the exact incomplete input statuses.
-- Otherwise, if any selected child is `FallbackRequired`, the parent is
-  `FallbackRequired` and its complete facts include every child's complete
-  fallback facts and stable reason.
-- Only all-`Representable` selected children can produce a `Representable`
-  parent; they contribute contained text, namespace requirements, and receipt
-  entries under prefixed semantic paths.
+- The parent first has its own arm: its owner-issued `Unavailable` or
+  `Degraded` outcome, or the `Representable`/`FallbackRequired` result of
+  admitting complete owner-issued facts.
+- The final arm is the maximum of that arm and every selected child's arm under
+  the precedence `Unavailable` > `Degraded` > `FallbackRequired` >
+  `Representable`.
+- An `Unavailable` parent retains every causative Metadata failure; a
+  `Degraded` parent retains every exact incomplete input status; and a
+  `FallbackRequired` parent has complete facts containing every selected
+  child's complete fallback facts and stable reason.
+- A `Representable` parent therefore requires its own representable admission
+  and all-`Representable` selected children.
 
-This precedence is total for every mixture of child arms and cannot be
-overridden by selecting the most plausible child payload. If the parent renders
-an occurrence from independently owner-issued facts instead of consuming a
-child result, that result is not a selected subordinate and contributes
-nothing to the parent.
+This precedence is total for every mixture of the parent's own arm and child
+arms and cannot be overridden by selecting the most plausible payload. If the
+parent renders an occurrence from independently owner-issued facts instead of
+consuming a child result, that result is not a selected subordinate and
+contributes nothing to the parent.
 
 Receipt path prefixing is structural and immutable. Composition rejects
 duplicate paths, missing planned paths, mismatched value classes, opaque
 or compatibility dispositions in a representable result, or namespace
-requirements detached from the qualification request.
+requirements detached from the qualification request. Every selected child
+receipt is propagated under its prefixed path. If any occurrence was attempted
+in the selected subtree, the parent has a receipt even when its final arm is
+not representable; completed `Composed` entries retain child receipts but not
+child fragment bytes.
 
 ## Adoption contract
 
@@ -277,9 +293,10 @@ plan. The plan declares:
 - its form identity;
 - its closed set of semantic slot kinds and repeatable role paths;
 - the typed input class accepted by each slot;
+- the owner-issued status and fact payload it consumes;
 - the subordinate result boundaries it composes;
-- how incomplete source evidence maps to the four result arms;
-- the positive and close-negative fixtures that gate the mapping.
+- the positive and close-negative fixtures that gate faithful status forwarding
+  and payload construction.
 
 An adopter must produce its plan from typed facts before rendering. The
 renderer returns a result and receipt against that plan. Neither the adopter
@@ -288,7 +305,9 @@ nor a later consumer may fill receipt gaps by scanning output text.
 Incomplete prerequisite evidence remains on the legacy path outside this
 result API. It does not receive a provisional result arm merely to make
 migration appear complete. The adopting issue names the evidence dependency
-and adds the form only when all four arms can be produced authoritatively.
+and adds the form only when every owner-issued outcome can be carried
+authoritatively and complete facts can be admitted as representable or
+fallback.
 
 The shared registry is closed over adopted forms. Registration requires an
 owning design and a plan factory. Every result-producing declaration form
@@ -324,15 +343,18 @@ form or metadata-source inventory.
 The implementation is not complete until named tests enforce the protocol
 itself:
 
-- `CSharpDeclarationProtocolTests.ResultArmsPreserveAuthoritativeOutcome`
-  proves the four arms require their stable reason, facts, statuses, failures,
-  and permitted text/receipt payloads.
+- `CSharpDeclarationProtocolTests.ResultArmsForwardAuthoritativeOutcome`
+  proves owner-issued degraded and unavailable outcomes are forwarded without
+  fact-shape inference, while complete facts alone enter CSharp admission; all
+  arms require their stable reason, facts, statuses, failures, and permitted
+  text/receipt payloads.
 - `CSharpDeclarationProtocolTests.RepresentableRequiresCompleteReceipt`
   derives required paths from the plan and rejects missing, duplicate, extra,
   opaque, or compatibility entries.
 - `CSharpDeclarationProtocolTests.NonrepresentableReceiptsPreserveAttempts`
-  proves compatibility requires a path-complete attempted-occurrence receipt
-  while degraded partial receipts neither invent nor collapse occurrences.
+  proves every nonrepresentable arm omits its receipt only when zero
+  occurrences were attempted, propagates selected child receipts by prefixed
+  path, and retains neither composed fragment bytes nor invented occurrences.
 - `CSharpDeclarationProtocolTests.EqualValuesRemainDistinctOccurrences` proves
   repeated equal values retain separate semantic paths.
 - `CSharpDeclarationProtocolTests.ReceiptSchemaIsClosedAndOffsetFree` derives
@@ -344,13 +366,15 @@ itself:
 - `CSharpDeclarationProtocolTests.CompatibilityTextCannotBecomeDeclarationText`
   proves inert text has no promotion or concatenation path and occurs only on
   complete fallback results.
-- `CSharpDeclarationProtocolTests.CompositionIsTotalAndMonotone` covers every
-  pair of child arms and proves a parent cannot hide a selected child's
-  fallback, degradation, or unavailability.
+- `CSharpDeclarationProtocolTests.CompositionIsTotalAndMonotone` covers the
+  cross product of parent-own and selected-child arms and proves a parent
+  cannot hide either source's fallback, degradation, or unavailability.
 - `CSharpDeclarationProtocolTests.QualificationOwnsNamespaceRequirements`
   proves requirements come from the qualified request/result, not rescanning.
 - `CSharpDeclarationProtocolTests.DiagnosticsCannotSubstituteForFacts` proves
-  diagnostics cannot satisfy a plan or produce success-shaped empty payloads.
+  diagnostics cannot satisfy a plan or produce success-shaped empty payloads;
+  it derives the closed reason/evidence schema and rejects free-form or
+  plausible C# text members.
 - `CSharpDeclarationAdoptionTests.RegistryMatchesResultProducingForms` derives
   the expected form set independently from result-producing entry points and
   asserts set equality with owned plans.
