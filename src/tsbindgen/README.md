@@ -74,13 +74,14 @@ diagnosed `unknown`; TypeScript does not reconstruct publication authority from
 display text. Every display argument must also correlate structurally with its
 authenticated `TypeRef`. Framework mappings require the exact metadata name,
 generic arity, and trusted defining assembly. Local mappings require retained
-resolution origin, the complete containing assembly identity, and a known
-declaration kind before nullable-reference spelling is accepted; a local
-value type requires an authenticated `Nullable<T>` wrapper. Every delegate
-fact must also have one unique in-range managed parameter index. Display text
-cannot replace payload identity, manufacture nullability, exceed the SDK
-callback arity, introduce `Void` callback payloads, or hide an authenticated
-async return.
+resolution origin, the complete containing assembly identity, the exact
+structured metadata definition name, and a known declaration kind before
+nullable-reference spelling is accepted; a local value type requires an
+authenticated `Nullable<T>` wrapper, and that wrapper rejects reference or
+unclassified arguments in either C# spelling. Every delegate fact must also
+have one unique in-range managed parameter index. Display text cannot replace
+payload identity, manufacture nullability, exceed the SDK callback arity,
+introduce `Void` callback payloads, or hide an authenticated async return.
 `MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
 `MapParameterType_MapsAuthenticatedFuncInManagedOrder`,
 `MapParameterType_AcceptsCorrelatedQualifiedDelegateTypes`,
@@ -90,6 +91,8 @@ async return.
 `MapParameterType_RejectsSameRecordFromDifferentAssembly`,
 `MapParameterType_RejectsSameSimpleAssemblyWithDifferentIdentity`,
 `MapParameterType_RejectsNullableLocalValueTypeWithoutWrapper`,
+`MapParameterType_RejectsExplicitNullableOfReferenceType`,
+`MapParameterType_RejectsFlattenedLocalDefinitionCollision`,
 `MapParameterType_RejectsMalformedFrameworkGenericNames`,
 `MapParameterType_RejectsFrameworkNamesWithWrongGenericArity`,
 `MapParameterType_RejectsVoidDelegatePayloads`,
@@ -101,7 +104,8 @@ async return.
 `Emit_MapsDelegateRecordFromContainingAssembly`, and
 `Emit_RejectsDelegateRecordFromDifferentAssembly`,
 `Emit_RejectsDelegateRecordWithDifferentFullAssemblyIdentity`,
-`Emit_RejectsNullableDelegateValueTypeWithoutWrapper`, and
+`Emit_RejectsNullableDelegateValueTypeWithoutWrapper`,
+`Emit_RejectsFlattenedLocalDefinitionCollision`, and
 `Emit_RejectsInvalidDelegateParameterAssociations` gate the projection.
 Promise-returning delegates remain unsupported by the SDK source generator and
 by hand-composed mapper inputs.

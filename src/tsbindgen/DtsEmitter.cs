@@ -67,7 +67,7 @@ static class DtsEmitter
             : [];
         var localTypeKinds = declarationTypes
             .Select(type => (
-                type.FullName,
+                type.DefinitionName,
                 Kind: type.Kind switch
                 {
                     "class" or "interface" or "delegate" =>
@@ -76,11 +76,14 @@ static class DtsEmitter
                         TsLocalTypeKind.Value,
                     _ => (TsLocalTypeKind?)null,
                 }))
-            .Where(item => item.Kind is not null)
+            .Where(item =>
+                item.DefinitionName is not null
+                && item.Kind is not null)
             .ToDictionary(
-                item => item.FullName,
+                item => item.DefinitionName!,
                 item => item.Kind!.Value,
-                StringComparer.Ordinal);
+                EqualityComparer<
+                    MetadataTypeDefinitionName>.Default);
         var delegateMappingContext = new TsDelegateMappingContext(
             knownTypeNames,
             localTypeKinds,

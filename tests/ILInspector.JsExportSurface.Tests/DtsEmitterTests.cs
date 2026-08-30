@@ -188,6 +188,8 @@ public sealed class DtsEmitterTests
                     Namespace = "Mine",
                     Name = "Payload",
                     Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
                 },
             ],
             Functions =
@@ -222,6 +224,8 @@ public sealed class DtsEmitterTests
                     Namespace = "Mine",
                     Name = "Payload",
                     Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
                 },
             ],
             Functions =
@@ -266,6 +270,8 @@ public sealed class DtsEmitterTests
                     Namespace = "Mine",
                     Name = "Payload",
                     Kind = "enum",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
                 },
             ],
             Functions =
@@ -304,6 +310,8 @@ public sealed class DtsEmitterTests
                     Namespace = "Mine",
                     Name = "Payload",
                     Kind = "enum",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
                 },
             ],
             Functions =
@@ -340,6 +348,8 @@ public sealed class DtsEmitterTests
                     Namespace = "Mine",
                     Name = "Payload",
                     Kind = "class",
+                    DefinitionName =
+                        DefinitionName("Mine", "Payload"),
                 },
             ],
             Functions =
@@ -350,6 +360,74 @@ public sealed class DtsEmitterTests
                         new Version(2, 0, 0, 0),
                         culture: null,
                         publicKeyToken: "8899aabbccddeeff")),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.NotEmpty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_RejectsFlattenedLocalDefinitionCollision()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "A.B",
+                    Name = "C",
+                    Kind = "class",
+                    DefinitionName =
+                        DefinitionName("A.B", "C"),
+                },
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Register",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Callback",
+                            Type = "System.Action<A.B.C?>",
+                        },
+                    ],
+                    DelegateParameters =
+                    [
+                        new JsExportDelegateParameter
+                        {
+                            ParameterIndex = 0,
+                            Kind = JsExportDelegateKind.Action,
+                            ParameterTypes =
+                            [
+                                ResolvedType(
+                                    assembly,
+                                    "A",
+                                    "B+C",
+                                    DefinitionName(
+                                        "A",
+                                        "B",
+                                        "C")),
+                            ],
+                        },
+                    ],
+                },
             ],
         };
 
@@ -472,18 +550,15 @@ public sealed class DtsEmitterTests
     static TypeRef ResolvedType(
         ApiAssemblyIdentity assembly,
         string @namespace,
-        string name)
+        string name,
+        MetadataTypeDefinitionName? definitionName = null)
     {
         var identity = new AssemblyReferenceIdentity(
             assembly.Name,
             assembly.Version,
             assembly.Culture,
             assembly.PublicKeyToken);
-        MetadataTypeDefinitionName definitionName =
-            ((MetadataTypeDefinitionNameResult.Valid)
-                MetadataTypeDefinitionName.Create(
-                    @namespace,
-                    ImmutableArray.Create(name))).Name;
+        definitionName ??= DefinitionName(@namespace, name);
         return TypeRef.Definition(
             assembly.Name,
             @namespace,
@@ -492,6 +567,14 @@ public sealed class DtsEmitterTests
                 new TypeReferenceOrigin.AssemblyReference(identity),
                 definitionName));
     }
+
+    static MetadataTypeDefinitionName DefinitionName(
+        string @namespace,
+        params string[] segments) =>
+        ((MetadataTypeDefinitionNameResult.Valid)
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                segments.ToImmutableArray())).Name;
 
     [Fact]
     public void Emit_MapsPrimitiveArrayAndClosedGenericWireRoots()

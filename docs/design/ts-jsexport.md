@@ -685,7 +685,7 @@ The implementation effort should:
     legal spelling collisions; and
 14. preserve deterministic output and failure-before-publication behavior.
 
-Steps 9 and 12 are atomic for methods sharing one declaring-type path and
+Steps 9 and 13 are atomic for methods sharing one declaring-type path and
 managed name. Until the exact runtime dispatch identity from #4791 is consumed,
 such overloads remain a visible generation rejection; allocating two facade
 names that both call the ambiguous bare runtime key is never an intermediate
@@ -770,11 +770,12 @@ The target remains unverified until all of these gates exist:
   type is correlated with its authenticated assembly and type identity.
   Framework mappings require exact metadata names and generic arity; local
   mappings require retained resolution origin, complete containing-assembly
-  identity, and declaration kind before nullable-reference spelling is
-  accepted. Every delegate fact must associate uniquely with an in-range
-  managed parameter. Unauthenticated, untrusted-framework, mismatched,
-  unclassified-nullable, malformed-arity, unassociated, over-arity,
-  `Void`-payload, or async-disguising evidence remains a diagnosed `unknown`;
+  identity, exact structured metadata definition name, and declaration kind
+  before nullable-reference spelling is accepted. Every delegate fact must
+  associate uniquely with an in-range managed parameter. Unauthenticated,
+  untrusted-framework, mismatched, unclassified-nullable, malformed-arity,
+  unassociated, over-arity, `Void`-payload, or async-disguising evidence
+  remains a diagnosed `unknown`;
 - an SDK compile-negative fixture requires method-scoped `SYSLIB1072` for a
   Promise-returning `Func<..., Task<T>>` callback and a callback with more than
   three parameters without assuming either is the build's only cascading

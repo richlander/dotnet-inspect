@@ -386,6 +386,17 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
+    public void MapParameterType_RejectsExplicitNullableOfReferenceType()
+    {
+        AssertDelegateRejected(
+            "System.Action<System.Nullable<string>>",
+            ActionParameter(
+                TypeRef.GenericInstance(
+                    TypeRef.CoreLib("System", "Nullable`1"),
+                    [TypeRef.CoreLib("System", "String")])));
+    }
+
+    [Fact]
     public void MapParameterType_RejectsNullableLocalTypeWithoutClassification()
     {
         AssertDelegateRejected(
@@ -398,8 +409,9 @@ public sealed class TsTypeMapperTests
                     "WidgetDto")),
             new TsDelegateMappingContext(
                 RecordNames,
-                new Dictionary<string, TsLocalTypeKind>(
-                    StringComparer.Ordinal),
+                new Dictionary<
+                    MetadataTypeDefinitionName,
+                    TsLocalTypeKind>(),
                 FixtureAssembly));
     }
 
@@ -433,6 +445,43 @@ public sealed class TsTypeMapperTests
                     "ILInspector.JsExportSurface.Fixtures",
                     "WidgetDto")),
             FixtureDelegateContext(TsLocalTypeKind.Reference));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsFlattenedLocalDefinitionCollision()
+    {
+        var recordNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "C",
+            "A.B.C",
+        };
+        var context = new TsDelegateMappingContext(
+            recordNames,
+            new Dictionary<
+                MetadataTypeDefinitionName,
+                TsLocalTypeKind>
+            {
+                [DefinitionName("A.B", "C")] =
+                    TsLocalTypeKind.Reference,
+            },
+            FixtureAssembly);
+        TypeRef nestedType = ResolvedType(
+            FixtureAssembly,
+            "A",
+            "B+C",
+            DefinitionName("A", "B", "C"));
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                "System.Action<A.B.C?>",
+                recordNames,
+                diagnostics,
+                "Register.callback",
+                delegateParameter: ActionParameter(nestedType),
+                delegateMappingContext: context));
+        Assert.NotEmpty(diagnostics.UnmappedTypes);
     }
 
     [Fact]
@@ -847,30 +896,28 @@ public sealed class TsTypeMapperTests
         TsLocalTypeKind kind) =>
         new(
             RecordNames,
-            new Dictionary<string, TsLocalTypeKind>(
-                StringComparer.Ordinal)
+            new Dictionary<
+                MetadataTypeDefinitionName,
+                TsLocalTypeKind>
             {
-                [
-                    "ILInspector.JsExportSurface.Fixtures.WidgetDto"
-                ] = kind,
+                [DefinitionName(
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "WidgetDto")] = kind,
             },
             FixtureAssembly);
 
     static TypeRef ResolvedType(
         ApiAssemblyIdentity assembly,
         string @namespace,
-        string name)
+        string name,
+        MetadataTypeDefinitionName? definitionName = null)
     {
         var identity = new AssemblyReferenceIdentity(
             assembly.Name,
             assembly.Version,
             assembly.Culture,
             assembly.PublicKeyToken);
-        MetadataTypeDefinitionName definitionName =
-            ((MetadataTypeDefinitionNameResult.Valid)
-                MetadataTypeDefinitionName.Create(
-                    @namespace,
-                    ImmutableArray.Create(name))).Name;
+        definitionName ??= DefinitionName(@namespace, name);
         return TypeRef.Definition(
             assembly.Name,
             @namespace,
@@ -879,4 +926,12 @@ public sealed class TsTypeMapperTests
                 new TypeReferenceOrigin.AssemblyReference(identity),
                 definitionName));
     }
+
+    static MetadataTypeDefinitionName DefinitionName(
+        string @namespace,
+        params string[] segments) =>
+        ((MetadataTypeDefinitionNameResult.Valid)
+            MetadataTypeDefinitionName.Create(
+                @namespace,
+                segments.ToImmutableArray())).Name;
 }

@@ -18,7 +18,9 @@ enum TsLocalTypeKind
 
 sealed record TsDelegateMappingContext(
     IReadOnlySet<string> RecordNames,
-    IReadOnlyDictionary<string, TsLocalTypeKind> LocalTypeKinds,
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        TsLocalTypeKind> LocalTypeKinds,
     ApiAssemblyIdentity? ContainingAssembly);
 
 /// <summary>
@@ -205,8 +207,9 @@ static class TsTypeMapper
                 delegateMappingContext
                     ?? new TsDelegateMappingContext(
                         recordNames,
-                        new Dictionary<string, TsLocalTypeKind>(
-                            StringComparer.Ordinal),
+                        new Dictionary<
+                            MetadataTypeDefinitionName,
+                            TsLocalTypeKind>(),
                         ContainingAssembly: null));
     }
 
@@ -594,6 +597,18 @@ static class TsTypeMapper
             {
                 return false;
             }
+            if (IsType(
+                    genericDefinition,
+                    "System",
+                    "Nullable`1")
+                && (authenticatedArguments is not [var nullableArgument]
+                    || ClassifyAuthenticatedType(
+                        nullableArgument,
+                        mappingContext)
+                        is not TsLocalTypeKind.Value))
+            {
+                return false;
+            }
 
             for (int index = 0;
                 index < authenticatedArguments.Length;
@@ -721,9 +736,10 @@ static class TsTypeMapper
 
         return mappingContext.RecordNames.Contains(
                 authenticatedType.ToQualifiedDisplayString())
-            && MatchesContainingAssembly(
+            && TryGetLocalTypeKind(
                 authenticatedType,
-                mappingContext.ContainingAssembly);
+                mappingContext,
+                out _);
     }
 
     static bool IsFrameworkMappingIdentity(TypeRef type) =>
@@ -907,20 +923,35 @@ static class TsTypeMapper
             return TsLocalTypeKind.Value;
         }
 
-        string qualifiedName =
-            definition.ToQualifiedDisplayString();
-        if (mappingContext.RecordNames.Contains(qualifiedName)
-            && MatchesContainingAssembly(
+        if (TryGetLocalTypeKind(
                 definition,
-                mappingContext.ContainingAssembly)
-            && mappingContext.LocalTypeKinds.TryGetValue(
-                qualifiedName,
+                mappingContext,
                 out TsLocalTypeKind kind))
         {
             return kind;
         }
 
         return null;
+    }
+
+    static bool TryGetLocalTypeKind(
+        TypeRef type,
+        TsDelegateMappingContext mappingContext,
+        out TsLocalTypeKind kind)
+    {
+        if (type.Resolution?.Type is not
+                MetadataTypeDefinitionName definitionName
+            || !MatchesContainingAssembly(
+                type,
+                mappingContext.ContainingAssembly))
+        {
+            kind = default;
+            return false;
+        }
+
+        return mappingContext.LocalTypeKinds.TryGetValue(
+            definitionName,
+            out kind);
     }
 
     static bool MatchesContainingAssembly(
