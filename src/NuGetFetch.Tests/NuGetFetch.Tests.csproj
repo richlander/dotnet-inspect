@@ -21,6 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\NuGetFetch.PluginFixture\PluginFixtureConfiguration.cs" Link="PluginFixtureConfiguration.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NuGetFetch.PluginFixture\NuGetFetch.PluginFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
   </ItemGroup>
 
