@@ -55,7 +55,8 @@ Windows, Linux, and macOS; reusable result and evidence contracts remain
 NativeAOT-compatible and never load inspected code.
 The adapter capability declares finite maximum member and byte bounds for the
 workspace owner's aggregate reservation; a request may narrow but not exceed
-those bounds.
+those bounds. Capability and request-limit validation completes before adapter
+invocation, path normalization, or filesystem work.
 
 The requested root family and full canonical version text match ordinally and
 never roll forward. SemVer precedence equality does not collapse versions with
@@ -250,7 +251,7 @@ rules are owned by their rejection gates.
 | No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout` |
 | Declared rejection behavior | `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
 | Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_GenerationIsFreshAndProofLeaseBound`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
-| Adapter capability bounds | `InstalledPlatformAdapterCapabilities_DeclareFinitePositiveBounds`, `InstalledPlatformRealization_RequestLimitsOnlyNarrowCapability` |
+| Adapter capability bounds | `InstalledPlatformAdapterCapabilities_DeclareFinitePositiveBounds`, `InstalledPlatformRealization_RequestLimitsOnlyNarrowCapability`, `InstalledPlatformRealization_InvalidCapabilityLimitsRejectBeforeIo` |
 | Platform and dependency boundaries | `InstalledPlatformComposition_UsesDesktopAdaptersAndRejectsBrowserBeforeIo`, `BrowserPlatformComposition_DoesNotReferenceInstalledDesktopAdapter`, `InstalledPlatformAdapter_NativeAotPublishAndRun`, `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`, `InstalledPlatformAdapterClosure_ExcludesInspectedAssemblyLoading`, `InstalledPlatformAdapter_ExcludesHostFxrInterop` |
 
 ### Non-claims
