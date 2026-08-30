@@ -5,25 +5,11 @@
 Design proposal. This document describes a future query model; it does not
 describe behavior that exists today.
 
-## Authority boundary
-
-For the composition map, this document is authoritative only for these L2
-contracts:
-
-- field-predicate and order-expression semantics after command-level option
-  extraction;
-- section-schema binding and validation;
-- effective-order identities and ranking metadata; and
-- whether an order identity qualifies as ranking input for semantic Top.
-
-CLI-looking examples elsewhere in this proposal are provisional illustrations.
-They do not settle option spellings, arity, repetition, conflicts, diagnostics,
-compatibility lowering, count/window composition, field projection,
-result-binding, rendering order, or current-command behavior. The pending L3,
-L2 binding, and payload designs own those contracts.
-
-[Item and line selection composition](item-and-line-limits.md#composition)
-links to this boundary rather than adopting the mixed proposal as a whole.
+[Item and line limits](item-and-line-limits.md) settles the adjacent
+[#4677](https://github.com/richlander/dotnet-inspect/issues/4677) vocabulary:
+`-n`/bare `-N` is the plain first/last item count, `--rows` carries only
+absolute ranges, and `--top` is a validated ranked count composed with
+`--order-by`.
 
 [The package query CLI](package-query-cli.md) proposes reusing this model's
 `--where` grammar, unchanged, as the nuspec/promoted facet vocabulary for
@@ -125,10 +111,9 @@ select section -> collect rows -> apply --where -> apply effective ranking order
 -> apply --top -> intersect --rows range -> project --columns/--fields -> render
 ```
 
-The pending L3 and L2 binding designs own how count, window, and reduction
-gestures enter or branch from this L2 pipeline. The cross-component sequencing
-and typed handoffs live in
-[Item and line selection composition](item-and-line-limits.md#composition).
+Plain `-n N` follows the same pipeline but makes no ranking claim. `--count`
+branches after filtering and rejects item/range windows. The full cross-shape
+pipeline lives in [Item and line limits](item-and-line-limits.md).
 
 ## Predicate grammar
 

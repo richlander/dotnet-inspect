@@ -19,10 +19,13 @@ Related designs:
   component's typed boundary to adjacent owners without redefining its
   behavior.
 - [Inspection layers](inspection-layers.md) places the consumer-neutral
-  component below L2 so CLI and browser-facing section pipelines can share it.
-- [The row-query authority boundary](row-query-order.md#authority-boundary)
-  owns predicate evaluation, effective order, ranking metadata, and schema
-  validation.
+  component below L2 so CLI and browser-facing section pipelines can share it;
+  focused adoption of the composition handoff is tracked by
+  [#5163](https://github.com/richlander/dotnet-inspect/issues/5163).
+- [Row query and ordering](row-query-order.md) is the existing proposal for
+  predicate evaluation, effective order, ranking metadata, and schema
+  validation; its focused adoption is tracked by
+  [#5162](https://github.com/richlander/dotnet-inspect/issues/5162).
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
 - [Semantic row-selection interaction model](../models/semantic-row-selection/SemanticRowSelection.tla)
