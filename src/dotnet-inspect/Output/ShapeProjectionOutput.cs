@@ -67,7 +67,8 @@ public sealed record ShapeProjectionOptions(
     RowSelector? Row,
     bool JsonOutput,
     bool Jsonl,
-    bool JsonArray);
+    bool JsonArray,
+    ProjectionDestination Destination);
 
 public static class ShapeProjectionOutput
 {
@@ -130,14 +131,24 @@ public static class ShapeProjectionOutput
 
         if (options.Jsonl)
         {
-            foreach (var item in selected)
-                Console.WriteLine(JsonSerializer.Serialize(item, ShapeProjectionJsonContext.Default.ShapeProjectionRow));
+            ProjectionDestinationWriter.WriteText(options.Destination, output =>
+            {
+                foreach (var item in selected)
+                {
+                    output.Write(JsonSerializer.Serialize(
+                        item,
+                        ShapeProjectionJsonContext.Default.ShapeProjectionRow));
+                    output.Write('\n');
+                }
+            });
             return 0;
         }
 
         if (options.JsonArray)
         {
-            Console.Write(JsonSerializer.Serialize(selected.ToArray(), ShapeProjectionJsonContext.Default.ShapeProjectionRowArray));
+            ProjectionDestinationWriter.WriteText(
+                options.Destination,
+                JsonSerializer.Serialize(selected.ToArray(), ShapeProjectionJsonContext.Default.ShapeProjectionRowArray));
             return 0;
         }
 
@@ -146,12 +157,18 @@ public static class ShapeProjectionOutput
             var json = selected.Count == 1
                 ? JsonSerializer.Serialize(selected[0], ShapeProjectionJsonContext.Default.ShapeProjectionRow)
                 : JsonSerializer.Serialize(selected.ToArray(), ShapeProjectionJsonContext.Default.ShapeProjectionRowArray);
-            Console.Write(json);
+            ProjectionDestinationWriter.WriteText(options.Destination, json);
             return 0;
         }
 
-        foreach (var item in selected)
-            Console.WriteLine(item.Value);
+        ProjectionDestinationWriter.WriteText(options.Destination, output =>
+        {
+            foreach (var item in selected)
+            {
+                output.Write(item.Value);
+                output.Write('\n');
+            }
+        });
         return 0;
     }
 
