@@ -1661,6 +1661,56 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_InfersDeclarationWhenCalleeRewriteHasParenthesizedReceiver()
+    {
+        // Close positive (round-8 review, reviewers A and B): a matched
+        // InvocationExpression pair whose receiver itself contains balanced
+        // parentheses (a cast, `((IFoo)value)`) must still have its true
+        // callee correctly compared. A naive "first '(' in the text" split
+        // would misidentify the callee split point -- the text starts with
+        // '(' -- and wrongly decline to detect this as a genuine rewrite.
+        var before = TrustedDocument(
+            "return ((IFoo)value).Old();",
+            new NodeSpec("InvocationExpression", "((IFoo)value).Old()", [0x10]));
+        var after = TrustedDocument(
+            "return ((IFoo)value).New();\nstatic int New()\n{\n    return 1;\n}",
+            new NodeSpec("InvocationExpression", "((IFoo)value).New()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int New()\n{\n    return 1;\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.InferredDeclaration, declaration.Reason);
+    }
+
+    [Fact]
+    public void IssueCorrespondence_DoesNotTreatUnchangedCalleeWithNestedInvocationReceiverAsRewrite()
+    {
+        // Close negative, symmetric to the parenthesized-receiver positive
+        // above: a call-returning receiver (`GetReceiver()`) also contains a
+        // balanced paren pair before the true callee's own argument list.
+        // The callee (`GetReceiver().Log`) is unchanged here -- only the
+        // argument differs -- so this must not license an unrelated
+        // declaration as a rewrite target, proving the balanced scan finds
+        // the correct split rather than merely the first or last paren.
+        var before = TrustedDocument(
+            "GetReceiver().Log(1);",
+            new NodeSpec("InvocationExpression", "GetReceiver().Log(1)", [0x10]));
+        var after = TrustedDocument(
+            "GetReceiver().Log(2);\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "GetReceiver().Log(2)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWhenMultipleCandidatesShareScope()
     {
         // Close negative: two new local-function declarations with no IL

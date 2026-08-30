@@ -898,12 +898,13 @@ public static partial class CSharpBodyDiff
             afterDocument,
             afterNode.Spans);
 
-    // Compares only an InvocationExpression node's callee -- the text before
-    // its argument list's opening parenthesis -- rather than its full call
-    // text. An argument-only edit (e.g. `Log(oldValue)` -> `Log(newValue)`)
-    // must not read as a call-site rewrite: the call's target never changed,
-    // so it is not evidence that some other declaration in the document was
-    // introduced or removed alongside it. Callers guarantee a single span.
+    // Compares only an InvocationExpression node's callee -- everything
+    // before the argument list's *outer* opening parenthesis -- rather than
+    // its full call text. An argument-only edit (e.g. `Log(oldValue)` ->
+    // `Log(newValue)`) must not read as a call-site rewrite: the call's
+    // target never changed, so it is not evidence that some other
+    // declaration in the document was introduced or removed alongside it.
+    // Callers guarantee a single span.
     static bool InvocationCalleeTextEqual(
         AnnotatedSourceDocument beforeDocument,
         AnnotatedSourceNode beforeNode,
@@ -912,12 +913,37 @@ public static partial class CSharpBodyDiff
         => GetInvocationCalleeText(beforeDocument, beforeNode)
             .SequenceEqual(GetInvocationCalleeText(afterDocument, afterNode));
 
+    // An InvocationExpression's own text always ends with the closing
+    // parenthesis of its argument list, so a balanced backward scan from
+    // that closing paren finds the argument list's true opening paren --
+    // unlike naively taking the *first* '(' in the text, which
+    // misidentifies the split for a callee that itself contains balanced
+    // parentheses (round-8 review, reviewers A and B), such as a
+    // parenthesized cast receiver (`((IFoo)x).Old()`) or a call-returning
+    // receiver (`GetReceiver().Old()`).
     static ReadOnlySpan<char> GetInvocationCalleeText(AnnotatedSourceDocument document, AnnotatedSourceNode node)
     {
         var span = node.Spans[0];
-        var text = document.Text.AsSpan(span.Start, span.Length);
-        int parenIndex = text.IndexOf('(');
-        return (parenIndex < 0 ? text : text[..parenIndex]).TrimEnd();
+        var text = document.Text.AsSpan(span.Start, span.Length).TrimEnd();
+        if (text.Length == 0 || text[^1] != ')')
+            return text;
+
+        int depth = 0;
+        for (int index = text.Length - 1; index >= 0; index--)
+        {
+            if (text[index] == ')')
+            {
+                depth++;
+            }
+            else if (text[index] == '(')
+            {
+                depth--;
+                if (depth == 0)
+                    return text[..index].TrimEnd();
+            }
+        }
+
+        return text;
     }
 
     internal static bool SelectedTextEqual(
