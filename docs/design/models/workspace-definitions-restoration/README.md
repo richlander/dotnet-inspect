@@ -8,15 +8,18 @@ prove an implementation.
 
 ## Scope
 
-`CompleteRestoration.tla` models two canonical restoration requests and three
-abstract required participants. The checked participant names are `workspace`,
-`navigation`, and `query`, but the model gives them identical mechanics: each
-independently returns exact-ready, replacement-ready, or failed.
+`CompleteRestoration.tla` models two canonical restoration requests, an
+explicit preflight phase, and three abstract required participants. Navigation
+admits the opaque request and issues its token before preflight can start. The
+checked participant names are `workspace`, `navigation`, and `query`, but the
+model gives them identical mechanics after preflight: each independently
+returns exact-ready, replacement-ready, or failed.
 
-One request captures its payload and the complete prior installed snapshot.
+Admission captures the request payload and complete prior installed snapshot.
 The model's coordinator token abstracts the one intent token issued by the
-retained Navigation session; it is not a second authority source. Every
-participant prepares privately against that request. Once all are ready, the
+retained Navigation session; it is not a second authority source. Preflight
+then succeeds or fails under that token. After success, every participant
+prepares privately against the same request. Once all are ready, the
 coordinator builds an exact or replacement candidate and either canonicalizes
 it or marks it non-projectable. Only a current canonical candidate can commit.
 Commit changes every installed participant token, the revision, request
@@ -24,6 +27,7 @@ correlation, and exact/replacement relation in one transition.
 
 The model also covers:
 
+- preflight succeeding or failing only after token admission;
 - a participant failing before or after peers become ready;
 - a second request superseding the first at any preparation phase;
 - abort retaining the complete prior snapshot and revision;
@@ -41,6 +45,9 @@ to the implementation gates in the owning document.
 
 - The retained Navigation session issues monotonically increasing bounded
   intent tokens, and the coordinator uses each exact token as its attempt ID.
+- The submitted source is opaque at admission. Bounded format dispatch, strict
+  decode, legacy lowering, and complete-composition planning are abstracted by
+  preflight; their detailed data semantics remain implementation gates.
 - Every attempt requires all three abstract participants. The implementation
   derives a finite exact participant set from the complete committed view; the
   three-participant instance exercises the coordination mechanism without
@@ -60,6 +67,7 @@ to the implementation gates in the owning document.
 | Design property | Model property |
 | --- | --- |
 | State remains within the declared shape | `TypeOK` |
+| Preflight work exists only for an admitted request token | `PreflightRequiresAdmission` |
 | Commit requires the current token, every participant ready, and a canonical candidate | `CommitRequiresEveryParticipantAndCanonicalCandidate` |
 | A committed snapshot is derived from the exact retained request | `CommittedSnapshotCorrelatesExactRequest` |
 | Exact versus replacement relation matches prepared participant evidence | `CommitRelationMatchesPreparedCandidate` |
@@ -96,10 +104,11 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
 
 | Configuration | Generated states | Distinct states | Depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| `CompleteRestoration.cfg` | 1,107,145 | 287,509 | 17 | No error |
+| `CompleteRestoration.cfg` | 1,149,917 | 299,773 | 19 | No error |
 
-The run enabled canonicalization failure and exact or replacement readiness
-for each participant. Action coverage was nonzero for request start,
+The run enabled preflight success and failure, canonicalization failure, and
+exact or replacement readiness for each participant. Action coverage was
+nonzero for request admission, preflight success and failure,
 exact/replacement readiness, participant failure, candidate build,
 canonicalization success and failure, commit, abort, discard, and stale
 completion.
@@ -110,11 +119,12 @@ applicable progress requirements directly.
 
 ## Counterexample mutations
 
-Eight opt-in configurations each enable one incorrect coordinator transition
+Nine opt-in configurations each enable one incorrect coordinator transition
 and must fail with the named invariant:
 
 | Configuration | Deliberate defect | Expected violation |
 | --- | --- | --- |
+| `PreflightBeforeAdmission.cfg` | Completes preflight before Navigation admits a token | `PreflightRequiresAdmission` |
 | `EarlyCommit.cfg` | Commits while one participant is ready and another is still working | `CommitRequiresEveryParticipantAndCanonicalCandidate` |
 | `PartialCommit.cfg` | Updates only one installed participant token | `InstalledSnapshotIsAtomic` |
 | `CommitFailed.cfg` | Commits after a participant failed | `FailedAttemptNeverCommits` |

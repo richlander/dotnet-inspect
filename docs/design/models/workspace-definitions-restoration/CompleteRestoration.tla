@@ -2,7 +2,8 @@
 (***************************************************************************)
 (* Design model of Workspace Definitions complete restoration coordination. *)
 (*                                                                         *)
-(* One canonical request starts every required participant against the same *)
+(* Navigation admits one opaque request before its preflight can start.      *)
+(* Successful preflight starts every required participant against that same *)
 (* immutable payload. Participant preparation is invisible. The coordinator *)
 (* builds and canonicalizes one complete candidate, then publishes every    *)
 (* participant fragment in one commit. Failure or non-projectability aborts *)
@@ -32,6 +33,7 @@ Tokens == 1 .. MaxIntent
 Payloads == {PayloadA, PayloadB}
 
 NoMutation == "None"
+PreflightBeforeAdmission == "PreflightBeforeAdmission"
 EarlyCommit == "EarlyCommit"
 PartialCommit == "PartialCommit"
 CommitFailed == "CommitFailed"
@@ -43,6 +45,7 @@ WrongRequest == "WrongRequest"
 
 Mutations ==
   { NoMutation,
+    PreflightBeforeAdmission,
     EarlyCommit,
     PartialCommit,
     CommitFailed,
@@ -52,6 +55,7 @@ Mutations ==
     WrongRelation,
     WrongRequest }
 
+PreflightPhases == {"none", "working", "ready", "failed"}
 ParticipantPhases == {"none", "working", "ready", "failed"}
 CandidateStates ==
   { "none",
@@ -108,6 +112,7 @@ PartialParticipant == CHOOSE p \in Participants : TRUE
 VARIABLES
   intent,
   requests,
+  preflight,
   preparation,
   liveAttempts,
   candidate,
@@ -125,6 +130,7 @@ VARIABLES
 vars ==
   << intent,
      requests,
+     preflight,
      preparation,
      liveAttempts,
      candidate,
@@ -162,6 +168,7 @@ TypeOK ==
        /\ requests[t].baseRevision \in Nat
        /\ requests[t].basePayload \in Payloads \cup {NoPayload}
        /\ requests[t].baseChanged \in BOOLEAN
+       /\ preflight[t] \in PreflightPhases
        /\ candidate[t] \in CandidateStates
        /\ results[t].outcome \in ResultOutcomes
        /\ results[t].relation \in ResultRelations
@@ -179,6 +186,7 @@ TypeOK ==
 Init ==
   /\ intent = 0
   /\ requests = [t \in Tokens |-> NoRequest]
+  /\ preflight = [t \in Tokens |-> "none"]
   /\ preparation = [t \in Tokens |-> NoPreparation]
   /\ liveAttempts = {}
   /\ candidate = [t \in Tokens |-> "none"]
@@ -205,6 +213,10 @@ AnyWorking(t) ==
 AnyFailed(t) ==
   \E p \in Participants : preparation[t][p].phase = "failed"
 
+AttemptFailed(t) ==
+  \/ preflight[t] = "failed"
+  \/ AnyFailed(t)
+
 AnyChanged(t) ==
   \E p \in Participants : preparation[t][p].changed
 
@@ -214,6 +226,7 @@ CanonicalCandidate(t) ==
 CommitGuardSatisfied(t) ==
   /\ t \in liveAttempts
   /\ t = intent
+  /\ preflight[t] = "ready"
   /\ AllReady(t)
   /\ CanonicalCandidate(t)
 
@@ -229,13 +242,78 @@ BeginRestoration(payload) ==
               basePayload          |-> installed.sourcePayload,
               baseChanged          |-> installed.changed,
               baseParticipantToken |-> installed.participantToken ]]
-  /\ preparation' = [preparation EXCEPT ![intent + 1] = NewPreparation]
+  /\ preflight' = [preflight EXCEPT ![intent + 1] = "working"]
+  /\ preparation' = [preparation EXCEPT ![intent + 1] = NoPreparation]
   /\ liveAttempts' = liveAttempts \cup {intent + 1}
   /\ candidate' = [candidate EXCEPT ![intent + 1] = "none"]
   /\ supersededAttempts' = supersededAttempts \cup liveAttempts
   /\ UNCHANGED
        << results,
           installed,
+          failedAttempts,
+          staleCompletions,
+          commitGuardWitness,
+          requestCorrelationWitness,
+          relationWitness,
+          abortRetentionWitness,
+          staleCompletionWitness >>
+
+PreflightReady(t) ==
+  /\ t \in liveAttempts
+  /\ preflight[t] = "working"
+  /\ preflight' = [preflight EXCEPT ![t] = "ready"]
+  /\ preparation' = [preparation EXCEPT ![t] = NewPreparation]
+  /\ UNCHANGED
+       << intent,
+          requests,
+          liveAttempts,
+          candidate,
+          results,
+          installed,
+          supersededAttempts,
+          failedAttempts,
+          staleCompletions,
+          commitGuardWitness,
+          requestCorrelationWitness,
+          relationWitness,
+          abortRetentionWitness,
+          staleCompletionWitness >>
+
+PreflightFailed(t) ==
+  /\ t \in liveAttempts
+  /\ preflight[t] = "working"
+  /\ preflight' = [preflight EXCEPT ![t] = "failed"]
+  /\ failedAttempts' = failedAttempts \cup {t}
+  /\ UNCHANGED
+       << intent,
+          requests,
+          preparation,
+          liveAttempts,
+          candidate,
+          results,
+          installed,
+          supersededAttempts,
+          staleCompletions,
+          commitGuardWitness,
+          requestCorrelationWitness,
+          relationWitness,
+          abortRetentionWitness,
+          staleCompletionWitness >>
+
+PreflightWithoutAdmission ==
+  /\ Mutation = PreflightBeforeAdmission
+  /\ intent < MaxIntent
+  /\ preflight[intent + 1] = "none"
+  /\ preflight' = [preflight EXCEPT ![intent + 1] = "ready"]
+  /\ UNCHANGED
+       << intent,
+          requests,
+          preparation,
+          liveAttempts,
+          candidate,
+          results,
+          installed,
+          supersededAttempts,
           failedAttempts,
           staleCompletions,
           commitGuardWitness,
@@ -253,6 +331,7 @@ ParticipantReady(t, p, changed) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           liveAttempts,
           candidate,
           results,
@@ -276,6 +355,7 @@ ParticipantFailed(t, p) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           liveAttempts,
           candidate,
           results,
@@ -298,6 +378,7 @@ BuildCandidate(t) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           liveAttempts,
           results,
@@ -323,6 +404,7 @@ CanonicalizeCandidateSuccess(t) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           liveAttempts,
           results,
@@ -344,6 +426,7 @@ CanonicalizeCandidateFailure(t) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           liveAttempts,
           results,
@@ -407,6 +490,7 @@ Commit(t) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           candidate,
           supersededAttempts,
@@ -425,7 +509,7 @@ CommitWithoutRequiredGuard(t) ==
      \/ /\ Mutation = CommitFailed
         /\ t \in liveAttempts
         /\ t = intent
-        /\ AnyFailed(t)
+        /\ AttemptFailed(t)
      \/ /\ Mutation = CommitSuperseded
         /\ t \in liveAttempts
         /\ t # intent
@@ -452,6 +536,7 @@ CommitWithoutRequiredGuard(t) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           candidate,
           supersededAttempts,
@@ -465,7 +550,7 @@ CommitWithoutRequiredGuard(t) ==
 Abort(t) ==
   /\ t \in liveAttempts
   /\ t = intent
-  /\ (AnyFailed(t) \/ candidate[t] = "unprojectable")
+  /\ (AttemptFailed(t) \/ candidate[t] = "unprojectable")
   /\ installed' =
        IF Mutation = AbortChangesInstalled
        THEN
@@ -491,6 +576,7 @@ Abort(t) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           candidate,
           supersededAttempts,
@@ -519,6 +605,7 @@ DiscardSuperseded(t) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           candidate,
           installed,
@@ -549,6 +636,7 @@ ObserveStaleCompletion(t, p) ==
   /\ UNCHANGED
        << intent,
           requests,
+          preflight,
           preparation,
           liveAttempts,
           candidate,
@@ -564,6 +652,10 @@ ResolveParticipant(t, p) ==
   \/ \E changed \in BOOLEAN : ParticipantReady(t, p, changed)
   \/ ParticipantFailed(t, p)
 
+ResolvePreflight(t) ==
+  \/ PreflightReady(t)
+  \/ PreflightFailed(t)
+
 CanonicalizeCandidate(t) ==
   \/ CanonicalizeCandidateSuccess(t)
   \/ CanonicalizeCandidateFailure(t)
@@ -575,6 +667,8 @@ SettleAttempt(t) ==
 
 Next ==
   \/ \E payload \in Payloads : BeginRestoration(payload)
+  \/ PreflightWithoutAdmission
+  \/ \E t \in Tokens : ResolvePreflight(t)
   \/ \E t \in Tokens, p \in Participants : ResolveParticipant(t, p)
   \/ \E t \in Tokens : BuildCandidate(t)
   \/ \E t \in Tokens : CanonicalizeCandidate(t)
@@ -583,6 +677,7 @@ Next ==
   \/ \E t \in Tokens, p \in Participants : ObserveStaleCompletion(t, p)
 
 Fairness ==
+  /\ \A t \in Tokens : WF_vars(ResolvePreflight(t))
   /\ \A t \in Tokens, p \in Participants : WF_vars(ResolveParticipant(t, p))
   /\ \A t \in Tokens : WF_vars(BuildCandidate(t))
   /\ \A t \in Tokens : WF_vars(CanonicalizeCandidate(t))
@@ -595,6 +690,12 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (***************************************************************************)
 
 CommitRequiresEveryParticipantAndCanonicalCandidate == commitGuardWitness
+
+PreflightRequiresAdmission ==
+  \A t \in Tokens :
+    preflight[t] # "none" =>
+      /\ t <= intent
+      /\ requests[t].payload # NoPayload
 
 CommittedSnapshotCorrelatesExactRequest ==
   /\ requestCorrelationWitness
@@ -661,7 +762,7 @@ EveryAttemptSettles ==
 
 EveryFailedAttemptSettlesWithoutCommit ==
   \A t \in Tokens :
-    (t \in liveAttempts /\ AnyFailed(t))
+    (t \in liveAttempts /\ AttemptFailed(t))
       ~> results[t].outcome \in {"aborted", "discarded"}
 
 =============================================================================

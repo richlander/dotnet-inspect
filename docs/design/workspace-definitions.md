@@ -452,17 +452,18 @@ The `subject` object is a closed tagged union:
 | `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | One exact Member |
 
 `library` is the exact assembly identity resolved inside the state entry's
-coordinate and selected scenario context. `type` is an exact metadata
-definition name. A member selector resolves within that exact Library and
-Type. Display text, package ID alone, assembly filename, metadata token alone,
-list position, and Browser key are never subject identity.
+own realized coordinate. `type` is an exact metadata definition name. A member
+selector resolves within that exact Library and Type. The scenario's selected
+context is not part of structural-subject identity: focus may be outside that
+context, and one coordinate may participate in several contexts. Display text,
+package ID alone, assembly filename, metadata token alone, list position, and
+Browser key are never subject identity.
 
 Resolution produces the exact
 `StructuralSubjectIdentity` consumed by Inspection Subject Navigation. A
-missing, ambiguous, cross-coordinate, or wrong-context selector is a typed
-preparation failure. It does not select a nearby Library, Type, or Member.
-Navigation alone owns any recommendation or reconciliation it performs from a
-valid request.
+missing, ambiguous, or cross-coordinate selector is a typed preparation
+failure. It does not select a nearby Library, Type, or Member. Navigation alone
+owns any recommendation or reconciliation it performs from a valid request.
 
 #### Valid subject, facet, and query combinations
 
@@ -494,6 +495,14 @@ fail closed. A query-free facet is valid only when its execution binding
 requires no persisted query state. A state whose visible result depends on a
 filter, body, or source target that lacks a portable query payload is
 non-projectable rather than silently restored with a default.
+
+A query descriptor may require the state coordinate, the scenario's selected
+context, or both. Structural-subject resolution uses only the state
+coordinate; `x` supplies the independently selected scenario context only to
+descriptors that declare that input. A descriptor requiring a relationship
+between them validates that relationship itself and returns its owner-issued
+incompatibility result. The selected context does not authorize a subject from
+another coordinate, and a `libraries` list does not widen the subject.
 
 `facet` values are **Registry identities, not display labels or CLI
 spellings**. The Registry owns stable human-writable spelling, title, summary,
@@ -1142,6 +1151,7 @@ The lowerer uses this closed, scope-aware table:
 
 | Version-1 source and structural evidence | Exact legacy value | Version-2 subject and facet |
 | --- | --- | --- |
+| no `lens` or `section`, exact Type, no Member | absent | Type, recommendation facet |
 | `lens`, exact Type, no Member | `api` | Type, `type.api` |
 | `lens`, exact Type, no Member | `metadata` | Type, `type.metadata` |
 | `lens`, exact Type, no Member | `source` | Type, `type.source` |
@@ -1151,6 +1161,7 @@ The lowerer uses this closed, scope-aware table:
 | package-capable coordinate with no Type or Member | `opportunities` | All Libraries, `library.opportunities` |
 | package-capable coordinate with no Type or Member | `analysis` | All Libraries, `library.analysis` |
 | package-capable coordinate with no Type or Member | `metadata` | All Libraries, `library.metadata` |
+| packet or definition with exact Member and no `section` | absent | Member, `member.overview` |
 | packet `section`, exact Member | `overview` | Member, `member.overview` |
 | packet `section`, exact Member | `call-graph` | Member, `member.call-graph` |
 | packet `section`, exact Member | `facts` | Member, `member.facts` |
@@ -1165,13 +1176,38 @@ Registry aliases. Case variation, whitespace, labels, qualified Browser hash
 spellings such as `pkg:dependencies`, CLI aliases, and values absent from this
 table fail with `LegacyLoweringFailed`.
 
-An exact Member comes from version 1's `type` plus exactly one
-`memberAnchor` or `memberSignature`; an exact Type comes from `type` without a
-member selector. A `section` applicable to that exact subject is the effective
-facet. A simultaneously present `lens` must be the exact known parent-Type
-token and is discarded as legacy context; any other pair is contradictory and
-fails lowering. Version-1 `library` or `libraries` values copy only to the
-version-2 view state's query scope and never infer a Library subject.
+Version 1 carries a Type name and optional member selector but does not require
+the exact acquired-Library identity that version 2 requires. Strict decode
+therefore produces an unresolved legacy subject plan rather than pretending it
+already contains a version-2 subject. After that plan's coordinate is realized,
+the lowerer resolves the exact metadata Type name against every acquired
+Library in that coordinate. Exactly one defining Library must match. Zero or
+several matches return `LegacyLoweringFailed` with missing or ambiguous
+evidence. For a Member plan, exactly one `memberAnchor` or `memberSignature`
+must then resolve inside that Library and Type. This is compatibility
+resolution owned by Workspace Definitions; it does not ask Navigation to
+recommend a substitute.
+
+A `section` applicable to the resolved subject is the effective facet. An exact
+Member with absent `section` maps to `member.overview`, preserving the current
+canonical Browser capture that omits its default Overview section. A
+simultaneously present `lens` must be the exact known parent-Type token and is
+discarded as legacy context; any other pair is contradictory and fails
+lowering. An exact Type with no `lens` or `section` preserves its subject and
+requests facet recommendation. Version-1 `library` or `libraries` values copy
+only to the version-2 view state's query scope and never infer the defining
+Library.
+
+A referenced version-1 query record is also an unresolved legacy plan. For a
+coordinate-backed scenario, its output attaches only to the state for `a`; for
+a workspace-free scenario it remains the scenario-level query. The record must
+carry a non-null exact `queryId`, and that query owner must statically register
+a version-1 migration that returns one canonical version-2 payload for the
+legacy preset. The resulting coordinate-backed query must be compatible with
+the exact lowered facet; migration never chooses or changes a facet. An absent
+`queryId`, missing owner migration, owner rejection, recommendation-only
+coordinate state, or incompatible facet returns `LegacyLoweringFailed`.
+Workspace Definitions never drops the preset or manufactures `{}`.
 
 Format 1 carries view state only for `a`. The lowerer creates an absent-subject
 recommendation state for every other open coordinate; it does not pretend
@@ -1190,38 +1226,50 @@ Registry ID.
 
 ### Complete restoration
 
-Decoding and transposition are pure. Applying their result uses one
-Workspace-Definitions-owned coordinator because coordinate realization,
-Navigation preparation, and query or target preparation may finish, fail, or
-be superseded independently.
+Decoding, lowering, validation, and transposition do not mutate installed
+state, but restoration orders even that pure work under the one retained
+Navigation intent. Applying a submitted source uses one
+Workspace-Definitions-owned coordinator because strict decode, legacy
+resolution, coordinate realization, Navigation preparation, and query or
+target preparation may finish, fail, or be superseded independently.
 
 One restoration attempt proceeds in this order:
 
-1. Decode one supported packet, lower version 1 when needed, validate the whole
-   version-2 composition, and capture its exact packet basis. Preflight failure
-   returns a typed result before participant work starts.
-2. Submit the canonical-restoration operation to the retained Navigation
-   session, retain its immutable request, and use the exact Navigation-issued
-   intent token as the coordinator attempt token. There is no second
-   Workspace-Definitions counter. A newer restoration or explicit subject,
-   facet, or coordinate intent receives a newer Navigation token and
-   supersedes the older attempt.
-3. Derive the exact required participant set from every coordinate's committed
+1. Submit the opaque packet or definition source as one
+   canonical-restoration operation to the retained Navigation session. Retain
+   the immutable raw request and complete prior installed snapshot, and use the
+   exact Navigation-issued intent token as the coordinator attempt token.
+   There is no second Workspace-Definitions counter. A newer restoration or
+   explicit subject, facet, or coordinate intent receives a newer Navigation
+   token and supersedes every remaining phase of the older attempt.
+2. Under that token, perform bounded format dispatch and strict decode. Format
+   2 produces a closed version-2 composition plan. Format 1 produces one
+   unresolved legacy plan and retains its exact canonical packet basis. Decode,
+   discriminator, or closed-shape failure aborts only if this exact token is
+   still current; otherwise its completion is discarded.
+3. Realize the exact workspace coordinates required by the plan. A format-1
+   plan then resolves each legacy Type or Member to one defining acquired
+   Library, invokes any referenced query owner's registered legacy migration,
+   constructs the whole version-2 composition, and validates it before
+   Registry lookup. Missing, ambiguous, rejected, or incompatible legacy state
+   aborts under the same token. A direct format-2 plan passes through the same
+   coordinate-backed identity and composition validation.
+4. Derive the remaining exact participant set from every coordinate's committed
    view. It includes workspace realization for every coordinate, one retained
    Navigation preparation for the focused coordinate, stateless
    subject-and-facet resolution for each inactive coordinate, and the query or
    target adapters named by each state. The inactive checks publish no
    Navigation snapshot or authority. The coordinator neither invents a
    participant nor omits validation because its state is currently offscreen.
-4. Ask every participant to prepare against the same request and attempt
-   token. Preparation may populate private caches, but it cannot mutate or
-   publish the installed workspace, Navigation snapshot, query result, URL
+5. Ask every remaining participant to prepare against the same request and
+   attempt token. Preparation may populate private caches, but it cannot mutate
+   or publish the installed workspace, Navigation snapshot, query result, URL
    basis, or consumer state. A prepared fragment identifies the exact request
    and reports `Exact` or `Replacement` with its owner-issued reason.
-5. If every required participant is ready, compose one candidate and project
+6. If every required participant is ready, compose one candidate and project
    it canonically. An exact candidate may retain its format-1 basis; every
    replacement candidate must successfully project as format 2 before commit.
-6. Compose one immutable `CompleteRestorationPublication` containing every
+7. Compose one immutable `CompleteRestorationPublication` containing every
    prepared fragment, the focused Navigation snapshot, the complete dormant
    view table, and the canonical location basis. Return that publication as the
    one result of the same Navigation explicit operation. Navigation's existing
@@ -1230,12 +1278,12 @@ One restoration attempt proceeds in this order:
    the coordinator carries that authority opaquely with the complete
    publication. No participant fragment is separately observable. This
    contract does not prescribe Navigation's storage or locking implementation.
-7. If any participant fails, exact resolution is unavailable without an
-   owner-issued complete replacement, or candidate projection fails, abort
-   every prepared fragment and retain the whole prior installed snapshot and
-   revision. If the attempt is superseded, discard every fragment and publish
-   no consumer result or authority. A late ready or failed completion for a
-   settled token is discarded and cannot install.
+8. If strict decode, legacy resolution, any participant, or final
+   canonicalization fails, abort every prepared fragment and retain the whole
+   prior installed snapshot and revision. If the attempt is superseded,
+   discard every fragment and publish no consumer result or authority. A late
+   ready or failed completion for a settled token is discarded and cannot
+   install.
 
 Owner-issued reconciliation is not partial success. A participant may prepare
 a complete replacement fragment, including Navigation's exact unavailable or
@@ -1254,22 +1302,18 @@ its availability honest, while inactive views defer result materialization
 until activation under fresh current authority.
 
 Failure remains source-identifying throughout the pipeline. Decode reports
-`InvalidPacket` or `UnsupportedFormat`; compatibility reports
-`LegacyLoweringFailed`; record and combination validation reports
-`InvalidDefinitionSet`; participant preparation reports its owner and exact
-unavailable or failed evidence; and final canonicalization reports
+`InvalidPacket` or `UnsupportedFormat`; compatibility and legacy identity
+resolution report `LegacyLoweringFailed`; record and combination validation
+reports `InvalidDefinitionSet`; participant preparation reports its owner and
+exact unavailable or failed evidence; and final canonicalization reports
 `NonProjectableCandidate`. These are not interchangeable success-shaped empty
-states. A preflight failure starts no attempt and receives no Navigation
-authority.
+states. Every submitted restoration has an admitted Navigation token before
+one of these outcomes can be produced; an obsolete outcome is discarded.
 
 The owner-issued result is a closed union:
 
 ```text
 CompleteRestorationResult
-  PreflightFailed
-    Failure              Decode | LegacyLowering | InvalidDefinitionSet
-    PriorSnapshot        CompleteWorkspaceSnapshot?
-    PriorProjection      Projectable | NonProjectable | Failed
   Published
     Relation             ExactRequested | ReplacementInstalled | PriorRetained
     Snapshot             CompleteWorkspaceSnapshot?
@@ -1297,18 +1341,19 @@ The consumer result has one relation:
 results each carry the complete installed snapshot when one exists, otherwise
 an explicit no-snapshot state, plus typed semantic outcome and participant
 evidence, projection classification, and current opaque Navigation authority.
-`PreflightFailed` carries the same prior-state and failure evidence but no
-authority. The relation is evidence for the UI location adapter, not a history
-command. Inspect Web alone maps exact restoration to adoption, replacement to
-its defined replace behavior, and retained failure to realignment with the
-prior canonical location. Explicit-action push versus replace policy remains
-outside this owner.
+Decode and legacy-lowering failures are current `PriorRetained` publications,
+not uncorrelated preflight results. The relation is evidence for the UI
+location adapter, not a history command. Inspect Web alone maps exact
+restoration to adoption, replacement to its defined replace behavior, and
+retained failure to realignment with the prior canonical location.
+Explicit-action push versus replace policy remains outside this owner.
 
 The coordinator state machine is specified by
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
 Its attempt token abstracts the exact Navigation-issued intent token; it does
-not model a second authority source. The model covers three abstract
-participants, two requests, exact and replacement preparation,
+not model a second authority source. The model admits each request before an
+explicit preflight phase, then covers three abstract participants, two
+requests, preflight success or failure, exact and replacement preparation,
 canonicalization failure, abort, supersession, stale completion, and atomic
 publication. Its finite checks establish evidence for this coordination
 protocol, not for the complete packet, identity, participant, authority, or UI
@@ -1458,10 +1503,12 @@ Implementation must add, at minimum:
   neighboring `ToPacket_Rejects*` tests gate those properties. Version 2 must
   additionally prove every navigation tuple retains its own subject, facet,
   query set, and Library scope across packet → records → packet; inactive
-  coordinate state is not replaced by the active state; query records
-  deduplicate and sort by canonical semantic content rather than peer ID; and
-  a valid unsupported query codec is `NonProjectable` while an invalid
-  relationship is `InvalidDefinitionSet`;
+  coordinate state is not replaced by the active state; an exact focused or
+  inactive subject resolves in its owning coordinate when that coordinate is
+  outside `g[x]` or reused by several contexts; query records deduplicate and
+  sort by canonical semantic content rather than peer ID; and a valid
+  unsupported query codec is `NonProjectable` while an invalid relationship is
+  `InvalidDefinitionSet`;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
@@ -1493,11 +1540,17 @@ Implementation must add, at minimum:
 - a legacy-lowering gate derived from the closed mapping table, with one
   positive case for every row and close negatives for case variation,
   whitespace, Browser hash spellings, CLI aliases, contradictory lens/section
-  pairs, wrong structural evidence, ambiguous Library identity, and unknown
-  tokens. It must prove Registry resolution is not called until lowering
-  succeeds, inactive format-1 coordinates become explicit recommendation
-  states, exact format-1 restoration retains its byte basis, and every changed
-  or newly captured state emits format 2 rather than a legacy token;
+  pairs, wrong structural evidence, missing or ambiguous defining Library
+  identity, and unknown tokens. It must include current Browser-produced
+  Member Overview packets with absent `section`, exact Type and Member records
+  that omit Library identity, and referenced query presets with owner-accepted,
+  absent-identity, missing-migration, rejected, and facet-incompatible cases.
+  It must prove a v1 subject becomes exact only after one defining acquired
+  Library resolves, query migration attaches only to `a` for coordinate-backed
+  scenarios, Registry resolution is not called until lowering succeeds,
+  inactive format-1 coordinates become explicit recommendation states, exact
+  format-1 restoration retains its byte basis, and every changed or newly
+  captured state emits format 2 rather than a legacy token;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
   inactive-coordinate views, all structural subjects, package-root facets,
@@ -1535,14 +1588,15 @@ Implementation must add, at minimum:
   unknown name a typed outcome there;
 - a complete-restoration conformance gate with controllable workspace,
   Navigation, query, and canonical-projection participants. It must cover
-  out-of-order readiness, one failure after peers become ready, exact and
-  replacement commit, replacement projection failure, supersession before and
-  after all peers are ready, late completion, and an initial failure with no
-  prior snapshot. Every non-commit case retains the complete prior snapshot
-  and revision; a commit publishes every fragment in one revision; the exact
-  result retains the requested packet basis; the replacement result contains
-  the format-2 packet for the installed snapshot; and only current opaque
-  Navigation authority can reach the consumer;
+  token admission before decode or lowering begins, stale decode success and
+  failure after newer intent, out-of-order readiness, one failure after peers
+  become ready, exact and replacement commit, replacement projection failure,
+  supersession before and after all peers are ready, late completion, and an
+  initial failure with no prior snapshot. Every non-commit case retains the
+  complete prior snapshot and revision; a commit publishes every fragment in
+  one revision; the exact result retains the requested packet basis; the
+  replacement result contains the format-2 packet for the installed snapshot;
+  and only current opaque Navigation authority can reach the consumer;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
@@ -1572,14 +1626,14 @@ Implementation must add, at minimum:
 The complete-restoration coordinator is model-checked by
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
 Its positive configuration checks complete readiness, exact request
-correlation, atomic publication, failure and non-projectability retention,
-supersession, stale completion, and per-attempt progress. Eight mutation
-configurations independently demonstrate that the named safety properties
-reject early commit, partial commit, failed or superseded commit, abort
-mutation, stale installation, wrong exact/replacement relation, and
-cross-request publication. The model does not prove codec, Registry, query
-payload, Navigation, or UI implementation conformance; the gates above remain
-required.
+correlation, admission-before-preflight, atomic publication, failure and
+non-projectability retention, supersession, stale completion, and per-attempt
+progress. Nine mutation configurations independently demonstrate that the
+named safety properties reject preflight without admission, early commit,
+partial commit, failed or superseded commit, abort mutation, stale
+installation, wrong exact/replacement relation, and cross-request publication.
+The model does not prove codec, Registry, query payload, Navigation, or UI
+implementation conformance; the gates above remain required.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
