@@ -153,13 +153,14 @@ public sealed class CustomAttributeDifferentialOracleTests
     /// in. Without this, the corpus above could pass by emitting only scalars.
     /// </summary>
     /// <remarks>
-    /// Which enum spelling a shape uses is decided by <em>context</em>, not by
-    /// the shape alone. The same <c>EnumHandleShape</c> is written as
-    /// <c>VALUETYPE</c> plus a coded handle when it reaches the constructor
-    /// signature, and as <c>0x55</c> plus a serialized name when it sits inside
-    /// a boxed value — including underneath a boxed array. Attributing the
-    /// spelling to the shape alone would let one encoding satisfy the assertion
-    /// for both.
+    /// Structural facts are read off the shape tree, but the inline
+    /// element-type spellings are read off <em>what the writer emitted</em>.
+    /// Those two are not the same question: whether a shape is spelled inline
+    /// depends on its position, so a <c>System.Type</c> argument spells
+    /// <c>0x50</c> only inside a boxed value, and <c>0x51</c> appears only where
+    /// an <c>object[]</c> is itself nested in one. Inferring either from the
+    /// shape alone would let a shape that never produced the byte satisfy the
+    /// assertion for it.
     /// </remarks>
     [Fact]
     public void Generator_ReachesEveryShapeTheCorpusClaimsToCover()
@@ -168,17 +169,21 @@ public sealed class CustomAttributeDifferentialOracleTests
         bool boxed = false;
         bool nullArray = false;
         bool emptyArray = false;
-        bool nullString = false;
-        bool systemType = false;
         bool objectArray = false;
+        bool nullString = false;
+        bool emptyString = false;
+        bool multiByteLengthString = false;
+        bool systemType = false;
         bool enumHandleSpelled = false;
-        bool enumNameSpelled = false;
         bool int32Enum = false;
         bool int64Enum = false;
+
+        var emitted = new HashSet<byte>();
 
         for (int seed = 0; seed < SeedCount; seed++)
         {
             using var generated = CustomAttributeDifferentialOracle.Generate(seed);
+            emitted.UnionWith(generated.InlineElementTypes);
             foreach (var shape in generated.Shapes)
                 Visit(shape, boxedContext: false, generated.EnumUnderlying);
         }
@@ -187,13 +192,23 @@ public sealed class CustomAttributeDifferentialOracleTests
         Assert.True(boxed, "no boxed argument was generated");
         Assert.True(nullArray, "no null array was generated");
         Assert.True(emptyArray, "no zero-length array was generated");
+        Assert.True(objectArray, "no object[] was generated");
         Assert.True(nullString, "no null string was generated");
+        Assert.True(emptyString, "no empty string was generated");
+        Assert.True(
+            multiByteLengthString,
+            "no string long enough to force a multi-byte compressed length was generated");
         Assert.True(systemType, "no System.Type argument was generated");
-        Assert.True(objectArray, "no object[] (array of boxed elements) was generated");
         Assert.True(enumHandleSpelled, "no handle-spelled enum was generated");
-        Assert.True(enumNameSpelled, "no serialized-name enum was generated");
         Assert.True(int32Enum, "no enum over an Int32 underlying type was generated");
         Assert.True(int64Enum, "no enum over an Int64 underlying type was generated");
+
+        // Emitted bytes, not inferred ones.
+        Assert.Contains((byte)0x50, emitted);   // System.Type, spelled inline
+        Assert.Contains((byte)0x51, emitted);   // object as a nested element type
+        Assert.Contains((byte)0x55, emitted);   // enum, spelled by serialized name
+        Assert.Contains((byte)0x1d, emitted);   // SZARRAY, spelled inline
+        Assert.Contains((byte)0x0e, emitted);   // string, spelled inline
 
         void Visit(
             CustomAttributeDifferentialOracle.Shape shape,
@@ -217,10 +232,9 @@ public sealed class CustomAttributeDifferentialOracleTests
                 case CustomAttributeDifferentialOracle.EnumHandleShape:
                     // Recorded only where an enum actually occurs, so an image
                     // that happens to be configured Int64 but contains no enum
-                    // cannot satisfy the width assertions.
-                    if (boxedContext)
-                        enumNameSpelled = true;
-                    else
+                    // cannot satisfy the width assertions. The serialized-name
+                    // spelling is asserted from the emitted bytes instead.
+                    if (!boxedContext)
                         enumHandleSpelled = true;
                     int32Enum |= underlying == PrimitiveTypeCode.Int32;
                     int64Enum |= underlying == PrimitiveTypeCode.Int64;
@@ -230,6 +244,8 @@ public sealed class CustomAttributeDifferentialOracleTests
                     break;
                 case CustomAttributeDifferentialOracle.StringShape s:
                     nullString |= s.Value is null;
+                    emptyString |= s.Value?.Length == 0;
+                    multiByteLengthString |= s.Value?.Length >= 128;
                     break;
             }
         }

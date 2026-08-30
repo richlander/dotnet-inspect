@@ -298,10 +298,11 @@ attack; a gate defined only over generated metadata cannot see gap 4 at all.
 
 `tests/ILInspector.Metadata.Tests/CustomAttributeDifferentialOracle.cs` is the
 first slice of that gate. It generates over a **named subset** of the legal
-fixed-argument grammar — primitives, strings, `System.Type` serialized names,
-`SZARRAY` of those scalars, `object[]` whose elements each carry their own
-`FieldOrPropType` byte, boxed values, and both enum spellings — and asserts I1
-in both directions. `object[]` reaches the one position where
+fixed-argument grammar — primitives, strings in all three SerString forms
+(null `0xFF`, empty `0x00`, and long enough to force a multi-byte compressed
+length), `System.Type` serialized names, `SZARRAY` of those scalars, `object[]`
+whose elements each carry their own `FieldOrPropType` byte, boxed values, and
+both enum spellings — and asserts I1 in both directions. `object[]` reaches the one position where
 `ELEMENT_TYPE_BOXED` (`0x51`) is the correct spelling: `object` **as a nested
 element type**. A top-level `object` argument writes its `FieldOrPropType`
 directly, and prefixing `0x51` there would produce a non-canonical blob. The subset is deliberately small enough that every
@@ -322,6 +323,16 @@ are load-bearing rather than incidental:
 - **Named arguments, generic substitution, custom modifiers, nesting near
   `MaxSerializedDepth`, and the malformed extensions** below are all
   ungenerated.
+
+Two properties of the corpus are load-bearing enough to state directly. The
+special types `System.Enum` and `System.Type` are scoped to a real
+`System.Runtime` reference carrying the ECMA public key token, not to the
+assembly that declares the attribute: both walkers happen to flatten these to
+names, so scoping them locally would still decode and would quietly make a
+green result depend on that flattening rather than on the corpus being
+well-formed. And the coverage gate asserts the inline element-type spellings
+from **the bytes the writer actually emitted**, not from the shape tree,
+because whether a shape is spelled inline depends on its position.
 
 Issue #5065 tracks the rest. Do not read this slice's green result as evidence
 about anything in the list above.

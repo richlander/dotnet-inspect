@@ -46,7 +46,18 @@ static class CustomAttributeDifferentialOracle
         TypeDefinitionHandle EnumType,
         string EnumSerializedName,
         PrimitiveTypeCode EnumUnderlying,
-        TypeReferenceHandle SystemType);
+        TypeReferenceHandle SystemType)
+    {
+        /// <summary>
+        /// Every inline element-type byte the value blob actually carried.
+        /// Whether a given byte is emitted depends on a shape's *position*, not
+        /// on the shape alone: a boxed array spells its element type even when
+        /// the array is empty, while an <c>object[]</c> spells its elements only
+        /// when it has some. Inferring that from the shape tree would drift from
+        /// what was written, so the writer records it instead.
+        /// </summary>
+        public HashSet<byte> InlineElementTypes { get; } = [];
+    }
 
     internal sealed record PrimitiveShape(PrimitiveTypeCode Code) : Shape
     {
@@ -136,6 +147,8 @@ static class CustomAttributeDifferentialOracle
     /// <summary>Writes the inline element-type byte a boxed value carries before its data.</summary>
     static void WriteInlineElementType(BlobBuilder value, Shape shape, Context context)
     {
+        context.InlineElementTypes.Add(InlineElementTypeByte(shape, context));
+
         switch (shape)
         {
             case PrimitiveShape primitive:
@@ -169,6 +182,19 @@ static class CustomAttributeDifferentialOracle
                     $"{shape.GetType().Name} has no inline element-type spelling.");
         }
     }
+
+    /// <summary>The inline element-type byte <paramref name="shape"/> is spelled with.</summary>
+    static byte InlineElementTypeByte(Shape shape, Context context) => shape switch
+    {
+        PrimitiveShape primitive => ElementTypeByte(primitive.Code),
+        StringShape => 0x0e,
+        SystemTypeShape => 0x50,
+        ArrayShape => 0x1d,
+        BoxedShape => 0x51,
+        EnumHandleShape => 0x55,
+        _ => throw new InvalidOperationException(
+            $"{shape.GetType().Name} has no inline element-type spelling."),
+    };
 
     static void WritePrimitiveSignature(SignatureTypeEncoder encoder, PrimitiveTypeCode code)
     {
@@ -276,10 +302,29 @@ static class CustomAttributeDifferentialOracle
         => random.Next(0, 4) switch
         {
             0 => new PrimitiveShape(s_primitives[random.Next(s_primitives.Length)]),
-            1 => new StringShape(random.Next(4) == 0 ? null : $"{prefix}{random.Next(100)}"),
+            1 => new StringShape(NextString(random, prefix)),
             2 => new SystemTypeShape(s_typeNames[random.Next(s_typeNames.Length)]),
             _ => new EnumHandleShape(),
         };
+
+    /// <summary>
+    /// A SerString payload. The three interesting forms are distinct encodings,
+    /// not stylistic variants: null is the single byte <c>0xFF</c>, empty is the
+    /// single byte <c>0x00</c>, and a string of 128 bytes or more forces a
+    /// multi-byte compressed length prefix rather than the one-byte form every
+    /// short string takes.
+    /// </summary>
+    static string? NextString(Random random, string prefix)
+        => random.Next(8) switch
+        {
+            0 => null,
+            1 => string.Empty,
+            2 => new string('w', 128 + random.Next(8)),
+            _ => $"{prefix}{random.Next(100)}",
+        };
+
+    /// <summary>The ECMA standard public key token that core-library references carry.</summary>
+    static readonly byte[] s_ecmaPublicKeyToken = [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a];
 
     static readonly string[] s_typeNames =
     [
@@ -306,8 +351,12 @@ static class CustomAttributeDifferentialOracle
         IReadOnlyList<Shape> shapes,
         int valueLength,
         PrimitiveTypeCode enumUnderlying,
-        int seed) : IDisposable
+        int seed,
+        IReadOnlySet<byte> inlineElementTypes) : IDisposable
     {
+        /// <summary>The inline element-type bytes this blob actually carried.</summary>
+        public IReadOnlySet<byte> InlineElementTypes => inlineElementTypes;
+
         readonly PEReader _peReader = new(new MemoryStream(image, writable: false));
 
         public MetadataReader Reader => _peReader.GetMetadataReader();
@@ -382,8 +431,23 @@ static class CustomAttributeDifferentialOracle
             default,
             default,
             default);
+
+        // System.Enum and System.Type are ECMA special types, and real metadata
+        // scopes them to the core library rather than to whichever assembly
+        // declares the attribute. Both walkers happen to flatten these to names,
+        // so scoping them to `Other` would still decode — and would quietly make
+        // a green result depend on that flattening instead of on the corpus
+        // being well-formed. Referencing real System.Runtime identity keeps the
+        // premise the corpus claims.
+        AssemblyReferenceHandle systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(8, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(s_ecmaPublicKeyToken),
+            default,
+            default);
         TypeReferenceHandle systemEnum = metadata.AddTypeReference(
-            other,
+            systemRuntime,
             metadata.GetOrAddString("System"),
             metadata.GetOrAddString("Enum"));
         TypeReferenceHandle attributeType = metadata.AddTypeReference(
@@ -417,7 +481,7 @@ static class CustomAttributeDifferentialOracle
             MetadataTokens.MethodDefinitionHandle(1));
 
         TypeReferenceHandle systemType = metadata.AddTypeReference(
-            other,
+            systemRuntime,
             metadata.GetOrAddString("System"),
             metadata.GetOrAddString("Type"));
 
@@ -464,7 +528,13 @@ static class CustomAttributeDifferentialOracle
             constructor,
             metadata.GetOrAddBlob(value));
 
-        return new Case(Serialize(metadata), shapes, valueLength, enumUnderlying, seed);
+        return new Case(
+            Serialize(metadata),
+            shapes,
+            valueLength,
+            enumUnderlying,
+            seed,
+            context.InlineElementTypes);
     }
 
     static byte[] Serialize(MetadataBuilder metadata)
