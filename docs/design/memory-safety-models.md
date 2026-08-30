@@ -141,18 +141,27 @@ unsafe operations.
 
 ## Mixed-model consumption
 
-The callee's module controls interpretation of the callee's member:
+Mixed-model behavior has two inputs:
 
-1. For an unmarked callee module, use pointer-bearing signatures as the v1
-   compatibility heuristic.
-2. For a recognized v2 callee module, use `RequiresUnsafeAttribute` as the
-   propagation contract. Do not promote an unmarked pointer-bearing member to
-   a propagator.
-3. For an unsupported or malformed model marker, report that the propagation
-   judgment is unavailable instead of falling back silently.
+1. The callee's module and member evidence classify the callee contract as
+   implicit, explicit, or none.
+2. The caller's model determines whether an explicit v2 contract is enforced.
+   An implicit v1 compatibility contract is enforced for both caller models.
 
-The caller's project policy determines which source operations it may express,
-but it does not rewrite the callee's published contract.
+| Callee evidence | Contract | V1 caller | V2 caller |
+| --- | --- | --- | --- |
+| Unmarked module and pointer-bearing signature | Implicit | Requires unsafe context | Requires unsafe context |
+| Unmarked module without pointer-bearing signature | None | No caller requirement | No caller requirement |
+| V2 module and `RequiresUnsafeAttribute` | Explicit | Contract not enforced | Requires unsafe context |
+| V2 module without `RequiresUnsafeAttribute`, including a pointer-bearing signature | None | No caller requirement | No caller requirement |
+
+For an unsupported or malformed callee marker, report that the contract
+judgment is unavailable instead of falling back silently.
+
+The caller's project policy also determines which source operations it may
+express, but it does not rewrite the callee's classified contract. A legacy
+caller ignoring an explicit v2 contract is compatibility behavior, not evidence
+that the callee lacks that contract.
 
 ## Project policy
 
@@ -291,6 +300,10 @@ The following gaps remain with Analysis:
 - declaration and local evidence currently treats pointer types as unsafe
   independently of the active model, although v2 does not make a pointer type
   unsafe by itself; and
+- call evidence currently considers selected API types and pointer-bearing
+  signatures, but `MemberRef` carries no callee rules model or caller contract.
+  Analysis therefore misses pointerless `RequiresUnsafe` calls and treats
+  pointer-bearing v2 calls without that attribute as unsafe; and
 - no query composes model, propagation, and body evidence into a safe-boundary
   classification.
 
@@ -323,7 +336,9 @@ Implementation should proceed through focused owner changes:
 2. Library Signals renders that state without independently interpreting raw
    version numbers.
 3. Analysis consumes the shared state and applies pointer compatibility only
-   to legacy modules.
+   to legacy modules. Its call resolver carries the callee module model and
+   member contract across assembly boundaries, then applies the caller/callee
+   enforcement matrix.
 4. Decompiler consumes the shared state for conservative replay while keeping
    its explicit simulation mode.
 5. Project inspection acquires declared or evaluated rule and permission
@@ -336,18 +351,22 @@ rather than producing a legacy- or safety-shaped default.
 
 ## Demo
 
-The existing binary signal can demonstrate a v2 module that contains no unsafe
-surface:
+An actual throwaway `net11.0` class library containing only
+`public sealed class C { }` was built with the strongest default project
+configuration shown above. The command was:
 
 ```text
-$ dnx dotnet-inspect -y -- library MemorySafetyV2.dll -S Signals
-
-| Area          | Signal                   | Value        |
-| ------------- | ------------------------ | ------------ |
-| Memory safety | Memory safety model      | Updated (v2) |
-| Memory safety | RequiresUnsafe members   | 0            |
-| Memory safety | Unsafe public signatures | 0            |
+dnx dotnet-inspect -y -- library bin/Release/net11.0/MemorySafetyV2.dll -S Signals
 ```
+
+The memory-safety rows from its output were:
+
+| Area | Signal | Value | Evidence |
+| --- | --- | --- | --- |
+| Memory safety | Memory safety model | Updated (v2) | module MemorySafetyRulesAttribute |
+| Memory safety | RequiresUnsafe members | 0 | RequiresUnsafeAttribute |
+| Memory safety | Disable runtime marshalling | No | DisableRuntimeMarshallingAttribute |
+| Memory safety | Unsafe public signatures | 0 | public pointer signatures |
 
 For a project built with the strongest default policy, the intended composed
 report would keep every observation and its limitation visible:
