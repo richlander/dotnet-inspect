@@ -96,11 +96,11 @@ This document defines two things and nothing else:
 
 The result shape here is rows and row counts, but the contract reads no row
 semantics. Predicates, ordering, semantic stages, Rows, and Count keep their
-existing owners. A different tool adopting this pattern substitutes its own
-member payloads and terminal aggregates without changing either contract. The
-L1/L2 positioning in this document is dotnet-inspect composition policy
-recorded for this repository's adoption; the contract surface itself carries
-no layer names.
+existing owners. A consumer may substitute its own member payload type without
+changing the effect protocol; a different terminal aggregate requires its own
+result branch and equivalence gate. The L1/L2 positioning in this document is
+dotnet-inspect composition policy recorded for this repository's adoption; the
+contract surface itself carries no layer names.
 
 ### Trust model
 
@@ -121,17 +121,17 @@ Reverse delegation does expand the trusted surface. The natural path trusts
 a provider only for enumeration — the raw values it returns — while a
 delegated prefix additionally trusts provider-computed predicate, order,
 clamp, or count work the natural path would perform locally. That expansion
-is deliberate and is never justified by assumption: the adoption's
-capability proof and equivalence gates are its justification. Distinct from
-that expansion, a provider that misrepresents its declared contract —
-advertising ordering it does not perform, fabricating a count — is not a
-third trust tier: the misrepresentation discredits the same interface that
-produces the raw values, so whether to use that source at all is the
-authorization decision made before this contract, and containment of its
-untrusted content stays owned by the threat model. Completion evidence
-therefore exists to stop an honest provider from being misread —
-protocol-optional features, operational caps, and terminal signals that
-resemble proof — not to police a dishonest one.
+is deliberate and is never justified by response content: the source owner's
+adopted provider contract, capability declaration, and equivalence gate justify
+it. Those gates prove the adapter against the reference oracle; they do not
+prove future provider honesty. Before acceptance, declining reverse delegation
+retains the smaller natural-path trust surface. After acceptance, this pattern
+does not provide Byzantine verification or a fallback from a provider that
+violates its adopted contract. Completion evidence instead stops an adopted
+provider's honest operational signals — protocol-optional features, caps, and
+terminal tokens — from being misread as semantic proof. Authorization and
+containment of its untrusted content stay owned by the source owner and threat
+model.
 
 ## Authority and scope
 
@@ -270,10 +270,11 @@ the candidate is exactly the proven prefix.
 1. **Planning is pure.** Planning validates no more than immutable capability
    declarations and performs no network, filesystem, source-result cache,
    provider, pagination, row-callback, comparer, or source-content work. It
-   visits candidates in declaration order and returns `Declined` or
-   `Accepted` for the first candidate whose complete capability, delegated
-   operation prefix, member shape, completion requirement, input, and result
-   shape the source supports. A decline is a capability result, not a source failure, and the
+   visits candidates in declaration order and either selects the first
+   candidate whose complete capability, delegated operation prefix, member
+   shape, completion requirement, input, and result shape the source supports,
+   or declines all candidates. Planning does not publish an accepted-plan
+   handle. A decline is a capability result, not a source failure, and the
    caller may then use any later strategy, including its complete reference
    path.
 2. **Acceptance is the commitment point.** Acceptance binds the exact
@@ -416,10 +417,12 @@ This section is illustrative, not normative. An OData-backed source shows
 both the opportunity and the discipline, because the provider protocol
 itself accepts delegated row and limit work:
 
-- `$filter`, `$orderby`, and `$top` map directly onto a delegated
-  source-closed prefix of predicate, order, and clamp work — when the
-  adoption proves the service actually honors them, for example through
-  capability metadata, rather than assuming an option a service may ignore.
+- `$top` can represent a source-closed `Head` clamp. `$filter` and `$orderby`
+  can enter the prefix only when their operation owners separately define
+  typed non-callback operations and declare them source-closed; the current
+  row-query callback and comparer operations remain outside the delegated
+  prefix. The adoption must also prove that the service honors each mapped
+  option, rather than trusting capability metadata alone.
 - `$count=true` returns a server-computed `@odata.count`; the adopted source
   contract may construct a requirement witness or exhaustion evidence from
   it under that service's documented semantics.
@@ -440,9 +443,9 @@ same rule holds at every depth: an operational bound anywhere in the chain
 never surfaces as semantic proof. Per the [trust model](#trust-model),
 delegating `$orderby` or `$count` trusts the service for computation the
 natural path performs locally — the adoption's capability proof and
-equivalence gate justify that expansion — while a service that misrepresents
-its declared protocol contract is not rescued by keeping it on the natural
-path; whether to use it at all is the prior authorization decision.
+equivalence gate justify that expansion. A provider that later violates its
+adopted contract can still produce an incorrect delegated result; detecting
+Byzantine provider behavior is not a claim of this pattern.
 
 ## By construction, not by gate
 
@@ -476,10 +479,12 @@ only its owner-issued contained disposition and evidence types.
 The contract authorizes no source, endpoint, credential, cache, or filesystem
 path. Host and source owners perform that authorization before execution.
 
-The shared contract must remain host-neutral, reflection-free, and free of
-dedicated-thread, filesystem, network, console, process, or native-interop
-dependencies. Adopters may use platform capabilities in their own owning
-components only under those components' existing platform contracts.
+This pattern introduces no platform exception. Its eventual shared component
+must preserve the repository's approved dependency direction and platform
+constraints; the independently adoptable package and dependency closure are
+owned and proven by [#5235](https://github.com/richlander/dotnet-inspect/issues/5235).
+Adopters may use platform capabilities in their own owning components only
+under those components' existing platform contracts.
 
 ## Required gates
 
@@ -509,8 +514,6 @@ shape, not checks.
 | `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after its retained residual, matches the complete section-row reference result for surviving values, order, member identity, unavailable-member composition, source evidence, owner-observable invocation, and terminal failure. Fixtures exercise a typed strict-window residual failure, an exact sentinel callback/comparer/resolver exception, and a case where both are reachable with reference precedence preserved; none publishes partial rows. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized Count path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
 | `SourceDelegationContractIsPresentationFree` | Protocol-owned fields of candidates, plans, results, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label; opaque caller-owned row values are outside this constraint. |
-| `SourceDelegationContractHasOnlyFrameworkDependencies` | The shared contract's evaluated Release compile/runtime/native assets contain only framework references and the contract component. |
-| `SourceDelegationContractForbidsHostApis` | A static product-closure gate rejects reflection, inspected-assembly loading, filesystem, network, console, process, native-interop, parallel-loop, and dedicated-thread APIs even when they are framework APIs. |
 
 ## Non-claims
 
