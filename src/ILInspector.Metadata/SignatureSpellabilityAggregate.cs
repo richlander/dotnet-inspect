@@ -895,14 +895,19 @@ internal sealed class SignatureOccurrenceProvider
     // recovers the terminal walks it a second time. Two walks happen, so two
     // charges are owed.
     //
+    // Both walks are enforced by
+    // SignatureSpellabilityAggregateTests
+    //     .SignatureSpellability_ChargesBothResolutionScopeChainWalks,
+    // which decodes 400 references over maximum-depth chains. That input is
+    // admitted when either walk goes uncharged and refused when both are
+    // charged, so the gate fails if a charge is removed or made unreachable.
+    //
     // The delegate is cached because a decode projects many names.
     readonly Action<int> _chargeChainWalk;
 
     internal SignatureOccurrenceProvider() =>
         _chargeChainWalk =
             chainLength => _workBudget.ChargeMetadataWork(chainLength);
-
-    internal long ConsumedMetadataWork => _workBudget.ConsumedMetadataWork;
 
     public SignatureTypeOccurrences GetPrimitiveType(
         PrimitiveTypeCode typeCode)
@@ -1317,15 +1322,6 @@ internal sealed class SignatureOccurrenceProvider
         int _remainingNodes = MetadataSafetyPolicy.MaxSignatureTypeNodes;
         int _remainingMaterializationWork = MaxMaterializationWork;
         long _remainingMetadataWork = MaxMetadataWork;
-
-        // Observation point for the budget gates. The chain charges can never
-        // exhaust MaxMetadataWork on their own -- that headroom is the point of
-        // the design -- so no input can turn a missing chain charge into a
-        // visible rejection. Without a reading of what was actually charged,
-        // the only testable evidence is the source text, and syntax cannot
-        // express whether a charge executes.
-        internal long ConsumedMetadataWork =>
-            MaxMetadataWork - _remainingMetadataWork;
 
         internal void ChargeNode()
         {

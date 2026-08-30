@@ -8,7 +8,7 @@ using ILInspector.Metadata.Tests.SpellabilityReference;
 
 namespace ILInspector.Metadata.Tests;
 
-public sealed class SignatureSpellabilityAggregateTests
+public sealed partial class SignatureSpellabilityAggregateTests
 {
     const TypeAttributes Forwarder = (TypeAttributes)0x00200000;
 
@@ -1357,6 +1357,66 @@ public sealed class SignatureSpellabilityAggregateTests
     }
 
     [Fact]
+    public void SignatureSpellability_ChargesBothResolutionScopeChainWalks()
+    {
+        // Reading one TypeRef walks its resolution-scope chain twice: once
+        // inside the name read, and once more to recover the terminal. Both
+        // walks are real work, so both are charged.
+        //
+        // The reference count and chain depth are chosen so the ledger
+        // separates three cases, which is what makes this an outcome-level
+        // gate rather than a reading of internal state. At depth 255 -- the
+        // deepest chain MaxRelationshipNodes admits -- a reference costs about
+        // 257 units of name characters plus 255 per walk, so 400 references
+        // charge roughly 306,800 for two walks, 204,800 for one and 102,800
+        // for none. Only the first exceeds the 262,144 metadata-work ceiling,
+        // so dropping either walk -- however it is dropped, including behind a
+        // guard no real chain length satisfies -- turns this rejection into an
+        // acceptance.
+        //
+        // Depth carries the cost rather than breadth because SignatureBlobGuard
+        // refuses a blob of roughly 600 modifiers before the ledger ever runs.
+        // A wide, shallow signature would be rejected by that earlier guard no
+        // matter what the ledger charged, and would pass this test for a reason
+        // it is not testing.
+        SyntheticAssembly source = BuildNestedScopeChainSource(
+            "NestedScopeChains",
+            references: 400,
+            chainDepth: 255);
+        using var catalog = new TypeResolutionCatalog();
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(source.Image),
+                            source.Coordinates))).Failure);
+    }
+
+    [Fact]
+    public void SignatureSpellability_ChargesResolutionScopeName()
+    {
+        // An AssemblyRef name is author-sized and is materialized when the
+        // scope is projected, so its storage length is charged before that
+        // copy. The sibling public-key charge at the same site already has an
+        // oversized-input gate; this is the matching one for the name, which
+        // no count-based budget observes.
+        SyntheticAssembly source = BuildOversizedScopeNameSource(
+            "OversizedScopeName",
+            scopeNameLength: 512 * 1024);
+        using var catalog = new TypeResolutionCatalog();
+        Assert.IsType<
+            SignatureSpellabilityPlanFailure.SignatureRejected>(
+                Assert.IsType<SignatureSpellabilityPlanOutcome.Rejected>(
+                    catalog.PlanSignatureSpellability(
+                        Subject(
+                            catalog,
+                            Descriptor(source.Image),
+                            source.Coordinates))).Failure);
+    }
+
+    [Fact]
     public void SignatureSpellability_BoundsDistinctNameMaterialization()
     {
         // Distinct names cannot be served from the projection cache, so the
@@ -2019,6 +2079,73 @@ public sealed class SignatureSpellabilityAggregateTests
                 CodedIndex.TypeDefOrRefOrSpec(reference));
         }
 
+        returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
+        TypeDefinitionHandle declaring = AddDeclaringType(metadata);
+        MethodDefinitionHandle method = AddMethod(
+            metadata,
+            MethodSignature(returnType));
+        return Synthetic(metadata, mvid, declaring, method);
+    }
+
+    static SyntheticAssembly BuildNestedScopeChainSource(
+        string assemblyName,
+        int references,
+        int chainDepth)
+    {
+        MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
+        AssemblyReferenceHandle assembly = AddAssemblyReference(
+            metadata,
+            Identity("Ext"));
+        var returnType = new BlobBuilder();
+        for (int index = 0; index < references; index++)
+        {
+            TypeReferenceHandle reference = metadata.AddTypeReference(
+                assembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    "R" + index.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture)));
+            for (int depth = 1; depth < chainDepth; depth++)
+            {
+                reference = metadata.AddTypeReference(
+                    reference,
+                    default,
+                    metadata.GetOrAddString("A"));
+            }
+
+            returnType.WriteByte(0x1f);             // ELEMENT_TYPE_CMOD_REQD
+            returnType.WriteCompressedInteger(
+                CodedIndex.TypeDefOrRefOrSpec(reference));
+        }
+
+        returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
+        TypeDefinitionHandle declaring = AddDeclaringType(metadata);
+        MethodDefinitionHandle method = AddMethod(
+            metadata,
+            MethodSignature(returnType));
+        return Synthetic(metadata, mvid, declaring, method);
+    }
+
+    static SyntheticAssembly BuildOversizedScopeNameSource(
+        string assemblyName,
+        int scopeNameLength)
+    {
+        MetadataBuilder metadata = Base(assemblyName, out Guid mvid);
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(new string('E', scopeNameLength)),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle reference = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("T"));
+        var returnType = new BlobBuilder();
+        returnType.WriteByte(0x1f);                 // ELEMENT_TYPE_CMOD_REQD
+        returnType.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(reference));
         returnType.WriteByte(0x08);                 // ELEMENT_TYPE_I4
         TypeDefinitionHandle declaring = AddDeclaringType(metadata);
         MethodDefinitionHandle method = AddMethod(
