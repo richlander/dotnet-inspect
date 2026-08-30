@@ -29,6 +29,15 @@ internal static class Program
     {
         string assemblyPath = typeof(Program).Assembly.Location;
         string configurationPath = Path.ChangeExtension(assemblyPath, ".json");
+        PluginFixtureConfiguration configuration =
+            await ReadConfigurationAsync(configurationPath);
+        bool traceOutputClosure =
+            OperatingSystem.IsLinux()
+            && (configuration.CredentialBehavior == PluginCredentialBehavior.CloseOutput
+                || configuration.AfterSetLogLevelBehavior
+                    is PluginAfterSetLogLevelBehavior.CloseOutput
+                    or PluginAfterSetLogLevelBehavior.WaitForCloseMarkerThenCloseOutput);
+        TraceOutputDescriptors(traceOutputClosure, "before worker");
         string hostPath = Environment.ProcessPath
             ?? throw new InvalidOperationException(
                 "Could not determine the plugin fixture host path.");
@@ -45,14 +54,16 @@ internal static class Program
                 "Could not start the plugin fixture worker.");
         // The worker can end the output stream while this launched process stays alive.
         CloseStandardOutput();
+        TraceOutputDescriptors(traceOutputClosure, "after supervisor close");
         await worker.WaitForExitAsync();
+        TraceOutputDescriptors(
+            traceOutputClosure,
+            $"after worker exit {worker.ExitCode}");
         if (worker.ExitCode != OutputClosedExitCode)
         {
             return worker.ExitCode;
         }
 
-        PluginFixtureConfiguration configuration =
-            await ReadConfigurationAsync(configurationPath);
         using var recordStream = new FileStream(
             configuration.RecordPath,
             FileMode.Append,
@@ -68,6 +79,27 @@ internal static class Program
             detectEncodingFromByteOrderMarks: false);
         await DrainInputAsync(input, record);
         return 0;
+    }
+
+    private static void TraceOutputDescriptors(bool enabled, string stage)
+    {
+        if (!enabled)
+        {
+            return;
+        }
+
+        string[] descriptors = Directory.GetFiles("/proc/self/fd")
+            .Select(path =>
+            {
+                FileSystemInfo? target = File.ResolveLinkTarget(
+                    path,
+                    returnFinalTarget: false);
+                return $"{Path.GetFileName(path)}={target?.FullName ?? "?"}";
+            })
+            .ToArray();
+        WriteDiagnostic(
+            $"fixture supervisor {Environment.ProcessId} {stage}: " +
+            string.Join(", ", descriptors));
     }
 
     private static async Task<int> RunWorkerAsync(string configurationPath)
@@ -147,6 +179,8 @@ internal static class Program
                             input,
                             output))
                     {
+                        WriteDiagnostic(
+                            $"fixture worker {Environment.ProcessId} closing output");
                         return OutputClosedExitCode;
                     }
                     break;
@@ -165,6 +199,8 @@ internal static class Program
                             requestId);
                     if (result == CredentialActionResult.OutputClosed)
                     {
+                        WriteDiagnostic(
+                            $"fixture worker {Environment.ProcessId} closing output");
                         return OutputClosedExitCode;
                     }
                     if (result == CredentialActionResult.Exit)
@@ -393,6 +429,17 @@ internal static class Program
         }
     }
 
+    private static void WriteDiagnostic(string message)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        byte[] bytes = Utf8NoBom.GetBytes(message + Environment.NewLine);
+        _ = WriteUnix(2, bytes, (nuint)bytes.Length);
+    }
+
     private static string ReadPartialStringProperty(string json, string property)
     {
         string prefix = $"\"{property}\":\"";
@@ -430,6 +477,12 @@ internal static class Program
 
     [DllImport("libc", EntryPoint = "close", SetLastError = true)]
     private static extern int CloseUnix(int fileDescriptor);
+
+    [DllImport("libc", EntryPoint = "write")]
+    private static extern nint WriteUnix(
+        int fileDescriptor,
+        byte[] buffer,
+        nuint count);
 
     [DllImport("libSystem.B.dylib", EntryPoint = "close", SetLastError = true)]
     private static extern int CloseMacOS(int fileDescriptor);
