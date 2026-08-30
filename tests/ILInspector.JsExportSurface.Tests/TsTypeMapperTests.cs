@@ -84,6 +84,25 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
+    public void MapJsonWireType_DoesNotApplyDelegateAuthorityToByteSimpleName()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "ReadonlyArray<unknown>",
+            TsTypeMapper.MapJsonWireType(
+                "Byte[]",
+                RecordNames,
+                diagnostics,
+                "Payload.Bytes"));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Payload.Bytes"
+                && diagnostic.CSharpType == "Byte");
+    }
+
+    [Fact]
     public void MapJsonWireType_MapsArraysToReadonlyArrays()
     {
         Assert.Equal(
@@ -151,6 +170,38 @@ public sealed class TsTypeMapperTests
                 delegateParameter: ActionParameter(
                     TypeRef.SzArray(
                         TypeRef.CoreLib("System", "String")))));
+    }
+
+    [Fact]
+    public void MapParameterType_MapsAuthenticatedIntPtrAsNumber()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "(arg0: number) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<nint>",
+                RecordNames,
+                diagnostics,
+                "RegisterPointer.callback",
+                delegateParameter: ActionParameter(
+                    TypeRef.CoreLib("System", "IntPtr"))));
+        Assert.Empty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void MapJsonWireType_DoesNotInheritIntPtrInteropMapping()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapJsonWireType(
+                "nint",
+                RecordNames,
+                diagnostics,
+                "Payload.Pointer"));
+        Assert.NotEmpty(diagnostics.UnmappedTypes);
     }
 
     [Fact]
@@ -568,6 +619,87 @@ public sealed class TsTypeMapperTests
                         "System.Runtime.InteropServices.JavaScript",
                         "JSObject"))));
         Assert.Empty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void MapParameterType_FrameworkFactsOverrideLocalNameCollisions()
+    {
+        var recordNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "JSObject",
+            "Mine.JSObject",
+            "Int32",
+            "Mine.Int32",
+        };
+        var context = new TsDelegateMappingContext(
+            recordNames,
+            new Dictionary<
+                MetadataTypeDefinitionName,
+                TsLocalTypeKind>
+            {
+                [DefinitionName("Mine", "JSObject")] =
+                    TsLocalTypeKind.Reference,
+                [DefinitionName("Mine", "Int32")] =
+                    TsLocalTypeKind.Reference,
+            },
+            FixtureAssembly);
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "(arg0: unknown) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<JSObject>",
+                recordNames,
+                diagnostics,
+                "RegisterJsObject.callback",
+                delegateParameter: ActionParameter(
+                    TypeRef.Definition(
+                        "System.Runtime.InteropServices.JavaScript",
+                        "System.Runtime.InteropServices.JavaScript",
+                        "JSObject")),
+                delegateMappingContext: context));
+        Assert.Equal(
+            "(arg0: number) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<Int32>",
+                recordNames,
+                diagnostics,
+                "RegisterInt32.callback",
+                delegateParameter: ActionParameter(
+                    TypeRef.CoreLib("System", "Int32")),
+                delegateMappingContext: context));
+        Assert.Empty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void MapParameterType_FrameworkFilteringPreservesLocalGenericArguments()
+    {
+        TypeRef localType = ResolvedType(
+            FixtureAssembly,
+            "ILInspector.JsExportSurface.Fixtures",
+            "WidgetDto");
+        TypeRef dictionary = TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "System.Collections",
+                "System.Collections.Generic",
+                "Dictionary`2"),
+            [
+                TypeRef.CoreLib("System", "String"),
+                localType,
+            ]);
+
+        Assert.Equal(
+            "(arg0: Record<string, WidgetDto>) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<"
+                    + "System.Collections.Generic."
+                    + "Dictionary<string, "
+                    + "ILInspector.JsExportSurface.Fixtures.WidgetDto>>",
+                RecordNames,
+                delegateParameter: ActionParameter(dictionary),
+                delegateMappingContext:
+                    FixtureDelegateContext(
+                        TsLocalTypeKind.Reference)));
     }
 
     [Fact]

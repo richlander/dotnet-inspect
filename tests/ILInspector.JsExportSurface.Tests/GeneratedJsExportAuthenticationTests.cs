@@ -383,6 +383,81 @@ public sealed class GeneratedJsExportAuthenticationTests
     }
 
     [Fact]
+    public void Build_RejectsDelegateRegistrationWithWrongResultDescriptor()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        DirectCall registration =
+            Registration(bodyIndex, "TransformValue");
+        DirectCall functionFactory =
+            DelegateDescriptorFactory(bodyIndex, registration);
+        ResolvedValueSource resultDescriptor =
+            Assert.IsType<ResolvedValueSource>(
+                functionFactory.ResolvedArgumentValues[2].Single);
+        int stringMarshalerToken = MarshalerFactoryToken(
+            bodyIndex,
+            registration,
+            "get_String");
+
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            resultDescriptor.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(stringMarshalerToken),
+            ]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-wrong-result-descriptor",
+                "TransformValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDelegateRegistrationWithWrongOuterFactory()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        DirectCall registration =
+            Registration(bodyIndex, "TransformValue");
+        DirectCall functionFactory =
+            DelegateDescriptorFactory(bodyIndex, registration);
+        DirectCall actionRegistration =
+            Registration(bodyIndex, "ObserveValues");
+        DirectCall actionFactory =
+            DelegateDescriptorFactory(
+                bodyIndex,
+                actionRegistration);
+
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            functionFactory.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(actionFactory.OperandToken),
+            ]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-wrong-outer-factory",
+                "TransformValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_RejectsDelegateRegistrationWithReorderedDescriptors()
     {
         byte[] image = FixtureImage();

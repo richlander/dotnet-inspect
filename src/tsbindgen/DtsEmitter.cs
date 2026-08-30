@@ -23,6 +23,7 @@ static class DtsEmitter
         "System.Single",
         "System.Double",
         "System.Decimal",
+        "System.IntPtr",
         "System.Void",
         "System.Nullable`1",
         "System.Threading.Tasks.Task`1",
@@ -845,6 +846,7 @@ static class DtsEmitter
                 or "Single"
                 or "Double"
                 or "Decimal"
+                or "IntPtr"
                 or "Void"
                 or "Nullable`1"
                 or "Task`1"
@@ -907,6 +909,7 @@ static class DtsEmitter
             "System.Single" or "Single" => "float",
             "System.Double" or "Double" => "double",
             "System.Decimal" or "Decimal" => "decimal",
+            "System.IntPtr" or "IntPtr" => "nint",
             "System.Void" or "Void" => "void",
             _ => null,
         };

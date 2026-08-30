@@ -23,6 +23,11 @@ sealed record TsDelegateMappingContext(
         TsLocalTypeKind> LocalTypeKinds,
     ApiAssemblyIdentity? ContainingAssembly);
 
+readonly record struct AuthenticatedMappingNames(
+    string DisplayType,
+    IReadOnlySet<string> RecordNames,
+    IReadOnlySet<string>? BlockedAliases);
+
 /// <summary>
 /// Rewrites C# signature-text type names into TypeScript type text. All target-language opinion
 /// lives here — <c>Task&lt;T&gt;</c>/<c>ValueTask&lt;T&gt;</c> unwrap to <c>Promise&lt;T&gt;</c>,
@@ -336,6 +341,11 @@ static class TsTypeMapper
         {
             return "unknown";
         }
+        if (mappingContext == TsTypeMappingContext.JsInterop
+            && trimmed is "nint" or "IntPtr" or "System.IntPtr")
+        {
+            return "number";
+        }
 
         string mapped = trimmed switch
         {
@@ -495,28 +505,169 @@ static class TsTypeMapper
         var parameters = new string[delegateParameter.ParameterTypes.Count];
         for (int index = 0; index < parameters.Length; index++)
         {
+            AuthenticatedMappingNames mappingNames =
+                MappingNamesForAuthenticatedType(
+                    genericArguments[index],
+                    delegateParameter.ParameterTypes[index],
+                    mappingContext.RecordNames,
+                    blockedAliases);
             parameters[index] =
                 $"arg{index}: {Map(
-                    genericArguments[index],
-                    mappingContext.RecordNames,
+                    mappingNames.DisplayType,
+                    mappingNames.RecordNames,
                     diagnostics,
                     location,
-                    blockedAliases,
+                    mappingNames.BlockedAliases,
                     TsTypeMappingContext.JsInterop)}";
         }
 
-        string returnType = delegateParameter.ReturnType is null
-            ? "undefined"
-            : Map(
-                genericArguments[^1],
-                mappingContext.RecordNames,
+        string returnType;
+        if (delegateParameter.ReturnType is null)
+        {
+            returnType = "undefined";
+        }
+        else
+        {
+            AuthenticatedMappingNames mappingNames =
+                MappingNamesForAuthenticatedType(
+                    genericArguments[^1],
+                    delegateParameter.ReturnType,
+                    mappingContext.RecordNames,
+                    blockedAliases);
+            returnType = Map(
+                mappingNames.DisplayType,
+                mappingNames.RecordNames,
                 diagnostics,
                 location,
-                blockedAliases,
+                mappingNames.BlockedAliases,
                 TsTypeMappingContext.JsInterop);
+        }
         string functionType =
             $"({string.Join(", ", parameters)}) => {returnType}";
         return nullable ? $"({functionType}) | null" : functionType;
+    }
+
+    static AuthenticatedMappingNames MappingNamesForAuthenticatedType(
+        string displayType,
+        TypeRef authenticatedType,
+        IReadOnlySet<string> recordNames,
+        IReadOnlySet<string>? blockedAliases)
+    {
+        var frameworkSpellings =
+            new HashSet<string>(StringComparer.Ordinal);
+        string normalizedDisplay =
+            NormalizeAuthenticatedFrameworkDisplay(
+            displayType,
+            authenticatedType,
+            frameworkSpellings);
+        if (frameworkSpellings.Count == 0)
+        {
+            return new AuthenticatedMappingNames(
+                normalizedDisplay,
+                recordNames,
+                blockedAliases);
+        }
+
+        var filteredRecordNames = new HashSet<string>(
+            recordNames,
+            StringComparer.Ordinal);
+        filteredRecordNames.ExceptWith(frameworkSpellings);
+        if (blockedAliases is null)
+        {
+            return new AuthenticatedMappingNames(
+                normalizedDisplay,
+                filteredRecordNames,
+                BlockedAliases: null);
+        }
+
+        var filteredBlockedAliases = new HashSet<string>(
+            blockedAliases,
+            StringComparer.Ordinal);
+        filteredBlockedAliases.ExceptWith(frameworkSpellings);
+        return new AuthenticatedMappingNames(
+            normalizedDisplay,
+            filteredRecordNames,
+            filteredBlockedAliases);
+    }
+
+    static string NormalizeAuthenticatedFrameworkDisplay(
+        string displayType,
+        TypeRef authenticatedType,
+        ISet<string> frameworkSpellings)
+    {
+        string trimmed = RemoveGlobalPrefix(displayType.Trim());
+        if (trimmed.EndsWith("?", StringComparison.Ordinal))
+        {
+            TypeRef nullableType = authenticatedType is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType: { } nullableDefinition,
+                TypeArguments: [var nullableArgument],
+            }
+            && IsType(
+                nullableDefinition,
+                "System",
+                "Nullable`1")
+                ? nullableArgument
+                : authenticatedType;
+            return $"{NormalizeAuthenticatedFrameworkDisplay(
+                trimmed[..^1],
+                nullableType,
+                frameworkSpellings)}?";
+        }
+
+        if (authenticatedType is
+            {
+                Kind: TypeRefKind.SzArray,
+                ElementType: { } arrayElement,
+            }
+            && trimmed.EndsWith("[]", StringComparison.Ordinal))
+        {
+            return $"{NormalizeAuthenticatedFrameworkDisplay(
+                trimmed[..^2],
+                arrayElement,
+                frameworkSpellings)}[]";
+        }
+
+        if (authenticatedType is
+            {
+                Kind: TypeRefKind.GenericInstance,
+                TypeArguments: var authenticatedArguments,
+            }
+            && TryParseGenericType(
+                trimmed,
+                out string? displayDefinition,
+                out IReadOnlyList<string> displayArguments)
+            && displayArguments.Count
+                == authenticatedArguments.Length)
+        {
+            var normalizedArguments =
+                new string[authenticatedArguments.Length];
+            for (int index = 0;
+                index < authenticatedArguments.Length;
+                index++)
+            {
+                normalizedArguments[index] =
+                    NormalizeAuthenticatedFrameworkDisplay(
+                    displayArguments[index],
+                    authenticatedArguments[index],
+                    frameworkSpellings);
+            }
+            return $"{displayDefinition}<"
+                + $"{string.Join(", ", normalizedArguments)}>";
+        }
+
+        if (IsFrameworkMappingIdentity(authenticatedType)
+            && IsAuthenticFrameworkMapping(authenticatedType))
+        {
+            string canonicalDisplay =
+                authenticatedType.ToQualifiedDisplayString();
+            frameworkSpellings.Add(trimmed);
+            frameworkSpellings.Add(canonicalDisplay);
+            return canonicalDisplay;
+        }
+
+        return trimmed;
     }
 
     static bool MatchesAuthenticatedType(
@@ -712,6 +863,7 @@ static class TsTypeMapper
                 "Single" => "float",
                 "Double" => "double",
                 "Decimal" => "decimal",
+                "IntPtr" => "nint",
                 "Object" => "object",
                 _ => null,
             };
@@ -761,8 +913,14 @@ static class TsTypeMapper
                 or "Single"
                 or "Double"
                 or "Decimal"
+                or "IntPtr"
+                or "DateTime"
+                or "DateTimeOffset"
+                or "Exception"
                 or "Object"
-                or "Nullable`1",
+                or "Nullable`1"
+                or "Span`1"
+                or "ArraySegment`1",
             "System.Threading.Tasks" => type.Name is
                 "Task"
                 or "Task`1"
@@ -794,8 +952,14 @@ static class TsTypeMapper
             or "float" or "Single" or "System.Single"
             or "double" or "Double" or "System.Double"
             or "decimal" or "Decimal" or "System.Decimal"
+            or "nint" or "IntPtr" or "System.IntPtr"
+            or "DateTime" or "System.DateTime"
+            or "DateTimeOffset" or "System.DateTimeOffset"
+            or "Exception" or "System.Exception"
             or "object" or "Object" or "System.Object"
             or "Nullable" or "System.Nullable"
+            or "Span" or "System.Span"
+            or "ArraySegment" or "System.ArraySegment"
             or "Task" or "System.Threading.Tasks.Task"
             or "ValueTask" or "System.Threading.Tasks.ValueTask"
             or "Dictionary"

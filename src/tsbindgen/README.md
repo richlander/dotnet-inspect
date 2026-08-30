@@ -82,8 +82,12 @@ unclassified arguments in either C# spelling. Every delegate fact must also
 have one unique in-range managed parameter index. Display text cannot replace
 payload identity, manufacture nullability, exceed the SDK callback arity,
 introduce `Void` callback payloads, or hide an authenticated async return.
+Once correlation succeeds, a local declaration with the same display spelling
+cannot override an authenticated framework payload; local arguments elsewhere
+in the same callback shape remain available.
 `MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
 `MapParameterType_MapsAuthenticatedFuncInManagedOrder`,
+`MapParameterType_MapsAuthenticatedIntPtrAsNumber`,
 `MapParameterType_AcceptsCorrelatedQualifiedDelegateTypes`,
 `MapParameterType_AcceptsCorrelatedLocalRecordIdentity`,
 `MapParameterType_RejectsDelegateFactsBeyondSdkArity`,
@@ -96,6 +100,8 @@ introduce `Void` callback payloads, or hide an authenticated async return.
 `MapParameterType_RejectsMalformedFrameworkGenericNames`,
 `MapParameterType_RejectsFrameworkNamesWithWrongGenericArity`,
 `MapParameterType_RejectsVoidDelegatePayloads`,
+`MapParameterType_FrameworkFactsOverrideLocalNameCollisions`,
+`MapParameterType_FrameworkFilteringPreservesLocalGenericArguments`,
 `MapParameterType_RejectsAuthenticatedIdentityMismatch`,
 `MapParameterType_RejectsUnqualifiedRecordAliasMismatch`,
 `MapParameterType_RejectsPromiseReturningDelegate`,
@@ -105,7 +111,8 @@ introduce `Void` callback payloads, or hide an authenticated async return.
 `Emit_RejectsDelegateRecordFromDifferentAssembly`,
 `Emit_RejectsDelegateRecordWithDifferentFullAssemblyIdentity`,
 `Emit_RejectsNullableDelegateValueTypeWithoutWrapper`,
-`Emit_RejectsFlattenedLocalDefinitionCollision`, and
+`Emit_RejectsFlattenedLocalDefinitionCollision`,
+`Emit_FrameworkDelegateFactsOverrideNestedLocalNameCollisions`, and
 `Emit_RejectsInvalidDelegateParameterAssociations` gate the projection.
 Promise-returning delegates remain unsupported by the SDK source generator and
 by hand-composed mapper inputs.
@@ -611,7 +618,8 @@ for that exact mapping plus the expected top-level
 `MetadataTypeDefinitionName`; same-name external types, nested lookalikes, and
 references that merely claim a platform token become diagnosed `unknown`.
 `DtsEmitterTests.Emit_DoesNotApplyDictionarySemanticsToLookalikeType` and
-`Emit_DoesNotApplyTaskSemanticsToLookalikeType` plus
+`Emit_DoesNotApplyIntPtrSemanticsToLookalikeType`,
+`Emit_DoesNotApplyTaskSemanticsToLookalikeType`, plus
 `Emit_DoesNotTrustClaimedPlatformTokenFromWrongAssembly` gate this framework
 boundary;
 `Emit_NestedIdentityCannotAliasNamespaceQualifiedType` gates structured type

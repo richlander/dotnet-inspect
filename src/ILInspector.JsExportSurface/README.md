@@ -229,9 +229,13 @@ publishes:
   keeps its name, hash, and element count; only the marshaler the element holds
   stops matching the export's own return type.
 - `Build_RejectsDelegateRegistrationWithWrongNestedDescriptor` and
-  `Build_RejectsDelegateRegistrationWithReorderedDescriptors` — the generated
-  delegate factory remains, but a nested payload descriptor changes or the
-  authenticated managed order is swapped.
+  `Build_RejectsDelegateRegistrationWithWrongResultDescriptor` — the generated
+  delegate factory remains, but one argument or result payload descriptor
+  changes.
+- `Build_RejectsDelegateRegistrationWithReorderedDescriptors` and
+  `Build_RejectsDelegateRegistrationWithWrongOuterFactory` — the authenticated
+  managed order is swapped or the same-arity `Function` factory is replaced by
+  `Action`.
 - `Build_RejectsDelegateRegistrationWithMismatchedSignatureHash` and
   `Build_RejectsDelegateWrapperThatCallsDifferentExport` — a delegate export
   cannot borrow another generated registration or wrapper target.

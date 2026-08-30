@@ -772,7 +772,9 @@ The target remains unverified until all of these gates exist:
   mappings require retained resolution origin, complete containing-assembly
   identity, exact structured metadata definition name, and declaration kind
   before nullable-reference spelling is accepted. Every delegate fact must
-  associate uniquely with an in-range managed parameter. Unauthenticated,
+  associate uniquely with an in-range managed parameter. Authenticated
+  framework payloads retain their framework meaning during rendering even when
+  a local declaration has the same display spelling. Unauthenticated,
   untrusted-framework, mismatched, unclassified-nullable, malformed-arity,
   unassociated, over-arity, `Void`-payload, or async-disguising evidence
   remains a diagnosed `unknown`;

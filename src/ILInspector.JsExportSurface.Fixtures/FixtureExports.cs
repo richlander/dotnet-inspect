@@ -135,13 +135,22 @@ public static partial class FixtureExports
         callback(null);
 
     [JSExport]
-    public static int TransformValue(
+    public static bool TransformValue(
         [JSMarshalAs<JSType.Function<
             JSType.Number,
             JSType.String,
-            JSType.Number>>]
-        Func<int, string, int> callback) =>
+            JSType.Boolean>>]
+        Func<int, string, bool> callback) =>
         callback(42, "answer");
+
+    [JSExport]
+    public static void ObserveValues(
+        [JSMarshalAs<JSType.Function<
+            JSType.Number,
+            JSType.String,
+            JSType.Boolean>>]
+        Action<int, string, bool> callback) =>
+        callback(42, "answer", true);
 
     [JSExport]
     public static string GetRegisteredString(string value) =>

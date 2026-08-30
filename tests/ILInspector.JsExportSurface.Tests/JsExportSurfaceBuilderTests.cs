@@ -72,7 +72,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(52, surface.Functions.Count);
+        Assert.Equal(53, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("GetWidgetSerializedBeforeAwait", names);
@@ -90,6 +90,7 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("ReportValueAgain", names);
         Assert.Contains("ReportNullableText", names);
         Assert.Contains("TransformValue", names);
+        Assert.Contains("ObserveValues", names);
         Assert.Contains("GetRegisteredString", names);
         Assert.Contains("Ping", names);
         Assert.Contains("RenameWidget", names);
@@ -174,7 +175,7 @@ public sealed class JsExportSurfaceBuilderTests
             func.ParameterTypes,
             type => Assert.Equal("int", type.ToDisplayString()),
             type => Assert.Equal("string", type.ToDisplayString()));
-        Assert.Equal("int", func.ReturnType?.ToDisplayString());
+        Assert.Equal("bool", func.ReturnType?.ToDisplayString());
     }
 
     [Fact]

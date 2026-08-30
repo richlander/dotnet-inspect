@@ -164,8 +164,14 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "export declare function transformValue("
-                + "callback: (arg0: number, arg1: string) => number): "
-                + "number;",
+                + "callback: (arg0: number, arg1: string) => boolean): "
+                + "boolean;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function observeValues("
+                + "callback: (arg0: number, arg1: string, "
+                + "arg2: boolean) => undefined): void;",
             dts,
             StringComparison.Ordinal);
     }
@@ -436,6 +442,138 @@ public sealed class DtsEmitterTests
             DtsEmitter.Emit(surface, diagnostics),
             StringComparison.Ordinal);
         Assert.NotEmpty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_FrameworkDelegateFactsOverrideNestedLocalNameCollisions()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var assembly = new ApiAssemblyIdentity(
+            "Local",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        var coreAssembly = new ApiAssemblyIdentity(
+            "System.Private.CoreLib",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "7cec85d7bea7798e");
+        var jsAssembly = new ApiAssemblyIdentity(
+            "System.Runtime.InteropServices.JavaScript",
+            new Version(11, 0, 0, 0),
+            culture: null,
+            publicKeyToken: "b03f5f7f11d50a3a");
+        TypeRef localPayload = ResolvedType(
+            assembly,
+            "Mine",
+            "Payload");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = assembly,
+            Records =
+            [
+                LocalClass("Mine", "Payload"),
+                LocalClass("System", "Int32"),
+                LocalClass(
+                    "System.Runtime.InteropServices.JavaScript",
+                    "JSObject"),
+            ],
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "Register",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Callback",
+                            Type = "System.Action<"
+                                + "System.Collections.Generic.Dictionary<"
+                                + "string, Mine.Payload>, "
+                                + "Int32?[], JSObject?[]>",
+                            TypeReferences =
+                            [
+                                new ApiTypeReferenceIdentity(
+                                    coreAssembly,
+                                    "System.Int32",
+                                    DefinitionName(
+                                        "System",
+                                        "Int32")),
+                                new ApiTypeReferenceIdentity(
+                                    jsAssembly,
+                                    "System.Runtime.InteropServices."
+                                        + "JavaScript.JSObject",
+                                    DefinitionName(
+                                        "System.Runtime.InteropServices."
+                                            + "JavaScript",
+                                        "JSObject")),
+                            ],
+                        },
+                    ],
+                    DelegateParameters =
+                    [
+                        new JsExportDelegateParameter
+                        {
+                            ParameterIndex = 0,
+                            Kind = JsExportDelegateKind.Action,
+                            ParameterTypes =
+                            [
+                                TypeRef.GenericInstance(
+                                    TypeRef.Definition(
+                                        "System.Collections",
+                                        "System.Collections.Generic",
+                                        "Dictionary`2"),
+                                    [
+                                        TypeRef.CoreLib(
+                                            "System",
+                                            "String"),
+                                        localPayload,
+                                    ]),
+                                TypeRef.SzArray(
+                                    TypeRef.GenericInstance(
+                                        TypeRef.CoreLib(
+                                            "System",
+                                            "Nullable`1"),
+                                        [
+                                            TypeRef.CoreLib(
+                                                "System",
+                                                "Int32"),
+                                        ])),
+                                TypeRef.SzArray(
+                                    TypeRef.Definition(
+                                        "System.Runtime.InteropServices."
+                                            + "JavaScript",
+                                        "System.Runtime.InteropServices."
+                                            + "JavaScript",
+                                        "JSObject")),
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: "
+                + "(arg0: Record<string, Payload>, "
+                + "arg1: (number | null)[], "
+                + "arg2: (unknown | null)[]) => undefined): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Empty(diagnostics.UnmappedTypes);
+
+        ApiType LocalClass(string @namespace, string name) =>
+            new()
+            {
+                Namespace = @namespace,
+                Name = name,
+                Kind = "class",
+                DefinitionName =
+                    DefinitionName(@namespace, name),
+            };
     }
 
     [Theory]
@@ -1626,6 +1764,51 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(surface, diagnostics);
 
         Assert.Contains("  readonly Values: unknown;", dts, StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_DoesNotApplyIntPtrSemanticsToLookalikeType()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Functions =
+            [
+                new JsExportFunction
+                {
+                    DeclaringType = "Exports",
+                    Name = "RegisterPointer",
+                    ReturnType = "void",
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "Value",
+                            Type = "nint",
+                            TypeReferences =
+                            [
+                                new ApiTypeReferenceIdentity(
+                                    new ApiAssemblyIdentity(
+                                        "Lookalikes",
+                                        new Version(1, 0, 0, 0),
+                                        culture: null,
+                                        publicKeyToken: null),
+                                    "System.IntPtr",
+                                    DefinitionName(
+                                        "System",
+                                        "IntPtr")),
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function registerPointer(value: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
         Assert.Single(diagnostics.UnmappedTypes);
     }
 
