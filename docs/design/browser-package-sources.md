@@ -1276,6 +1276,9 @@ multi-source policy and composition remain with that owner.
 
 An operation-ceiling failure is terminal. A request-deadline failure may be
 returned while the context still permits another authorized source.
+When concurrent requests produce multiple failures, the same precedence
+applies to the aggregate; a transport failure cannot hide a library-owned
+deadline failure.
 `PackageSourceTimeout` records `Request`, `MetadataBody`, or `Operation` plus
 the configured duration for a library-owned deadline. A transport-originated
 `TimeoutException` retains the existing timeout classification without falsely
@@ -1287,6 +1290,9 @@ producer and transport kind, timeout-versus-transport classification, typed
 deadline detail when applicable, and whether payload cleanup failed. It does
 not retain the transport exception or its endpoint-bearing message. The same
 translation applies to synchronous and asynchronous reads and disposal.
+Caller disposal translates an already-started read released by that disposal
+as a source-safe transport failure; a read started after disposal retains the
+ordinary disposed-stream result.
 
 The implementation gates are:
 
@@ -1303,9 +1309,13 @@ The implementation gates are:
 - `PackageSourceClientTests.PayloadTransportFailureOutranksRacingReadCancellation`;
 - `PackageSourceClientTests.PayloadCallerCancellationDoesNotRetainTransportFailure`;
 - `PackageSourceClientTests.PayloadDisposalFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesOutstandingRead`;
+- `PackageSourceClientTests.PayloadReadAfterDisposalRemainsObjectDisposed`;
   and
 - `PackageSourceClientTests.PayloadAsyncDisposalFailureRetainsSafeSourceIdentity`.
 
+`PackageSourceClientTests.GalleryConcurrentTransportFaultCannotHideTimeout`
+gates deadline precedence across concurrent Gallery page requests.
 `PackagePayloadAcquisitionTests.TypedAcquisition_PreservesPayloadStreamTimeout`
 is the non-vacuity gate for the `DotnetInspector.Packages` stream handoff.
 `PackagePayloadAcquisitionTests.TypedCacheHit_DoesNotEscapeExpiredOperationContext`

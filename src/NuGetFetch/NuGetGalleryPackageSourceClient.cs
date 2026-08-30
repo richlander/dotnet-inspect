@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace NuGetFetch;
 
 internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
@@ -340,6 +342,10 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                             request.Result?.Dispose();
                     }
 
+                    ThrowPreferredRegistrationFailure(
+                        requests,
+                        operation,
+                        callerCancellation);
                     throw;
                 }
 
@@ -651,6 +657,25 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             or OperationCanceledException
             or System.Text.Json.JsonException
             or NuGetSourceResponseException;
+
+    private static void ThrowPreferredRegistrationFailure(
+        IEnumerable<Task<MemoryStream?>> requests,
+        NuGetOperationDeadline operation,
+        CancellationToken callerCancellation)
+    {
+        callerCancellation.ThrowIfCancellationRequested();
+        operation.ThrowIfExpired();
+
+        Exception? timeout = requests
+            .Where(request => request.Exception is not null)
+            .SelectMany(request =>
+                request.Exception!.Flatten().InnerExceptions)
+            .FirstOrDefault(exception =>
+                exception is NuGetRequestTimeoutException
+                    or NuGetMetadataBodyTimeoutException);
+        if (timeout is not null)
+            ExceptionDispatchInfo.Capture(timeout).Throw();
+    }
 
     public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,

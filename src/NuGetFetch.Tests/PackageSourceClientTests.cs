@@ -3080,6 +3080,47 @@ public sealed class PackageSourceClientTests
             () => operation);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GalleryConcurrentTransportFaultCannotHideTimeout(
+        bool operationExpires)
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(60),
+            OperationTimeout = operationExpires
+                ? TimeSpan.FromMilliseconds(800)
+                : TimeSpan.FromSeconds(5),
+        };
+        var handler = new FaultAndTimeoutRegistrationHandler();
+        using var context = new NuGetOperationContext(
+            options,
+            TestContext.Current.CancellationToken);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: context));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                operationExpires
+                    ? PackageSourceTimeoutKind.Operation
+                    : PackageSourceTimeoutKind.Request,
+                operationExpires
+                    ? options.OperationTimeout
+                    : options.RequestTimeout),
+            failure.Timeout);
+        Assert.True(handler.FastTransportRequests > 0);
+        Assert.True(handler.StallingRequests > 0);
+    }
+
     [Fact]
     public void GalleryFinalListingProjectionPreservesOperationTimeout()
     {
@@ -4423,6 +4464,78 @@ public sealed class PackageSourceClientTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PayloadConcurrentDisposalTranslatesOutstandingRead(
+        bool disposeAsync)
+    {
+        var inner = new DisposalUnblocksPayloadStream();
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(inner),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        Stream content = payload.Content;
+        Task<int> read = content.ReadAsync(
+                new byte[1],
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await inner.ReadStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        if (disposeAsync)
+            await content.DisposeAsync();
+        else
+            content.Dispose();
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => read);
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.Null(error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+    }
+
+    [Fact]
+    public async Task PayloadReadAfterDisposalRemainsObjectDisposed()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent([1]),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        payload.Content.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => payload.Content.ReadByte());
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            () => payload.Content.ReadAsync(
+                new byte[1],
+                TestContext.Current.CancellationToken).AsTask());
+    }
+
     [Fact]
     public async Task PayloadTimeoutRetainsSourceAndConfiguredDuration()
     {
@@ -5119,6 +5232,59 @@ public sealed class PackageSourceClientTests
             throw new NotSupportedException();
     }
 
+    private sealed class DisposalUnblocksPayloadStream : Stream
+    {
+        private readonly TaskCompletionSource _disposed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReadStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            ReadStarted.TrySetResult();
+            await _disposed.Task;
+            throw new ObjectDisposedException(
+                nameof(DisposalUnblocksPayloadStream));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _disposed.TrySetResult();
+            base.Dispose(disposing);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
     private sealed class BlockingEofStream : Stream
     {
         public TaskCompletionSource ReadStarted { get; } =
@@ -5343,6 +5509,64 @@ public sealed class PackageSourceClientTests
                     "Simulated registration page failure.");
             }
 
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The registration stall completed without cancellation.");
+        }
+
+        private static HttpResponseMessage Response(string json) =>
+            new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json),
+            };
+    }
+
+    private sealed class FaultAndTimeoutRegistrationHandler
+        : HttpMessageHandler
+    {
+        public int FastTransportRequests;
+        public int StallingRequests;
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            if (url == GalleryVersions)
+            {
+                return Response(
+                    """{"versions":["1.0.0","2.0.0"]}""");
+            }
+
+            if (url == GalleryRegistration)
+            {
+                return Response(
+                    """
+                    {
+                      "items": [
+                        {
+                          "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/1.0.0/1.0.0.json"
+                        },
+                        {
+                          "@id": "https://api.nuget.org/v3/registration5-gz-semver2/contoso/page/2.0.0/2.0.0.json"
+                        }
+                      ]
+                    }
+                    """);
+            }
+
+            if (url.EndsWith(
+                    "/page/1.0.0/1.0.0.json",
+                    StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref FastTransportRequests);
+                throw new HttpRequestException(
+                    "Simulated registration transport failure.");
+            }
+
+            Interlocked.Increment(ref StallingRequests);
             await Task.Delay(
                 Timeout.InfiniteTimeSpan,
                 cancellationToken);

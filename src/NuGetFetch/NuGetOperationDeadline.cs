@@ -376,8 +376,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
         private Exception? _abortDisposalFailure;
         private int _abortStarted;
         private int _deadlineCompleted;
+        private int _disposeStarted;
         private int _endOfStream;
-        private bool _disposed;
 
         public DeadlineStream(
             Stream inner,
@@ -409,6 +409,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            ThrowIfCallerDisposed();
             ThrowIfDeadlineExpired();
             if (count == 0)
                 return 0;
@@ -435,6 +436,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         public override int Read(Span<byte> buffer)
         {
+            ThrowIfCallerDisposed();
             ThrowIfDeadlineExpired();
             if (buffer.IsEmpty)
                 return 0;
@@ -463,6 +465,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             Memory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
+            ThrowIfCallerDisposed();
             if (cancellationToken.IsCancellationRequested
                 && cancellationToken == operation._context.CancellationToken)
             {
@@ -547,6 +550,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         public override int ReadByte()
         {
+            ThrowIfCallerDisposed();
             ThrowIfDeadlineExpired();
             try
             {
@@ -585,9 +589,9 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && !_disposed)
+            if (disposing
+                && Interlocked.Exchange(ref _disposeStarted, 1) == 0)
             {
-                _disposed = true;
                 if (operation._producer is not null)
                 {
                     Exception? cleanupFailure = null;
@@ -649,9 +653,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
         public override async ValueTask DisposeAsync()
         {
-            if (!_disposed)
+            if (Interlocked.Exchange(ref _disposeStarted, 1) == 0)
             {
-                _disposed = true;
                 if (operation._producer is not null)
                 {
                     Exception? cleanupFailure = null;
@@ -779,8 +782,15 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 or IOException
                 or HttpRequestException
                 or TimeoutException
+            || exception is ObjectDisposedException
+                && Volatile.Read(ref _disposeStarted) != 0
             || IsDeadlineExpired()
                 && NuGetOperationDeadline.IsDeadlineAbort(exception);
+
+        private void ThrowIfCallerDisposed() =>
+            ObjectDisposedException.ThrowIf(
+                Volatile.Read(ref _disposeStarted) != 0,
+                this);
 
         private bool IsDeadlineExpired() =>
             Volatile.Read(ref _endOfStream) == 0
