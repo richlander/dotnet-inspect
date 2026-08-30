@@ -943,6 +943,11 @@ EmbeddedDetailExistsOnlyWhileEmbedded ==
 CoordinatesExistOnlyWhileModal ==
   surface = "Embedded" => ~coordinatesVisible
 
+EmbeddedPresentationIsFixed ==
+  surface = "Embedded" =>
+    /\ active = defaults
+    /\ visibleMedia = {"CSharp"}
+
 AtLeastOneMediumIsVisible ==
   /\ visibleMedia # {}
   /\ visibleMedia \subseteq supportedMedia

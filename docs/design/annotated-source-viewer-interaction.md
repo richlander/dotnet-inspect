@@ -415,6 +415,11 @@ Conformance requires:
   same-medium targets and embedded-chip activation, historical eligible-primary
   transfer on modal opening, and preservation of surface, primary selection,
   annotation membership, media, and coordinates on direct close;
+- detail-content tests using valid product-issued fixtures, proving chip and
+  persistent-inspector paths render the same non-empty content, preserve every
+  present descriptor, category, conditionality, detail, origin, and target, and
+  show the typed reason for each unavailable optional value rather than an
+  empty success-shaped panel;
 - Finding- and node-selection tests beginning from non-default annotation,
   media, and coordinate state and proving those orthogonal states are
   preserved;

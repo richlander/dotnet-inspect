@@ -46,6 +46,7 @@ The safety invariants check:
 - the embedded reader's default-and-C# selection boundary;
 - destruction of embedded detail on modal opening;
 - absence of modal detail after dismissal;
+- the embedded reader's fixed default active set and C#-only presentation;
 - at least one document-supported visible medium;
 - exact derivation of the annotation universe and defaults from supported
   media, including a non-Finding structural annotation that is excluded from
@@ -124,7 +125,7 @@ java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
 ```
 
 TLC 1.8.0, build `2026.08.21.155922`, revision `9787e65`, completed with no
-error. The checked configuration registers 29 safety invariants:
+error. The checked configuration registers 30 safety invariants:
 
 | Result | Value |
 | --- | ---: |
@@ -141,7 +142,7 @@ each for `ToggleAnnotation` and `ToggleMedium`, and 5,976 for
 
 ## Mutation evidence
 
-Sixty deliberate targeted mutations were run against the same
+Sixty-two deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -207,6 +208,8 @@ Each produced a concrete counterexample:
 | Remove one selectable-node action | `NodeActionsAreExact` |
 | Restrict the `Next` branch for **Explore** to detail-free states | `FixedActionAvailabilityIsExact` |
 | Remove the unanchored Finding's inspector path from `Next` | `InspectorActionsAreAvailable` |
+| Start an embedded reader with an empty non-default active set | `EmbeddedPresentationIsFixed` |
+| Start a dual-media embedded reader with IL instead of C# visible | `EmbeddedPresentationIsFixed` |
 
 The mutations are evidence that these properties are observed by the checked
 invariants rather than restatements that TLC cannot falsify. The three new
@@ -215,6 +218,7 @@ after 74 generated states, and after 160 generated states, respectively.
 The two `Next`-restriction mutations now fail
 `FixedActionAvailabilityIsExact` after 9 generated states and
 `InspectorActionsAreAvailable` after 7 generated states.
+Both embedded-presentation initialization mutations fail in the initial state.
 
 ## Non-claims
 
