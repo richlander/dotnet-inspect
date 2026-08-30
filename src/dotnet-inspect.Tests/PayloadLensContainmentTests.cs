@@ -92,7 +92,7 @@ public class PayloadLensContainmentTests : IDisposable
     public void ChildCli_LineLimitIgnoresRowsLiteralAfterOptionTerminator()
     {
         var (output, error) = RunCliCore(
-            ["package", "--help", "-n1", "--", "--rows"]);
+            ["package", "--help", "-n1", "--lines", "--", "--rows"]);
 
         Assert.Empty(error);
         Assert.Single(
