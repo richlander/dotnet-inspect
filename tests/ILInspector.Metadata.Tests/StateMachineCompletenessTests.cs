@@ -8,67 +8,18 @@ using Fixtures =
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Structural completeness cross-check for
-/// <see cref="StateMachineRelationshipIndex"/>.
-///
-/// Every other test of the index starts where the index starts: from a
-/// compiler-emitted state-machine attribute. That can only ever show the index
-/// agrees with its own premise. It cannot show whether a state machine exists
-/// that the attribute path never reaches.
-///
-/// This file supplies the independent signal. A compiler async state machine is
-/// a TypeDef implementing <c>IAsyncStateMachine</c>, and the index never
-/// consults that interface to <em>discover</em> a machine, so the two signals
-/// are genuinely independent and a disagreement is real evidence rather than a
-/// restatement.
-///
-/// Classification is exact rather than heuristic:
-/// <see cref="StateMachineRelationshipIndex.GetByStateMachine"/> answers
-/// <c>Resolved</c> (authenticated), <c>Rejected</c> (a claim exists but failed
-/// authentication), or <c>Absent</c> (nothing claimed this type). Only
-/// <c>Rejected</c> indicates the index declined evidence it was actually
-/// offered; <c>Absent</c> is the ordinary shape for a reference assembly whose
-/// kickoff was stripped, or for a non-Roslyn compiler such as F#, which uses
-/// resumable code and emits no state-machine attribute.
-///
-/// That reading of <c>Rejected</c> holds per type, not per assembly. If the
-/// index fails to build at all, every structural TypeDef comes back
-/// <c>Rejected</c> whether or not it ever carried a claim, so a whole-assembly
-/// rejection says the index failed rather than that this many claims were
-/// refused.
-///
-/// The report does not separate those two. It keeps <c>Failure.Kind</c> only,
-/// and the kinds overlap — <c>Malformed</c> and <c>BudgetExceeded</c> arise
-/// both ways — so "refused authentication" in a sweep message means "the index
-/// did not authenticate this type", not necessarily that a claim was offered
-/// and declined. Round 15 caught this paragraph asserting a distinction nothing
-/// makes. Read a whole-assembly rejection as the index having failed, and the
-/// shape of the failure as the thing to go look at; #4833 tracks the failure
-/// contract that would let the report say which it was.
+/// Implementation evidence for C1 and C6 in
+/// <c>docs/design/state-machine-relationship-index.md#completeness</c>.
+/// Structural async machines are discovered independently from raw metadata
+/// and compared with the index's keyed classification.
 /// </summary>
 public sealed class StateMachineCompletenessTests
 {
-    /// <summary>
-    /// Names the environment variable that supplies a corpus directory for
-    /// <see cref="Corpus_NoStructuralStateMachineIsClaimedThenRejected"/>. The
-    /// sweep is opt-in so ordinary CI runs pay nothing for it.
-    /// </summary>
     const string CorpusVariable = "SM_COMPLETENESS_CORPUS";
 
-    /// <summary>
-    /// The detail reported when SRM finds no metadata behind a CLI directory
-    /// the oracle positively claimed.
-    /// </summary>
     const string CliDirectoryPresentDetail =
         "the CLI directory is present but carries no metadata";
 
-    /// <summary>
-    /// The detail reported when SRM finds no metadata, worded to match what the
-    /// oracle actually established rather than assuming the CLI directory is
-    /// present. Round 9 caught this message asserting presence on the
-    /// indeterminate path, which sends a maintainer looking for a CLI directory
-    /// nothing claimed to exist.
-    /// </summary>
     static string NoMetadataDetail(ManagedClaim claim, ClaimExitSite exit) =>
         claim switch
         {
@@ -80,15 +31,8 @@ public sealed class StateMachineCompletenessTests
         };
 
     /// <summary>
-    /// The gate for the completeness property on assemblies this repository
-    /// builds. Both specimens are compiler-async, are produced by the build
-    /// under test, and are therefore deterministic — no corpus, no network, and
-    /// no environment dependence.
-    ///
-    /// This test is non-vacuous by construction: it asserts that the structural
-    /// scan actually found state machines before asserting anything about how
-    /// they classified, so deleting the fixtures fails the test rather than
-    /// silently passing it.
+    /// C1/C6 evidence over deterministic own-build assemblies. The independent
+    /// population must be non-empty and every member must resolve.
     /// </summary>
     [Theory]
     [InlineData(typeof(Fixtures))]
@@ -105,60 +49,9 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// The same property, held over every file in this test's own output
-    /// directory rather than two hand-picked assemblies.
-    ///
-    /// Round 11 is why this exists. The two specimens above are the only place
-    /// <c>Absent</c> is asserted at all: the corpus sweep records it and
-    /// deliberately does not fail on it, because reference assemblies and F#
-    /// output make it legitimate there. A reviewer mutated
-    /// StateMachineRelationshipIndex to answer Absent above 1,000 type rows and
-    /// found it survived everything -- the corpus gate tolerates Absent by
-    /// design, and both specimens are small enough that the mutation never
-    /// fired. The Absent direction was being held by two assemblies that happen
-    /// to sit at one end of the size range.
-    ///
-    /// The set here is derived from the build rather than listed, so it widens
-    /// when dependencies do. Today it is 35 assemblies carrying 464 structural
-    /// machines, two of which are the specimens themselves: this directory is
-    /// the test's own output, so ILInspector.Metadata.Tests and the fixtures
-    /// assembly sit in it and contribute 20 of those machines.
-    ///
-    /// Keeping it from quietly shrinking took three connected checks, and round
-    /// 12 found each one individually satisfiable. The structural count must
-    /// include machines found outside the two specimens, or emptying every
-    /// other report still passes. The width must be measured only over
-    /// neighbours that carry machines and are not specimens, or an unrelated
-    /// wide assembly with nothing in it answers on their behalf. And a skip
-    /// must be cross-checked against SRM, or routing all but one neighbour to
-    /// "not managed" leaves 463 of 464 machines unexamined under assertions
-    /// that only need one to survive.
-    ///
-    /// What the width assertion pins is image size, and only that. It is not a
-    /// coverage statement: the widest neighbour carries 1 machine, while
-    /// Microsoft.Testing.Platform, below the round-11 threshold at 868 rows,
-    /// carries 193 of the 464.
-    ///
-    /// Its margin is worth stating plainly, because an earlier revision of this
-    /// comment called two neighbours "an order of magnitude larger" than the
-    /// specimens without measuring either. They are not. The larger specimen has
-    /// 761 type rows; the widest neighbours are Microsoft.CodeAnalysis.CSharp at
-    /// 2,829 and Microsoft.CodeAnalysis at 2,381, and the next one down is 887 --
-    /// within 17% of the specimen. So only two assemblies, both Roslyn, carry
-    /// this gate past the 1,000-row threshold the round-11 mutation used.
-    ///
-    /// That is the residual: if those dependencies went away, the reach
-    /// assertion would still pass on a neighbour a few rows wider than the
-    /// specimen while the size sensitivity that motivated this test quietly
-    /// left. The assertion pins direction, not margin, and no principled
-    /// threshold is available to pin margin -- the mutation's 1,000 was
-    /// arbitrary, and a constant here would only encode one reviewer's guess.
-    /// Recorded rather than papered over.
-    ///
-    /// A neighbour reporting Absent is not automatically a product defect -- a
-    /// reference assembly retains the nested machine while stripping the
-    /// kickoff, and F# emits no attribute. If one appears here, the answer is to
-    /// exclude that neighbour and say why, not to weaken the assertion.
+    /// Broadens C1/C6 evidence to build-derived, machine-bearing neighbours.
+    /// Non-vacuity checks keep the population wider than the two specimens and
+    /// cross-check every skip against SRM.
     /// </summary>
     [Fact]
     public void Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated()
@@ -181,15 +74,8 @@ public sealed class StateMachineCompletenessTests
                 case CorpusOutcome.Measured:
                     break;
 
-                // A native dependency is legitimate here and carries no claim,
-                // but it is counted and cross-checked rather than dropped.
-                // Round 12 found this branch swallowing the outcome outright,
-                // which let a mutation route every neighbour but one here and
-                // still pass: 463 of 464 machines went unexamined under an
-                // assertion set that only required one to survive. SRM is the
-                // independent answer to "was that really not an assembly", the
-                // same oracle this file cross-checks everywhere else, so a
-                // disagreement is reported instead of trusted.
+                // A skipped neighbour is independently checked before leaving
+                // the measured population.
                 case CorpusOutcome.NotManaged:
                     notManaged++;
                     if (HasMetadataAccordingToSrm(path))
@@ -209,12 +95,8 @@ public sealed class StateMachineCompletenessTests
             examined++;
             structural += report.Structural;
 
-            // Width is measured only over neighbours that actually carry
-            // machines, and only over ones that are not the specimens. Round 12
-            // showed the two assertions were independent: an unrelated wide
-            // assembly with no state machines satisfied the width assertion
-            // while every real neighbour report was emptied, so the gate could
-            // shrink back to the two specimens and still pass.
+            // Width evidence must come from a non-specimen that carries a
+            // structural async machine.
             if (report.Structural != 0 && !IsSpecimen(path))
             {
                 beyondSpecimens += report.Structural;
@@ -248,8 +130,7 @@ public sealed class StateMachineCompletenessTests
             widest > specimen,
             $"the widest machine-bearing neighbour has {widest} type rows and the "
                 + $"larger specimen has {specimen}, so this gate no longer reaches "
-                + "past the two hand-picked assemblies that missed the round-11 "
-                + "mutation.");
+                + "past the two hand-picked assemblies.");
         Assert.True(
             offenders.Count == 0,
             $"""
@@ -261,11 +142,6 @@ public sealed class StateMachineCompletenessTests
             """);
     }
 
-    /// <summary>
-    /// The two assemblies OwnBuildOutputs already covers, excluded from the
-    /// neighbour gate's own non-vacuity counts so that gate cannot pass on
-    /// evidence the other one already supplies.
-    /// </summary>
     static bool IsSpecimen(string path) =>
         string.Equals(
             Path.GetFullPath(path),
@@ -278,23 +154,8 @@ public sealed class StateMachineCompletenessTests
             StringComparison.Ordinal);
 
     /// <summary>
-    /// The same property on the core library, which is the only assembly in
-    /// reach that declares the state-machine attributes in the module that uses
-    /// them.
-    ///
-    /// Round 12 is why this exists. Everywhere else, an async method's
-    /// attribute constructor is a MemberReference into another assembly, so the
-    /// index's MethodDefinition branch -- the same-module case -- was never
-    /// exercised end to end by any gate. A reviewer made that branch
-    /// unreachable and System.Private.CoreLib went from 71 resolved to 71
-    /// absent while the entire suite stayed green, including the runtime
-    /// corpus: the corpus sweep tolerates Absent by design, and the neighbour
-    /// gate only sees assemblies copied beside the test, all of which reference
-    /// their attributes.
-    ///
-    /// So this is not a widening for its own sake. It covers a distinct
-    /// metadata encoding that nothing else here could reach, and it is the
-    /// third and last place the Absent direction is held.
+    /// C1/C6 evidence for the core library's same-module attribute encoding,
+    /// which own-build consumers do not exercise.
     /// </summary>
     [Fact]
     public void CoreLibrary_EveryStructuralAsyncStateMachineIsAuthenticated()
@@ -316,9 +177,7 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// SRM's own answer to whether a file carries metadata, used to cross-check
-    /// the hand-rolled claim reader's decision to skip a neighbour. Independent
-    /// of that reader by construction: it shares no code with it.
+    /// Cross-checks the independent header reader before a neighbour is skipped.
     /// </summary>
     static bool HasMetadataAccordingToSrm(string path)
     {
@@ -337,10 +196,6 @@ public sealed class StateMachineCompletenessTests
         }
     }
 
-    /// <summary>
-    /// Type rows in an image, used to show this gate reaches past the two
-    /// hand-picked specimens rather than asserting a bare number.
-    /// </summary>
     static int TypeRowCount(string path)
     {
         using var stream = File.OpenRead(path);
@@ -349,27 +204,9 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// The property that held across every real assembly measured to date: a
-    /// state machine is never claimed by an attribute and then refused. Sweeping
-    /// 23,829 assemblies (NuGet cache plus shared framework) produced 145,413
-    /// claims and 145,413 authenticated relationships.
-    ///
-    /// That sweep contained no trimmed output, and the qualifier matters:
-    /// trimming is a known cause of refusal, because ILLink removes
-    /// SetStateMachine, which both ClassicAsync and AsyncIterator require. So a
-    /// Rejected here is a genuine finding for an untrimmed corpus, and expected
-    /// noise for a trimmed one — the failure message below says which, because
-    /// an earlier revision of this comment claimed the property held over every
-    /// real assembly while the message underneath it named the exception.
-    ///
-    /// <c>Absent</c> is reported but deliberately not asserted: reference
-    /// assemblies retain the nested machine type while stripping the private
-    /// kickoff, and F# emits no state-machine attribute at all. Both are
-    /// legitimate, so asserting on them would make this test track the shape of
-    /// whatever directory it was pointed at. That tolerance is exactly why the
-    /// Absent direction is held elsewhere, over a build-derived set, by
-    /// Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated: a product
-    /// that simply stopped making claims would pass this test.
+    /// Optional observational sweep over an external corpus. It reports
+    /// rejected structural async machines and population holes but tolerates
+    /// <c>Absent</c>, so it is not by itself a complete C1 or C3 gate.
     /// </summary>
     [Fact]
     public void Corpus_NoStructuralStateMachineIsClaimedThenRejected()
@@ -379,9 +216,7 @@ public sealed class StateMachineCompletenessTests
             string.IsNullOrWhiteSpace(root),
             $"Set {CorpusVariable} to a directory to run the corpus sweep.");
 
-        // Once the variable is supplied the sweep is opted in, so a path that
-        // does not resolve is a configuration error rather than a reason to
-        // skip. Skipping here would turn a typo into a green corpus gate.
+        // An explicitly configured but missing corpus is a failure, not a skip.
         Assert.True(
             Directory.Exists(root),
             $"{CorpusVariable} is set to '{root}', which is not a directory. "
@@ -392,14 +227,8 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Runs the sweep and returns its assembled problem text, or
-    /// <see langword="null"/> when the corpus is clean.
-    ///
-    /// Split out of the test so a synthetic corpus can drive the same code. The
-    /// sweep above is opt-in and skipped by default, so nothing in CI executed
-    /// it at all; the sweep tests below are the only automated evidence that it
-    /// fails when it should, and they exercise this method rather than
-    /// re-deriving its decisions.
+    /// Runs the production-shaped sweep for both the opt-in corpus gate and its
+    /// deterministic controls, returning every accumulated problem.
     /// </summary>
     static string? SweepProblems(string root, out string surveyed)
     {
@@ -418,29 +247,22 @@ public sealed class StateMachineCompletenessTests
                 case CorpusOutcome.Measured:
                     break;
 
-                // Not a managed assembly at all: a native DLL, or a file that is
-                // not a PE. Counted so an empty sweep cannot masquerade as a
-                // clean one, but not a failure — it carries no claim to check.
+                // Count genuine non-managed files without treating them as failures.
                 case CorpusOutcome.NotManaged:
                     notManaged++;
                     continue;
 
-                // Environmental, not evidence about the index. Reported rather
-                // than dropped so a systematically unreadable corpus is visible.
+                // Environmental holes remain visible in the report.
                 case CorpusOutcome.Inaccessible:
                     inaccessible.Add($"{Path.GetFileName(path)}: {detail}");
                     continue;
 
-                // A managed assembly whose metadata would not decode. This is a
-                // real failure: a candidate existed and could not be evaluated.
+                // A managed claim that cannot be decoded fails the sweep.
                 case CorpusOutcome.DecodeFailed:
                     undecodable.Add($"{Path.GetFileName(path)}: {detail}");
                     continue;
 
-                // A PE that could not be classified at all. Kept separate from
-                // the decode failures above because it makes a weaker claim --
-                // this file might never have been managed -- and separate from
-                // NotManaged because nothing established that it wasn't.
+                // Indeterminate input is neither a managed claim nor a safe skip.
                 default:
                     unclassifiable.Add($"{Path.GetFileName(path)}: {detail}");
                     continue;
@@ -462,10 +284,7 @@ public sealed class StateMachineCompletenessTests
                 + $"non-managed skipped, {unclassifiable.Count} unclassifiable, "
                 + $"{inaccessible.Count} unreadable.";
 
-        // Every problem is collected before anything is asserted. Asserting them
-        // one at a time lets the first failure hide the rest, so a corpus with
-        // one unreadable directory and four hundred rejections would report only
-        // the directory.
+        // Collect every failure class so one hole cannot hide the others.
         var problems = new List<string>();
 
         if (inaccessible.Count != 0)
@@ -557,62 +376,25 @@ public sealed class StateMachineCompletenessTests
     public enum DamageKind
     {
         /// <summary>
-        /// The metadata signature is destroyed, so the CLI header still claims
-        /// the file is managed but nothing behind it will decode.
+        /// Preserves the CLI claim while making metadata undecodable.
         /// </summary>
         MetadataSignature,
 
         /// <summary>
-        /// The image stops after its headers, so the claim survives and the
-        /// body it points at does not.
+        /// Preserves the headers while truncating their target.
         /// </summary>
         Truncated,
 
         /// <summary>
-        /// The image stops before the headers can be read at all, so whether it
-        /// was ever managed is undecidable. Round 13 found this direction
-        /// untested: routing <c>Unclassifiable</c> to <c>NotManaged</c> made an
-        /// undecidable file a silent skip and the whole suite stayed green.
+        /// Stops before managed status is decidable.
         /// </summary>
         HeaderTruncated,
     }
 
     /// <summary>
-    /// The sweep must fail when a file it should have measured cannot be
-    /// measured, instead of dropping it from the population and reporting the
-    /// remainder as clean. That is the whole promise of the outcome accounting
-    /// in <see cref="CorpusOutcome"/>, and nothing in CI checked it: the sweep
-    /// is opt-in and skipped by default, so it never ran.
-    ///
-    /// Twenty-one unit tests used to pin the branches underneath this instead.
-    /// They were admitted round by round on mutations that survived, which
-    /// AGENTS.md excludes as an admission rule, and they hardened the header
-    /// reader against corruption no corpus of build output or shared framework
-    /// will contain. This drives the real entry point instead.
-    ///
-    /// The two truncation specimens differ in how much header they keep.
-    /// <c>Truncated</c> retains the PE headers, so it still claims to be
-    /// managed and fails later, at the metadata it points at. One byte of
-    /// <c>HeaderTruncated</c> cannot answer the question either way, so it is
-    /// undecidable rather than a claim. The property is that the sweep does not
-    /// come back clean and names the file; each case's expected survey line then
-    /// follows from that difference, because the one-byte specimen is counted
-    /// unclassifiable and the other two leave a decodable claim.
-    ///
-    /// An undamaged assembly sits alongside the damaged one on purpose. Without
-    /// it a corpus of one file fails for an unrelated reason — nothing was
-    /// measured at all — and that incidental failure would mask a laundered
-    /// skip. With it, the sweep has something to report success about, so the
-    /// only thing keeping it red is the damaged file being accounted for.
-    ///
-    /// Round 17 found that claim unasserted. Naming the damaged file in
-    /// `problems` was the whole test, and `problems` is where every failure
-    /// lands, so making TryMeasure return Inaccessible for everything still
-    /// passed: the damaged name appeared, by the unreadable route, while the
-    /// undamaged assembly failed too and nothing noticed. The survey line is now
-    /// asserted whole, which pins what succeeded as well as what did not — and
-    /// each case states its own accounting, because a one-byte file is
-    /// undecidable where the other two damages leave a decodable claim.
+    /// Ensures managed claims and indeterminate files cannot leave the measured
+    /// population silently. A valid neighbour prevents an incidental
+    /// zero-measurement failure from masking the damaged file's accounting.
     /// </summary>
     [Theory]
     [InlineData(
@@ -656,11 +438,7 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// The negative half of the test above, and the reason that one is evidence
-    /// rather than a sweep that fails on everything. A file that genuinely is
-    /// not a managed assembly is skipped without failing the sweep — but it is
-    /// counted and reported, because an uncounted skip is the silent shrink the
-    /// accounting exists to prevent.
+    /// Confirms a genuine non-managed file is a counted skip, not a failure.
     /// </summary>
     [Fact]
     public void Sweep_NonManagedFile_IsSkippedButCounted()
@@ -689,31 +467,9 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// The sweep's own named property: a state machine is never claimed and then
-    /// refused. Round 13 found nothing held it. Deleting the rejection report
-    /// entirely — <c>totals.Rejected != 0</c> mutated to <c>&lt; 0</c> — left the
-    /// full suite green, so the sweep no longer gated the thing it is named
-    /// after.
-    ///
-    /// The specimen renames <c>SetStateMachine</c> in the metadata string heap,
-    /// one byte, same length, so every heap offset still lands where it did. The
-    /// claim survives and the role lookup finds nothing, which is the shape
-    /// trimming produces (#4827: ILLink removes SetStateMachine, which both
-    /// ClassicAsync and AsyncIterator require) without needing a trimmer in CI.
-    /// Measured on the fixture assembly: 9 structural, 9 resolved becomes 9
-    /// structural, 9 rejected.
-    ///
-    /// This is the one damage that leaves a decodable assembly, so it is the
-    /// only one that exercises the rejection path rather than an outcome branch.
-    ///
-    /// The conversion has to be total, not partial: the rename works because the
-    /// string heap deduplicates, so one patched byte reaches every reference. If
-    /// that ever stops holding, some machines would still resolve and the
-    /// fixture would only half-reproduce the trimming shape while still failing
-    /// the sweep. The assertions below are what enforce it — <c>Resolved</c> is
-    /// zero and <c>Rejected</c> equals <c>Structural</c>, derived rather than
-    /// written down, so adding an async method to the fixtures does not break
-    /// them. It was 9 of 9 when this was written.
+    /// Makes every fixture claim fail its role check and proves the sweep rejects
+    /// that decodable population. This is a per-claim negative control, not C3
+    /// whole-module-failure evidence.
     /// </summary>
     [Fact]
     public void Sweep_RejectedStateMachine_FailsTheSweep()
@@ -748,18 +504,8 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// A damaged assembly is found whatever it is named.
-    ///
-    /// Round 10 removed an extension filter from the sweep and round 12 removed
-    /// one that had grown back in the neighbour gate; round 13 found that
-    /// nothing stopped a third from appearing, because every synthetic specimen
-    /// was called <c>.dll</c>. Restricting enumeration to <c>.exe</c> left the
-    /// whole suite green. Round 14 found the first fix half-done: a specimen
-    /// named <c>broken.bin</c> gates a filter on the extension's spelling but
-    /// not one on its presence, and <c>!Path.HasExtension(entry)</c> still swept
-    /// green. Managed code ships as <c>.exe</c>, as <c>.bin</c> inside packed
-    /// layouts, and on Linux as a file with no extension at all, so both names
-    /// are specimens here.
+    /// Confirms candidate discovery is independent of extension spelling or
+    /// presence.
     /// </summary>
     [Theory]
     [InlineData("broken.bin")]
@@ -794,34 +540,8 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Enumeration terminates on a directory that contains itself, and still
-    /// reaches files nested beneath the corpus root — including files reachable
-    /// only through a directory link.
-    ///
-    /// The termination half keeps its place while the rest of the enumeration
-    /// tests go, because a hang is the failure mode this harness has actually
-    /// produced: an unattended FIFO in a corpus blocks the sweep on open, and a
-    /// test that never returns reports nothing at all. A cycle is the cheap,
-    /// portable version of that risk, and the test proves termination by
-    /// returning.
-    ///
-    /// Round 15 found the traversal half missing. Every other corpus in this
-    /// file is flat, so deleting the directory push from
-    /// <see cref="EnumerateCandidates"/> outright — the sweep then measuring
-    /// only the root, which is most of what it is for — left the whole suite
-    /// green. Round 16 found that fix half-done in turn: the specimen sat in an
-    /// ordinary subdirectory, so skipping every directory carrying
-    /// <see cref="FileAttributes.ReparsePoint"/> still swept green, and an
-    /// assembly reachable only through a link could vanish under an accounting
-    /// claim that says every assembly beneath the root is measured.
-    ///
-    /// So there are two specimens and two links. <c>nested/</c> is an ordinary
-    /// directory and gates plain recursion. <c>linked/</c> points at a directory
-    /// outside the corpus, which is the only route to the specimen inside it.
-    /// <c>loop/</c> points back at the root and gates nothing but termination —
-    /// the walk admits a directory by identity, so the loop is recognised as the
-    /// root already visited while <c>linked/</c> is a genuinely new directory
-    /// and is walked.
+    /// Requires ordinary and linked subdirectories to be traversed while a link
+    /// cycle terminates by directory identity.
     /// </summary>
     [Fact]
     public void Sweep_DirectoryCycle_TerminatesAndReachesNestedFiles()
@@ -862,19 +582,8 @@ public sealed class StateMachineCompletenessTests
             Assert.Contains("buried.dll", problems);
             Assert.Contains("behindlink.dll", problems);
 
-            // The cycle has to be recognised, not merely survived. Round 16
-            // showed that deleting the identity check altogether still passed
-            // both assertions above: the walk descends the loop until the
-            // operating system refuses at its symlink depth limit,
-            // GetFileSystemEntries throws, and the directory is recorded as
-            // unreadable -- which lands in `problems` and satisfies a test
-            // asking only that `problems` is non-null. Forty-one nested copies
-            // of the specimen kept the name assertions true as well.
-            //
-            // Both halves of that are now assertions. A corpus whose only
-            // peculiarity is a link back to its own root has nothing unreadable
-            // in it, and it holds exactly one undamaged assembly however many
-            // times the walk passes the root.
+            // Exact accounting distinguishes cycle recognition from eventual
+            // operating-system refusal at a symlink-depth limit.
             AssertSurvey(
                 "1 managed assemblies measured, 0 non-managed skipped, "
                     + "0 unclassifiable, 0 unreadable.",
@@ -887,19 +596,6 @@ public sealed class StateMachineCompletenessTests
         }
     }
 
-    /// <summary>
-    /// Asserts the whole survey line, not a fragment of it.
-    ///
-    /// Round 17 found the count assertions this replaces matching by substring:
-    /// <c>"1 managed assemblies"</c> is satisfied by <c>11</c>, and
-    /// <c>"0 unreadable"</c> by <c>10</c>. Every inflation was reproduced and
-    /// the focused test still passed, so assertions written to pin exact counts
-    /// pinned only a lower digit. The survey is one line in a fixed format, so
-    /// comparing all of it is both exact and the smallest thing that can be:
-    /// four counters, one assertion, no room for a prefix to pass for a whole.
-    /// The comparison is on the whole string rather than a trimmed one, so
-    /// added surrounding whitespace fails too.
-    /// </summary>
     static void AssertSurvey(string expected, string surveyed) =>
         Assert.Equal(expected, surveyed);
 
@@ -907,16 +603,13 @@ public sealed class StateMachineCompletenessTests
     {
         if (kind == DamageKind.HeaderTruncated)
         {
-            // Not enough to answer whether a CLI directory exists, so the file
-            // is undecidable rather than positively unmanaged.
+            // Managed status is undecidable this early in the header.
             return image[..1];
         }
 
         if (kind == DamageKind.Truncated)
         {
-            // Enough to carry the DOS stub, PE signature, COFF header and
-            // optional header, so the CLI directory the oracle reads survives
-            // and only the body it points at is missing.
+            // Preserve the CLI directory while removing its target.
             Assert.True(image.Length > 2048, "The specimen is too small to truncate.");
             return image[..2048];
         }
@@ -929,10 +622,8 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Renames <c>SetStateMachine</c> in the metadata string heap, in place and
-    /// to the same length, so the assembly still decodes and every claim it
-    /// carries still points where it did — but the role lookup finds no method
-    /// of that name and refuses to authenticate.
+    /// Renames <c>SetStateMachine</c> in place so claims remain decodable but
+    /// fail role authentication.
     /// </summary>
     static byte[] Unauthenticatable(byte[] image)
     {
@@ -958,8 +649,7 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Renders at most 25 entries and says so when it drops any. An undisclosed
-    /// truncation reads as a complete list, which understates the problem.
+    /// Renders a bounded list with explicit omission accounting.
     /// </summary>
     static string Truncated(List<string> entries)
     {
@@ -972,39 +662,9 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Yields every assembly beneath <paramref name="root"/>, recording anything
-    /// it could not read into <paramref name="inaccessible"/>.
-    ///
-    /// The obvious spelling — <see cref="Directory.EnumerateFiles(string, string, EnumerationOptions)"/>
-    /// with <c>IgnoreInaccessible</c> — is wrong for a gate. It keeps one
-    /// unreadable subdirectory from aborting the sweep, which is why it was
-    /// reached for, but it does so by omitting that subtree silently. A corpus
-    /// whose interesting assemblies sit under a directory the test cannot read
-    /// then sweeps green while proving nothing about them. Walking explicitly
-    /// keeps the sweep robust and the hole visible.
-    ///
-    /// No test in this file enforces that: an unreadable directory needs
-    /// permissions a test cannot portably arrange, and round 13 cut the fixture
-    /// seam that faked one. Treat the recording as a design reason for the walk,
-    /// not a verified property. #4833 tracks the failure contract that would
-    /// give it a home.
-    ///
-    /// The walk reads each directory once with
-    /// <see cref="Directory.GetFileSystemEntries(string)"/> and classifies every
-    /// entry itself, rather than taking a <c>GetDirectories</c>/<c>GetFiles</c>
-    /// split as the classification. Those two calls do not partition a
-    /// directory: a symbolic link whose target sits under a search-denied parent
-    /// is absent from the first and present in the second, so the split
-    /// presented an unreadable subtree as a file and then dropped it for having
-    /// no assembly extension. Anything that is neither a readable directory nor
-    /// a candidate file is now recorded rather than assumed uninteresting.
-    ///
-    /// A <c>visited</c> set keyed on identity, resolved through the final link
-    /// target, terminates cycles. A link pointing at its own ancestor otherwise
-    /// walks until the operating system's <c>ELOOP</c> limit stops it — measured
-    /// at 204 wasted directory reads — and then reports the resulting
-    /// <see cref="IOException"/> as a hole, which is a true statement about a
-    /// corpus with no hole in it.
+    /// Walks all names without extension filtering, records traversal failures,
+    /// and follows each linked directory identity once. Recording an unreadable
+    /// directory is not covered by a portable automated control.
     /// </summary>
     static IEnumerable<string> EnumerateCandidates(
         string root,
@@ -1048,9 +708,7 @@ public sealed class StateMachineCompletenessTests
 
                 if ((attributes & FileAttributes.Directory) != 0)
                 {
-                    // Identity, not path, so that a link pointing back at an
-                    // ancestor is visited once instead of walked until the
-                    // operating system's symlink depth limit stops it.
+                    // Identity prevents a link cycle from revisiting an ancestor.
                     if (visited.Add(DirectoryIdentity(entry)))
                     {
                         pending.Push(entry);
@@ -1061,35 +719,12 @@ public sealed class StateMachineCompletenessTests
 
                 if ((attributes & FileAttributes.ReparsePoint) == 0)
                 {
-                    // An ordinary file. Its extension is not consulted: round 10
-                    // found the old .dll/.exe filter dropping a damaged managed
-                    // assembly named broken.bin without a word, while the same
-                    // bytes named broken.dll failed the sweep. Nothing about the
-                    // CLI header lives in the file name, and the whole design of
-                    // this gate is that one hand-written oracle decides what is
-                    // managed. Filtering by name put a second, weaker decider in
-                    // front of it -- one that answers "not an assembly" for a
-                    // file it never opened.
-                    //
-                    // Everything reaches TryMeasure instead, so a JSON file or a
-                    // PDB is answered No by the oracle and counted as NotManaged
-                    // rather than vanishing. That costs a header read per file
-                    // and buys the population back. It also subsumes the round 3
-                    // fix, which had replaced a case-sensitive "*.dll" glob with
-                    // an explicit case-insensitive comparison after both seats
-                    // showed a corrupt BROKEN.DLL sweeping green on Linux: the
-                    // spelling of a name cannot matter to a filter that is gone.
+                    // Names are not metadata evidence; the header oracle decides.
                     yield return entry;
                     continue;
                 }
 
-                // A link that did not present itself as a directory. It may still
-                // be one: a link whose target sits under a directory without
-                // search permission is reported by GetFileSystemEntries but is
-                // missing the Directory attribute, so treating it as an ordinary
-                // file would drop an entire subtree in silence -- the same
-                // false-clean sweep an ignored unreadable directory used to
-                // cause. Ask directly rather than assume.
+                // A reparse point without Directory may still target a directory.
                 bool walkable;
                 try
                 {
@@ -1104,8 +739,7 @@ public sealed class StateMachineCompletenessTests
                 }
                 catch (Exception ex) when (ex is IOException)
                 {
-                    // Not a directory at all: a dangling link, or a link to an
-                    // ordinary file.
+                    // A dangling or file link is not traversable as a directory.
                     walkable = false;
                 }
 
@@ -1119,24 +753,15 @@ public sealed class StateMachineCompletenessTests
                     continue;
                 }
 
-                // A link to something that is not a directory is a candidate
-                // like any other file. Round 10 caught this dropping such links
-                // in silence: it used to be masked because the old extension
-                // filter ran before this branch and yielded a link named
-                // something.dll first, so removing that filter turned a masked
-                // hole into a live one for symlinked assemblies. Let the oracle
-                // decide here too -- a dangling link fails to open and is
-                // recorded as Inaccessible, which is accounted rather than
-                // silent.
+                // File and dangling links still receive an explicit outcome.
                 yield return entry;
             }
         }
     }
 
     /// <summary>
-    /// A directory's identity for cycle detection: the final target of any link
-    /// chain, falling back to the full path when the entry is not a link or the
-    /// target cannot be resolved.
+    /// Uses a link's final target for cycle detection, or its full path when no
+    /// target can be resolved.
     /// </summary>
     static string DirectoryIdentity(string path)
     {
@@ -1154,20 +779,9 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Why a corpus entry did or did not contribute a measurement. Every file
-    /// the sweep opens lands in exactly one of these, so nothing is silently
-    /// dropped.
-    ///
-    /// "Opens" is the honest boundary. A non-regular file named <c>*.dll</c> --
-    /// a FIFO or a device node -- can block indefinitely inside
-    /// <see cref="File.OpenRead"/> and so reach no outcome at all. .NET exposes
-    /// no portable way to detect one beforehand: <c>File.GetAttributes</c>
-    /// reports <c>Normal</c> for a FIFO exactly as it does for a regular file,
-    /// <c>LinkTarget</c> is null, <c>Length</c> is 0, <c>GetUnixFileMode</c>
-    /// returns permission bits only, and there is no non-blocking open. This is
-    /// recorded as a known limitation rather than worked around, because the
-    /// corpus root is chosen by the developer running the sweep and is not a
-    /// hostile input.
+    /// Explicit accounting for every corpus entry that opens. A developer-chosen
+    /// corpus containing a FIFO can still block in <see cref="File.OpenRead"/>;
+    /// that trusted-input limitation is not covered here.
     /// </summary>
     enum CorpusOutcome
     {
@@ -1184,19 +798,14 @@ public sealed class StateMachineCompletenessTests
         DecodeFailed,
 
         /// <summary>
-        /// A PE that could be opened but not classified: its headers are
-        /// damaged before the point where "managed" is decidable, and SRM will
-        /// not decode it either. Whether it was a managed assembly is unknown,
-        /// so it is a hole in coverage rather than a file to skip.
+        /// Header damage prevents either managed or non-managed classification.
         /// </summary>
         Unclassifiable,
     }
 
     /// <summary>
-    /// Corpus-tolerant wrapper over <see cref="Measure"/>. It separates
-    /// environmental problems, which say nothing about the index, from genuine
-    /// metadata decode failures, which do. Callers must account for every
-    /// outcome rather than swallowing any of them.
+    /// Separates environmental, classification, and decode outcomes around
+    /// <see cref="Measure"/> so callers cannot silently drop an entry.
     /// </summary>
     static CorpusOutcome TryMeasure(
         string assemblyPath,
@@ -1220,41 +829,16 @@ public sealed class StateMachineCompletenessTests
 
         using (stream)
         {
-            // Whether the file claims to be managed is decided here, before SRM
-            // is consulted, and deliberately without using SRM.
-            //
-            // Round 4 showed why. Zeroing only the CLI header's directory *size*
-            // makes SRM reject the PE headers wholesale: `HasMetadata`,
-            // `PEHeaders.PEHeader.CorHeaderTableDirectory`, and
-            // `GetMetadataReader` all throw BadImageFormatException, exactly as
-            // they do for a file that is not a PE at all. Asking SRM to
-            // distinguish "not managed" from "managed but damaged" therefore
-            // cannot work: once it rejects the headers it will not tell us
-            // whether a CLI directory was claimed, so damage was laundered into
-            // NotManaged and skipped in silence.
-            //
-            // The independent read below answers only that one question, which
-            // also makes it a genuine oracle rather than a restatement of the
-            // thing under test.
+            // The raw-header oracle decides whether a managed claim exists
+            // before SRM, whose parse failures cannot answer that question.
             ManagedClaim claim = ReadManagedClaim(stream, ref detail, out ClaimExitSite claimExit);
             if (claim == ManagedClaim.Unreadable)
             {
                 return CorpusOutcome.Inaccessible;
             }
 
-            // A file that claims to be managed and will not decode is a decode
-            // failure at every seam below, and must fail the sweep. A file whose
-            // headers could not be classified and then will not decode is not a
-            // skip either: nothing established that it was unmanaged, so calling
-            // it NotManaged would assert something no one measured.
-            //
-            // NotManaged is matched explicitly rather than left as the default
-            // arm. It is the laundering answer -- the one that removes a file
-            // from the population while the sweep still reports success -- and
-            // round 10 noted that as a fall-through it would silently adopt any
-            // ManagedClaim member added later. Unclassifiable is the safe
-            // direction for an answer nobody has considered yet, so a new member
-            // lands there and is visible rather than skipped.
+            // Only a positive non-managed answer can become a clean skip;
+            // indeterminate and future answers remain visible.
             CorpusOutcome undecodable = claim switch
             {
                 ManagedClaim.Yes => CorpusOutcome.DecodeFailed,
@@ -1282,16 +866,7 @@ public sealed class StateMachineCompletenessTests
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                // Same reasoning as the traverse catch below, applied at the
-                // site that reaches it first. 400 randomized header corruptions
-                // and six adversarial header values produced only
-                // BadImageFormatException here, so this is not chasing an
-                // observed escape -- it is making CorpusOutcome's documented
-                // "every file reaches exactly one outcome" true by construction
-                // rather than true by luck. Round 2 showed what the alternative
-                // costs: an OverflowException escaped TryMeasure and aborted the
-                // whole sweep, which proves nothing and reads like an
-                // infrastructure fault rather than a corpus finding.
+                // Preserve the oracle's classification for any nonfatal parse failure.
                 detail = $"{ex.GetType().Name}: {ex.Message}";
                 return undecodable;
             }
@@ -1305,39 +880,16 @@ public sealed class StateMachineCompletenessTests
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    // Defer to the oracle. SRM is lazy, so an ordinary text file
-                    // in a corpus reaches here rather than the constructor:
-                    // HasMetadata throws "Unknown file format" and answers
-                    // nothing. The oracle already read the headers and did, so
-                    // `undecodable` carries its answer -- NotManaged for a file
-                    // that never claimed to be managed, DecodeFailed for one
-                    // that did, Unclassifiable when the oracle could not tell
-                    // either.
-                    //
-                    // Round 15 proposed returning Unclassifiable unconditionally
-                    // here, on the reasoning that SRM throwing means damage
-                    // rather than agreement with a No. Tried it:
-                    // Sweep_NonManagedFile_IsSkippedButCounted went red, because
-                    // notes.txt takes exactly this path and is not damaged. A
-                    // corpus of build output is full of such files and the sweep
-                    // has to skip them without failing.
+                    // SRM is lazy; its failure cannot override the raw-header
+                    // oracle's managed, non-managed, or indeterminate answer.
                     detail = $"{ex.GetType().Name}: {ex.Message}";
                     return undecodable;
                 }
 
                 if (!hasMetadata)
                 {
-                    // The wording has to follow the claim, not assume it. When
-                    // the oracle answered Yes this really is a file with a CLI
-                    // directory and no metadata behind it. When the oracle
-                    // answered Indeterminate -- an implausible optional header
-                    // size, say, on a perfectly ordinary native binary -- it
-                    // never established that a CLI directory is present, and
-                    // Round 9 caught this message asserting one anyway. That
-                    // outcome is Unclassifiable and fails the sweep, so the
-                    // detail is what a maintainer reads first; a confident
-                    // false statement there sends them looking for a CLI
-                    // directory that was never claimed to exist.
+                    // Diagnostics distinguish a positive CLI claim from an
+                    // indeterminate header.
                     detail ??= NoMetadataDetail(claim, claimExit);
                     return undecodable;
                 }
@@ -1349,16 +901,7 @@ public sealed class StateMachineCompletenessTests
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
-                    // Deliberately broad, and safe to be broad precisely because
-                    // DecodeFailed fails the sweep: this surfaces the failure
-                    // instead of masking it, and records the exception type so an
-                    // unexpected one is identifiable from the assertion message.
-                    //
-                    // Randomized corruption of a real assembly produced an
-                    // OverflowException from GetMetadataReader. A
-                    // BadImageFormatException-only catch let that escape
-                    // TryMeasure entirely and abort the sweep, reaching no
-                    // outcome at all -- contrary to what this type documents.
+                    // Every nonfatal metadata failure remains a visible decode failure.
                     detail = $"{ex.GetType().Name}: {ex.Message}";
                     return CorpusOutcome.DecodeFailed;
                 }
@@ -1370,8 +913,7 @@ public sealed class StateMachineCompletenessTests
     enum ManagedClaim
     {
         /// <summary>
-        /// Positively not managed: not a PE at all, or a PE whose headers were
-        /// read successfully and carry an empty CLI directory.
+        /// Positively non-managed or an empty CLI directory.
         /// </summary>
         No,
 
@@ -1379,8 +921,7 @@ public sealed class StateMachineCompletenessTests
         Yes,
 
         /// <summary>
-        /// A PE whose headers could not be read far enough to answer the
-        /// question -- truncated, or malformed before the CLI directory.
+        /// Headers end or become malformed before managed status is decidable.
         /// </summary>
         Indeterminate,
 
@@ -1389,27 +930,9 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Every way out of <c>ReadManagedClaim</c>, one member per outcome.
-    ///
-    /// The enum survives the removal of the coverage test that used to
-    /// enumerate it, because <see cref="NoMetadataDetail"/> still names the exit
-    /// site in the message a maintainer reads when a sweep fails. "Could not
-    /// decide" is not actionable; "could not decide because the optional header
-    /// was too short for directory 14" is.
-    ///
-    /// A member must correspond to an outcome, not to a place in the source.
-    /// An earlier revision assigned one member and then branched to two
-    /// different answers, which let the common answer report the site reached
-    /// while the other was never exercised. Assign the site inside each branch,
-    /// after the answer is decided, so that "reached" and "answered this way"
-    /// cannot come apart.
-    ///
-    /// That is a construction rule for whoever edits this method, not a checked
-    /// property. Round 13 removed the coverage test that enumerated the sites,
-    /// and no test asserts on the message they appear in, so a member that
-    /// stopped corresponding to an outcome would not fail anything. The member
-    /// notes below likewise record why each site exists and what an earlier
-    /// round found; read them as history, not as claims something enforces.
+    /// Identifies the raw-header decision used in failure diagnostics. Definite
+    /// assignment requires every return to name a site; correspondence between
+    /// a site and its outcome is not independently gated.
     /// </summary>
     enum ClaimExitSite
     {
@@ -1429,18 +952,7 @@ public sealed class StateMachineCompletenessTests
         PeOffsetOutOfRange,
 
         /// <summary>
-        /// The four bytes at the PE offset are not the "PE\0\0" signature.
-        ///
-        /// This does not cover a short read of the COFF header, because
-        /// <c>PeOffsetOutOfRange</c> above has already established that at
-        /// least 24 bytes remain from the PE offset, so the read cannot come up
-        /// short. Round 9 found a truncation disjunct here that shared this
-        /// site: it could never fire, and the site read as covered because the
-        /// corruption sweep reaches the signature comparison beside it. That is
-        /// the Round 7 rule again -- a site must name an outcome, not a place --
-        /// so the unreachable disjunct was removed rather than left to be
-        /// counted as tested. The optional header read below keeps its own
-        /// length check because nothing has established its length first.
+        /// The four bytes at the validated PE offset are not "PE\0\0".
         /// </summary>
         PeSignatureWrong,
 
@@ -1466,11 +978,7 @@ public sealed class StateMachineCompletenessTests
         CliDirectoryPresent,
 
         /// <summary>
-        /// The CLI directory was read and both fields were zero, so the file
-        /// makes no managed claim and the sweep may skip it. This is the
-        /// laundering direction: a wrong answer here removes a file from the
-        /// population while still reporting success, so it gets its own site
-        /// rather than sharing one with <see cref="CliDirectoryPresent"/>.
+        /// Both CLI directory fields are zero, so the file makes no managed claim.
         /// </summary>
         CliDirectoryAbsent,
     }
@@ -1479,13 +987,9 @@ public sealed class StateMachineCompletenessTests
         ReadManagedClaim(stream, ref detail, out _);
 
     /// <summary>
-    /// The exit-path-reporting overload. <paramref name="exitSite"/> is an
-    /// <c>out</c> parameter rather than a field or a return flag on purpose:
-    /// definite assignment means the compiler refuses to build any path out of
-    /// this method that does not name itself. The C# compiler is the gate on
-    /// that half, and it is the whole gate: a new early return must pick a
-    /// site, but nothing here checks that the site it picks is the right one,
-    /// or that any given site is ever reached.
+    /// Reads only enough PE structure to decide whether a CLI directory is
+    /// claimed. The <c>out</c> parameter makes every exit identify its decision
+    /// site for diagnostics.
     /// </summary>
     static ManagedClaim ReadManagedClaim(
         Stream stream,
@@ -1499,20 +1003,8 @@ public sealed class StateMachineCompletenessTests
             Span<byte> dos = stackalloc byte[64];
             int read = stream.ReadAtLeast(dos, dos.Length, throwOnEndOfStream: false);
 
-            // Two different answers hide in a short read, and collapsing them is
-            // the defect this whole enum exists to prevent. A file that does not
-            // begin "MZ" is positively not a PE and is safe to skip in silence.
-            // A file that does begin "MZ" but ends before its DOS header does is
-            // a truncated PE: it may well have been a managed assembly, and
-            // nothing here can tell. That is a coverage hole, not a
-            // classification.
-            //
-            // So compare only the bytes that are actually present. A byte that
-            // is present and wrong is a positive answer; a byte that is missing
-            // is not an answer at all. Both rounds of this check are written per
-            // byte for that reason: a lone "M" at end of stream was "MZ" until
-            // something truncated it, and an empty file records nothing
-            // whatsoever about what it used to be.
+            // A present wrong signature byte proves non-PE; a missing byte
+            // leaves managed status indeterminate.
             if (read >= 1 && dos[0] != (byte)'M')
             {
                 exitSite = ClaimExitSite.SignatureFirstByteWrong;
@@ -1600,36 +1092,10 @@ public sealed class StateMachineCompletenessTests
                 return ManagedClaim.Indeterminate;
             }
 
-            // NumberOfRvaAndSizes is deliberately not consulted. The PE spec
-            // says a count below fifteen leaves directory 14 undeclared, so
-            // honouring it looks like the more correct read -- but SRM does not
-            // honour it. Measured on a specimen with the count shortened to 14
-            // and the directory bytes retained: SRM reports
-            // NumberOfRvaAndSizes = 14, then returns that directory anyway and
-            // answers HasMetadata = true. This oracle exists to classify SRM's
-            // failures, so it has to agree with SRM about what SRM will try to
-            // read. A count check here would answer No for a file SRM calls
-            // managed, which is the laundering direction, reintroduced through
-            // the front door.
-            //
-            // That measurement stands, but no test now pins it: the check that
-            // did was one of the branch-level tests removed as disproportionate
-            // under AGENTS.md, and a corpus of real build output contains no
-            // file with a shortened count to notice a regression. Treat this
-            // paragraph as a recorded measurement, not an enforced property.
-            //
-            // Either field being non-zero is a claim. Reading only the RVA would
-            // miss a file whose RVA is zeroed but whose size survives, which is
-            // the same hole that reading only the size would leave in the other
-            // direction. A file that is genuinely not managed has both fields
-            // zero, so requiring both before skipping is the direction that
-            // cannot hide damage.
-            //
-            // Nothing gates that either. Rounds 13 and 14 both reproduced
-            // `||` -> `&&` surviving the suite, and both agreed the gate would
-            // be disproportionate: reaching the difference needs a PE with a
-            // zeroed RVA and a surviving non-zero Size, which no compiler,
-            // linker, or trimmer emits. Recorded, not enforced.
+            // Match SRM's measured behavior by reading directory 14 even when
+            // NumberOfRvaAndSizes is shorter. Either non-zero field is treated
+            // as a claim. Neither edge is independently gated because normal
+            // compiler, linker, and trimmer output does not emit those shapes.
             ReadOnlySpan<byte> entry = optional.AsSpan(cli, 8);
             if (BinaryPrimitives.ReadUInt32LittleEndian(entry) != 0
                 || BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]) != 0)
@@ -1653,10 +1119,7 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Measures one assembly by path. Used for assemblies this repository
-    /// builds, where any failure to open or decode is a genuine bug rather than
-    /// corpus noise, so nothing is caught here. The corpus sweep uses
-    /// <see cref="TryMeasure"/> instead.
+    /// Measures a deterministic build output without corpus-tolerant catches.
     /// </summary>
     static CompletenessReport Measure(string assemblyPath)
     {
@@ -1708,28 +1171,9 @@ public sealed class StateMachineCompletenessTests
     }
 
     /// <summary>
-    /// Matches the interface by namespace and name only, ignoring which assembly
-    /// it resolves to. That is deliberately more inclusive than any trust policy
-    /// the product applies, so this ground truth cannot under-count.
-    ///
-    /// The one shape it does not read is a TypeSpecification, which round 11
-    /// raised as a circularity risk: a machine reached only through a TypeSpec
-    /// would never be counted structural, so the index would never be asked
-    /// about it, and a defect in the product's own TypeSpec decoding would be
-    /// invisible to this gate by construction. That is the right thing to worry
-    /// about, and it is measured rather than argued. Across the shared framework
-    /// and this test's dependencies -- 272 assemblies, 1,488 IAsyncStateMachine
-    /// implementations -- every one arrives as a TypeReference (1,417) or a
-    /// TypeDefinition (71) and none as a TypeSpecification, while those same
-    /// assemblies carry 4,288 TypeSpec interface implementations for generic
-    /// interfaces. The path is busy in general and empty for this interface,
-    /// which follows from IAsyncStateMachine being non-generic: a TypeSpec
-    /// encoding needs a generic instantiation or a custom modifier, and no C#
-    /// or F# compiler emits one here.
-    ///
-    /// So this is a documented limit rather than an under-count: were a
-    /// compiler to start emitting one, this detector would stop seeing those
-    /// machines, and the gate would go quiet about them rather than fail.
+    /// Discovers the interface by namespace and name without product trust
+    /// policy. TypeReference and TypeDefinition encodings are covered;
+    /// TypeSpecification remains an explicit, unverified detector limitation.
     /// </summary>
     static bool ImplementsAsyncStateMachine(
         MetadataReader reader,
