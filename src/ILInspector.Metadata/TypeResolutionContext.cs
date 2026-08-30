@@ -214,7 +214,15 @@ public sealed class TypeResolutionCatalog : IDisposable
                     bindingPolicy,
                     includeAll,
                     typesOnly);
-        if (readyRegistration.InventoryFailure is { } inventoryFailure)
+        if (readyRegistration.InventoryFailure is { } inventoryFailure
+            && !surface.InspectionFailures.Any(
+                failure =>
+                    failure.Mechanism
+                        == MetadataTypeNameFailureMechanism.Metadata
+                    && string.Equals(
+                        failure.Detail,
+                        inventoryFailure.Detail,
+                        StringComparison.Ordinal)))
         {
             surface.InspectionFailures.Add(
                 new ApiSurfaceInspectionFailure(
