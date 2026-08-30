@@ -1363,6 +1363,96 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.Empty(rejected.Failure.ClaimedTypes);
     }
 
+    [Theory]
+    [InlineData(ConstructorTypeSpecificationRejection.UnsafeStructure)]
+    [InlineData(ConstructorTypeSpecificationRejection.BudgetExceeded)]
+    public void
+        StateMachineRelationshipIndex_IsolatesTypeSpecificationGuardRejection(
+            ConstructorTypeSpecificationRejection rejection)
+    {
+        using var image = new LoadedImage(
+            BuildClassicRelationshipImage(
+                ClassicRelationshipMutation.None,
+                rejectedConstructorTypeSpecification: rejection));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+        StateMachineRelationship relationship =
+            Assert.Single(relationships.Relationships);
+        var damaged =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(4)));
+
+        Assert.Equal(0x06000001, relationship.Kickoff.Token);
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            damaged.Failure.Kind);
+        Assert.Equal(
+            "A custom-attribute constructor could not be read.",
+            damaged.Failure.Detail);
+        Assert.Equal(
+            0x06000004,
+            Assert.Single(damaged.Failure.KickoffCandidates).Token);
+        Assert.Empty(damaged.Failure.StateMachineCandidates);
+        Assert.Empty(damaged.Failure.ClaimedTypes);
+    }
+
+    [Theory]
+    [InlineData(ConstructorTypeSpecificationShape.SzArray)]
+    [InlineData(ConstructorTypeSpecificationShape.Array)]
+    [InlineData(ConstructorTypeSpecificationShape.ByReference)]
+    [InlineData(ConstructorTypeSpecificationShape.Pointer)]
+    [InlineData(ConstructorTypeSpecificationShape.Pinned)]
+    [InlineData(ConstructorTypeSpecificationShape.GenericType)]
+    [InlineData(ConstructorTypeSpecificationShape.GenericArgument)]
+    [InlineData(ConstructorTypeSpecificationShape.FunctionPointerReturn)]
+    [InlineData(ConstructorTypeSpecificationShape.FunctionPointerParameter)]
+    [InlineData(ConstructorTypeSpecificationShape.Modifier)]
+    public void
+        StateMachineRelationshipIndex_PreservesNestedConstructorTypeNameFailure(
+            ConstructorTypeSpecificationShape shape)
+    {
+        using var image = new LoadedImage(
+            BuildNilNamedChainImage(
+                depth:
+                    MetadataSafetyPolicy.MaxRelationshipNodes
+                    + 1,
+                constructors: 1,
+                nodeName: "Node",
+                constructorTypeSpecificationShape: shape));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+        var rejected =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Empty(relationships.Relationships);
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            rejected.Failure.Kind);
+        Assert.Equal(
+            "A custom-attribute constructor could not be read.",
+            rejected.Failure.Detail);
+        Assert.Equal(
+            0x06000001,
+            Assert.Single(
+                rejected.Failure.KickoffCandidates).Token);
+        Assert.Empty(rejected.Failure.StateMachineCandidates);
+        Assert.Empty(rejected.Failure.ClaimedTypes);
+    }
+
     /// <summary>
     /// Gates that projecting this image's own assembly identity charges its
     /// name and culture, not only its public key. An unsigned assembly has a
@@ -1446,7 +1536,10 @@ public sealed class StateMachineRelationshipIndexTests
     static byte[] BuildNilNamedChainImage(
         int depth,
         int constructors,
-        string? nodeName = null)
+        string? nodeName = null,
+        ConstructorTypeSpecificationShape
+            constructorTypeSpecificationShape =
+                ConstructorTypeSpecificationShape.None)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1496,6 +1589,24 @@ public sealed class StateMachineRelationshipIndexTests
                 platform,
                 metadata.GetOrAddString("System"),
                 metadata.GetOrAddString("Type"));
+        TypeReferenceHandle safeType =
+            metadata.AddTypeReference(
+                platform,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+
+        EntityHandle constructorParent = leaf;
+        if (constructorTypeSpecificationShape
+            != ConstructorTypeSpecificationShape.None)
+        {
+            constructorParent =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(
+                        ConstructorTypeSpecification(
+                            constructorTypeSpecificationShape,
+                            leaf,
+                            safeType)));
+        }
 
         var ctorSig = new BlobBuilder();
         new BlobEncoder(ctorSig)
@@ -1542,7 +1653,10 @@ public sealed class StateMachineRelationshipIndexTests
         {
             metadata.AddCustomAttribute(
                 kickoff,
-                metadata.AddMemberReference(leaf, ctorName, ctorSignature),
+                metadata.AddMemberReference(
+                    constructorParent,
+                    ctorName,
+                    ctorSignature),
                 claimValue);
         }
 
@@ -1556,6 +1670,80 @@ public sealed class StateMachineRelationshipIndexTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static BlobBuilder ConstructorTypeSpecification(
+        ConstructorTypeSpecificationShape shape,
+        TypeReferenceHandle rejectedType,
+        TypeReferenceHandle safeType)
+    {
+        var signature = new BlobBuilder();
+        switch (shape)
+        {
+            case ConstructorTypeSpecificationShape.SzArray:
+                signature.WriteByte(0x1D);
+                WriteClass(rejectedType);
+                break;
+            case ConstructorTypeSpecificationShape.Array:
+                signature.WriteByte(0x14);
+                WriteClass(rejectedType);
+                signature.WriteCompressedInteger(1);
+                signature.WriteCompressedInteger(0);
+                signature.WriteCompressedInteger(0);
+                break;
+            case ConstructorTypeSpecificationShape.ByReference:
+                signature.WriteByte(0x10);
+                WriteClass(rejectedType);
+                break;
+            case ConstructorTypeSpecificationShape.Pointer:
+                signature.WriteByte(0x0F);
+                WriteClass(rejectedType);
+                break;
+            case ConstructorTypeSpecificationShape.Pinned:
+                signature.WriteByte(0x45);
+                WriteClass(rejectedType);
+                break;
+            case ConstructorTypeSpecificationShape.GenericType:
+                signature.WriteByte(0x15);
+                WriteClass(rejectedType);
+                signature.WriteCompressedInteger(1);
+                WriteClass(safeType);
+                break;
+            case ConstructorTypeSpecificationShape.GenericArgument:
+                signature.WriteByte(0x15);
+                WriteClass(safeType);
+                signature.WriteCompressedInteger(1);
+                WriteClass(rejectedType);
+                break;
+            case ConstructorTypeSpecificationShape.FunctionPointerReturn:
+                signature.WriteByte(0x1B);
+                signature.WriteByte(0x00);
+                signature.WriteCompressedInteger(0);
+                WriteClass(rejectedType);
+                break;
+            case ConstructorTypeSpecificationShape.FunctionPointerParameter:
+                signature.WriteByte(0x1B);
+                signature.WriteByte(0x00);
+                signature.WriteCompressedInteger(1);
+                signature.WriteByte(0x01);
+                WriteClass(rejectedType);
+                break;
+            case ConstructorTypeSpecificationShape.Modifier:
+                signature.WriteByte(0x1F);
+                WriteTypeDefOrRefEncoded(signature, rejectedType);
+                WriteClass(safeType);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(shape));
+        }
+
+        return signature;
+
+        void WriteClass(TypeReferenceHandle type)
+        {
+            signature.WriteByte(0x12);
+            WriteTypeDefOrRefEncoded(signature, type);
+        }
     }
 
     /// <summary>
@@ -2551,7 +2739,10 @@ public sealed class StateMachineRelationshipIndexTests
         bool addMalformedConstructorRow = false,
         bool malformedConstructorOnRelationshipKickoff = false,
         ConstructorTypeNameRejection rejectedConstructorTypeName =
-            ConstructorTypeNameRejection.None)
+            ConstructorTypeNameRejection.None,
+        ConstructorTypeSpecificationRejection
+            rejectedConstructorTypeSpecification =
+                ConstructorTypeSpecificationRejection.None)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2724,7 +2915,9 @@ public sealed class StateMachineRelationshipIndexTests
         MethodDefinitionHandle damagedKickoff = default;
         if ((addMalformedConstructorRow
                 || rejectedConstructorTypeName
-                    != ConstructorTypeNameRejection.None)
+                    != ConstructorTypeNameRejection.None
+                || rejectedConstructorTypeSpecification
+                    != ConstructorTypeSpecificationRejection.None)
             && !malformedConstructorOnRelationshipKickoff)
         {
             damagedKickoff =
@@ -2798,6 +2991,40 @@ public sealed class StateMachineRelationshipIndexTests
                     metadata.GetOrAddString(
                         "System.Runtime.CompilerServices"),
                     rejectedName);
+            MemberReferenceHandle rejectedConstructor =
+                metadata.AddMemberReference(
+                    rejectedAttributeType,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(
+                        constructorSignature));
+            metadata.AddCustomAttribute(
+                damagedKickoff,
+                rejectedConstructor,
+                metadata.GetOrAddBlob(value));
+        }
+        if (rejectedConstructorTypeSpecification
+            != ConstructorTypeSpecificationRejection.None)
+        {
+            var typeSpecification = new BlobBuilder();
+            typeSpecification.WriteByte(0x12);
+            WriteTypeDefOrRefEncoded(
+                typeSpecification,
+                asyncAttribute);
+            int trailingBytes =
+                rejectedConstructorTypeSpecification switch
+                {
+                    ConstructorTypeSpecificationRejection.UnsafeStructure =>
+                        8,
+                    ConstructorTypeSpecificationRejection.BudgetExceeded =>
+                        TypeSpecGuard.MaxCumulativeBytes,
+                    _ => throw new InvalidOperationException(),
+                };
+            for (int i = 0; i < trailingBytes; i++)
+                typeSpecification.WriteByte(0);
+
+            TypeSpecificationHandle rejectedAttributeType =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(typeSpecification));
             MemberReferenceHandle rejectedConstructor =
                 metadata.AddMemberReference(
                     rejectedAttributeType,
@@ -3236,6 +3463,28 @@ public sealed class StateMachineRelationshipIndexTests
         None,
         MissingName,
         NameBudget,
+    }
+
+    public enum ConstructorTypeSpecificationRejection
+    {
+        None,
+        UnsafeStructure,
+        BudgetExceeded,
+    }
+
+    public enum ConstructorTypeSpecificationShape
+    {
+        None,
+        SzArray,
+        Array,
+        ByReference,
+        Pointer,
+        Pinned,
+        GenericType,
+        GenericArgument,
+        FunctionPointerReturn,
+        FunctionPointerParameter,
+        Modifier,
     }
 
     sealed class LoadedImage(byte[] image) : IDisposable

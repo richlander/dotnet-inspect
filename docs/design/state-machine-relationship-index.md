@@ -153,8 +153,12 @@ rejected as `Malformed`, without fabricating a claim kind, state-machine
 identity, or claimed name that the damaged row did not establish; discovery
 continues for other kickoff methods in the module. This includes typed
 type-name-reader rejections returned for malformed and over-budget constructor
-type names and resolution-scope walks, not only exceptions thrown while reading
-constructor rows. Other malformed metadata that prevents module-wide
+type names and resolution-scope walks, TypeSpec guard rejections, and failures
+nested inside composite TypeSpec shapes, not only exceptions thrown while
+reading constructor rows.
+`StateMachineRelationshipIndex_IsolatesTypeSpecificationGuardRejection` and
+`StateMachineRelationshipIndex_PreservesNestedConstructorTypeNameFailure` gate
+those TypeSpec paths. Other malformed metadata that prevents module-wide
 construction remains a whole-module failure.
 Each ambiguous claimed name is expanded into its matching type definitions once
 per image rather than once per kickoff, so rejection evidence stays complete

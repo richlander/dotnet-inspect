@@ -2032,39 +2032,58 @@ public sealed class StateMachineRelationshipIndex
             BlobHandle signature =
                 _reader.GetTypeSpecification(handle).Signature;
             ChargeSignature(signature);
-            return GuardedProviderDecode.TypeSpec(
-                _reader,
-                handle,
-                this,
-                context,
-                SignatureType.Unknown);
+            if (!TypeSpecGuard.TryEnter(
+                    _reader,
+                    handle,
+                    out var scope,
+                    out SignatureDecodeRejectionKind rejectionKind))
+            {
+                return SignatureType.Rejected(
+                    MetadataTypeNameFailure.From(
+                        new SignatureDecodeRejection(
+                            rejectionKind,
+                            rejectionKind
+                                == SignatureDecodeRejectionKind.UnsafeStructure
+                                    ? "The TypeSpec exceeds the structural safety limit."
+                                    : "The TypeSpec exceeds the re-entry depth or cumulative-byte budget."),
+                        handle));
+            }
+
+            using (scope)
+            {
+                return _reader.GetTypeSpecification(handle)
+                    .DecodeSignature(this, context);
+            }
         }
 
         public SignatureType GetSZArrayType(
             SignatureType elementType) =>
-            SignatureType.Unknown;
+            UnknownOrRejected(elementType);
 
         public SignatureType GetArrayType(
             SignatureType elementType,
             ArrayShape shape) =>
-            SignatureType.Unknown;
+            UnknownOrRejected(elementType);
 
         public SignatureType GetByReferenceType(
             SignatureType elementType) =>
-            SignatureType.Unknown;
+            UnknownOrRejected(elementType);
 
         public SignatureType GetPointerType(
             SignatureType elementType) =>
-            SignatureType.Unknown;
+            UnknownOrRejected(elementType);
 
         public SignatureType GetPinnedType(
             SignatureType elementType) =>
-            SignatureType.Unknown;
+            UnknownOrRejected(elementType);
 
         public SignatureType GetGenericInstantiation(
             SignatureType genericType,
             ImmutableArray<SignatureType> typeArguments)
         {
+            if (FirstFailure(genericType, typeArguments) is { } failure)
+                return SignatureType.Rejected(failure);
+
             if (genericType.Modified
                 || typeArguments.Length != 1)
             {
@@ -2109,17 +2128,54 @@ public sealed class StateMachineRelationshipIndex
             SignatureType.Unknown;
 
         public SignatureType GetFunctionPointerType(
-            MethodSignature<SignatureType> signature) =>
-            SignatureType.Unknown;
+            MethodSignature<SignatureType> signature)
+        {
+            if (FirstFailure(
+                    signature.ReturnType,
+                    signature.ParameterTypes) is { } failure)
+            {
+                return SignatureType.Rejected(failure);
+            }
+
+            return SignatureType.Unknown;
+        }
 
         public SignatureType GetModifiedType(
             SignatureType modifier,
             SignatureType unmodifiedType,
-            bool isRequired) =>
-            unmodifiedType with
+            bool isRequired)
+        {
+            if (modifier.TypeNameFailure is { } modifierFailure)
+                return SignatureType.Rejected(modifierFailure);
+            if (unmodifiedType.TypeNameFailure is { } unmodifiedFailure)
+                return SignatureType.Rejected(unmodifiedFailure);
+
+            return unmodifiedType with
             {
                 Modified = true,
             };
+        }
+
+        static SignatureType UnknownOrRejected(SignatureType component) =>
+            component.TypeNameFailure is { } failure
+                ? SignatureType.Rejected(failure)
+                : SignatureType.Unknown;
+
+        static MetadataTypeNameFailure? FirstFailure(
+            SignatureType first,
+            ImmutableArray<SignatureType> remaining)
+        {
+            if (first.TypeNameFailure is { } failure)
+                return failure;
+
+            foreach (SignatureType type in remaining)
+            {
+                if (type.TypeNameFailure is { } nestedFailure)
+                    return nestedFailure;
+            }
+
+            return null;
+        }
 
         static SignatureType ReadKnownType(
             MetadataTypeDefinitionNameReadResult result,
