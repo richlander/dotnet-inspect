@@ -500,8 +500,8 @@ contains the context generation identity, the exact planned participant
 registrations, the immutable registration-to-role projection issued by the
 [explicit assembly-context realization](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context).
 and the exact delegated binding policy and version associated with each
-requesting registration. The workspace owner remains the only role assigner.
-The platform owner validates the handoff and creates one
+planned requesting registration. The workspace owner remains the only role
+assigner. The platform owner validates the handoff and creates one
 `AssemblyBindingRoleSnapshot` plus its `AssemblyBindingPolicyVersion`; roles
 are not supplied or recomputed per binding request.
 
@@ -522,15 +522,18 @@ The snapshot is valid only when:
 - its registration domain is exactly the complete planned participant set,
   with no missing or extra registration;
 - every mapped role set is the exact owner-issued set for that registration;
-- every requesting registration has the exact delegated policy and policy
-  version captured for it; and
+- the delegate-map domain is exactly the complete planned requester
+  registration set, every key is a planned participant registration, and
+  every value is the exact delegated policy and policy version captured for
+  that requester; and
 - no registration carries both `CallerDesignated` and
   `PlatformAuthorized`.
 
 Missing role evidence, a foreign, stale, or ended generation, incomplete or
 extra registration coverage, or contradictory authority roles rejects
 preparation with `InvalidBindingSnapshot(RoleEvidence)`. An incomplete delegate
-map uses `InvalidBindingSnapshot(DelegateMap)`, and a mismatch during group
+map, an extra or foreign key, duplicate requester input, or an altered policy
+or version uses `InvalidBindingSnapshot(DelegateMap)`. A mismatch during group
 adoption uses `InvalidBindingSnapshot(GroupAdoption)`. Rejection publishes no
 usable policy version and cannot fall back to source provenance. An empty role
 set is valid for an ordinary participant; it grants no designated or platform
@@ -558,6 +561,11 @@ platform-version policy, including an enabled installed-platform fallback.
 Unrelated package, project, sibling, discovered, or other name-owning tiers and
 their typed failures remain outside this arbitration and cannot be bypassed by
 a role-bearing candidate.
+
+Every request origin must identify one registration in the captured delegate
+map. An unknown, foreign, or unmapped registration fails visibly as
+`InvalidBindingPolicyOrigin`; it cannot route through a default participant or
+another requester's delegated policy.
 
 A selected or ambiguous result from the requesting participant's delegated
 policy joins designated/platform arbitration only when every returned candidate
@@ -656,13 +664,17 @@ authority-bearing field to it.
 - `WorkspaceRoleBinding_InvalidSnapshotRejectsWithoutFallback` derives
   absent-snapshot, foreign-generation, stale-generation, ended-generation,
   wrong-group, missing-registration, extra-registration, duplicate-input,
-  incomplete-delegate-map, altered-role-set, and contradictory evidence cases
-  and proves no policy version, selection, shadow, group publication, or
-  provenance fallback survives.
+  missing-delegate, extra-delegate, foreign-delegate, duplicate-requester,
+  altered-delegate-policy, altered-delegate-version, altered-role-set, and
+  contradictory evidence cases and proves no policy version, selection,
+  shadow, group publication, or provenance fallback survives.
 - `WorkspaceRoleBinding_PreparesBeforeExactGroupAdoption` proves the policy is
   complete before participant and group construction, exact group adoption is
   required before publication, and no placeholder or post-seal rebinding path
   exists.
+- `WorkspaceRoleBinding_DelegateMapIsExactAndHasNoDefault` proves the captured
+  requester domain is exactly the planned requester set and an unknown,
+  foreign, or unmapped origin fails without selecting a default delegate.
 - `WorkspaceRoleBinding_DelegatedOutcomesPreserveAdjacentPolicy` covers
   selected and ambiguous results containing in-group role registrations,
   outside-group registrations, and in-group registrations without an authority
