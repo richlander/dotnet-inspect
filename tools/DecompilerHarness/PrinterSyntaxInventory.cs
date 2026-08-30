@@ -85,6 +85,13 @@ static class PrinterSyntaxInventory
                 case SpreadElementSyntax:
                     Features.Add("expression.collection-spread");
                     break;
+                case RangeExpressionSyntax range:
+                    Features.Add("expression.range");
+                    if (range.LeftOperand is not null)
+                        Features.Add("expression.range-start");
+                    if (range.RightOperand is not null)
+                        Features.Add("expression.range-end");
+                    break;
                 case IdentifierNameSyntax identifier
                     when IsValueExpression(identifier):
                     Add("expression", identifier.Kind(), "Expression");
@@ -207,7 +214,8 @@ static class PrinterSyntaxInventory
             && !SyntaxFacts.IsInNamespaceOrTypeContext(identifier)
             && !SyntaxFacts.IsAliasQualifier(identifier)
             && !SyntaxFacts.IsNamedArgumentName(identifier)
-            && identifier.Parent is not NameEqualsSyntax;
+            && identifier.Parent is not NameEqualsSyntax
+            && identifier.Parent is not GotoStatementSyntax;
 
         void AddFunctionPointerModifiers(FunctionPointerParameterSyntax parameter)
         {

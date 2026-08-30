@@ -393,6 +393,7 @@ public sealed class AuthoredSourceOracleManifestTests
     [InlineData("return 1 is Widget { Name: 2 };")]
     [InlineData("return new { Name = 1 };")]
     [InlineData("return global::System.String.Empty;")]
+    [InlineData("goto L; L:;")]
     public void SyntaxInventory_DoesNotTreatTypeOrNameIdentifiersAsValues(
         string body)
     {
@@ -420,6 +421,30 @@ public sealed class AuthoredSourceOracleManifestTests
             out string? error),
             error);
         Assert.Contains("expression.identifier-name", features);
+    }
+
+    [Theory]
+    [InlineData("return values[start..];", true, false)]
+    [InlineData("return values[..end];", false, true)]
+    [InlineData("return values[start..end];", true, true)]
+    [InlineData("return values[..];", false, false)]
+    public void SyntaxInventory_DistinguishesRangeEndpointPresence(
+        string body,
+        bool hasStart,
+        bool hasEnd)
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            body,
+            out IReadOnlyList<string> features,
+            out string? error),
+            error);
+        Assert.Contains("expression.range", features);
+        Assert.Equal(
+            hasStart,
+            features.Contains("expression.range-start", StringComparer.Ordinal));
+        Assert.Equal(
+            hasEnd,
+            features.Contains("expression.range-end", StringComparer.Ordinal));
     }
 
     [Fact]
