@@ -522,9 +522,11 @@ Two tiers, in `src/NuGetFetch.Tests`:
     origin scoping for ordinary hosts, organization scoping and GUID-alias reuse for Azure
     Artifacts, redirect isolation from credential scope and returned content, 403 opt-in, and that
     an existing credential is not overwritten.
-  - `PluginProtocolTests` runs a **real plugin process** — a shell script that genuinely speaks
-    the line protocol — so framing, the symmetric handshake, process death, selected shutdown
-    behavior, and caller-cancellation classification are exercised end to end rather than mocked.
+  - `PluginProtocolTests` runs a **real plugin process** — a cross-platform managed fixture that
+    genuinely speaks the line protocol — so framing, the symmetric handshake, process death,
+    selected shutdown behavior, and caller-cancellation classification are exercised end to end
+    rather than mocked. The suite runs on Windows and Unix; only executable-bit discovery coverage
+    remains Unix-specific.
     Concurrent request correlation, `Progress`-driven timeout extension, and pipe-loss admission
     remain unverified at the implementation boundary.
 - **Live**, tagged `[Trait("Network", "Live")]` and skipped unless a feed and token are supplied.

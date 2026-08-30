@@ -180,7 +180,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   ordered-stage, strict-window, reindexing, and all-or-failure sequence
   component.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
-- [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
+- [Row query and ordering](design/row-query-order.md): typed predicate and
+  order resolution, baseline ordering, and per-`Top` ranking identities.
+- [Section-row shaping](design/section-row-shaping.md): typed declared-row-set
+  binding, projection roles, terminal Count, and result binding.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
@@ -191,6 +194,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): shared website control states,
   interaction grammar, and visual composition rules.
+- [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
+  viewer-local disclosure, actions, selection, annotations, media, Escape, and
+  focus inside the embedded reader and modal viewer.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.

@@ -224,6 +224,33 @@ internal static class DetectionTestSuite
                 outputs),
             "true");
 
+        const string WebProjectsFile =
+            "WEB_PROJECTS_FILE=eng/inspect-web-gate-projects.txt";
+        const string MissingWebProjectsFile =
+            "WEB_PROJECTS_FILE=eng/missing-inspect-web-gate-projects.txt";
+        string missingWebManifestBody = body.Replace(
+            WebProjectsFile,
+            MissingWebProjectsFile,
+            StringComparison.Ordinal);
+        if (missingWebManifestBody == body)
+        {
+            throw new InvalidOperationException(
+                "Could not redirect the Inspect Web project manifest canary.");
+        }
+        Dictionary<string, string> missingWebManifest = RunDetection(
+            repository,
+            missingWebManifestBody,
+            "pull_request",
+            "src/dotnet-inspect/Program.cs",
+            outputs);
+        if (missingWebManifest["code"] != "true"
+            || missingWebManifest["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Missing Inspect Web project manifest did not fail closed: "
+                + FormatValues(missingWebManifest));
+        }
+
         Dictionary<string, string> readme =
             RunDetection(
                 repository,
@@ -314,6 +341,49 @@ internal static class DetectionTestSuite
                 FormatValues(webDependency));
         }
 
+        Dictionary<string, string> bindingGeneratorDependency = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/ILInspector.JsExportSurface/JsExportSurfaceBuilder.cs",
+            outputs);
+        if (bindingGeneratorDependency["code"] != "true"
+            || bindingGeneratorDependency["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Web binding-generator dependency canary did not select "
+                + "code and web: "
+                + FormatValues(bindingGeneratorDependency));
+        }
+
+        foreach ((string path, string label) in new[]
+        {
+            (
+                "src/DotnetInspector.Services.Tests/DependencyResolutionServiceTests.cs",
+                "DotnetInspector test project"),
+            (
+                "src/ILInspector.Decompiler.Tests/CSharpBodyDiffTests.cs",
+                "ILInspector test project"),
+            (
+                "src/ILInspector.Analysis.CallerGraphTarget/TargetApi.cs",
+                "ILInspector fixture project"),
+        })
+        {
+            Dictionary<string, string> testOnlyProject = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                path,
+                outputs);
+            if (testOnlyProject["code"] != "true"
+                || testOnlyProject["web"] != "false")
+            {
+                throw new InvalidOperationException(
+                    $"{label} canary did not select only code: "
+                    + FormatValues(testOnlyProject));
+            }
+        }
+
         Dictionary<string, string> manifestQueryDependency = RunDetection(
             repository,
             body,
@@ -342,6 +412,21 @@ internal static class DetectionTestSuite
                 + FormatValues(sharedWebCompileInput));
         }
 
+        Dictionary<string, string> sharedNetworkPolicy = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/NetworkDestinationPolicy.cs",
+            outputs);
+        if (sharedNetworkPolicy["code"] != "true"
+            || sharedNetworkPolicy["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Shared network-policy compile-input canary did not select "
+                + "code and web: "
+                + FormatValues(sharedNetworkPolicy));
+        }
+
         Dictionary<string, string> globalAnalyzerInput = RunDetection(
             repository,
             body,
@@ -354,6 +439,20 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 "Global analyzer input canary did not select code and web: "
                 + FormatValues(globalAnalyzerInput));
+        }
+
+        Dictionary<string, string> webProjectManifest = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/inspect-web-gate-projects.txt",
+            outputs);
+        if (webProjectManifest["code"] != "true"
+            || webProjectManifest["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Inspect Web project manifest canary did not select code and web: "
+                + FormatValues(webProjectManifest));
         }
 
         Dictionary<string, string> sourceOraclePreparation = RunDetection(

@@ -23,7 +23,13 @@
     "oxc-parser": "^0.143.0",
     "oxlint": "^1.79.0",
     "oxlint-tsgolint": "7.0.2001",
+    "type-fest": "4.41.0",
     "typescript": "7.0.2",
     "vite": "^7.0.6"
+  },
+  "dependencies": {
+    "dompurify": "3.4.14",
+    "marked": "15.0.7",
+    "mermaid": "11.17.2"
   }
 }
