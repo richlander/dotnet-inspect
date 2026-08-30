@@ -1021,6 +1021,9 @@ Annotated Source viewer are modal dialogs:
 - background content is inert while it is open;
 - Tab and Shift+Tab remain within the dialog;
 - Escape closes it unless an owner-issued destructive confirmation is active;
+  the Annotated Source viewer first offers Escape to the viewer-owned transient
+  layer defined by
+  [Annotated Source viewer interaction](annotated-source-viewer-interaction.md);
   and
 - ordinary dismissal returns focus to the invoking control.
 
