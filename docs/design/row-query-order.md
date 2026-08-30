@@ -234,14 +234,14 @@ execute predicates, ordering, or semantic selection elsewhere only through the
 [typed row-source execution](row-source-execution.md) contract's permitted
 offer, exact-equivalence, and honest-completion rules. This design does not
 define that optimization or its evidence. Delegation follows that owner's
-[permit failure-observability boundary](row-source-execution.md#other-delegated-observations);
-`OwnerFailureObservable` operations remain on the reference or row-handoff
+[permit owner-observation boundary](row-source-execution.md#other-delegated-observations);
+`OwnerObservationRequired` operations remain on the reference or row-handoff
 residual path.
 
 If this owner issues a row-source execution permit, it declares the permit's
-failure-observability value and proves that declaration with
-`PermitFailureObservabilityIsOwnerDeclared` against this design's resolution,
-callback, exception, ordering, and failure-precedence contract.
+owner-observation value and proves that declaration with
+`PermitOwnerObservationIsDeclared` against this design's resolution, callback,
+exception, ordering, and failure-precedence contract.
 
 Membership projection is outside this owner and supplies the rows entering this
 sequence. Cell projection, Count, and payload operations are also outside this

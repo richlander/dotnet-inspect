@@ -522,10 +522,11 @@ those choices are observationally equivalent only when they preserve:
 
 Comparer call count and pair order are not equivalence dimensions for a valid
 deterministic comparer. The
-[typed row-source execution](row-source-execution.md) contract currently
-treats strict semantic failure and owner callback, resolver, or comparer
-invocation as permit barriers. A later failure-transport extension must still
-preserve this complete callback contract.
+[typed row-source execution](row-source-execution.md) contract applies its
+[permit owner-observation boundary](row-source-execution.md#other-delegated-observations);
+`OwnerObservationRequired` operations remain in the reference or row-handoff
+residual path. A later observation-transport extension must still preserve this
+complete callback contract.
 
 This distinction matters when a later lenient stage would keep fewer rows than
 an earlier strict stage validates:
@@ -658,13 +659,13 @@ The
 [typed row-source execution](row-source-execution.md) contract owns the
 required equivalence gate comparing every optimized offer it supports with this
 complete-sequence reference executor. Delegation follows that owner's
-[permit failure-observability boundary](row-source-execution.md#other-delegated-observations):
-`OwnerFailureObservable` operations remain in the reference or row-handoff
+[permit owner-observation boundary](row-source-execution.md#other-delegated-observations):
+`OwnerObservationRequired` operations remain in the reference or row-handoff
 residual path. Any later extension that transports those failures must also
 compare strict windows before and after lenient stages, reached-stage resolver
 cardinality, and callback/failure precedence.
 
 If this owner issues a row-source execution permit, it declares the permit's
-failure-observability value and proves that declaration with
-`PermitFailureObservabilityIsOwnerDeclared` against this design's typed
-failure, resolver, comparer, and callback contract.
+owner-observation value and proves that declaration with
+`PermitOwnerObservationIsDeclared` against this design's typed failure,
+resolver, comparer, and callback contract.

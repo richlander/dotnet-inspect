@@ -510,7 +510,7 @@ The optimized result must also preserve:
 
 If an optimization cannot establish those properties, sufficient rows return
 to L2 for residual shaping. A fast incomplete number is not a Count result.
-An operation classified `OwnerFailureObservable` by its owner remains on that
+An operation classified `OwnerObservationRequired` by its owner remains on that
 reference or residual path before acceptance.
 
 This optimization property remains unverified until an adoption implements the
