@@ -1292,7 +1292,7 @@ public sealed class JsonWireContractResolverTests
 
         string scratchDirectory = Path.Combine(
             "artifacts",
-            $"tsbindgen-async-{Guid.NewGuid():N}");
+            $"jsexport-async-{Guid.NewGuid():N}");
         Directory.CreateDirectory(scratchDirectory);
         string corruptedPath = Path.Combine(
             scratchDirectory,
@@ -1388,7 +1388,7 @@ public sealed class JsonWireContractResolverTests
 
         string scratchDirectory = Path.Combine(
             "artifacts",
-            $"tsbindgen-async-call-{Guid.NewGuid():N}");
+            $"jsexport-async-call-{Guid.NewGuid():N}");
         Directory.CreateDirectory(scratchDirectory);
         string corruptedPath = Path.Combine(
             scratchDirectory,

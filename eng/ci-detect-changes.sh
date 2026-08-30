@@ -374,7 +374,7 @@ while IFS= read -r -d '' file; do
     eng/test-ts-jsexport-typescript.sh) WEB=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
-    eng/generate-inspect-web-engine-dts.sh) WEB=true ;;
+    eng/generate-inspect-web-engine-facade.sh) WEB=true ;;
     # Global analyzer input consumed by every product and Browser build.
     eng/BannedSymbols.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw

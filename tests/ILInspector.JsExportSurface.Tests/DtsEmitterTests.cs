@@ -3,13 +3,11 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
-using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
 
@@ -17,7 +15,7 @@ public sealed class DtsEmitterTests
 {
     private static string EmitFixtureDts(
         bool includeAll = false,
-        TsBindGenDiagnostics? diagnostics = null)
+        TypeScriptGenerationDiagnostics? diagnostics = null)
     {
         using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
         using var peReader = new PEReader(stream);
@@ -195,23 +193,6 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_ParsesDecimalWireRootResults()
-    {
-        string js = JsEmitter.Emit(BuildFixtureSurfaceWithWireContracts());
-
-        Assert.Contains(
-            "const result = getRegisteredDecimalExport();\n"
-                + "  return JSON.parse(result);",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "const result = getRegisteredDecimalArrayExport();\n"
-                + "  return JSON.parse(result);",
-            js,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void Emit_PreservesSerializationOnlySourceGenerationDirection()
     {
         string dts = EmitFixtureDtsWithWireContracts();
@@ -252,7 +233,7 @@ public sealed class DtsEmitterTests
         var hostileByte = new ApiTypeReferenceIdentity(
             hostileAssembly,
             "System.Byte");
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Records =
@@ -329,10 +310,6 @@ public sealed class DtsEmitterTests
             "export declare function queryPackage(packageId: string): string;",
             dts,
             StringComparison.Ordinal);
-        Assert.Contains(
-            "export declare function initializeEngine(onStatus?: (status: string) => void): Promise<unknown>;",
-            dts,
-            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -380,146 +357,6 @@ public sealed class DtsEmitterTests
         Assert.Contains(
             "export declare function ping(): Promise<void>;",
             dts,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void JsEmitter_UsesTheDeclarationEmittersReturnShapeClassification()
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            AssemblyIdentity = new ApiAssemblyIdentity(
-                "Fixture",
-                new Version(1, 0, 0, 0),
-                culture: null,
-                publicKeyToken: null),
-            Functions =
-            [
-                new()
-                {
-                    DeclaringType = "FixtureExports",
-                    Name = "GetTaskInfo",
-                    ReturnType = "TaskInfo",
-                },
-                new()
-                {
-                    DeclaringType = "FixtureExports",
-                    Name = "Ping",
-                    ReturnType = "void",
-                    ReturnWireType = "WidgetDto",
-                },
-                new()
-                {
-                    DeclaringType = "FixtureExports",
-                    Name = "QueryWidget",
-                    ReturnType = "System.Threading.Tasks.Task<string>",
-                    ReturnWireType = "WidgetDto",
-                },
-            ],
-        };
-
-        string js = JsEmitter.Emit(surface);
-
-        Assert.Contains(
-            "export function getTaskInfo()",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "export function ping()",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "return pingExport();",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "export async function queryWidget()",
-            js,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "const result = await queryWidgetExport();\n  return JSON.parse(result);",
-            js,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void JsEmitter_BindsAndEscapesInspectedAssemblyIdentity()
-    {
-        const string assemblyName =
-            "Exports.Library\"\n\\";
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            AssemblyIdentity = new ApiAssemblyIdentity(
-                assemblyName,
-                new Version(1, 0, 0, 0),
-                culture: null,
-                publicKeyToken: null),
-        };
-
-        string js = JsEmitter.Emit(surface);
-
-        Assert.Contains(
-            "runtime.getAssemblyExports(\""
-                + JavaScriptEncoder.Default.Encode(
-                    assemblyName)
-                + "\")",
-            js,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "config.mainAssemblyName",
-            js,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            $"getAssemblyExports(\"{assemblyName}\")",
-            js,
-            StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("void", "string", true)]
-    [InlineData("void", "number", false)]
-    [InlineData("System.Threading.Tasks.Task", "string", false)]
-    public void JsEmitter_BootstrapsOnlySupportedConfigureHostSignature(
-        string returnType,
-        string parameterType,
-        bool expectedBootstrap)
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            AssemblyIdentity = new ApiAssemblyIdentity(
-                "Fixture",
-                new Version(1, 0, 0, 0),
-                culture: null,
-                publicKeyToken: null),
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Exports",
-                    Name = "ConfigureHost",
-                    ReturnType = returnType,
-                    Parameters =
-                    [
-                        new ApiParameter
-                        {
-                            Name = "value",
-                            Type = parameterType,
-                        },
-                    ],
-                },
-            ],
-        };
-
-        string js = JsEmitter.Emit(surface);
-
-        Assert.Equal(
-            expectedBootstrap,
-            js.Contains(
-                "configureHostExport(window.location.origin);",
-                StringComparison.Ordinal));
-        Assert.Contains(
-            "function configureHost(value)",
-            js,
             StringComparison.Ordinal);
     }
 
@@ -681,7 +518,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksEnumWithUnsupportedContextOptions()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var enumType = new ApiType
         {
             Name = "Status",
@@ -789,7 +626,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksUnsupportedTypeAndMemberConverters()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var blocked = new ApiType
         {
             Name = "Blocked",
@@ -874,7 +711,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksDuplicateStringEnumConverters()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var enumType = new ApiType
         {
             Name = "Status",
@@ -919,7 +756,7 @@ public sealed class DtsEmitterTests
             apiSurface.Types,
             type => type.Name
                 == nameof(MismatchedStringEnumConverterFixture));
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             new ILInspector.JsExportSurface.JsExportSurface
@@ -1006,7 +843,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_ExternalEnvelopeCannotAliasLocalQualifiedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var localAssembly = new ApiAssemblyIdentity(
             "Local",
             new Version(1, 0, 0, 0),
@@ -1058,7 +895,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_ExternalSignatureTypesCannotAliasLocalQualifiedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var localAssembly = new ApiAssemblyIdentity(
             "Local",
             new Version(1, 0, 0, 0),
@@ -1116,7 +953,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_NestedIdentityCannotAliasNamespaceQualifiedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var assembly = new ApiAssemblyIdentity(
             "Local",
             new Version(1, 0, 0, 0),
@@ -1172,7 +1009,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_DoesNotApplyDictionarySemanticsToLookalikeType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var lookalikeDictionary = new ApiTypeReferenceIdentity(
             new ApiAssemblyIdentity(
                 "System.Collections",
@@ -1227,7 +1064,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var externalString = new ApiTypeReferenceIdentity(
             new ApiAssemblyIdentity(
                 "External",
@@ -1274,7 +1111,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_DoesNotApplyTaskSemanticsToLookalikeType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Functions =
@@ -1311,7 +1148,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_DoesNotTrustClaimedPlatformTokenFromWrongAssembly()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Functions =
@@ -1363,7 +1200,7 @@ public sealed class DtsEmitterTests
             ["Tasks", "Task`1"],
             nestedTask.DefinitionName?.Segments);
 
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var surface = new ILInspector.JsExportSurface.JsExportSurface
         {
             Functions =
@@ -2020,94 +1857,6 @@ public sealed class DtsEmitterTests
             () => DtsEmitter.Emit(surface));
     }
 
-    [Theory]
-    [InlineData("Dotnet", "Other")]
-    [InlineData("Foo", "FooExport")]
-    public void Emit_RefusesGeneratedModuleBindingCollisions(
-        string firstName,
-        string secondName)
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = firstName,
-                    ReturnType = "void",
-                },
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = secondName,
-                    ReturnType = "void",
-                },
-            ],
-        };
-
-        Assert.Throws<UnsupportedWireContractException>(
-            () => DtsEmitter.Emit(surface));
-    }
-
-    [Fact]
-    public void Emit_RefusesJsonResultLocalParameterCollision()
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = "Get",
-                    ReturnType = "string",
-                    ReturnWireType = "Widget",
-                    Parameters =
-                    [
-                        new ApiParameter
-                        {
-                            Name = "Result",
-                            Type = "string",
-                        },
-                    ],
-                },
-            ],
-        };
-
-        Assert.Throws<UnsupportedWireContractException>(
-            () => DtsEmitter.Emit(surface));
-    }
-
-    [Fact]
-    public void Emit_RefusesParameterThatShadowsItsExportSlot()
-    {
-        var surface = new ILInspector.JsExportSurface.JsExportSurface
-        {
-            Functions =
-            [
-                new JsExportFunction
-                {
-                    DeclaringType = "Ns.Exports",
-                    Name = "Foo",
-                    ReturnType = "string",
-                    ReturnWireType = "Widget",
-                    Parameters =
-                    [
-                        new ApiParameter
-                        {
-                            Name = "FooExport",
-                            Type = "string",
-                        },
-                    ],
-                },
-            ],
-        };
-
-        Assert.Throws<UnsupportedWireContractException>(
-            () => DtsEmitter.Emit(surface));
-    }
-
     [Fact]
     public void Emit_RefusesControlCharacterJsonPropertyNamesOnEnumFields()
     {
@@ -2334,7 +2083,7 @@ public sealed class DtsEmitterTests
         ApiType record = Assert.Single(
             apiSurface.Types,
             type => type.Name == typeName);
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             new ILInspector.JsExportSurface.JsExportSurface
@@ -2429,7 +2178,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksRecordWithConflictingContextNamingPolicies()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = EmitFixtureDts(diagnostics: diagnostics);
 
@@ -2571,7 +2320,7 @@ public sealed class DtsEmitterTests
             path,
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
@@ -2649,7 +2398,7 @@ public sealed class DtsEmitterTests
             LibraryBodyAnalysisFeatures.MethodEvidence
                 | LibraryBodyAnalysisFeatures
                     .JsonWireContractFlow);
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         string dts = DtsEmitter.Emit(
             JsExportSurfaceBuilder.Build(
@@ -2673,7 +2422,7 @@ public sealed class DtsEmitterTests
     [Fact]
     public void Emit_BlocksBidirectionalTypeWithDirectionSensitiveMember()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         string path = typeof(FixtureExports).Assembly.Location;
         using FileStream stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);

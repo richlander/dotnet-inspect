@@ -5,8 +5,6 @@ using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
-using tsbindgen;
-
 namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class TypeScriptFacadeEmitterTests
@@ -428,7 +426,7 @@ public sealed class TypeScriptFacadeEmitterTests
     [Fact]
     public void Emit_ReportsRejectedAsyncEnvelopeWithoutThrowing()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var dto = new ApiType
         {
             Namespace = "Fixture",

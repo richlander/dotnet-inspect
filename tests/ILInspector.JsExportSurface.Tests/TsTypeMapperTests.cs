@@ -1,5 +1,3 @@
-using tsbindgen;
-
 namespace ILInspector.JsExportSurface.Tests;
 
 /// <summary>
@@ -122,7 +120,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void Map_UnknownTypeMapsToUnknownAndReportsDiagnostic()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -144,7 +142,7 @@ public sealed class TsTypeMapperTests
             "Result",
             "Mine.Result",
         };
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -213,7 +211,7 @@ public sealed class TsTypeMapperTests
     [Fact]
     public void Map_DictionaryWithNonStringKeyReportsUnmappedType()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -235,7 +233,7 @@ public sealed class TsTypeMapperTests
         // JsonElement is STJ's own representation of arbitrary/untyped JSON: "unknown" is the
         // deliberately correct TS shape here, not a gap the way an unrecognized type (Guid,
         // DateTime, an unmappable Dictionary) is — so it must not be recorded as an unmapped type.
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -248,7 +246,7 @@ public sealed class TsTypeMapperTests
     [InlineData("JSObject")]
     public void Map_JSObjectMapsToUnknownWithoutReportingAsUnmapped(string csharpType)
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",
@@ -265,7 +263,7 @@ public sealed class TsTypeMapperTests
     [InlineData("JSObject")]
     public void MapJsonWireType_JSObjectReportsUnmappedType(string csharpType)
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
 
         Assert.Equal(
             "unknown",

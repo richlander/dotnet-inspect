@@ -397,7 +397,7 @@ test("no source file suppresses type checking", () => {
 // used to turn the `no-unsafe-*` family off for `**/*.js`, because the toolchain scripts
 // and the Vite config were JavaScript; a new JavaScript file anywhere inherited that
 // exemption for free. Those files are TypeScript now, and the one remaining exemption is
-// the generated engine wrapper, which is Wasm build output rather than authored source.
+// the compiler-derived engine facade, which is Wasm build output rather than authored source.
 //
 // Rather than restate that file name twice, the two sets are asserted against each other:
 // the JavaScript actually present must be exactly the JavaScript actually exempted. A new
@@ -411,6 +411,7 @@ test("the only JavaScript is the file the lint exemption names", () => {
   const exempted = (oxlintConfig.overrides ?? [])
     .filter(override => override.rules !== undefined)
     .flatMap(override => override.files)
+    .filter(file => javaScriptExtensions.some(extension => file.endsWith(extension)))
     .sort();
 
   assert.deepEqual(present, ["engine/wwwroot/inspect-web-engine.js"],
@@ -907,6 +908,9 @@ test("no HTML document carries script the gates cannot read", () => {
 // directory and importing it from `src/`, where the bundler traced the import and shipped
 // code the lint had never seen.
 const compilerProjects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
+const separatelyCompiledTypeScript = new Set([
+  "engine/inspect-web-engine.ts",
+]);
 
 function programFiles(): Set<string> {
   const root = fileURLToPath(new URL("../", import.meta.url));
@@ -980,13 +984,32 @@ test("every TypeScript file belongs to a compiler project", () => {
       + "gates built on that walk are weaker than they report");
 
   const unchecked = authored
-    .filter(file => !checked.has(resolve(file)))
+    .filter(file => !checked.has(resolve(file))
+      && !separatelyCompiledTypeScript.has(projectRelative(root, file)))
     .map(file => projectRelative(root, file))
     .sort();
 
   assert.deepEqual(unchecked, [],
     "these TypeScript files are in no compiler project, so `npm run typecheck` reads "
-      + "neither their types nor their errors; add them to a tsconfig `include`");
+      + "neither their types nor their errors; add them to a tsconfig `include` or the "
+      + "pinned separate compiler gate");
+});
+
+test("the generated engine TypeScript uses its SDK-owned compiler gate", () => {
+  const generationScript = readFileSync(
+    new URL("../../../eng/generate-inspect-web-engine-facade.sh", import.meta.url),
+    "utf8");
+
+  assert.deepEqual([...separatelyCompiledTypeScript], [
+    "engine/inspect-web-engine.ts",
+  ]);
+  assert.match(
+    generationScript,
+    /ts_output_file="\$repo_root\/prototypes\/inspect-web\/engine\/inspect-web-engine\.ts"/);
+  assert.match(
+    generationScript,
+    /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
+  assert.match(generationScript, /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
 });
 
 // And the same question for the lint, which is invoked on an explicit list of paths
@@ -1763,8 +1786,10 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       .sort(),
   ]);
 
-  // The one scoped exception: a generated publish artifact whose imports resolve only
-  // after Wasm publish. The authored tree keeps all five, held by the gates above.
+  // The scoped exceptions are the generated TypeScript handoff and its compiler-derived
+  // publish artifact. The source is compiled separately against the SDK-owned runtime
+  // declaration; the JavaScript import resolves only after Wasm publish. Authored source
+  // keeps the complete rule set held by the gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
     ["engine/wwwroot/inspect-web-engine.js", [
@@ -1773,6 +1798,16 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       "typescript/no-unsafe-call",
       "typescript/no-unsafe-member-access",
       "typescript/no-unsafe-return",
+      "typescript/use-unknown-in-catch-callback-variable",
+    ]],
+    ["engine/inspect-web-engine.ts", [
+      "typescript/no-redundant-type-constituents",
+      "typescript/no-unsafe-argument",
+      "typescript/no-unsafe-assignment",
+      "typescript/no-unsafe-call",
+      "typescript/no-unsafe-member-access",
+      "typescript/no-unsafe-return",
+      "typescript/no-unsafe-type-assertion",
     ]],
   ], "an override is the other place a rule can be turned off, and the top-level list "
     + "above cannot see it");
@@ -1857,6 +1892,10 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       globals: {},
     },
     "engine/wwwroot/inspect-web-engine.js": {
+      env: {},
+      globals: {},
+    },
+    "engine/inspect-web-engine.ts": {
       env: {},
       globals: {},
     },
@@ -2479,12 +2518,13 @@ test("the analysis host check matches locked native packages and lint wiring", (
     packageJson.scripts.lint,
     "node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test scripts "
-      + "engine/wwwroot/inspect-web-engine.js vite.config.ts && "
+      + "engine/inspect-web-engine.ts engine/wwwroot/inspect-web-engine.js "
+      + "vite.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });
 
-test("the lint gate includes both generated tsbindgen outputs", () => {
+test("the lint gate includes both compiler-derived facade artifacts", () => {
   assert.ok(
     !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
   );

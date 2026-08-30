@@ -286,7 +286,7 @@ public sealed record BrowserPackageQueryEvent(
 /// <summary>
 /// One vocabulary field's discoverable contract, mapped verbatim from
 /// <c>DotnetInspector.Vocabulary.VocabularyWireField</c>. Kept as a browser-local record (rather
-/// than reusing the product's wire type directly) so <c>tsbindgen</c>'s JSON-wire-contract
+/// than reusing the product's wire type directly) so the TypeScript facade's JSON-wire-contract
 /// discovery — which only walks types physically defined in this assembly — can generate a real
 /// TypeScript interface for it instead of collapsing to <c>unknown</c>.
 /// </summary>
@@ -321,7 +321,7 @@ public sealed record BrowserVocabularyDocument(
 
 /// <summary>
 /// One product home-demo catalog row from <c>ProductInspectionDemos.Entries</c>.
-/// Browser-local so tsbindgen emits a real TypeScript interface.
+/// Browser-local so <c>ts-jsexport</c> emits a real TypeScript interface.
 /// </summary>
 public sealed record BrowserHomeDemoCatalogEntry(
     string Id,
