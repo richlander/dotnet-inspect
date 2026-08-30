@@ -131,15 +131,17 @@ contract.
 Metadata API signatures preserve the ECMA-335 distinction between vector
 arrays and non-SZ arrays in the identity projections owned here: `T[]` is an
 SZ array, rank-one non-SZ is `T[*]`, and higher ranks are `T[,]`, `T[,,]`, and
-so on. `TypeNode` composes that distinction through generic arguments, tuple
-elements, pointers, by-reference forms, and generic-parameter positions;
+so on. Canonical signature spelling composes that distinction through generic
+arguments, tuple elements, pointers, by-reference forms, and
+generic-parameter positions;
 `ApiTypeShape.Kind` distinguishes `SzArray` from `Array`; and materialized
 member anchors and direct SRM anchors each retain the distinction in their
 own projection-specific spelling. The ordinary vector display remains `T[]`.
-This contract does not define cross-layer body or call-graph correspondence.
+The opaque structural string used by legacy call-graph correspondence remains
+outside this exact array-kind contract.
 `ArrayKindIdentityTests` gates valid synthetic metadata through decode,
-canonical and structural identity, shape equality, anchor projection, JSON
-persistence, and exact API comparison.
+canonical identity, typed shape equality, anchor projection, JSON persistence,
+exact API comparison, and non-movement of the legacy structural selector.
 
 `ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
 the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether

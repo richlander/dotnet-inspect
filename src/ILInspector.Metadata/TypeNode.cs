@@ -540,9 +540,7 @@ internal sealed class MDArrayTypeNode(
             elementType.EstimatedRenderedLength + Math.Max(rank, 0L) + 2);
 
     internal override string StructuralIdentity()
-        => rank == 1
-            ? $"{elementType.StructuralIdentity()}[*]"
-            : $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
+        => $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
 
     public override string Render(bool canonicalTuples)
     {

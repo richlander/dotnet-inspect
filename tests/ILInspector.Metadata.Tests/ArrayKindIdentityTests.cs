@@ -48,7 +48,7 @@ public sealed class ArrayKindIdentityTests
             reader,
             typeHandle,
             "Md1",
-            "System.Int32[*]");
+            "System.Int32[]");
 
         Assert.Equal(
             md1Parameter.EffectiveCanonicalType,
@@ -59,7 +59,7 @@ public sealed class ArrayKindIdentityTests
             reader,
             typeHandle,
             "Md1Twin",
-            "System.Int32[*]");
+            "System.Int32[]");
 
         ApiMember md2 = Member(type, "Md2");
         ApiParameter md2Parameter =
@@ -79,7 +79,7 @@ public sealed class ArrayKindIdentityTests
             "Nested",
             "System.Collections.Generic.List<int[*]>",
             "System.Collections.Generic.List<int[*]>",
-            "System.Collections.Generic.List{System.Int32[*]}");
+            "System.Collections.Generic.List{System.Int32[]}");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -87,7 +87,7 @@ public sealed class ArrayKindIdentityTests
             "Pointer",
             "int[*]*",
             "int[*]*",
-            "System.Int32[*]*");
+            "System.Int32[]*");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -95,7 +95,7 @@ public sealed class ArrayKindIdentityTests
             "ByRef",
             "int[*]",
             "int[*]",
-            "System.Int32[*]@",
+            "System.Int32[]@",
             modifier: "ref");
         AssertParameterIdentity(
             reader,
@@ -104,7 +104,7 @@ public sealed class ArrayKindIdentityTests
             "Tuple",
             "(int[*], int[])",
             "System.ValueTuple<int[*], int[]>",
-            "System.ValueTuple{System.Int32[*],System.Int32[]}");
+            "System.ValueTuple{System.Int32[],System.Int32[]}");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -112,7 +112,27 @@ public sealed class ArrayKindIdentityTests
             "Generic",
             "T[*]",
             "T[*]",
-            "M0[*]");
+            "M0[]");
+        const string modifiedArrayStructural =
+            "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[]";
+        AssertParameterIdentity(
+            reader,
+            typeHandle,
+            type,
+            "ModifiedVector",
+            "int[]",
+            "int[]",
+            modifiedArrayStructural,
+            emittedStructural: modifiedArrayStructural);
+        AssertParameterIdentity(
+            reader,
+            typeHandle,
+            type,
+            "ModifiedMd1",
+            "int[*]",
+            "int[*]",
+            modifiedArrayStructural,
+            emittedStructural: modifiedArrayStructural);
 
         ApiTypeShape vectorShape = ReturnShape(type, "ReturnVector");
         ApiTypeShape vectorTwinShape = ReturnShape(type, "ReturnVectorTwin");
@@ -139,7 +159,7 @@ public sealed class ArrayKindIdentityTests
             reader,
             typeHandle,
             "ReturnMd1",
-            "System.Int32[*]");
+            "System.Int32[]");
         AssertDecodedReturnStructuralIdentity(
             reader,
             typeHandle,
@@ -267,6 +287,8 @@ public sealed class ArrayKindIdentityTests
             "ByRef",
             "Tuple",
             "Generic",
+            "ModifiedVector",
+            "ModifiedMd1",
         })
         {
             ApiMember liveMember = Member(liveType, name);
@@ -312,13 +334,14 @@ public sealed class ArrayKindIdentityTests
         string display,
         string canonical,
         string structural,
-        string? modifier = null)
+        string? modifier = null,
+        string? emittedStructural = null)
     {
         ApiParameter parameter =
             Assert.Single(Member(type, memberName).SignatureModel!.Parameters);
         Assert.Equal(display, parameter.Type);
         Assert.Equal(canonical, parameter.EffectiveCanonicalType);
-        Assert.Null(parameter.StructuralType);
+        Assert.Equal(emittedStructural, parameter.StructuralType);
         Assert.Equal(modifier, parameter.Modifier);
         AssertDecodedParameterStructuralIdentity(
             reader,
@@ -413,10 +436,15 @@ public sealed class ArrayKindIdentityTests
             systemRuntime,
             metadata.GetOrAddString("System"),
             metadata.GetOrAddString("ValueTuple`2"));
+        TypeReferenceHandle isVolatile = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IsVolatile"));
 
         byte[] md1 = MdArray(Int32, rank: 1);
         byte[] sz = Sz(Int32);
         byte[] md2 = MdArray(Int32, rank: 2);
+        byte[] modifiedInt32 = RequiredModifier(isVolatile, Int32);
         byte[] nested = GenericInstance(
             isValueType: false,
             list,
@@ -438,6 +466,8 @@ public sealed class ArrayKindIdentityTests
                 new("ByRef", ByRef(md1), Void, IsGeneric: false),
                 new("Tuple", tuple, Void, IsGeneric: false),
                 new("Generic", MdArray(MethodGeneric0, rank: 1), Void, IsGeneric: true),
+                new("ModifiedVector", Sz(modifiedInt32), Void, IsGeneric: false),
+                new("ModifiedMd1", MdArray(modifiedInt32, rank: 1), Void, IsGeneric: false),
                 new("ReturnVector", null, sz, IsGeneric: false),
                 new("ReturnVectorTwin", null, sz, IsGeneric: false),
                 new("ReturnMd1", null, md1, IsGeneric: false),
@@ -555,6 +585,18 @@ public sealed class ArrayKindIdentityTests
         signature.WriteCompressedInteger(arguments.Length);
         foreach (byte[] argument in arguments)
             signature.WriteBytes(argument);
+        return signature.ToArray();
+    }
+
+    static byte[] RequiredModifier(
+        TypeReferenceHandle modifier,
+        byte[] inner)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x1f);
+        signature.WriteCompressedInteger(
+            (MetadataTokens.GetRowNumber(modifier) << 2) | 1);
+        signature.WriteBytes(inner);
         return signature.ToArray();
     }
 
