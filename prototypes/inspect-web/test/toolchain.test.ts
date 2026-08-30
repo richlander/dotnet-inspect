@@ -89,10 +89,12 @@ interface TsconfigFile {
 interface StaticWebAppRoute {
   readonly route: string;
   readonly rewrite?: string;
+  readonly redirect?: string;
   readonly headers?: Readonly<Record<string, string>>;
 }
 
 interface StaticWebAppConfig {
+  readonly globalHeaders: Readonly<Record<string, string>>;
   readonly routes: readonly StaticWebAppRoute[];
   readonly navigationFallback: {
     readonly rewrite: string;
@@ -2319,6 +2321,68 @@ test("static hosting serves credits links through the application entry point", 
     ["/api/*", "/assets/*", "/_framework/*"],
   );
   assert.match(siteIndexHtml, /<base href="\/" \/>/);
+});
+
+test("static hosting sends its security headers on every static response", () => {
+  // These are response-header protections, so nothing in the source tree can stand in for
+  // them: a linter reads the markup this project ships, while these constrain what a
+  // browser will do with it once shipped. `nosniff` stops content-type guessing on the
+  // JSON, TSV and wasm this site serves, and the other three are the cheap defaults that
+  // need no coordination with page content.
+  //
+  // "static" in this test's name is load-bearing. Azure Static Web Apps does not apply
+  // `globalHeaders` to responses produced by the managed functions under `/api/*`; those
+  // carry whatever headers the function itself sets. So this covers the static site and
+  // says nothing about the MSDL proxy's responses, which is why the name does not claim
+  // "every response".
+  assert.deepEqual(staticWebAppConfig.globalHeaders, {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+  });
+
+  // Azure Static Web Apps returns the union of `globalHeaders` and a matching route's
+  // `headers`, with the route winning per key. A route that names one of these keys
+  // therefore replaces the global value for its own paths, and the response says nothing
+  // about the substitution -- the file still reads as though the protection is global.
+  // Requiring the two key sets to stay disjoint is what keeps "on every static response"
+  // in this test's name true, and it is a property of the config rather than an
+  // enumeration of the ways a route could weaken one.
+  // Compared case-insensitively because HTTP header names are. A route spelling
+  // `x-frame-options` overrides a global `X-Frame-Options` on the wire, so a
+  // case-sensitive comparison here would call that pair disjoint and miss the one thing
+  // this assertion exists to catch.
+  const globalKeys = new Set(
+    Object.keys(staticWebAppConfig.globalHeaders).map(header => header.toLowerCase()),
+  );
+  const overriding = staticWebAppConfig.routes
+    .filter(route => Object.keys(route.headers ?? {})
+      .some(header => globalKeys.has(header.toLowerCase())))
+    .map(route => route.route);
+
+  assert.deepEqual(overriding, [],
+    "this route sets a header that `globalHeaders` also sets, and Azure Static Web Apps "
+      + "lets the route value win, so paths under it would carry a weaker policy than "
+      + "this file appears to apply everywhere");
+
+  // Key disjointness is necessary but not sufficient, because a redirect route drops the
+  // global headers without naming any of them. Azure has acknowledged this since 2022
+  // (Azure/static-web-apps#739): a route with `redirect` returns neither `globalHeaders`
+  // nor its own `headers`. Such a route passes the disjointness check above while serving
+  // a 302 with none of the four headers on it, which is exactly the silent weakening this
+  // test exists to prevent. There are no redirect routes today; this keeps it that way
+  // rather than waiting for one to be added and quietly punch a hole.
+  const redirecting = staticWebAppConfig.routes
+    .filter(route => route.redirect !== undefined)
+    .map(route => route.route);
+
+  assert.deepEqual(redirecting, [],
+    "Azure Static Web Apps omits `globalHeaders` on redirect responses "
+      + "(Azure/static-web-apps#739), so this route would answer without any of the four "
+      + "headers while the config still reads as though they are global; serve the "
+      + "redirect from a route that does not use `redirect`, or narrow this test's claim "
+      + "deliberately");
 });
 
 const linuxLibcs = ["glibc", "musl"];
