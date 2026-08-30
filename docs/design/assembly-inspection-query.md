@@ -808,6 +808,19 @@ one or more forwarding hops retains the
 terminal assembly identity rather than being attributed to the initial facade
 (`ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity` and
 `ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity`). An
+AssemblyRef-terminated exported root that lacks the Forwarder flag is retained
+as a bounded type-forwarder inspection failure rather than disappearing from
+the API surface
+(`ExtractApiSurface_AssemblyRefExportWithoutForwarderPreservesFailure` and
+`BoundedApiSurface_AssemblyRefExportWithoutForwarderUsesFailureBudget`).
+Legitimate module exports and nested rows beneath a marked forwarding root
+remain outside that failure
+(`ExtractApiSurface_ModuleExportWithoutForwarderRemainsValid` and
+`ExtractApiSurface_NestedForwarderWithoutFlagRemainsValid`). Resolution-aware
+composition does not add a duplicate inventory failure when that exact cause is
+already retained by the API surface
+(`ExtractApiSurface_MalformedRootAdjacencyIsNotDuplicated` and
+`MalformedRootAdjacency_KeepsHealthySelectedTypeAndIsFatal`). An
 API surface that copies a resolved forwarded type also carries that target surface's bounded,
 deduplicated generic-constraint failure instead of presenting `Undetermined` without its
 cause. The failure retains its owning assembly identity, so its metadata token remains scoped

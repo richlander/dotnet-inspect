@@ -399,6 +399,9 @@ public sealed record ApiSurfaceInspectionFailure(
         "type forwarder identity";
     public const string TypeForwarderRowOperation =
         "type forwarder row";
+    internal const string UnmarkedAssemblyForwarderDetail =
+        "The selected image has an AssemblyRef-terminated ExportedType "
+            + "chain that is not a forwarder.";
 
     [JsonIgnore]
     public string? SourceAssemblyPath { get; init; }

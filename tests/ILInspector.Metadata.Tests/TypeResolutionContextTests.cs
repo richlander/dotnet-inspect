@@ -64,6 +64,33 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
+    public void ExtractApiSurface_MalformedRootAdjacencyIsNotDuplicated()
+    {
+        byte[] image = BuildAssembly(
+            "Facade",
+            definesType: false,
+            forwardTarget: Identity("Target"),
+            omitForwarderFlag: true);
+        ResolvedAssemblyReference source = Descriptor(image);
+        using var catalog = new TypeResolutionCatalog();
+
+        var read = Assert.IsType<ResolutionAwareApiSurfaceOutcome.Read>(
+            catalog.ExtractApiSurface(
+                source,
+                new RecordingPolicy(
+                    _ => AssemblyBindingSelection.NotFound()),
+                includeAll: true,
+                typesOnly: true));
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(read.Surface.InspectionFailures);
+        Assert.Equal(
+            ApiSurfaceInspectionFailure.TypeForwarderIdentityOperation,
+            failure.Operation);
+        Assert.Equal(0x27000001, failure.SubjectToken);
+    }
+
+    [Fact]
     public void DirectDefinition_ResolvesAndCachesFrozenOutcome()
     {
         byte[] image = BuildAssembly("Definitions", definesType: true);
@@ -2584,7 +2611,8 @@ public class TypeResolutionContextTests
         int forwarderCount = 1,
         bool definesOtherType = false,
         Guid? moduleVersionId = null,
-        ImmutableArray<string> typeSegments = default)
+        ImmutableArray<string> typeSegments = default,
+        bool omitForwarderFlag = false)
     {
         ImmutableArray<string> segments = typeSegments.IsDefault
             ? ["Type"]
@@ -2667,7 +2695,8 @@ public class TypeResolutionContextTests
                 {
                     implementation = metadata.AddExportedType(
                         segment == 0
-                            ? TypeAttributes.Public | Forwarder
+                            ? TypeAttributes.Public
+                                | (omitForwarderFlag ? 0 : Forwarder)
                             : TypeAttributes.NestedPublic,
                         segment == 0
                             ? metadata.GetOrAddString("N")
