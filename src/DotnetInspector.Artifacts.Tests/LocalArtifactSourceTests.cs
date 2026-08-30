@@ -120,7 +120,9 @@ public sealed class LocalArtifactSourceTests
         string emptyFile = Path.Combine(root, "empty.dll");
         string fifo = Path.Combine(root, "input.fifo");
         string fifoLink = Path.Combine(root, "input-link.fifo");
-        string socketPath = Path.Combine(root, "input.socket");
+        string socketPath = Path.Combine(
+            Path.GetTempPath(),
+            $"di-{Guid.NewGuid():N}.socket");
         await File.WriteAllBytesAsync(emptyFile, [], cancellationToken);
 
         try
@@ -169,6 +171,7 @@ public sealed class LocalArtifactSourceTests
         }
         finally
         {
+            File.Delete(socketPath);
             Directory.Delete(root, recursive: true);
         }
     }
