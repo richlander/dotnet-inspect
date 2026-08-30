@@ -1,5 +1,26 @@
 # Row-source execution
 
+## Problem
+
+The row and limit contracts define observable meaning by reference execution:
+acquire the complete logical sequence, then apply predicates, ordering,
+semantic selection, and Rows or Count locally. Real sources — package feeds,
+indexes, caches — can often do part of that work far more cheaply: filter
+upstream, stop after the requested clamp, or answer a count from exact index
+metadata. But they can only do so operationally, through caps, pages, and
+provider signals that resemble answers while proving nothing: a provider cap
+equal to the requested N looks exactly like N applicable rows, and an empty
+page looks like exhaustion.
+
+Without a contract, every such optimization either silently changes
+observable semantics or is rejected wholesale, leaving every command to pay
+complete acquisition cost. This document defines the narrow agreement that
+makes the optimization safe: a caller may delegate a proven prefix of its
+resolved plan to a source, the source returns one closed result carrying
+completion evidence, and that result substitutes for the reference
+computation only when the evidence proves the substitution exact. Everything
+else in this document serves that sentence.
+
 ## Status
 
 Focused cross-cutting L1 pattern proposal for
@@ -146,6 +167,15 @@ Each operation owner declares, in its own contract, whether an operation is
 failure and requires no owner-observable callback, comparer, or resolver
 invocation. Strict `Window` and the current row-query and semantic callback,
 comparer, and resolver contracts are not source-closed.
+
+Source-closed constrains the owner-observation surface during delegated
+execution, not materialization or physical strategy: a source may stream or
+buffer a source-closed operation internally, publication stays governed by
+the [effect protocol](#effect-protocol)'s atomicity rule, and owner-side
+coordination after the result — caller validation, evidence acceptance, and
+a row-handoff residual executing under its owners' contracts — is normal.
+Strict `Window` is materializable by a source yet still not source-closed,
+because failing the window is an owner-domain failure.
 
 Only source-closed operations may enter delegated work. A source capability
 never waives an owner requirement: a completion witness cannot replace an
