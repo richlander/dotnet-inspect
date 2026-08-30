@@ -41,6 +41,14 @@ module can use the updated model without containing unsafe code. A member can
 propagate unsafe without having an IL body. A safe-boundary method can use
 unsafe operations without propagating unsafe.
 
+The [.NET Blog public overview](https://devblogs.microsoft.com/dotnet/improving-csharp-memory-safety/)
+explains the updated model as four connected steps: an inner unsafe context,
+propagation to callers, safety documentation, and suppression at a boundary.
+That framing motivates the vocabulary here. The accepted designs and current
+compiler implementation remain authoritative for exact semantics, while this
+document further limits product claims to evidence dotnet-inspect can acquire
+and compose.
+
 ## Version vocabulary
 
 This product uses **v1** and **v2** as model names:
@@ -436,6 +444,7 @@ the binary independently demonstrates one compiled artifact.
 
 The model follows the implemented compiler and runtime contracts:
 
+- [.NET Blog public overview and motivation](https://devblogs.microsoft.com/dotnet/improving-csharp-memory-safety/)
 - [Memory-safety overview](https://github.com/dotnet/designs/blob/8f17cc55212fe45f563741aa7137d432d82482d5/accepted/2025/memory-safety/memory-safety.md)
 - [Caller-unsafe design](https://github.com/dotnet/designs/blob/8f17cc55212fe45f563741aa7137d432d82482d5/accepted/2025/memory-safety/caller-unsafe.md)
 - [C# unsafe evolution proposal](https://github.com/dotnet/csharplang/blob/f445f642755a28631b7e37db01f6373c437159c3/proposals/unsafe-evolution.md)
@@ -458,4 +467,5 @@ different future version value. Roslyn's implementation and tests emit and
 recognize `2`; the product contract follows emitted compiler behavior while
 preserving the raw integer for future versions. The caller-unsafe design is
 conceptual authority for obligation vocabulary and field motivation; current
-Roslyn remains authoritative for exact emitted metadata carriers.
+Roslyn remains authoritative for exact emitted metadata carriers. The blog is
+an explanatory adoption resource, not a substitute for either authority.
