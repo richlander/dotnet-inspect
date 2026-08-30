@@ -1711,6 +1711,35 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_DoesNotTreatArgumentLiteralParenthesesAsCalleeRewrite()
+    {
+        // Close negative (round-9 review, reviewers A and B): an
+        // argument-only edit where the changed argument is a string literal
+        // that itself contains a '(' character (Log("(") -> Log("changed("))
+        // must decline callee comparison entirely rather than let the
+        // literal's unbalanced paren either masquerade as the argument
+        // list's true boundary or make the scan fail to find a balanced
+        // match at all (which would otherwise silently fall back to
+        // comparing full invocation text -- reintroducing the exact
+        // argument-only false positive round 7 fixed). The callee ("Log")
+        // is unchanged, so this must not license an unrelated declaration.
+        var before = TrustedDocument(
+            "Log(\"(\");",
+            new NodeSpec("InvocationExpression", "Log(\"(\")", [0x10]));
+        var after = TrustedDocument(
+            "Log(\"changed(\");\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log(\"changed(\")", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWhenMultipleCandidatesShareScope()
     {
         // Close negative: two new local-function declarations with no IL

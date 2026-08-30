@@ -489,7 +489,7 @@ public static partial class CSharpBodyDiff
                     // A genuine call-site rewrite: both sides are InvocationExpression
                     // nodes rendered as one contiguous projected span each (so the
                     // rewrite check has a single, unambiguous run of characters to
-                    // compare) whose *callee* text actually differs. Comparing only
+                    // compare) whose *callee* text genuinely differs. Comparing only
                     // the callee -- not the full invocation text -- matters: an
                     // argument-only edit (round-7 review, reviewers A and B), such as
                     // `Log(oldValue)` becoming `Log(newValue)`, must not itself license
@@ -511,7 +511,7 @@ public static partial class CSharpBodyDiff
                         && string.Equals(afterCallNode.Kind, "InvocationExpression", StringComparison.Ordinal)
                         && beforeCallNode.Spans.Count == 1
                         && afterCallNode.Spans.Count == 1
-                        && !InvocationCalleeTextEqual(
+                        && InvocationCalleeGenuinelyDiffers(
                             beforeProjection.Document,
                             beforeCallNode,
                             afterProjection.Document,
@@ -898,20 +898,24 @@ public static partial class CSharpBodyDiff
             afterDocument,
             afterNode.Spans);
 
-    // Compares only an InvocationExpression node's callee -- everything
-    // before the argument list's *outer* opening parenthesis -- rather than
-    // its full call text. An argument-only edit (e.g. `Log(oldValue)` ->
+    // Determines whether an InvocationExpression node pair's callee --
+    // everything before the argument list's *outer* opening parenthesis --
+    // genuinely differs. An argument-only edit (e.g. `Log(oldValue)` ->
     // `Log(newValue)`) must not read as a call-site rewrite: the call's
     // target never changed, so it is not evidence that some other
     // declaration in the document was introduced or removed alongside it.
-    // Callers guarantee a single span.
-    static bool InvocationCalleeTextEqual(
+    // Returns false (not evidence of a rewrite) both when the callees are
+    // equal and when either side's callee cannot be reliably identified --
+    // "inconclusive" must never be treated as "differs". Callers guarantee
+    // a single span.
+    static bool InvocationCalleeGenuinelyDiffers(
         AnnotatedSourceDocument beforeDocument,
         AnnotatedSourceNode beforeNode,
         AnnotatedSourceDocument afterDocument,
         AnnotatedSourceNode afterNode)
-        => GetInvocationCalleeText(beforeDocument, beforeNode)
-            .SequenceEqual(GetInvocationCalleeText(afterDocument, afterNode));
+        => TryGetInvocationCalleeText(beforeDocument, beforeNode, out var beforeCallee)
+            && TryGetInvocationCalleeText(afterDocument, afterNode, out var afterCallee)
+            && !beforeCallee.SequenceEqual(afterCallee);
 
     // An InvocationExpression's own text always ends with the closing
     // parenthesis of its argument list, so a balanced backward scan from
@@ -921,29 +925,51 @@ public static partial class CSharpBodyDiff
     // parentheses (round-8 review, reviewers A and B), such as a
     // parenthesized cast receiver (`((IFoo)x).Old()`) or a call-returning
     // receiver (`GetReceiver().Old()`).
-    static ReadOnlySpan<char> GetInvocationCalleeText(AnnotatedSourceDocument document, AnnotatedSourceNode node)
+    //
+    // The scan declines (returns false) rather than guess as soon as it
+    // sees a quote, apostrophe, or comment-start character (round-9 review,
+    // reviewers A and B): a string/char literal or a comment can itself
+    // contain unbalanced or misleading parentheses (e.g. `Log("(")`), which
+    // would otherwise make a plain paren-depth count misidentify the
+    // argument list's true boundary -- either by stopping at a paren inside
+    // literal text, or by never finding a balanced match at all and falling
+    // back to comparing the full invocation text (reintroducing the exact
+    // argument-only false positive round 7 fixed). This is not a full C#
+    // lexer; it simply refuses to trust the scan once literal/comment
+    // content becomes possible, which is a strictly narrower, always-safe
+    // subset of "confidently found the true split".
+    static bool TryGetInvocationCalleeText(
+        AnnotatedSourceDocument document, AnnotatedSourceNode node, out ReadOnlySpan<char> calleeText)
     {
         var span = node.Spans[0];
         var text = document.Text.AsSpan(span.Start, span.Length).TrimEnd();
+        calleeText = default;
         if (text.Length == 0 || text[^1] != ')')
-            return text;
+            return false;
 
         int depth = 0;
         for (int index = text.Length - 1; index >= 0; index--)
         {
-            if (text[index] == ')')
+            char current = text[index];
+            if (current is '"' or '\'' or '/')
+                return false;
+
+            if (current == ')')
             {
                 depth++;
             }
-            else if (text[index] == '(')
+            else if (current == '(')
             {
                 depth--;
                 if (depth == 0)
-                    return text[..index].TrimEnd();
+                {
+                    calleeText = text[..index].TrimEnd();
+                    return true;
+                }
             }
         }
 
-        return text;
+        return false;
     }
 
     internal static bool SelectedTextEqual(
