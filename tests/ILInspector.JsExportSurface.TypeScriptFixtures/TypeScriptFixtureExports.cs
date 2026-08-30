@@ -17,6 +17,7 @@ public sealed record BlobDto(
 
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
+[JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(global::@string), TypeInfoPropertyName = "StringDto")]
 [JsonSerializable(typeof(global::@byte), TypeInfoPropertyName = "ByteDto")]
 [JsonSerializable(typeof(global::KeywordHolder))]
@@ -46,6 +47,12 @@ public static partial class TypeScriptFixtureExports
 
     [JSExport]
     public static string Then(string value) => value;
+
+    [JSExport]
+    public static string GetJsonElement() =>
+        JsonSerializer.Serialize(
+            JsonDocument.Parse("""{"value":"json"}""").RootElement,
+            FixtureJsonContext.Default.JsonElement);
 
     [JSExport]
     public static async Task<string> GetWidgetAsync(

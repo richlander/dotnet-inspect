@@ -25,17 +25,18 @@ const getBlobAsyncKey =
   facadeSource.match(/"(GetBlobAsync\.-?\d+)"/)?.[1];
 const getNullableWidgetAsyncKey =
   facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
-const undefinedKey =
-  facadeSource.match(/"(Undefined\.-?\d+)"/)?.[1];
+const getJsonElementKey =
+  facadeSource.match(/"(GetJsonElement\.-?\d+)"/)?.[1];
 const thenMatch = facadeSource.match(
   /export function (operation_[0-9a-f]+)\(value\) \{\n\s+return [^\n]*\["(Then\.-?\d+)"\]\(value\);\n\}/,
 );
 const thenOperationName = thenMatch?.[1];
 const thenKey = thenMatch?.[2];
-const undefinedOperationName =
-  facadeSource.match(
-    /export function (operation_[0-9a-f]+)\(value\)/,
-  )?.[1];
+const undefinedMatch = facadeSource.match(
+  /export function (operation_[0-9a-f]+)\(value\) \{\n\s+return [^\n]*\["(Undefined\.-?\d+)"\]\(value\);\n\}/,
+);
+const undefinedOperationName = undefinedMatch?.[1];
+const undefinedKey = undefinedMatch?.[2];
 assert.ok(
   configureHostKey,
   "The generated ConfigureHost runtime dispatch key was not found.",
@@ -70,6 +71,10 @@ assert.ok(
   "The generated GetNullableWidgetAsync runtime dispatch key was not found.",
 );
 assert.ok(
+  getJsonElementKey,
+  "The generated GetJsonElement runtime dispatch key was not found.",
+);
+assert.ok(
   undefinedKey,
   "The generated Undefined runtime dispatch key was not found.",
 );
@@ -81,6 +86,11 @@ assert.ok(thenKey, "The generated Then runtime dispatch key was not found.");
 assert.ok(
   thenOperationName,
   "The generated Then facade operation was not found.",
+);
+assert.notEqual(
+  thenOperationName,
+  undefinedOperationName,
+  "Then and Undefined must have distinct facade operations.",
 );
 let importSequence = 0;
 
@@ -127,6 +137,9 @@ function managedExports(methods = {}) {
             [getNullableWidgetAsyncKey]:
               methods.getNullableWidgetAsync
               ?? (async (name) => JSON.stringify({ name, count: 1 })),
+            [getJsonElementKey]:
+              methods.getJsonElement
+              ?? (() => JSON.stringify({ value: "json" })),
             [undefinedKey]:
               methods.undefinedOperation ?? ((value) => value),
             [thenKey]:
@@ -256,6 +269,7 @@ async function freshFacade() {
     await facade.getNullableWidgetAsync("nullable"),
     { name: "nullable", count: 1 },
   );
+  assert.deepEqual(facade.getJsonElement(), { value: "json" });
   assert.equal(facade[undefinedOperationName]("defined"), "defined");
   assert.equal(facade[thenOperationName]("importable"), "importable");
   assert.equal(await facade.runEntryPoint("Main.dll", ["one", "two"]), 37);

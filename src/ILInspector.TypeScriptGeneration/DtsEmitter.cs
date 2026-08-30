@@ -158,6 +158,8 @@ static class DtsEmitter
         IReadOnlyDictionary<ApiType, string>? allocatedTypeNames = null,
         bool includeRawReturnType = true)
     {
+        var effectiveDiagnostics =
+            diagnostics ?? new TsBindGenDiagnostics();
         TypeMappingEnvironment typeEnvironment =
             CreateKnownTypes(
                 surface,
@@ -173,13 +175,15 @@ static class DtsEmitter
             MappedTypeNames(
                 typeEnvironment,
                 function.ReturnTypeReferences);
+        int returnDiagnosticsBefore =
+            effectiveDiagnostics.UnmappedTypes.Count;
 
         string publicReturnType = function.ReturnWireType is { } returnWireType
             ? TsTypeMapper.MapReturnEnvelope(
                 function.ReturnType,
                 returnWireType,
                 typeEnvironment.KnownTypeNames,
-                diagnostics,
+                effectiveDiagnostics,
                 $"{function.Name} return",
                 BlockedAliases(
                     function.ReturnWireTypeReferences,
@@ -195,7 +199,7 @@ static class DtsEmitter
             : TsTypeMapper.MapReturnType(
                 function.ReturnType,
                 typeEnvironment.KnownTypeNames,
-                diagnostics,
+                effectiveDiagnostics,
                 $"{function.Name} return",
                 BlockedAliases(
                     function.ReturnTypeReferences,
@@ -207,7 +211,7 @@ static class DtsEmitter
             ? TsTypeMapper.MapReturnType(
                 function.ReturnType,
                 typeEnvironment.KnownTypeNames,
-                diagnostics,
+                effectiveDiagnostics,
                 $"{function.Name} raw return",
                 BlockedAliases(
                     function.ReturnTypeReferences,
@@ -215,6 +219,9 @@ static class DtsEmitter
                     typeEnvironment.KnownTypeIdentities),
                 rawReturnTypeNames)
             : publicReturnType;
+        bool hasMappedReturn =
+            effectiveDiagnostics.UnmappedTypes.Count
+                == returnDiagnosticsBefore;
         TypeScriptParameterSignature[] parameters =
         [
             .. function.Parameters.Select(parameter =>
@@ -223,7 +230,7 @@ static class DtsEmitter
                     TsTypeMapper.MapParameterType(
                         parameter.Type,
                         typeEnvironment.KnownTypeNames,
-                        diagnostics,
+                        effectiveDiagnostics,
                         $"{function.Name}.{parameter.Name}",
                         BlockedAliases(
                             parameter.TypeReferences,
@@ -233,8 +240,6 @@ static class DtsEmitter
                             typeEnvironment,
                             parameter.TypeReferences)))),
         ];
-        bool hasMappedReturn = publicReturnType != "unknown"
-            && rawReturnType != "unknown";
 
         return new TypeScriptFunctionSignature(
             CamelCase.FromPascalCase(function.Name),

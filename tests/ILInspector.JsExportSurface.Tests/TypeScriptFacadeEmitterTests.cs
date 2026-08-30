@@ -365,6 +365,8 @@ public sealed class TypeScriptFacadeEmitterTests
             function => function.Name == "Undefined");
         JsExportFunction then = surface.Functions.Single(
             function => function.Name == "Then");
+        JsExportFunction jsonElement = surface.Functions.Single(
+            function => function.Name == "GetJsonElement");
         JsExportFunction nullable = surface.Functions.Single(
             function => function.Name == "GetNullableWidgetAsync");
 
@@ -392,6 +394,15 @@ public sealed class TypeScriptFacadeEmitterTests
         Assert.Contains(
             $"readonly \"{then.RuntimeDispatchKey}\": "
                 + "(value: string) => string;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"readonly \"{jsonElement.RuntimeDispatchKey}\": () => string;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function getJsonElement(): unknown {\n"
+                + "  const $result = $requireManagedExports()",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
