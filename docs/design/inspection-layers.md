@@ -1123,19 +1123,15 @@ directly to cleanup. This deliberately accepts that synchronous work already
 in progress may reach its aggregate retained-byte limit before cleanup; caller
 or disposal cancellation is not an alternate partial-cleanup path.
 
-The physical executor is a workspace-owned asynchronous task created before
-the admitting demand's cancellation is attached, after the in-flight entry is
-published. It receives no caller cancellation token. Each demand awaits that
-task through its own cancelable wait, so cancellation can detach promptly
-after the operation reaches a cooperative yield without transferring
-execution ownership. The task runs synchronously only until that yield and
-resumes through the host scheduler; it requires no background thread. The
-current synchronous compatibility API cannot provide this contract. The
-shareable package-role successor in #5122 must expose the asynchronous
-operation consumed here, yield between bounded work units such as selected
-assets, and prove that its supported single-threaded Browser/Wasm path does
-not block the scheduler. Cancellation promptness is bounded by that
-cooperative-yield cadence.
+The physical operation is workspace-owned and independent of every demand's
+cancellation. Its in-flight identity is published atomically before any of its
+work can re-enter admission. Each demand may stop waiting without transferring
+or ending operation ownership. On supported single-threaded Browser/Wasm
+hosts, the operation provides bounded cooperative scheduling opportunities so
+cancellation and workspace lifecycle work can proceed without a background
+thread. The current synchronous compatibility API cannot provide this
+contract; #5122 owns the shareable asynchronous package-role completion and
+its cooperative-progress gate.
 
 A cancellation racing successful lease delivery linearizes as either
 cancellation without a lease or lease delivery followed by the caller's
@@ -1272,9 +1268,9 @@ The target contract remains unimplemented until these named gates land:
 - `PackageRealizationFinalCancellation_CannotAbandonPhysicalOperation`
 - `PackageRealizationCallerCancellation_CannotFailPhysicalOperation`
 - `PackageRealizationCanceledOperation_CanCompleteAndBeReused`
-- `PackageRealizationOperation_IsWorkspaceOwnedAsyncTask`
-- `PackageRealizationOperation_PublishesInFlightBeforeExecutorStarts`
-- `PackageRealizationOperation_YieldsBetweenSelectedAssets`
+- `PackageRealizationOperation_IsWorkspaceOwnedAndCallerIndependent`
+- `PackageRealizationOperation_CannotRunBeforeInFlightPublication`
+- `PackageRealizationOperation_HasBoundedCooperativeProgress`
 - `PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder`
 - `PackageRealizationProjection_RetainedSnapshotPolicyIsExplicit`
 - `PackageRealizationProjection_CannotTerminallyReleaseSharedParticipant`

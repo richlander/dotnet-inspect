@@ -131,9 +131,9 @@ The model also cannot prove that implementation waiting is non-blocking.
 `PackageRealizationAsyncDisposal_NeverBlocksSingleThreadedHost` is the separate
 implementation gate required to show that Browser/Wasm can schedule lease
 return and cleanup through awaited continuations rather than a blocking wait.
-The adjacent #5122 executor gate must also prove cooperative yields between
-bounded work units such as selected assets; cancellation promptness is bounded
-by that yield cadence.
+The adjacent #5122 operation gate must also prove bounded cooperative progress
+on a supported single-threaded host; cancellation promptness is bounded by
+that scheduling cadence.
 
 ## Non-claims
 
