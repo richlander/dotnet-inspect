@@ -17,8 +17,9 @@ A structured C# declaration is composed only from explicitly classified input
 slots. Every slot selects exactly one class from the closed
 [slot value taxonomy](#slot-value-classes): raw identifier, qualified-name
 spelling, namespace identity, type declaration name, type expression, bound
-generic reference, closed syntax, rendered fragment, raw literal value,
-composite subplan, or opaque compatibility.
+generic reference, type-binding evidence, validated declaration evidence,
+closed syntax, rendered fragment, raw literal value, composite subplan, or
+opaque compatibility.
 
 The CSharp owner prepares each non-opaque slot according to that classification
 before composition. It never recovers a slot boundary or provenance fact by
@@ -41,6 +42,17 @@ model-free lexical grammars and identifier policy.
 - accessibilities, modifiers, accessor kinds, and special constraints are C#
   syntax choices; and
 - `ApiMember.Signature` is an opaque compatibility declaration fragment.
+
+The current adjacent handoffs also lack admission evidence required by this
+target. Metadata classifies an `op_` prefix as an operator without retaining
+validated `SpecialName`, staticness, and signature-form evidence.
+`ApiSignature.Accessors` lists only projected C# accessors, so the list does not
+prove that metadata `raise`/`Other` associations were absent. The type printer
+also supplies flattened declared-type names as binding context. None of those
+current shapes can admit `Structured`; the target requires the typed evidence
+cataloged below. Metadata issue
+[#5164](https://github.com/richlander/dotnet-inspect/issues/5164)
+owns the missing operator and complete accessor-aggregate handoff.
 
 The current writer sometimes composes those values structurally and sometimes
 rescans the resulting string with generic-parameter, qualified-keyword, member,
@@ -152,9 +164,14 @@ CSharp consumes Metadata-issued declaration facts:
 - `ApiSignature`, `ApiParameter`, `ApiAccessor`, `TypeParameter`, and typed
   type-reference or type-shape evidence; and
 - caller options that select qualification, import context, declaration
-  abbreviation, attributes, punctuation, and declaration modifiers; and
+  abbreviation, attributes, punctuation, and declaration modifiers;
+- body-owned facts that require declaration modifiers or finalizer spelling,
+  but not body text;
 - a typed declaration context that says whether a type is a root or a child of
-  one exact declaring-type identity.
+  one exact declaring-type identity and carries exact type-binding evidence;
+  and
+- Metadata-issued operator and complete accessor-aggregate evidence required
+  to admit those forms, pending #5164.
 
 These inputs remain owned by Metadata or the caller. The formatter validates
 the declaration context against exact definition-name segments but does not
@@ -171,10 +188,27 @@ would require a separately approved exception.
 The target public result is a closed `CSharpDeclarationResult` with two arms:
 
 - **Rendered** carries `CSharpDeclarationText`, any required exact whole
-  namespace identities, a `Structured` or `Compatibility` mode, and
-  diagnostics.
+  namespace identities, a `CSharpDeclarationReceipt`, a `Structured` or
+  `Compatibility` mode, and diagnostics.
 - **Unavailable** carries a stable reason and diagnostics, but no
   success-shaped empty declaration.
+
+`CSharpDeclarationReceipt` is an immutable public receipt for the exact
+declaration plan. It contains one entry for every consumed slot occurrence,
+including output-affecting closed choices whose selected value emits no text.
+Each typed entry carries a closed `CSharpDeclarationSlotKind` and an immutable
+semantic path made from closed role and ordinal segments, such as the path
+represented by `parameter[1].name` or `accessor[0].kind`. The catalog maps its
+kind to exactly one value class. An entry carries no raw artifact payload and
+is never reconstructed from text or output offsets. Repeated slots therefore
+remain independently observable.
+
+The result constructor validates mode against the receipt and catalog.
+`Structured` requires the complete expected occurrence set for the selected
+form plan and no opaque entry. `Compatibility` requires the complete expected
+occurrence set for its plan, including every opaque boundary that replaces an
+unavailable structured subtree, and at least one opaque entry. Text, mode, and
+receipt cannot be supplied as unrelated assertions.
 
 An exact whole namespace identity preserves an owner-issued namespace string;
 it does not claim segment identity. Typed Metadata evidence or an explicitly
@@ -227,8 +261,9 @@ Issue #5142 owns its replacement or migration together with
   declaration-containment policy required by this target.
 - **CSharpTypePrinter** composes declarations into complete source. Issue #5142
   owns unit, namespace/import, body, initializer, global-attribute, nesting,
-  and aggregate outcome mechanics; this formatter contract supplies its
-  declaration result.
+  punctuation/placement, and aggregate outcome mechanics; this formatter
+  contract supplies every declaration result, including enum-member and
+  fixed-buffer heads.
 - **CLI and other hosts** choose where to display or serialize the result. They
   do not repeat CSharp preparation.
 - **Decompiler and Research** may request or compose declarations but do not
@@ -247,6 +282,8 @@ contain child catalog entries; they do not combine classes in one entry.
 | Type declaration name | Exact root-to-leaf metadata-name segments, introduced generic-parameter counts, and generic-parameter subplans | Validate per-segment arity ownership and the typed placement context, then compose a root's single name or an exact child leaf after parent-chain validation |
 | Type expression | Model-bound type spelling plus all available type/generic-reference evidence | Render or lex within this slot; apply qualification, alias, and identifier policy without inspecting neighboring slots |
 | Bound generic reference | Generic owner plus ordinal and raw declared name | Spell the bound declaration name as an identifier; equal text alone cannot construct this class |
+| Type-binding evidence | Owner-issued exact type-definition identity plus its declared or imported binding context | Use only to decide binding and qualification; a full-name or display string cannot construct this class |
+| Validated declaration evidence | Owner-issued identity, association, or shape evidence whose completeness admits one declaration form | Validate the typed evidence before planning; a name, prefix, loose Boolean, or display spelling cannot stand in for it |
 | Closed syntax | Enum, Boolean, or other bounded choice owned by product code | Map to a fixed keyword, modifier, punctuation, or empty choice; artifact text cannot enter |
 | Rendered fragment | Producer-issued C# expression or attribute fragment whose internal provenance is no longer available | Preserve its syntax and contain it under its fragment contract; never search it for declaration identifiers |
 | Raw literal value | Artifact value that CSharp itself places in a C# literal | Escape according to the selected literal form before composition |
@@ -302,8 +339,8 @@ options" handler does not satisfy the catalog.
 | Lexical shadowing identifier | Raw identifier | each `AdditionalShadowingNames` entry |
 | Root-shadowing identifier | Raw identifier | each `AdditionalRootShadowingNames` entry |
 | Unresolvable-root identifier | Raw identifier | each `AdditionalUnresolvableRootNames` entry |
-| Declared-type binding | Type expression | typed binding evidence corresponding to each `AdditionalDeclaredTypeFullNames` entry |
-| Imported declared-type binding | Type expression | typed binding evidence corresponding to each `AdditionalImportedDeclaredTypeFullNames` entry |
+| Declared-type binding | Type-binding evidence | exact definition identity and lexical context from the typed declaration context; `AdditionalDeclaredTypeFullNames` is compatibility input only |
+| Imported declared-type binding | Type-binding evidence | exact definition identity and import context from the typed declaration context; `AdditionalImportedDeclaredTypeFullNames` is compatibility input only |
 | Known namespace identity | Namespace identity | each typed identity corresponding to `AdditionalKnownNamespaces` |
 | Signature abbreviation mode | Closed syntax | `CSharpFormatOptions.AbbreviateSignature` |
 | Member terminator mode | Closed syntax | `CSharpFormatOptions.TerminateMemberDeclaration` |
@@ -323,8 +360,9 @@ options" handler does not satisfy the catalog.
 | Return attribute | Rendered fragment | `ApiSignature.ReturnAttributes` |
 | Member declaration kind | Closed syntax | `ApiMember.Kind`, constructor name, and exact finalizer discriminator |
 | Signature degradation status | Closed syntax | `ApiMember.SignatureDecodeStatus`; null means no degradation was reported, while `Degraded` refuses rendering |
-| Operator spelling kind | Closed syntax | exact metadata operator name mapped through the bounded operator catalog, including checked and conversion variants |
+| Operator admission and spelling | Validated declaration evidence | Metadata-issued operator evidence containing exact method identity and name, `SpecialName`, staticness, and validated signature form/arity; CSharp maps the admitted name through its bounded operator catalog, including checked and conversion variants |
 | Indexer token selection | Closed syntax | owner-issued `ApiSignature.MemberName == "this[]"` sentinel after property-form validation; literal punctuation in a raw metadata name cannot select it |
+| Complete accessor aggregate | Validated declaration evidence | Metadata-issued aggregate containing every associated semantic role and method identity; only complete get/set/init or add/remove aggregates admit structured C# accessor syntax |
 | Member accessibility | Closed syntax | `ApiMember.Accessibility` |
 | Constant modifier | Closed syntax | `ApiMember.IsConst` |
 | Static member modifier | Closed syntax | `ApiMember.IsStatic` |
@@ -335,6 +373,8 @@ options" handler does not satisfy the catalog.
 | Virtual member modifier | Closed syntax | `ApiMember.IsVirtual` |
 | Unsafe member modifier | Closed syntax | `ApiMember.IsUnsafe` |
 | Async member modifier | Closed syntax | `ApiMember.IsAsync` |
+| Body-required unsafe modifier | Closed syntax | `CSharpMemberBody.RequiresUnsafeModifier` when the public body-aware declaration seam is used |
+| Body-required async modifier | Closed syntax | `CSharpMemberBody.RequiresAsyncModifier` when the public body-aware declaration seam is used |
 | Required-member modifier | Closed syntax | `ApiSignature.IsRequired` |
 | Extension-receiver presence | Closed syntax | `ApiMember.IsExtension` |
 | Return, field, property, or event type | Type expression | `ApiSignature.ReturnType` or `ApiMember.ReturnType`, with typed evidence when available |
@@ -356,9 +396,16 @@ options" handler does not satisfy the catalog.
 | Accessor return attribute | Rendered fragment | `ApiAccessor.ReturnAttributes` |
 | Accessor accessibility | Closed syntax | `ApiAccessor.Accessibility` |
 | Accessor kind | Closed syntax | `ApiAccessor.Kind` |
+| Standalone accessor selection | Validated declaration evidence | typed caller selection bound to one exact child of the member's complete accessor aggregate; an arbitrary `string kind` cannot establish this slot |
 | Finalizer spelling mode | Closed syntax | `SuppressFinalizerSpelling` body-fidelity choice |
 | Synthesized-obsolete presence | Closed syntax | `ApiMember.IsObsolete` |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
+| Enum-member name | Raw identifier | exact enum field name |
+| Fixed-buffer declaration kind | Closed syntax | validated fixed-buffer form rather than an ordinary field |
+| Fixed-buffer evidence | Validated declaration evidence | Metadata-issued source-field identity and decoded `FixedBufferAttribute` evidence |
+| Fixed-buffer element type | Type expression | typed element-type evidence from the validated fixed-buffer form |
+| Fixed-buffer name | Raw identifier | exact source-field name |
+| Fixed-buffer length | Raw literal value | validated positive fixed-buffer length |
 
 ### Compatibility slots
 
@@ -370,6 +417,7 @@ become `Compatibility` merely because a structured handler declined it.
 | Legacy flattened type declaration name | Opaque compatibility | `ApiType.Name` when exact definition-name segments or arity ownership are unavailable |
 | Opaque member declaration | Opaque compatibility | `ApiMember.Signature` when no complete structured signature can be formed |
 | Combined explicit-interface name | Opaque compatibility | combined `ApiMember.Name` or `ApiSignature.MemberName` pending #5114 |
+| Display-derived type-binding context | Opaque compatibility | legacy declared/imported type full-name strings without exact definition identities |
 | Unstructured type constraint | Opaque compatibility | a `TypeParameter.Constraints` entry without structured constraint evidence |
 | Unstructured method constraint | Opaque compatibility | a method `TypeParameter.Constraints` entry without structured constraint evidence |
 
@@ -384,24 +432,26 @@ become `Compatibility` merely because a structured handler declined it.
 | Finalizer with destructor spelling suppressed | Closed body-fidelity selector plus structured `void Finalize()` method head |
 | Ordinary or extension method | Return type, simple name, method generic parameters, parameters, and constraints; extension `this` is closed syntax |
 | Explicit-interface method | Separate qualifier type expression and simple member name; pending #5114, a combined dotted string is compatibility input |
-| Property | Property type, simple name, and accessor list |
-| Property or indexer head with accessors omitted | The corresponding property/indexer head slots plus a closed omission choice; accessor child slots are deliberately absent |
-| Indexer | Property type, closed `this` token, index parameters, and accessor list |
-| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, and accessors; structured mode is pending #5114 |
-| Event | Event type, simple name, and optional explicit-interface qualifier; structured explicit forms are pending #5114 |
+| Property | Property type, simple name, complete accessor aggregate, and accessor children |
+| Property or indexer head with accessors omitted | The corresponding property/indexer head slots, complete accessor aggregate, and a closed omission choice; accessor child slots are deliberately absent |
+| Indexer | Property type, closed `this` token, index parameters, complete accessor aggregate, and accessor children |
+| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, complete accessor aggregate, and accessor children; structured mode is pending #5114 |
+| Event | Event type, simple name, complete accessor aggregate, and optional explicit-interface qualifier; structured explicit forms are pending #5114 |
 | Field or constant | Field type and simple name |
-| Unary, binary, conversion, or checked operator | Metadata operator kind mapped through a closed catalog, typed return/conversion target, and parameters |
+| Enum member | Exact member name; initializer and trailing comma are separate composer children |
+| Fixed-buffer field | Validated fixed-buffer evidence, closed `fixed` form, typed element type, exact field name, and validated length |
+| Unary, binary, conversion, or checked operator | Metadata-issued operator evidence validated from `SpecialName`, staticness, and signature form/arity, then mapped through a closed CSharp catalog with typed return/conversion target and parameters |
 | Delegate | Return type, exact type declaration name, typed root or parent/child placement, generic parameters, parameters, and constraints |
-| Standalone accessor head | Accessor return attributes, accessor-specific accessibility, and closed accessor kind |
+| Standalone accessor head | Typed selection of one exact child in the complete aggregate, accessor return attributes, accessor-specific accessibility, and closed accessor kind |
 | Abbreviated member declaration | The selected member head plus a closed abbreviation choice; omitted parameter-name, default, and accessor child slots are not treated as consumed |
 | Terminated member declaration | The selected member form plus a closed terminator choice |
 
 This table covers the target per-declaration planner, including public
-standalone accessor heads and deliberate declaration abbreviations. It does not
-claim every legacy convenience method currently located on `CSharpFormatter`.
-Compilation units, rendered imports, global attributes, enum-member and
-fixed-buffer special cases, initializers, bodies, and member grouping remain
-with #5142's complete-source composer.
+standalone accessor heads, enum-member and fixed-buffer heads, and deliberate
+declaration abbreviations. It does not claim every legacy convenience method
+currently located on `CSharpFormatter`. Compilation units, rendered imports,
+global attributes, initializers, bodies, enum values, punctuation/placement,
+and member grouping remain with #5142's complete-source composer.
 
 ## Composition rules
 
@@ -415,7 +465,8 @@ with #5142's complete-source composer.
 5. Issue `CSharpDeclarationText` only after every emitted artifact-derived value
    has crossed either a structured slot handler or the contained compatibility
    boundary. Label the result `Structured` only when the complete form plan used
-   structured slots.
+   structured slots. Seal the same plan's occurrence receipt into the result;
+   no separate pass may attest which slots were consumed.
 The structured path therefore forbids:
 
 - applying identifier substitutions to the complete declaration;
@@ -469,7 +520,8 @@ pass:
 
 1. introduce the result, text currency, slot catalog, and compatibility mode;
 2. route currently structured type, constructor, ordinary method, property,
-   event, field, parameter, constraint, and accessor paths through plans;
+   event, field, enum-member, fixed-buffer, parameter, constraint, and accessor
+   paths through plans;
 3. consume #5114's owner-issued explicit-interface handoff before promoting
    those forms;
 4. remove a compatibility repair only after its final form has structured
@@ -488,6 +540,10 @@ Stable reasons include at least:
 - degraded metadata signature;
 - missing explicit-interface boundary;
 - unavailable generic-reference provenance;
+- unavailable exact type-binding evidence;
+- missing or invalid operator admission evidence;
+- incomplete or unsupported accessor aggregate;
+- invalid standalone accessor selection;
 - unsupported declaration kind;
 - invalid closed syntax value; and
 - unsupported rendered fragment.
@@ -498,6 +554,16 @@ placeholder types nor `ApiMember.Signature` may turn it into `Structured` or
 `Compatibility`. Null status carries no degradation assertion, including for
 older persisted models, so the remaining structured or opaque evidence decides
 the outcome normally.
+
+An `op_` method name without validated operator evidence remains an ordinary
+method name when its ordinary method facts are representable; it never selects
+operator syntax. An aggregate containing `raise`, `Other`, an unbound semantic
+method, or a synthesized accessor is not a complete representable C# accessor
+aggregate. It may select `Compatibility` only when Metadata supplied the
+complete contained fallback and CSharp has an explicit opaque declaration
+boundary; otherwise it selects `Unavailable`. A well-formed typed standalone
+accessor selector that does not bind one exact aggregate child likewise selects
+`Unavailable`; an undefined selector enum remains a programmer error.
 
 An `Unavailable` result is not an exception-shaped success and not an empty
 declaration. Programmer errors such as an undefined enum remain argument
@@ -512,13 +578,23 @@ properties remain unverified:
   complete slot-to-value-class map and handler set from the normative code
   catalog and fails for undefined classes, entries that mix value classes, and
   missing or stale slots and handlers.
+- `CSharpDeclarationSlotCatalogTests.PublicDeclarationInputsAndCatalogAgree`
+  derives every output-affecting argument, option, typed context field, and
+  body-to-declaration handoff from public methods that compose a declaration,
+  declaration head, or cataloged declaration subplan. It requires each to map
+  to a cataloged slot or an explicit non-composer exclusion and fails when a
+  convenience adapter bypasses the target result. Slot-local lexical helpers,
+  constructor-initializer fragments, and `FormatTypeUnit` aggregation are
+  enumerated exclusions rather than silently absent methods.
 - `CSharpDeclarationSlotCatalogTests.RenderedModeRequiresExactConsumedSlotSet`
   derives the expected slots for every form from that catalog, compares them
   with the slots actually consumed by the public composition path, and fails
-  for missing, duplicate, stale, or bypassed handlers. `Structured` requires no
-  opaque slot; `Compatibility` requires every used opaque boundary to appear in
-  the receipt and at least one such boundary. Catalog/handler self-consistency
-  alone cannot issue either rendered mode.
+  for missing, duplicate, stale, or bypassed handlers and occurrence paths.
+  It asserts the same exact set through the public
+  `CSharpDeclarationReceipt`. `Structured` requires no opaque slot;
+  `Compatibility` requires every used opaque boundary to appear in the receipt
+  and at least one such boundary. Catalog/handler self-consistency alone cannot
+  issue either rendered mode.
 - `CSharpDeclarationProvenanceTests.StructuredCompositionDoesNotRescanFinalText`
   uses colliding identifiers inside a default literal, attribute argument,
   return type, qualifier, and member name to prove substitutions stay in their
@@ -535,21 +611,42 @@ properties remain unverified:
   `Structured`, `Compatibility`, or `Unavailable` outcome, including
   every type kind and root/nested placement, constructors, properties, indexers,
   events, operators, fields, both finalizer spellings, bases, interfaces,
-  constraints, standalone accessor heads, abbreviated/head-only declarations,
-  and terminated declarations.
+  constraints, standalone accessor heads, enum-member and fixed-buffer heads,
+  abbreviated/head-only declarations, and terminated declarations.
 - `CSharpDeclarationProvenanceTests.ClosedSyntaxSelectorsHaveNeighborCoverage`
   varies each formatter option and metadata discriminator independently,
   including required-member presence, inherited `TypeParameter.TypeKind`,
   parameter-default presence, extension-receiver presence,
   synthesized-obsolete presence and inclusion, operator and indexer selection,
-  signature degradation, abbreviation, accessor omission, attribute inclusion,
-  forced modifiers, and termination;
+  signature degradation, body-required and forced modifiers, abbreviation,
+  accessor omission, standalone accessor selection, attribute inclusion,
+  enum-member and fixed-buffer form selection, and termination;
   each pair must change only its declared slot set and output syntax.
+- `CSharpDeclarationProvenanceTests.OperatorAdmissionRequiresValidatedMetadataEvidence`
+  remains pending on #5164, then
+  uses otherwise identical operator names with and without `SpecialName`,
+  staticness, valid arity, and valid conversion shape. Only Metadata-issued
+  validated evidence can select operator syntax; an `op_` prefix never can.
+- `CSharpDeclarationProvenanceTests.AccessorAggregateMustBeCompleteAndRepresentable`
+  remains pending on #5164, then
+  pairs ordinary getter/setter and add/remove aggregates with metadata
+  `raise`/`Other`, missing association identities, and synthesized fallback
+  accessors. Unsupported or incomplete aggregates select the owning
+  compatibility/degradation outcome rather than structured property or event
+  syntax.
+- `CSharpDeclarationProvenanceTests.StandaloneAccessorSelectionBindsExactChild`
+  proves that each typed selection resolves to one aggregate child and that an
+  absent, mismatched, arbitrary, or undefined kind cannot emit an accessor
+  head.
 - `CSharpDeclarationProvenanceTests.QualificationContextChildrenHaveIndependentReceipts`
   distinguishes containing namespace, caller import, every shadowing set,
   declared/imported type binding, and known namespace evidence. In particular,
   a containing namespace that shortens `N.T` and a caller import that shortens
   the same type produce different receipts and namespace-requirement sets.
+- `CSharpDeclarationProvenanceTests.TypeBindingEvidenceDoesNotComeFromDisplayText`
+  varies `ApiType.Name`, flattened full-name strings, and rendered type text
+  while holding exact definition identities fixed, then varies only the exact
+  identities. Only the latter may change declared/imported binding decisions.
 - `CSharpDeclarationProvenanceTests.NestedTypePlacementDoesNotComeFromDisplayText`
   varies only legacy `Name`/`MetadataName` spellings and proves that the typed
   declaration context selects an exact child leaf while mismatched parent
@@ -596,6 +693,14 @@ properties remain unverified:
 - `CSharpDeclarationProvenanceTests.FinalizerSpellingModePreservesBodyFidelity`
   covers destructor syntax and the structured literal-`Finalize` alternative
   selected when body fidelity suppresses destructor reconstruction.
+- `CSharpDeclarationProvenanceTests.BodyRequiredModifiersHaveIndependentReceipts`
+  varies body-required and formatter-forced `async`/`unsafe` independently and
+  proves each public body-aware declaration result records both selectors
+  without treating body text as a declaration slot.
+- `CSharpDeclarationProvenanceTests.EnumAndFixedBufferHeadsAreFormatterOwned`
+  proves exact enum-member names and fixed-buffer element types, names, and
+  lengths pass through declaration slots. Enum initializers and separators,
+  and fixed-buffer placement, remain separate composer children.
 
 The implementation PR must run the non-pending gates in Release and show the
 CSharp-owned demo's actual output beside a neighboring clean declaration. A
@@ -613,6 +718,7 @@ This owner does not define:
 - CLI section selection, Markdown/JSON rendering, or Markout behavior;
 - API-to-body, accessor, or call-graph correspondence;
 - Decompiler body fidelity or compile-back admission;
+- the Metadata operator/accessor evidence tracked by #5164;
 - `CSharpTypePrinter` request-tree, compilation-unit, namespace/import, global
   attribute, initializer, body-fragment, or aggregate outcome mechanics tracked
   by #5142;
