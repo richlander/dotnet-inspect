@@ -303,7 +303,7 @@ run_clean() {
   local config=$1 module=$2 metadir="$TLA_METADIR/$1"
   mkdir -p "$metadir"
   java -XX:+UseParallelGC -cp "$TLA_TOOLS/tla2tools.jar" tlc2.TLC \
-    -workers auto -metadir "$metadir" -cleanup \
+    -workers auto -metadir "$metadir" -cleanup -noGenerateSpecTE \
     -config "$config.cfg" "$module.tla"
 }
 

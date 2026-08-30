@@ -154,8 +154,10 @@ retains ambiguous handles with amortized-linear growth. Existing signature,
 custom-attribute, serialized-name, and metadata-relationship guards bound
 recursive or allocated decoding.
 
-Exhausting a bound rejects the index with `BudgetExceeded`; malformed SRM data
-rejects it with `Malformed`. Neither becomes an empty successful index.
+Exhausting a bound makes valid keyed queries reject with `BudgetExceeded`;
+malformed SRM data makes them reject with `Malformed`. Neither keyed path
+becomes `Absent`. `Relationships` carries no failure status; see
+[C2](#c2--keyed-failure-queries-are-never-success-shaped).
 `StateMachineRelationshipIndex_PropagatesTypedBudgetFailure` and
 `StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`,
 `StateMachineRelationshipIndex_ReportsTypeDefNameBudget`, and
