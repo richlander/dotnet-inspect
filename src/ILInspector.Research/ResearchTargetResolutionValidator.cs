@@ -444,6 +444,20 @@ static class ResearchTargetResolutionValidator
 
         if (declaringTypes.Count == 0)
         {
+            if (forwarders == 1 || nestedUnderForwarder)
+            {
+                RequireNoMetadataResolution(evidence);
+                Require(
+                    outcome is ResearchTargetOutcome.Unavailable
+                    {
+                        Diagnostic.Kind:
+                            ResearchTargetDiagnosticKind
+                                .DeclaringTypeForwarded,
+                    },
+                    "Retained forwarding evidence must terminate Unavailable.");
+                return;
+            }
+
             if (FindPotentiallyCoveringFailure(
                     surface,
                     intent) is not null)
@@ -455,29 +469,15 @@ static class ResearchTargetResolutionValidator
                 return;
             }
 
-            if (forwarders == 1 || nestedUnderForwarder)
-            {
-                Require(
-                    outcome is ResearchTargetOutcome.Unavailable
-                    {
-                        Diagnostic.Kind:
-                            ResearchTargetDiagnosticKind
-                                .DeclaringTypeForwarded,
-                    },
-                    "An exact type forwarder must terminate Unavailable.");
-            }
-            else
-            {
-                Require(
-                    outcome is ResearchTargetOutcome.NotFound
-                    {
-                        MetadataDiagnostic: null,
-                        ResearchDiagnostic.Kind:
-                            ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
-                        Candidates.IsEmpty: true,
-                    },
-                    "A complete surface with no type or forwarder must retain declaring-type absence.");
-            }
+            Require(
+                outcome is ResearchTargetOutcome.NotFound
+                {
+                    MetadataDiagnostic: null,
+                    ResearchDiagnostic.Kind:
+                        ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
+                    Candidates.IsEmpty: true,
+                },
+                "A complete surface with no type or forwarder must retain declaring-type absence.");
 
             Require(
                 evidence.DeclaringType is null

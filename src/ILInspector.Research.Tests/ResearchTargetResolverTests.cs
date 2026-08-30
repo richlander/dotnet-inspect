@@ -1360,6 +1360,32 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
+    public void ResearchTargetForwarder_RetainedEvidencePrecedesUnscopedFailure()
+    {
+        byte[] image = BuildMalformedForwarderImage(
+            includeLocalType: false,
+            validForwarder: "Forwarded");
+        ApiSurface surface = ExtractSurface(image);
+        Assert.Equal(
+            "N.Forwarded",
+            Assert.Single(surface.TypeForwarders).TypeName);
+        Assert.Equal(
+            ApiSurfaceInspectionFailure.TypeForwarderIdentityOperation,
+            Assert.Single(surface.InspectionFailures).Operation);
+
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+        var unavailable = Assert.IsType<ResearchTargetOutcome.Unavailable>(
+            Assert.Single(
+                fixture.ResolveDefault(
+                    "N.Forwarded",
+                    "M").Attempts).Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeForwarded,
+            unavailable.Diagnostic.Kind);
+    }
+
+    [Fact]
     public void ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening()
     {
         // A reference-only input is never opened: its descriptor throws if it
@@ -2186,17 +2212,23 @@ public class ResearchTargetResolverTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildMalformedForwarderImage()
+    static byte[] BuildMalformedForwarderImage(
+        bool includeLocalType = true,
+        string? validForwarder = null)
     {
         MetadataBuilder metadata = CreatePartialSurfaceMetadata();
-        metadata.AddTypeDefinition(
-            TypeAttributes.Public,
-            metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("C"),
-            baseType: default,
-            fieldList: MetadataTokens.FieldDefinitionHandle(1),
-            methodList: MetadataTokens.MethodDefinitionHandle(1));
-        AddAbstractMethod(metadata, "M", ValidMethodSignature(metadata));
+        if (includeLocalType)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            AddAbstractMethod(metadata, "M", ValidMethodSignature(metadata));
+        }
+
         AssemblyReferenceHandle target = metadata.AddAssemblyReference(
             metadata.GetOrAddString("ForwarderTarget"),
             new Version(1, 0, 0, 0),
@@ -2204,10 +2236,20 @@ public class ResearchTargetResolverTests
             publicKeyOrToken: default,
             flags: default,
             hashValue: default);
+        if (validForwarder is not null)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public | Forwarder,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(validForwarder),
+                target,
+                typeDefinitionId: 0);
+        }
+
         metadata.AddExportedType(
             TypeAttributes.Public | Forwarder,
             metadata.GetOrAddString("N"),
-            metadata.GetOrAddString("C"),
+            metadata.GetOrAddString("Broken"),
             target,
             typeDefinitionId: 0);
 
@@ -2218,6 +2260,8 @@ public class ResearchTargetResolverTests
         int typeNameOffset =
             pe.PEHeaders.MetadataStartOffset
             + reader.GetTableMetadataOffset(TableIndex.ExportedType)
+            + ((reader.GetTableRowCount(TableIndex.ExportedType) - 1)
+                * reader.GetTableRowSize(TableIndex.ExportedType))
             + sizeof(uint)
             + sizeof(uint);
         BinaryPrimitives.WriteUInt16LittleEndian(

@@ -592,6 +592,12 @@ public static class ResearchTargetResolver
 
         if (declaringTypes.Count == 0)
         {
+            if (forwarders == 1 || nestedUnderForwarder)
+            {
+                return Unavailable(
+                    ResearchTargetDiagnosticKind.DeclaringTypeForwarded);
+            }
+
             if (FindPotentiallyCoveringFailure(
                     surface,
                     intent) is not null)
@@ -600,14 +606,11 @@ public static class ResearchTargetResolver
                     ResearchTargetDiagnosticKind.IncompleteMetadataSurface);
             }
 
-            return forwarders == 1 || nestedUnderForwarder
-                ? Unavailable(
-                    ResearchTargetDiagnosticKind.DeclaringTypeForwarded)
-                : new ResearchTargetOutcome.NotFound(
-                    metadataDiagnostic: null,
-                    new ResearchTargetDiagnostic(
-                        ResearchTargetDiagnosticKind.DeclaringTypeAbsent),
-                    candidates: []);
+            return new ResearchTargetOutcome.NotFound(
+                metadataDiagnostic: null,
+                new ResearchTargetDiagnostic(
+                    ResearchTargetDiagnosticKind.DeclaringTypeAbsent),
+                candidates: []);
         }
 
         ApiType declaring = declaringTypes[0];
