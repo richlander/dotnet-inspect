@@ -2,17 +2,21 @@
 
 This TLA+ model is the executable interaction companion to
 [Platform composition and overlays](../../platform-composition-and-overlays.md).
-It explores how one already-collected candidate set is resolved when designated
-and platform assemblies can both satisfy a reference, and how version-skew
-evidence affects traversal when the loaded platform can or cannot satisfy a
-requested member.
+It explores how one closed participant set and its owner-issued workspace-role
+snapshot are validated and resolved when designated and platform assemblies can
+both satisfy a reference. It also checks how version-skew evidence affects
+traversal when the loaded platform can or cannot satisfy a requested member.
 
 The model exists to answer interaction questions that are difficult to settle
 from prose:
 
 - Does designation outrank platform independently of candidate registration
   order?
-- Can incidental version equality change which provenance wins?
+- Does missing, foreign-generation, stale, replayed, wrong-group, incomplete,
+  extra, or contradictory role evidence reject the whole binding snapshot
+  before selection?
+- Can an invalid snapshot recover authority from legacy candidate classes?
+- Can incidental version equality change which role wins?
 - Does an unruled tie become a visible ambiguity rather than a silent pick?
 - Is every entitled candidate passed over by a successful selection recorded
   as shadowed evidence?
@@ -29,22 +33,37 @@ from prose:
 The model is owned by the precedence and compatibility rules in
 `platform-composition-and-overlays.md`. It abstracts the candidate enumeration
 and first-match behavior currently found in
-`AssemblyDependencyResolver.ResolveCore`, the provenance mapping that
-classifies caller-enumerated corpus paths as designated, and the typed binding
-selection returned to traversal.
+`AssemblyDependencyResolver.ResolveCore`, the workspace-issued role mapping
+required by the target policy, and the typed binding selection returned to
+traversal.
 
-The four bounded candidates are:
+The four bounded participant registrations have these valid-snapshot roles:
 
-- two designated candidates, allowing an unruled same-precedence tie;
-- one platform candidate; and
-- one identity-matching but unentitled candidate.
+- two registrations carry `CallerDesignated`, allowing an unruled same-role
+  tie;
+- one registration carries `PlatformAuthorized`; and
+- one identity-matching registration carries neither authority role.
 
 Candidates register in every possible order and loading may close after any
-subset. Resolution runs only after the set closes. Two references share the
-same bindable candidates but carry different incidental version-equality facts:
-one happens to match the platform candidate and one the designated candidates.
-The policy selection deliberately ignores that equality; the version mutation
-does not.
+subset. Loading then forms one immutable role snapshot in one of nine bounded
+conditions: valid, missing, foreign-generation, stale-generation, replayed,
+wrong-group, incomplete, extra, or contradictory. The valid snapshot's group,
+generation, and domain exactly match the closed registration set. Every invalid
+condition must reject resolution as `InvalidRoleEvidence`; the role-fallback
+mutation instead recovers the legacy candidate classes and must fail.
+After snapshot formation, every transition preserves its group, generation,
+domain, and assignments unchanged.
+
+Source provenance is deliberately absent from the policy inputs. The model
+therefore has no operation by which provenance, path, or metadata identity can
+mint either authority role. Role assignments are functions rather than
+sequences, so role-projection enumeration order has no modeled semantics.
+Candidate registration order remains fully explored.
+
+Two references share the same bindable candidates but carry different
+incidental version-equality facts: one happens to match the platform candidate
+and one the designated candidates. The policy selection deliberately ignores
+that equality; the version mutation does not.
 
 The skewed reference represents an overlay known to target a newer closure than
 the available platform. Two abstract member requests cross each reference: one
@@ -57,12 +76,16 @@ known skew, the unavailable member produces `Missing`.
 
 The checked model assumes:
 
-- candidate acquisition has completed before resolution;
+- participant acquisition and workspace admission complete before snapshot
+  formation and resolution;
+- the context owner supplies one immutable generation identity, closed
+  participant set, and role mapping;
 - adjacent owners have already supplied immutable candidate identity,
-  provenance, entitlement, version-skew, and member-availability facts;
+  version-skew, and member-availability facts;
 - every modeled candidate has the requested simple name and is bindable under
   the adjacent identity policy;
-- `DesignatedAsset` and `PlatformAsset` are the only entitled provenance kinds;
+- only `CallerDesignated` and `PlatformAuthorized` participate in this
+  arbitration, and one registration cannot validly carry both;
 - traversal requests one member that is available in the platform and one that
   is unavailable; and
 - newer-overlay/older-platform skew is evidence used to attribute an
@@ -71,21 +94,25 @@ The checked model assumes:
 Artifact acquisition, filesystem discovery, PE and metadata decoding, identity
 matching, framework parsing, warning presentation, type lookup, and every
 compatibility dimension other than the abstract skew and availability
-relations are outside the model. The model does not change or validate the
-entitlement rule. TLC results establish properties of this state machine under
-the stated assumptions and bounds, not properties of the shipped
-implementation. Formal model-to-implementation correspondence is unverified.
+relations are outside the model. Workspace admission remains responsible for
+granting roles; the model validates only the closed snapshot shape consumed by
+binding. It does not model legacy provenance values, policy-version object
+identity, group disposal, or source-lease lifetime. TLC results establish
+properties of this state machine under the stated assumptions and bounds, not
+properties of the shipped implementation. Formal model-to-implementation
+correspondence is unverified.
 
 ## Checked configurations
 
 | Configuration | Purpose |
 | --- | --- |
-| `PlatformOverlayResolutionSafety.cfg` | Explores every candidate subset and registration order. Checks type safety, entitlement, selection/failure consistency, designated precedence, visible ambiguity, shadow evidence, order independence, version independence, load warning, successful available traversal, attributed unavailable traversal under skew, and ordinary missing traversal without skew. |
+| `PlatformOverlayResolutionSafety.cfg` | Explores every candidate subset, registration order, and constructible role-evidence condition. Checks type safety, snapshot-role selection, rejection of invalid evidence, selection/failure consistency, designated precedence, visible ambiguity, shadow evidence, order independence, version independence, load warning, successful available traversal, attributed unavailable traversal under skew, and ordinary missing traversal without skew. |
 | `PlatformOverlayResolutionLiveness.cfg` | Checks that every candidate-registration prefix eventually closes, resolves, and traverses under weak fairness. |
 | `PlatformOverlayResolutionBrokenOrder.cfg` | Replaces policy selection with first-registered selection. It must violate `SelectionIsOrderIndependent`. |
 | `PlatformOverlayResolutionBrokenVersion.cfg` | Lets a version-equal platform candidate outrank a designated candidate. It must violate `ReferenceVersionDoesNotChangeWinner`. |
 | `PlatformOverlayResolutionBrokenSkewRejection.cfg` | Rejects an available member solely because skew is known. It must violate `AvailableTraversalSucceeds`. |
 | `PlatformOverlayResolutionBrokenSilent.cfg` | Converts an attributed compatibility failure into `Missing`. It must violate `UnavailableSkewIsAttributed`. |
+| `PlatformOverlayResolutionBrokenRoleFallback.cfg` | Accepts invalid role evidence by recovering the legacy candidate classes. It must violate `InvalidRoleEvidenceIsRejected`. |
 
 All configurations disable TLC's deadlock check because `Traversed` is an
 intentional terminal phase. The temporal specification permits stuttering in
@@ -135,6 +162,11 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 1 -cleanup -noGenerateSpecTE \
   -config PlatformOverlayResolutionBrokenSilent.cfg \
   PlatformOverlayResolution.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config PlatformOverlayResolutionBrokenRoleFallback.cfg \
+  PlatformOverlayResolution.tla
 ```
 
 ## Recorded result
@@ -143,24 +175,26 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 260 | 260 | 8 | All 12 invariants passed. |
-| Liveness | 260 | 260 | 8 | `ResolutionConverges` passed. |
+| Safety | 2,603 | 2,603 | 8 | All 14 invariants passed. |
+| Liveness | 2,603 | 2,603 | 8 | `ResolutionConverges` passed. |
 
-The state graph contains all 65 registration prefixes in each of the
-`Registering`, `Loaded`, `Resolved`, and `Traversed` phases. Safety-run action
-coverage was 64 `Register` transitions and 65 transitions each for
-`FinishLoad`, `Resolve`, and `Traverse`. In particular, warning, available
-traversal, unavailable attributed failure, and ordinary missing expressions
-had nonzero coverage.
+The state graph contains all 65 registration prefixes. Every prefix forms valid,
+missing, foreign-generation, stale-generation, replayed, or wrong-group role
+evidence; non-empty prefixes also form every incomplete and contradictory
+witness, and non-full prefixes form every extra registration witness. Each
+formed snapshot reaches `Resolved` and `Traversed`. The positive checks
+therefore cover both successful role-based arbitration and atomic rejection of
+every modeled invalid evidence class.
 
 Each mutation exited with TLC status 12 on its intended invariant:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
-| Broken order | 69 / 69 | 5 | Registration `<<DesignatedOne, DesignatedTwo>>` silently selected `DesignatedOne`, violating `SelectionIsOrderIndependent` instead of reporting the unruled tie. |
-| Broken version | 74 / 74 | 5 | With `DesignatedOne` and `Platform`, the exact reference selected `Platform` while the skewed reference selected `DesignatedOne`, violating `ReferenceVersionDoesNotChangeWinner`. |
-| Broken skew rejection | 138 / 138 | 6 | With `DesignatedOne` and `Platform`, skew caused an available member to return `CompatibilityFailure`, violating `AvailableTraversalSucceeds`. |
-| Broken silent failure | 138 / 138 | 6 | With `DesignatedOne` and `Platform`, an unavailable member under skew returned `Missing`, violating `UnavailableSkewIsAttributed`. |
+| Broken order | 332 / 332 | 5 | Registration `<<DesignatedOne, DesignatedTwo>>` silently selected `DesignatedOne`, violating `SelectionIsOrderIndependent` instead of reporting the unruled tie. |
+| Broken version | 372 / 372 | 5 | With `DesignatedOne` and `Platform`, the exact reference selected `Platform` while the skewed reference selected `DesignatedOne`, violating `ReferenceVersionDoesNotChangeWinner`. |
+| Broken skew rejection | 948 / 948 | 6 | With `DesignatedOne` and `Platform`, skew caused an available member to return `CompatibilityFailure`, violating `AvailableTraversalSucceeds`. |
+| Broken silent failure | 948 / 948 | 6 | With `DesignatedOne` and `Platform`, an unavailable member under skew returned `Missing`, violating `UnavailableSkewIsAttributed`. |
+| Broken role fallback | 73 / 73 | 3 | A missing snapshot resolved as ordinary `NoMatch` instead of `InvalidRoleEvidence`; non-empty prefixes can additionally recover designated or platform selection from the legacy classes. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
 `2026.08.21.155922` revision `9787e65`. The checked

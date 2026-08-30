@@ -333,6 +333,12 @@ data and trivially forgeable, so neither can be evidence.
 | **Project output** | `ProjectAsset` | **Rejected.** | Build output is authored by the project under inspection. |
 | **Embedded** | `EmbeddedAsset` | **Rejected.** | Carried inside another artifact, so its closure is whatever that artifact chose to carry. |
 
+This table describes the current provenance carrier and the acquisition facts
+from which workspace admission decides whether to grant authority. It is not
+the target binding-policy input. In the target architecture, admission applies
+these rules once and issues workspace roles; binding never reconstructs a role
+from provenance, a path, metadata identity, or display text.
+
 `MayMint` entitles the first two arms and denies the rest;
 `EveryAcquisitionIsClassified_AndExactlyTwoAreEntitled` enumerates every
 acquisition the product can express and requires exactly that split. Note which
@@ -488,53 +494,136 @@ incompletely. That is **inherent** to overlaying: the missing information does
 not exist in the workspace. The requirement is that it be attributed, not that
 it be avoided.
 
-## Precedence between entitled candidates
+## Precedence from workspace roles
 
-Entitlement admits `{PlatformAsset, DesignatedAsset}`. It settles *whether* a
-candidate may be used and says nothing about *which* of two entitled candidates
-to prefer. Load a platform and a designated build copy of the same assembly, and
-both can satisfy the same reference.
+Policy formation consumes one sealed `AssemblyContextGroup` and the immutable
+registration-to-role projection issued by the
+[explicit assembly-context realization](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context).
+The workspace owner remains the only role assigner. The platform owner
+validates the handoff and creates one `AssemblyBindingRoleSnapshot` that binds
+the group, its context generation, and the exact workspace-role set for every
+participant's `AssemblyAcquisitionRegistration`.
 
-The precedence rule for this case is simple: **when resolving a reference that
-can bind to both, the binding policy selects the participant backed by the
-designated artifact over the participant backed by the platform artifact**.
-For a designated participant in this arbitration, assembly version is
-descriptive rather than an eligibility barrier, including when no matching
-platform participant is present. Platform participants retain the resolver's
-existing version policy, and an enabled installed-platform fallback
-participates under that policy. The existing assembly-name, culture, and
-public-key-token constraints remain binding, including their existing omitted
-value semantics; identity comes from metadata rather than the designated
-file's name. This exception is limited to the designated/platform name-owning
-domain; it does not weaken identity matching or promote package, project,
-sibling, discovered, or other non-designated candidates.
+The snapshot is the platform-owned, read-only input to selection. Formation
+also mints one `AssemblyBindingPolicyVersion`; roles are not supplied or
+recomputed per binding request. The operation accepts the constrained
+owner-issued projection envelope, not an arbitrary caller-built dictionary.
+It returns either a ready snapshot and policy or typed `InvalidRoleEvidence`;
+there is no partially usable policy.
 
-The selection answer retains every other eligible entitled candidate as typed
-shadow evidence, so consumers can explain the composition without reconstructing
-policy from enumeration order. A shadowed candidate is evidence, not an active
-participant.
-That gives every acquisition system the same well-defined graph to compose
-with; it does not require specifying the current resolver's case-by-case
-accidents. Any other tie between entitled candidates needs its own stated rule
-or a diagnostic rather than a silent pick. Multiple eligible designated
-candidates remain ambiguous rather than being chosen by registration order.
+The snapshot is valid only when:
 
-The designated-precedence cases in `AssemblyDependencyResolverTests` gate
-version and registration-order independence, identity constraints, typed
-ambiguity and shadow evidence, same-path provenance, and preservation of
-unrelated name-owning tiers. The
-`SharedCatalog_ReusesBindingManifestAndShadowsAcrossGenerations` and
-`BindingFailure_PreservesShadowsWithoutOpeningThem` tests gate shadow
-propagation without activating the shadow descriptor.
+- its issuing context generation and group are the ones being bound;
+- its registration domain is exactly the complete group participant set, with
+  no missing or extra registration;
+- every mapped role set is the exact owner-issued set for that registration;
+  and
+- no registration carries both `CallerDesignated` and
+  `PlatformAuthorized`.
+
+Missing evidence, a foreign or ended generation, a group mismatch, incomplete
+or extra registration coverage, or contradictory authority roles rejects
+policy formation as typed `InvalidRoleEvidence`. Rejection publishes no usable
+policy version and cannot fall back to source provenance. An empty role set is
+valid for an ordinary participant; it grants no designated or platform
+authority.
+
+For one valid snapshot, candidate classification is exact:
+
+- `CallerDesignated` makes that registration a designated candidate;
+- `PlatformAuthorized` makes that registration a platform candidate; and
+- provenance, path, filename, assembly name, public key, and every other role
+  grant neither classification.
+
+The adjacent assembly-identity policy first establishes which candidates can
+bind by name, culture, public-key token, scope, and its existing omitted-value
+semantics. Within the resulting designated/platform arbitration domain, one
+eligible designated candidate outranks every eligible platform candidate.
+Assembly version is descriptive for designated eligibility, including when no
+platform candidate is present. Platform candidates retain the existing
+platform-version policy, including an enabled installed-platform fallback.
+Unrelated package, project, sibling, discovered, or other name-owning tiers and
+their typed failures remain outside this arbitration and cannot be bypassed by
+a role-bearing candidate.
+
+A selected designated registration retains every otherwise eligible platform
+registration as typed inactive-shadow evidence. A shadow is explanatory
+evidence, not an active participant, and selection does not open it. Multiple
+eligible designated registrations remain a typed same-role ambiguity rather
+than being chosen by registration or role-projection order. When no designated
+registration is eligible, the existing platform selection, ambiguity, and
+failure behavior is unchanged. Reversing either participant or role-projection
+enumeration cannot change the selected registration, shadows, ambiguity, or
+failure.
+
+The policy version is binding-consistent with exactly that group and role
+snapshot. Repeated equal requests under the version return the same selection
+instance. A different group, context generation, registration set, or role set
+requires a different policy version; evidence cannot be rebound or mixed
+across versions.
+
+### Migration boundary
+
+The target architecture has one authority input:
+`AssemblyBindingRoleSnapshot`. `AssemblyResolutionProvenance.DesignatedAsset`
+and `PlatformAsset` describe the current implementation baseline but are not a
+second target policy mode. During implementation, their existing selection
+behavior may remain as a test oracle while callers move to explicit context
+realization, but no runtime adapter may translate those values into workspace
+roles or let them authorize a role-based candidate.
+
+The migration is complete only when every target binding-policy construction
+uses the owner-issued snapshot and no designated/platform selection branch
+reads provenance. The old #4593 fixtures must run against the replacement
+policy to prove equivalent selection, ambiguity, shadow, and failure outcomes;
+the provenance-based implementation is then retired as an authority path.
+Provenance may remain attached for source diagnostics and presentation. This
+design does not widen `AssemblyResolutionProvenance` or add another
+authority-bearing field to it.
+
+### Required implementation gates
+
+- `WorkspaceRoleBinding_ExactDesignatedOutranksPlatformAndRetainsShadow`
+  proves exact-role classification, designated precedence, version
+  independence, and inactive platform shadow evidence.
+- `WorkspaceRoleBinding_RegistrationAndProjectionOrderDoNotChangeOutcome`
+  reverses both input orders for selection, ambiguity, shadow, and failure
+  cases.
+- `WorkspaceRoleBinding_SameRoleDesignationsRemainAmbiguous` proves two
+  eligible designated registrations are never selected by order.
+- `WorkspaceRoleBinding_NonAuthorityFactsCannotGrantRoles` derives path,
+  provenance, metadata-name, public-key, and unrelated-role cases from one
+  declaration and proves none becomes designated or platform-authorized.
+- `WorkspaceRoleBinding_InvalidRoleEvidenceRejectsWithoutFallback` derives
+  absent-snapshot, foreign-generation, ended-generation, wrong-group,
+  missing-registration, extra-registration, duplicate-input, and contradictory
+  evidence cases and proves no policy version, selection, shadow, or
+  provenance fallback survives.
+- `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
+  one immutable snapshot returns stable answers and any group, generation,
+  registration, or role change requires a new version.
+- `WorkspaceRoleBinding_LegacyAndRoleFixturesProduceEquivalentOutcomes`
+  runs every #4593 precedence and failure fixture against the replacement
+  policy, using the current implementation only as a test oracle.
+- `WorkspaceRoleBinding_ProvenanceCannotAuthorizeOrTranslateRoles` closes the
+  target policy implementation over workspace roles and proves no runtime
+  provenance conversion, authority branch, or fallback edge remains.
+- `WorkspaceRoleBinding_InactiveShadowsAreNeverOpened` proves successful and
+  failed selections retain descriptor evidence without activating a shadow.
+- `WorkspaceRoleBinding_IsPortableAndLoadFree` runs the policy on
+  Browser/Wasm and NativeAOT and closes its implementation over no filesystem,
+  package, reflection-only-load, or inspected-assembly-loading dependency.
 
 ### Executable interaction model
 
 The
 [platform overlay resolution model](models/platform-overlay-resolution/README.md)
-explores candidate registration order, designated/platform arbitration,
-unruled ties, shadow evidence, incidental version equality, and attributed
-compatibility failure at traversal. Its assumptions, bounds, checked properties,
-and mutation controls are recorded beside the executable specification.
+explores role-snapshot formation and validation, candidate registration order,
+designated/platform arbitration, unruled ties, shadow evidence, incidental
+version equality, and attributed compatibility failure at traversal. Source
+provenance is absent from the model's selection inputs. Its assumptions,
+bounds, checked properties, and mutation controls are recorded beside the
+executable specification.
 
 TLC results are evidence about the model, not the implementation. Formal
 model-to-implementation correspondence remains unverified.
