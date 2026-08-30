@@ -23,13 +23,15 @@ CONSTANTS
     MaxLeases,
     AllowAdmissionAfterClose,
     AllowLeaseAfterClose,
-    AllowWrongReleaseAuthority,
+    AllowWrongDirectReleaseAuthority,
+    AllowWrongCoordinatedReleaseAuthority,
     AllowReleaseWithActiveLease,
     AllowReleaseBeforeGroupQuiescence,
     AllowLatePublication,
     AllowEarlyWorkspaceCompletion,
     AllowCleanupOmission,
-    AllowDoubleRelease
+    AllowDoubleRelease,
+    AllowStrandedNoGroupCompletion
 
 ASSUME
     /\ Groups # {}
@@ -38,18 +40,21 @@ ASSUME
     /\ MaxLeases \in Nat \ {0}
     /\ AllowAdmissionAfterClose \in BOOLEAN
     /\ AllowLeaseAfterClose \in BOOLEAN
-    /\ AllowWrongReleaseAuthority \in BOOLEAN
+    /\ AllowWrongDirectReleaseAuthority \in BOOLEAN
+    /\ AllowWrongCoordinatedReleaseAuthority \in BOOLEAN
     /\ AllowReleaseWithActiveLease \in BOOLEAN
     /\ AllowReleaseBeforeGroupQuiescence \in BOOLEAN
     /\ AllowLatePublication \in BOOLEAN
     /\ AllowEarlyWorkspaceCompletion \in BOOLEAN
     /\ AllowCleanupOmission \in BOOLEAN
     /\ AllowDoubleRelease \in BOOLEAN
+    /\ AllowStrandedNoGroupCompletion \in BOOLEAN
 
 DirectGroups == Groups \ CoordinatedGroups
 
 WorkspaceStates == {"Open", "Closing", "Closed"}
 BuildStates == {"NotStarted", "InFlight", "Finished"}
+BuildOutcomes == {"None", "Group", "Failed", "Canceled"}
 GroupStates ==
     {"Absent", "Published", "ReleaseOnly", "ReleaseRequested", "Released"}
 ReleaseOwners == {"None", "Workspace", "Completion"}
@@ -59,6 +64,7 @@ ReportEntries == {"None", "Succeeded", "Failed"}
 VARIABLES
     workspaceState,
     buildState,
+    buildOutcome,
     groupState,
     leaseCount,
     groupBusy,
@@ -78,17 +84,22 @@ VARIABLES
     cleanupVisibilityWitness,
     directReleaseObserved,
     coordinatedDrainObserved,
+    ownerFirstReleaseObserved,
+    postCloseLeaseWorkObserved,
+    noGroupCompletionObserved,
     lateCleanupObserved,
     cleanupFailureObserved
 
 vars == <<
-    workspaceState, buildState, groupState, leaseCount, groupBusy,
+    workspaceState, buildState, buildOutcome, groupState, leaseCount, groupBusy,
     releaseOwner, releaseStarts, cleanupOutcome, reportEntry, lateGroup,
     disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
     authorityWitness, leaseDrainWitness, lateRoutingWitness,
     groupQuiescenceWitness, workspaceCompletionWitness,
     cleanupVisibilityWitness, directReleaseObserved,
-    coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+    coordinatedDrainObserved, ownerFirstReleaseObserved,
+    postCloseLeaseWorkObserved, noGroupCompletionObserved,
+    lateCleanupObserved, cleanupFailureObserved
     >>
 
 KnownGroups ==
@@ -109,6 +120,7 @@ CompleteReport ==
 TypeOK ==
     /\ workspaceState \in WorkspaceStates
     /\ buildState \in [Groups -> BuildStates]
+    /\ buildOutcome \in [Groups -> BuildOutcomes]
     /\ groupState \in [Groups -> GroupStates]
     /\ leaseCount \in [Groups -> 0..MaxLeases]
     /\ groupBusy \in [Groups -> BOOLEAN]
@@ -128,12 +140,16 @@ TypeOK ==
     /\ cleanupVisibilityWitness \in BOOLEAN
     /\ directReleaseObserved \in BOOLEAN
     /\ coordinatedDrainObserved \in BOOLEAN
+    /\ ownerFirstReleaseObserved \in BOOLEAN
+    /\ postCloseLeaseWorkObserved \in BOOLEAN
+    /\ noGroupCompletionObserved \in BOOLEAN
     /\ lateCleanupObserved \in BOOLEAN
     /\ cleanupFailureObserved \in BOOLEAN
 
 Init ==
     /\ workspaceState = "Open"
     /\ buildState = [g \in Groups |-> "NotStarted"]
+    /\ buildOutcome = [g \in Groups |-> "None"]
     /\ groupState = [g \in Groups |-> "Absent"]
     /\ leaseCount = [g \in Groups |-> 0]
     /\ groupBusy = [g \in Groups |-> FALSE]
@@ -153,6 +169,9 @@ Init ==
     /\ cleanupVisibilityWitness = TRUE
     /\ directReleaseObserved = FALSE
     /\ coordinatedDrainObserved = FALSE
+    /\ ownerFirstReleaseObserved = FALSE
+    /\ postCloseLeaseWorkObserved = FALSE
+    /\ noGroupCompletionObserved = FALSE
     /\ lateCleanupObserved = FALSE
     /\ cleanupFailureObserved = FALSE
 
@@ -164,23 +183,26 @@ StartBuild(g) ==
     /\ buildAdmissionWitness' =
         (buildAdmissionWitness /\ workspaceState = "Open")
     /\ UNCHANGED <<
-        workspaceState, groupState, leaseCount, groupBusy, releaseOwner,
+        workspaceState, buildOutcome, groupState, leaseCount, groupBusy, releaseOwner,
         releaseStarts, cleanupOutcome, reportEntry, lateGroup,
         disposedWithLease, leaseAdmissionWitness, authorityWitness,
         leaseDrainWitness, lateRoutingWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
-        directReleaseObserved, coordinatedDrainObserved, lateCleanupObserved,
-        cleanupFailureObserved
+        directReleaseObserved, coordinatedDrainObserved,
+        ownerFirstReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved, lateCleanupObserved, cleanupFailureObserved
         >>
 
 CompleteBuild(g) ==
     /\ buildState[g] = "InFlight"
+    /\ buildOutcome[g] = "None"
     /\ LET nextState ==
             IF workspaceState = "Open" \/ AllowLatePublication
             THEN "Published"
             ELSE "ReleaseOnly"
        IN
         /\ buildState' = [buildState EXCEPT ![g] = "Finished"]
+        /\ buildOutcome' = [buildOutcome EXCEPT ![g] = "Group"]
         /\ groupState' = [groupState EXCEPT ![g] = nextState]
         /\ lateGroup' =
             [lateGroup EXCEPT ![g] = workspaceState # "Open"]
@@ -193,7 +215,33 @@ CompleteBuild(g) ==
         buildAdmissionWitness, leaseAdmissionWitness, authorityWitness,
         leaseDrainWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
-        directReleaseObserved, coordinatedDrainObserved, lateCleanupObserved,
+        directReleaseObserved, coordinatedDrainObserved,
+        ownerFirstReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved, lateCleanupObserved, cleanupFailureObserved
+        >>
+
+CompleteBuildWithoutGroup(g, outcome) ==
+    /\ outcome \in {"Failed", "Canceled"}
+    /\ buildState[g] = "InFlight"
+    /\ buildOutcome[g] = "None"
+    /\ buildState' =
+        [buildState EXCEPT
+            ![g] = IF AllowStrandedNoGroupCompletion
+                    THEN "InFlight"
+                    ELSE "Finished"]
+    /\ buildOutcome' = [buildOutcome EXCEPT ![g] = outcome]
+    /\ noGroupCompletionObserved' =
+        (noGroupCompletionObserved
+         \/ (workspaceState # "Open" /\ ~AllowStrandedNoGroupCompletion))
+    /\ UNCHANGED <<
+        workspaceState, groupState, leaseCount, groupBusy, releaseOwner,
+        releaseStarts, cleanupOutcome, reportEntry, lateGroup,
+        disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
+        authorityWitness, leaseDrainWitness, lateRoutingWitness,
+        groupQuiescenceWitness, workspaceCompletionWitness,
+        cleanupVisibilityWitness, directReleaseObserved,
+        coordinatedDrainObserved, ownerFirstReleaseObserved,
+        postCloseLeaseWorkObserved, lateCleanupObserved,
         cleanupFailureObserved
         >>
 
@@ -207,13 +255,14 @@ AcquireLease(g) ==
     /\ leaseAdmissionWitness' =
         (leaseAdmissionWitness /\ workspaceState = "Open")
     /\ UNCHANGED <<
-        workspaceState, buildState, groupState, groupBusy, releaseOwner,
+        workspaceState, buildState, buildOutcome, groupState, groupBusy, releaseOwner,
         releaseStarts, cleanupOutcome, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, authorityWitness,
         leaseDrainWitness, lateRoutingWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
-        directReleaseObserved, coordinatedDrainObserved, lateCleanupObserved,
-        cleanupFailureObserved
+        directReleaseObserved, coordinatedDrainObserved,
+        ownerFirstReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved, lateCleanupObserved, cleanupFailureObserved
         >>
 
 ReturnLease(g) ==
@@ -221,41 +270,52 @@ ReturnLease(g) ==
     /\ leaseCount[g] > 0
     /\ leaseCount' = [leaseCount EXCEPT ![g] = @ - 1]
     /\ UNCHANGED <<
-        workspaceState, buildState, groupState, groupBusy, releaseOwner,
+        workspaceState, buildState, buildOutcome, groupState, groupBusy, releaseOwner,
         releaseStarts, cleanupOutcome, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
         cleanupVisibilityWitness, directReleaseObserved,
-        coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+        coordinatedDrainObserved,
+        ownerFirstReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved, lateCleanupObserved, cleanupFailureObserved
         >>
 
 BeginGroupWork(g) ==
     /\ groupState[g] = "Published"
-    /\ workspaceState = "Open"
+    /\ \/ workspaceState = "Open"
+       \/ /\ workspaceState = "Closing"
+          /\ g \in CoordinatedGroups
+          /\ leaseCount[g] > 0
     /\ ~groupBusy[g]
     /\ groupBusy' = [groupBusy EXCEPT ![g] = TRUE]
+    /\ postCloseLeaseWorkObserved' =
+        (postCloseLeaseWorkObserved \/ workspaceState = "Closing")
     /\ UNCHANGED <<
-        workspaceState, buildState, groupState, leaseCount, releaseOwner,
+        workspaceState, buildState, buildOutcome, groupState, leaseCount, releaseOwner,
         releaseStarts, cleanupOutcome, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
         cleanupVisibilityWitness, directReleaseObserved,
-        coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+        coordinatedDrainObserved,
+        ownerFirstReleaseObserved, noGroupCompletionObserved,
+        lateCleanupObserved, cleanupFailureObserved
         >>
 
 EndGroupWork(g) ==
     /\ groupBusy[g]
     /\ groupBusy' = [groupBusy EXCEPT ![g] = FALSE]
     /\ UNCHANGED <<
-        workspaceState, buildState, groupState, leaseCount, releaseOwner,
+        workspaceState, buildState, buildOutcome, groupState, leaseCount, releaseOwner,
         releaseStarts, cleanupOutcome, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
         cleanupVisibilityWitness, directReleaseObserved,
-        coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+        coordinatedDrainObserved,
+        ownerFirstReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved, lateCleanupObserved, cleanupFailureObserved
         >>
 
 CloseWorkspace ==
@@ -264,41 +324,50 @@ CloseWorkspace ==
     /\ disposedWithLease' =
         [g \in Groups |-> leaseCount[g] > 0]
     /\ UNCHANGED <<
-        buildState, groupState, leaseCount, groupBusy, releaseOwner,
+        buildState, buildOutcome, groupState, leaseCount, groupBusy, releaseOwner,
         releaseStarts, cleanupOutcome, reportEntry, lateGroup,
         buildAdmissionWitness, leaseAdmissionWitness, authorityWitness,
         leaseDrainWitness, lateRoutingWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
-        directReleaseObserved, coordinatedDrainObserved, lateCleanupObserved,
-        cleanupFailureObserved
+        directReleaseObserved, coordinatedDrainObserved,
+        ownerFirstReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved, lateCleanupObserved, cleanupFailureObserved
         >>
 
 RequestDirectRelease(g) ==
     /\ g \in DirectGroups
     /\ workspaceState = "Closing"
     /\ groupState[g] \in {"Published", "ReleaseOnly"}
-    /\ groupState' = [groupState EXCEPT ![g] = "ReleaseRequested"]
-    /\ releaseOwner' = [releaseOwner EXCEPT ![g] = "Workspace"]
+    /\ LET owner ==
+            IF AllowWrongDirectReleaseAuthority
+            THEN "Completion"
+            ELSE "Workspace"
+       IN
+        /\ groupState' =
+            [groupState EXCEPT ![g] = "ReleaseRequested"]
+        /\ releaseOwner' = [releaseOwner EXCEPT ![g] = owner]
+        /\ authorityWitness' =
+            (authorityWitness /\ owner = ExpectedReleaseOwner(g))
     /\ releaseStarts' = [releaseStarts EXCEPT ![g] = @ + 1]
-    /\ authorityWitness' =
-        (authorityWitness /\ ExpectedReleaseOwner(g) = "Workspace")
     /\ UNCHANGED <<
-        workspaceState, buildState, leaseCount, groupBusy, cleanupOutcome,
+        workspaceState, buildState, buildOutcome, leaseCount, groupBusy, cleanupOutcome,
         reportEntry, lateGroup, disposedWithLease, buildAdmissionWitness,
         leaseAdmissionWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
         cleanupVisibilityWitness, directReleaseObserved,
-        coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+        coordinatedDrainObserved, ownerFirstReleaseObserved,
+        postCloseLeaseWorkObserved, noGroupCompletionObserved,
+        lateCleanupObserved, cleanupFailureObserved
         >>
 
 OwnerRequestsCoordinatedRelease(g) ==
     /\ g \in CoordinatedGroups
-    /\ workspaceState = "Closing"
+    /\ workspaceState \in {"Open", "Closing"}
     /\ groupState[g] \in {"Published", "ReleaseOnly"}
     /\ \/ leaseCount[g] = 0
        \/ AllowReleaseWithActiveLease
     /\ LET owner ==
-            IF AllowWrongReleaseAuthority
+            IF AllowWrongCoordinatedReleaseAuthority
             THEN "Workspace"
             ELSE "Completion"
        IN
@@ -313,12 +382,16 @@ OwnerRequestsCoordinatedRelease(g) ==
     /\ coordinatedDrainObserved' =
         (coordinatedDrainObserved
          \/ (disposedWithLease[g] /\ leaseCount[g] = 0))
+    /\ ownerFirstReleaseObserved' =
+        (ownerFirstReleaseObserved \/ workspaceState = "Open")
     /\ UNCHANGED <<
-        workspaceState, buildState, leaseCount, groupBusy, cleanupOutcome,
+        workspaceState, buildState, buildOutcome, leaseCount, groupBusy, cleanupOutcome,
         reportEntry, lateGroup, disposedWithLease, buildAdmissionWitness,
         leaseAdmissionWitness, lateRoutingWitness, groupQuiescenceWitness,
         workspaceCompletionWitness, cleanupVisibilityWitness,
-        directReleaseObserved, lateCleanupObserved, cleanupFailureObserved
+        directReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved, lateCleanupObserved,
+        cleanupFailureObserved
         >>
 
 CompleteRelease(g, outcome) ==
@@ -337,11 +410,13 @@ CompleteRelease(g, outcome) ==
     /\ cleanupFailureObserved' =
         (cleanupFailureObserved \/ outcome = "Failed")
     /\ UNCHANGED <<
-        workspaceState, buildState, leaseCount, groupBusy, releaseOwner,
+        workspaceState, buildState, buildOutcome, leaseCount, groupBusy, releaseOwner,
         releaseStarts, reportEntry, lateGroup, disposedWithLease,
         buildAdmissionWitness, leaseAdmissionWitness, authorityWitness,
         leaseDrainWitness, lateRoutingWitness, workspaceCompletionWitness,
-        cleanupVisibilityWitness, coordinatedDrainObserved
+        cleanupVisibilityWitness, coordinatedDrainObserved,
+        ownerFirstReleaseObserved, postCloseLeaseWorkObserved,
+        noGroupCompletionObserved
         >>
 
 CompleteAnyRelease(g) ==
@@ -355,13 +430,15 @@ RecordReport(g) ==
     /\ reportEntry' =
         [reportEntry EXCEPT ![g] = cleanupOutcome[g]]
     /\ UNCHANGED <<
-        workspaceState, buildState, groupState, leaseCount, groupBusy,
+        workspaceState, buildState, buildOutcome, groupState, leaseCount, groupBusy,
         releaseOwner, releaseStarts, cleanupOutcome, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
         cleanupVisibilityWitness, directReleaseObserved,
-        coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+        coordinatedDrainObserved, ownerFirstReleaseObserved,
+        postCloseLeaseWorkObserved, noGroupCompletionObserved,
+        lateCleanupObserved, cleanupFailureObserved
         >>
 
 FinalizeWorkspace ==
@@ -377,12 +454,14 @@ FinalizeWorkspace ==
     /\ cleanupVisibilityWitness' =
         (cleanupVisibilityWitness /\ CompleteReport)
     /\ UNCHANGED <<
-        buildState, groupState, leaseCount, groupBusy, releaseOwner,
+        buildState, buildOutcome, groupState, leaseCount, groupBusy, releaseOwner,
         releaseStarts, cleanupOutcome, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, directReleaseObserved,
-        coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+        coordinatedDrainObserved, ownerFirstReleaseObserved,
+        postCloseLeaseWorkObserved, noGroupCompletionObserved,
+        lateCleanupObserved, cleanupFailureObserved
         >>
 
 RepeatRelease(g) ==
@@ -390,18 +469,23 @@ RepeatRelease(g) ==
     /\ groupState[g] = "Released"
     /\ releaseStarts' = [releaseStarts EXCEPT ![g] = @ + 1]
     /\ UNCHANGED <<
-        workspaceState, buildState, groupState, leaseCount, groupBusy,
+        workspaceState, buildState, buildOutcome, groupState, leaseCount, groupBusy,
         releaseOwner, cleanupOutcome, reportEntry, lateGroup,
         disposedWithLease, buildAdmissionWitness, leaseAdmissionWitness,
         authorityWitness, leaseDrainWitness, lateRoutingWitness,
         groupQuiescenceWitness, workspaceCompletionWitness,
         cleanupVisibilityWitness, directReleaseObserved,
-        coordinatedDrainObserved, lateCleanupObserved, cleanupFailureObserved
+        coordinatedDrainObserved, ownerFirstReleaseObserved,
+        postCloseLeaseWorkObserved, noGroupCompletionObserved,
+        lateCleanupObserved, cleanupFailureObserved
         >>
 
 Next ==
     \/ \E g \in Groups : StartBuild(g)
     \/ \E g \in Groups : CompleteBuild(g)
+    \/ \E g \in Groups :
+        \E outcome \in {"Failed", "Canceled"} :
+            CompleteBuildWithoutGroup(g, outcome)
     \/ \E g \in Groups : AcquireLease(g)
     \/ \E g \in Groups : ReturnLease(g)
     \/ \E g \in Groups : BeginGroupWork(g)
@@ -416,6 +500,9 @@ Next ==
 
 Fairness ==
     /\ \A g \in Groups : WF_vars(CompleteBuild(g))
+    /\ \A g \in Groups :
+        \A outcome \in {"Failed", "Canceled"} :
+            WF_vars(CompleteBuildWithoutGroup(g, outcome))
     /\ \A g \in Groups : WF_vars(ReturnLease(g))
     /\ \A g \in Groups : WF_vars(EndGroupWork(g))
     /\ \A g \in Groups : WF_vars(RequestDirectRelease(g))
@@ -442,7 +529,7 @@ CleanupFailuresRemainVisible == cleanupVisibilityWitness
 ReleaseBeginsAtMostOnce ==
     \A g \in Groups : releaseStarts[g] <= 1
 
-ExistingLeasesRemainUsable ==
+ActiveLeasesPreventRelease ==
     \A g \in CoordinatedGroups :
         leaseCount[g] > 0 => groupState[g] # "Released"
 
@@ -474,6 +561,9 @@ ClosingWorkspaceEventuallyCloses ==
 (***************************************************************************)
 NoDirectReleaseObserved == ~directReleaseObserved
 NoCoordinatedDrainObserved == ~coordinatedDrainObserved
+NoOwnerFirstReleaseObserved == ~ownerFirstReleaseObserved
+NoPostCloseLeaseWorkObserved == ~postCloseLeaseWorkObserved
+NoNoGroupCompletionObserved == ~noGroupCompletionObserved
 NoLateCleanupObserved == ~lateCleanupObserved
 NoCleanupFailureObserved == ~cleanupFailureObserved
 

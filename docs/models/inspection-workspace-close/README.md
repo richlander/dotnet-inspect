@@ -19,7 +19,10 @@ The modeled interactions are:
 - construction admission before workspace close;
 - completion that either publishes while open or enters cleanup-only routing
   after close;
+- failed or canceled construction that settles admission without a group;
 - coordinated lease acquisition and return;
+- lease-backed group work that begins after workspace close;
+- adjacent-owner release before workspace close;
 - workspace close while construction, leases, or group work remain active;
 - one release authority per direct or coordinated group;
 - release after external leases and group work quiesce;
@@ -38,8 +41,10 @@ The model does not cover:
 - `AssemblyContextGroup` image opening, resource ordering, or callback-local
   snapshots beyond the abstract busy state;
 - exception payloads, report serialization, or implementation conformance; or
-- the construction-time synchronous compatibility adapter, which has no
-  concurrent release protocol of its own; or
+- the construction-time synchronous compatibility adapter, whose request-only
+  disposal surface has no awaited close report;
+- close-caller or report object identity, which is assigned to the named
+  implementation gate in the owning design;
 - thread scheduling. The design separately requires awaited progress without
   a blocking wait or background-thread dependency.
 
@@ -56,7 +61,7 @@ The model does not cover:
 | `WorkspaceCloseWaitsForQuiescence` | Terminal workspace close observes every known group released. |
 | `CleanupFailuresRemainVisible` | Terminal workspace close has a complete report matching every group cleanup outcome. |
 | `ReleaseBeginsAtMostOnce` | Each group starts terminal release at most once. |
-| `ExistingLeasesRemainUsable` | A coordinated group is not released while an existing lease remains active. |
+| `ActiveLeasesPreventRelease` | A coordinated group is not released while an existing lease remains active. |
 | `ClosedWorkspaceIsDrained` | A closed workspace has no in-flight construction and has complete terminal group reports. |
 | `EveryStartedBuildFinishes` | Under weak fairness, every admitted construction reaches its owner-visible completion. |
 | `EveryRequestedReleaseCompletes` | Under weak fairness, every release request reaches a terminal group outcome. |
@@ -76,17 +81,22 @@ mutated guard.
 | `Liveness.cfg` | Checks construction, release, and workspace-close progress under weak fairness. |
 | `ReachabilityDirectRelease.cfg` | Demonstrates workspace-owned direct release. |
 | `ReachabilityCoordinatedDrain.cfg` | Demonstrates close waiting for an existing coordinated lease before release. |
+| `ReachabilityOwnerFirstRelease.cfg` | Demonstrates adjacent-owner release while the workspace remains open. |
+| `ReachabilityPostCloseLeaseWork.cfg` | Demonstrates an existing lease starting work after workspace close. |
+| `ReachabilityNoGroupCompletion.cfg` | Demonstrates a failed or canceled late construction settling without a group. |
 | `ReachabilityLateCleanup.cfg` | Demonstrates a construction completed after close reaching cleanup without publication. |
 | `ReachabilityCleanupFailure.cfg` | Demonstrates cleanup failure remaining a terminal report outcome. |
 | `BrokenAdmissionAfterClose.cfg` | Allows construction admission after close; TLC must violate `NoBuildAdmissionAfterClose`. |
 | `BrokenLeaseAfterClose.cfg` | Allows a new coordinated lease after close; TLC must violate `NoLeaseAdmissionAfterClose`. |
-| `BrokenWrongAuthority.cfg` | Lets the workspace claim coordinated release; TLC must violate `ReleaseUsesSingleOwner`. |
+| `BrokenWrongDirectAuthority.cfg` | Lets the completion claim direct release; TLC must violate `ReleaseUsesSingleOwner`. |
+| `BrokenWrongCoordinatedAuthority.cfg` | Lets the workspace claim coordinated release; TLC must violate `ReleaseUsesSingleOwner`. |
 | `BrokenReleaseWithLease.cfg` | Requests coordinated release with an active lease; TLC must violate `CoordinatedReleaseWaitsForLeases`. |
 | `BrokenReleaseBeforeQuiescence.cfg` | Completes group release while group work remains active; TLC must violate `ReleaseWaitsForGroupQuiescence`. |
 | `BrokenLatePublication.cfg` | Publishes a construction result after close; TLC must violate `LateCompletionRoutesToCleanup`. |
 | `BrokenEarlyWorkspaceCompletion.cfg` | Completes workspace close before group release; TLC must violate `WorkspaceCloseWaitsForQuiescence`. |
 | `BrokenCleanupOmission.cfg` | Completes workspace close without every group report; TLC must violate `CleanupFailuresRemainVisible`. |
 | `BrokenDoubleRelease.cfg` | Starts terminal release more than once; TLC must violate `ReleaseBeginsAtMostOnce`. |
+| `BrokenStrandedNoGroupCompletion.cfg` | Selects failed construction without settling admission; TLC must violate `EveryStartedBuildFinishes`. |
 
 ## Running TLC
 
@@ -99,11 +109,14 @@ java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
 java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
   -cleanup -config Liveness.cfg InspectionWorkspaceClose.tla
 for config in ReachabilityDirectRelease ReachabilityCoordinatedDrain \
-  ReachabilityLateCleanup ReachabilityCleanupFailure \
-  BrokenAdmissionAfterClose BrokenLeaseAfterClose BrokenWrongAuthority \
-  BrokenReleaseWithLease BrokenReleaseBeforeQuiescence \
-  BrokenLatePublication BrokenEarlyWorkspaceCompletion \
-  BrokenCleanupOmission BrokenDoubleRelease; do
+  ReachabilityOwnerFirstRelease ReachabilityPostCloseLeaseWork \
+  ReachabilityNoGroupCompletion ReachabilityLateCleanup \
+  ReachabilityCleanupFailure BrokenAdmissionAfterClose \
+  BrokenLeaseAfterClose BrokenWrongDirectAuthority \
+  BrokenWrongCoordinatedAuthority BrokenReleaseWithLease \
+  BrokenReleaseBeforeQuiescence BrokenLatePublication \
+  BrokenEarlyWorkspaceCompletion BrokenCleanupOmission \
+  BrokenDoubleRelease BrokenStrandedNoGroupCompletion; do
   java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
     -cleanup -noGenerateSpecTE -config "$config.cfg" \
     InspectionWorkspaceClose.tla
@@ -127,26 +140,32 @@ checked `tla2tools.jar` has SHA-256
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `Safety.cfg` | No error | 1,004 | 515 | 15 |
-| `Liveness.cfg` | No error | 1,004 | 515 | 15 |
-| `ReachabilityDirectRelease.cfg` | Direct release reached | 73 | 53 | 6 |
-| `ReachabilityCoordinatedDrain.cfg` | Coordinated post-lease drain reached | 139 | 98 | 7 |
-| `ReachabilityLateCleanup.cfg` | Late-result cleanup reached | 75 | 55 | 6 |
-| `ReachabilityCleanupFailure.cfg` | Failed cleanup report reached | 74 | 54 | 6 |
-| `BrokenAdmissionAfterClose.cfg` | `NoBuildAdmissionAfterClose` violated | 15 | 10 | 3 |
-| `BrokenLeaseAfterClose.cfg` | `NoLeaseAdmissionAfterClose` violated | 49 | 35 | 5 |
-| `BrokenWrongAuthority.cfg` | `ReleaseUsesSingleOwner` violated | 46 | 35 | 5 |
-| `BrokenReleaseWithLease.cfg` | `CoordinatedReleaseWaitsForLeases` violated | 86 | 59 | 6 |
-| `BrokenReleaseBeforeQuiescence.cfg` | `ReleaseWaitsForGroupQuiescence` violated | 149 | 93 | 7 |
-| `BrokenLatePublication.cfg` | `LateCompletionRoutesToCleanup` violated | 18 | 16 | 4 |
-| `BrokenEarlyWorkspaceCompletion.cfg` | `WorkspaceCloseWaitsForQuiescence` violated | 38 | 31 | 5 |
-| `BrokenCleanupOmission.cfg` | `CleanupFailuresRemainVisible` violated | 135 | 94 | 7 |
-| `BrokenDoubleRelease.cfg` | `ReleaseBeginsAtMostOnce` violated | 134 | 94 | 7 |
+| `Safety.cfg` | No error | 2,330 | 1,215 | 17 |
+| `Liveness.cfg` | No error | 2,330 | 1,215 | 17 |
+| `ReachabilityDirectRelease.cfg` | Direct release reached | 194 | 136 | 6 |
+| `ReachabilityCoordinatedDrain.cfg` | Coordinated post-lease drain reached | 363 | 247 | 7 |
+| `ReachabilityOwnerFirstRelease.cfg` | Owner-first release reached | 37 | 32 | 4 |
+| `ReachabilityPostCloseLeaseWork.cfg` | Post-close lease work reached | 203 | 142 | 6 |
+| `ReachabilityNoGroupCompletion.cfg` | No-group completion reached | 31 | 27 | 4 |
+| `ReachabilityLateCleanup.cfg` | Late-result cleanup reached | 196 | 138 | 6 |
+| `ReachabilityCleanupFailure.cfg` | Failed cleanup report reached | 101 | 77 | 5 |
+| `BrokenAdmissionAfterClose.cfg` | `NoBuildAdmissionAfterClose` violated | 19 | 14 | 3 |
+| `BrokenLeaseAfterClose.cfg` | `NoLeaseAdmissionAfterClose` violated | 100 | 74 | 5 |
+| `BrokenWrongDirectAuthority.cfg` | `ReleaseUsesSingleOwner` violated | 82 | 64 | 5 |
+| `BrokenWrongCoordinatedAuthority.cfg` | `ReleaseUsesSingleOwner` violated | 37 | 32 | 4 |
+| `BrokenReleaseWithLease.cfg` | `CoordinatedReleaseWaitsForLeases` violated | 94 | 72 | 5 |
+| `BrokenReleaseBeforeQuiescence.cfg` | `ReleaseWaitsForGroupQuiescence` violated | 217 | 145 | 6 |
+| `BrokenLatePublication.cfg` | `LateCompletionRoutesToCleanup` violated | 30 | 26 | 4 |
+| `BrokenEarlyWorkspaceCompletion.cfg` | `WorkspaceCloseWaitsForQuiescence` violated | 84 | 65 | 5 |
+| `BrokenCleanupOmission.cfg` | `CleanupFailuresRemainVisible` violated | 375 | 243 | 7 |
+| `BrokenDoubleRelease.cfg` | `ReleaseBeginsAtMostOnce` violated | 216 | 150 | 6 |
+| `BrokenStrandedNoGroupCompletion.cfg` | `EveryStartedBuildFinishes` violated | 34 | 29 | 8 |
 
 The normal configurations explored their complete bounded state graphs. Each
 reachability configuration stopped when its intended direct, coordinated,
-late-result, or failure path became observable. Every mutation stopped at the
-property named in the table: admission or lease creation crossed close, the
-wrong owner claimed release, release preceded external or group quiescence, a
-late group published, the workspace closed early, a cleanup result disappeared,
-or release began twice.
+owner-first, post-close lease-work, no-group, late-result, or failure path
+became observable. Every mutation stopped at the property named in the table:
+admission or lease creation crossed close, either release kind used the wrong
+owner, release preceded external or group quiescence, a late group published,
+the workspace closed early, a cleanup result disappeared, release began twice,
+or a failed construction stranded its admission.
