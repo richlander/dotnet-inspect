@@ -1155,6 +1155,15 @@ public sealed class StructuringPass : IIrPass
                         ctx.Recorder?.Record("cond-target-external");
                         return false;
                     }
+                    // A droppable inlinable terminator (issue #4394) must be
+                    // built as a clone, not a break — mirrors the priority
+                    // BuildRegion enforces below, though both branches validate
+                    // the same way here.
+                    if (target > i && ctx.DroppableBlocks.Contains(target) && IsInlinableTerminator(ctx, target))
+                    {
+                        i++;
+                        break;
+                    }
                     // A conditional branch to the loop exit is `if (c) break;`.
                     if (breakTarget == target)
                     {
@@ -2797,6 +2806,20 @@ public sealed class StructuringPass : IIrPass
                 {
                     int target = offsetToIndex[conditional.TargetOffset];
                     var condition = (IrExpression)conditional.DetachChildren()[0];
+                    // A droppable inlinable terminator (issue #4394) never prints
+                    // at its own position — it was cloned into every reaching
+                    // guard instead. Cloning must win here even though the target
+                    // also coincides with the loop's break/region-exit target;
+                    // otherwise converting this branch to a bare `break`/region
+                    // exit leaves the terminator uncloned on this path and its
+                    // content (e.g. a shared `return`) is lost entirely.
+                    if (target > i && ctx.DroppableBlocks.Contains(target) && IsInlinableTerminator(ctx, target))
+                    {
+                        var guardArm = CloneTerminatorSnapshot(ctx, target, block.StartOffset);
+                        result.Add(new IfStatement(condition, guardArm, null));
+                        i++;
+                        break;
+                    }
                     // A conditional branch to the loop exit raises to `if (c) break;`
                     // — the taken path is the break, so the condition is not negated.
                     if (breakTarget == target)
