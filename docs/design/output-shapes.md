@@ -23,6 +23,8 @@ Related docs:
 - [Item and line limits](item-and-line-limits.md) — the approved target for
   `-n`, range-only `--rows`, ranked `--top`, line windows, and multi-item
   printable payloads
+- [Section-row shaping](section-row-shaping.md) — typed declared-row-set
+  binding, projection roles, and terminal Count semantics
 - [The package query CLI](package-query-cli.md) — a facet-matched package
   corpus row applying this ladder's "declared row unit" discipline, and the
   source of the item-limit design
@@ -64,9 +66,9 @@ structured output. Isolated explicit packages remain node/group context in
 graph and JSON views, but never become empty data rows in the default Markdown
 edge table.
 `OutputModes_UseTheSameWindowedLogicalEdges` gates the same selected logical
-edges across the non-count output modes. Its current windowed-count assertion
-migrates to `CountRejectsItemAndLineWindows`: the target rejects `--count` with
-`--rows` instead of returning the size of the selected edge window.
+edges across the non-count output modes. Count observes the same preceding
+semantic stages under
+[Section-row shaping](section-row-shaping.md#count-semantics).
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus
@@ -117,8 +119,8 @@ of the ladder families contributes in one of four ways:
 full output therefore requires a document format: Markdown or JSON.
 Single-table, stream, plain-text, tree, unary projection, and single-row-set
 `--print` output fail closed rather than selecting one inspection or combining
-independent row sets.
-`--count` remains valid because it aggregates across the selected inspections.
+independent row sets. Count remains valid because it preserves the producer's
+declared aggregate or independent row-set scopes.
 
 Shape cardinality is evaluated after both section and subject selection.
 `--table`, `--tsv`, and `--jsonl` require exactly one table shape; `--tree`
@@ -190,12 +192,10 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
-Cardinality is observed at the structured row seam after section production,
-command-owned filtering, and accepted column/field source selection, but before
-ordering, row-window, or text projection. A formatter can observe those matched
-rows without writing text; rendered Markdown is never parsed back into rows.
-Producers outside Markout, such as metadata tables, expose cardinality from the
-same typed row builders their renderer consumes.
+Formatters consume typed L2 row, Count, or failure results. They do not
+establish cardinality by intercepting rendering, and rendered Markdown is never
+parsed back into rows. Producers outside Markout, such as metadata tables,
+expose the same declared logical rows to L2 that their renderers consume.
 
 An incomplete comparison is not narrowed into a clean result. Diff document
 formats include typed inspection-failure rows. Single-shape diff formats
@@ -216,40 +216,44 @@ modifier changes how a selected payload is rendered.
 | Document | default view; `-v:q`/`-v:m`/`-v:n`/`-v:d` (breadth presets); `-S a,b` (multiple sections) |
 | Table | `-S OneSection` (a single section) |
 | Vector | `--fields X` / `--columns X` (project to one column) |
-| Scalar | `--count` (row count) |
+| Scalar or count Table | Count reduction: one declared row-set outcome becomes a Scalar; multiple outcomes become an ordered count Table |
 
 ### Count projection
 
-`--count` reduces selected structured table rows after filtering and accepted
-field/column source selection but before ordering or windows. It rejects
-`--row`, item or line `-n`, `--top`, `--rows`, `--head`, `--tail`, `--lines`,
-and `--tail-lines` rather than silently counting a selected window:
+Count is the terminal logical reduction defined by
+[Section-row shaping](section-row-shaping.md#count-semantics). It observes
+membership projection, filtering, effective baseline order, and every
+preceding semantic row-selection stage.
 
-- Every non-empty `--fields`/`--columns` request resolves against the selected
-  sections before reduction. A field-set projection that filters entries
-  changes the count; selecting table columns does not create or remove rows.
-  Unsupported, unmatched, or inapplicable requests reject rather than leaving
-  the unprojected count unchanged.
+- A field-set projection that selects field-entry rows changes the count.
+  Selecting table columns does not create or remove rows. Every projection
+  request still resolves before reduction; unsupported, unmatched, or
+  inapplicable requests reject rather than leaving the unprojected count
+  unchanged.
 
-- One selected section produces a culture-invariant decimal scalar. The scalar
-  is the complete payload in every format: JSON emits a JSON number and JSONL
-  emits one numeric record; text and tabular formats emit the same bare value.
-- Multiple selected sections produce ordered `section`/`count` rows, including
-  a zero row for a requested section that emitted no table rows. Markdown,
-  table, and plain text render those rows as their native table form; TSV emits
-  two columns; JSONL emits one object per row; JSON emits an array of objects.
-  JSON and JSONL counts are numbers rather than numeric strings. Standalone
-  Mermaid is rejected because a count map is a table, not a graph.
+- One exact declared-row-set outcome produces a culture-invariant decimal
+  scalar. The scalar is the complete payload in every format: JSON emits a JSON
+  number and JSONL emits one numeric record; text and tabular formats emit the
+  same bare value.
+- Multiple exact declared-row-set outcomes produce ordered row-set/count rows,
+  including zero for a requested complete empty set. Markdown, table, and plain
+  text render those rows as their native table form; TSV emits two columns;
+  JSONL emits one object per row; JSON emits an array of objects. JSON and JSONL
+  counts are numbers rather than numeric strings. Standalone Mermaid is
+  rejected because a count map is a table, not a graph.
+- Any selected failed or incomplete row set prevents the successful Count
+  shape. Failure presentation belongs to the consuming output owner; it is not
+  encoded as a zero count.
 
-The multi-section reduction is itself one table, so table, TSV, and JSONL
-formats accept a category or other multi-section selection under `--count`.
+The multi-row-set reduction is itself one table, so table, TSV, and JSONL
+formats accept a request that resolves to multiple row sets under `--count`.
 Their ordinary one-input-table restriction applies before reduction and does
 not reject this count-result table.
 
-For multiple package subjects, `Package Info` and package-file sections count
-their existing cross-package survey rows; other sections merge each package's
-structured section rows. Every selected row set reports its full post-filter
-cardinality within the declared input extent.
+For multiple package subjects, `Package Info` and package-file sections retain
+their producer-declared cross-package survey row sets. Other sections preserve
+the aggregate or per-package scope declared before shaping. L2 does not infer a
+merge from labels or presentation.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
@@ -787,9 +791,9 @@ for exact payload export.
 
 The stable vocabulary is:
 
-- `--count` is a shape-reduction selector: it collapses a selected table/vector to a
-  single scalar count. It rejects row addresses and item/line windows rather
-  than silently ignoring them.
+- `--count` is a terminal shape reduction over the logical rows surviving every
+  preceding semantic selection stage. One declared row set collapses to a
+  Scalar; multiple sets produce an ordered count Table.
 - `-n N` / bare `-N` select the first N declared items per row set after
   filtering and ordering. `--head` names that direction explicitly and
   `--tail` reverses it when the producer can establish a truthful suffix.

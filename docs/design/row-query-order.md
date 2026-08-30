@@ -19,6 +19,8 @@ Related designs:
   `Window`, and `Top` execution after L2 resolves every order identity.
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
+- [Section-row shaping](section-row-shaping.md) owns declared-row-set binding,
+  projection roles, terminal Count, and typed result binding.
 - [Schema query](schema-query.md) owns section and projection discovery. Its
   current field spellings are not row-query identities.
 - [The package query CLI](package-query-cli.md) contains provisional CLI
@@ -229,9 +231,11 @@ owner may execute predicates, ordering, or semantic selection elsewhere only
 under the composition contract's exact-equivalence and honest-completion rule.
 This design does not define that optimization or its evidence.
 
-Field and column projection, count, and payload operations are intentionally
-absent from this sequence. Their focused L2 and L3 designs will define which
-logical result they observe without changing predicate or order semantics.
+Field and column projection, Count, and payload operations are intentionally
+absent from this sequence.
+[Section-row shaping](section-row-shaping.md#reference-composition) defines
+where L2 projection and Count observe its result without changing predicate or
+order semantics; the focused payload design remains separate.
 
 ## Failure model
 
