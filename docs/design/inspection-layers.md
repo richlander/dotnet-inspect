@@ -1215,16 +1215,18 @@ neither releases an `AssemblyContextGroup` directly nor reinterprets a
 workspace disposers and a last-returning lease observe or await the same
 completion.
 
-Target workspace disposal is asynchronous. Current
-`InspectionWorkspace.Dispose()` instead synchronously disposes every directly
-registered group, so #5156 is a separate prerequisite for sole release
-authority, lease-draining access, late-completion cleanup, and a non-blocking
-workspace close path. The target may wait indefinitely for a lease whose
-holder never returns it; weak-fairness model results therefore state the
-explicit caller assumption that every issued lease is eventually returned.
-The implementation gate must separately prove that the target path uses
-awaited continuations rather than a blocking wait, so a single-threaded
-Browser/Wasm host can schedule lease return and cleanup.
+Target workspace disposal is asynchronous. The
+[workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority),
+defined by #5156, owns sole terminal release authority, coordinated
+lease-draining access, late-completion cleanup, and non-blocking close. Its
+current product implementation remains synchronous and directly registers
+groups, so admission implementation still depends on that contract's named
+product gates. The target may wait indefinitely for a lease whose holder never
+returns it; weak-fairness model results therefore state the explicit caller
+assumption that every issued lease is eventually returned. The implementation
+gate must separately prove that the target path uses awaited continuations
+rather than a blocking wait, so a single-threaded Browser/Wasm host can
+schedule lease return and cleanup.
 
 Cleanup failure remains visible through the package-role completion and does
 not produce a ready entry. Once cleanup completes, successfully or with
@@ -1240,8 +1242,10 @@ Implementation of #4960 must not begin until:
 - the package-role boundary supplies a shareable completion and demand-local
   participant projection instead of the caller-owned disposable compatibility
   result (#5122);
-- the assembly-context workspace supplies sole release authority and
-  asynchronous lease-draining disposal for completion-owned groups (#5156);
+- the assembly-context workspace implements the landed
+  [workspace close contract](../inspection-space.md#workspace-close-and-group-release-authority)
+  for coordinated groups and passes its named asynchronous close and release
+  authority gates (designed by #5156);
   and
 - an approved retained multi-call workspace caller makes exact-request join or
   reuse reachable (#5123).
