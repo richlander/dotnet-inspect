@@ -25,17 +25,21 @@ public sealed class AssemblyImage : IDisposable
         Stream? stream,
         PEReader peReader,
         bool ownsReader,
-        Action? ensureLenderAlive = null)
+        Action? ensureLenderAlive = null,
+        bool admissionEstablished = false)
     {
-        try
+        if (!admissionEstablished)
         {
-            _ = MetadataFormatAdmission.AdmitImage(peReader);
-        }
-        catch (Exception ex)
-        {
-            if (ownsReader)
-                OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
-            throw;
+            try
+            {
+                _ = MetadataFormatAdmission.AdmitImage(peReader);
+            }
+            catch (Exception ex)
+            {
+                if (ownsReader)
+                    OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
+                throw;
+            }
         }
 
         _stream = stream;
@@ -107,22 +111,31 @@ public sealed class AssemblyImage : IDisposable
     {
         ArgumentNullException.ThrowIfNull(stream);
 
+        Stream? ownedStream = stream;
         PEReader? peReader = null;
         try
         {
             peReader = new PEReader(
-                stream,
+                ownedStream,
                 PEStreamOptions.PrefetchEntireImage | PEStreamOptions.LeaveOpen);
-            stream.Dispose();
-            return new AssemblyImage(
+            _ = MetadataFormatAdmission.AdmitImage(peReader);
+
+            Stream streamToDispose = ownedStream;
+            ownedStream = null;
+            streamToDispose.Dispose();
+
+            var image = new AssemblyImage(
                 stream: null,
                 peReader,
-                ownsReader: true);
+                ownsReader: true,
+                admissionEstablished: true);
+            peReader = null;
+            return image;
         }
         catch (Exception ex)
         {
             OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
-            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
+            OwnedResourceCleanup.DisposeAfterFailure(ownedStream, ex);
             throw;
         }
     }

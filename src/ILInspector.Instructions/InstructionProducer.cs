@@ -59,7 +59,7 @@ public static class InstructionProducer
     /// reserved for the honest "no body" case, never a decode failure.
     /// The resolver selects display or canonical ilasm operand syntax.
     /// </summary>
-    public static List<ILInstructionText>? Disassemble(
+    internal static List<ILInstructionText>? Disassemble(
         PEReader peReader,
         MethodDefinition method,
         IOperandNameResolver resolver)
@@ -84,7 +84,7 @@ public static class InstructionProducer
     /// Overload for callers that have already resolved the declaring type handle, avoiding a repeated
     /// TypeDefinitions scan per method.
     /// </summary>
-    public static List<ILInstructionText>? DisassembleMethod(
+    internal static List<ILInstructionText>? DisassembleMethod(
         PEReader peReader,
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -119,7 +119,7 @@ public static class InstructionProducer
     /// <see cref="MethodDefinitionHandle"/> (see docs/design/member-body-substrate.md),
     /// bypassing the name+overload-ordinal walk and its drift.
     /// </summary>
-    public static List<ILInstructionText>? DisassembleMethod(
+    internal static List<ILInstructionText>? DisassembleMethod(
         PEReader peReader,
         MetadataReader reader,
         MethodDefinitionHandle methodHandle,

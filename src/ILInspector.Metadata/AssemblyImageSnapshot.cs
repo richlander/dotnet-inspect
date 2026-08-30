@@ -356,5 +356,8 @@ public sealed class AssemblyImageSnapshot
         CandidateOpenFailureKind kind,
         string detail,
         MetadataRootMalformedReason? metadataRootReason = null) =>
-        new(new CandidateOpenFailure(kind, detail, metadataRootReason));
+        new(new CandidateOpenFailure(kind, detail)
+        {
+            MetadataRootReason = metadataRootReason,
+        });
 }

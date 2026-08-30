@@ -11,6 +11,7 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
+using ILInspector.TypeScriptGeneration;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Queries;
@@ -438,7 +439,8 @@ public sealed class LayeringTests
             typeof(ResearchMatch),
             typeof(IlAssemblyDiff),
             typeof(AssemblyContextStructuralCloneRetrievalQuery),
-            typeof(PlatformResolver));
+            typeof(PlatformResolver),
+            typeof(JsExportSurfaceLoader));
     }
 
     [Fact]
@@ -450,7 +452,31 @@ public sealed class LayeringTests
             typeof(ResearchMatch),
             typeof(IlAssemblyDiff),
             typeof(AssemblyContextStructuralCloneRetrievalQuery),
-            typeof(PlatformResolver));
+            typeof(PlatformResolver),
+            typeof(JsExportSurfaceLoader));
+    }
+
+    [Fact]
+    public void Instructions_DoesNotExposeAssemblyImageEntryPoints()
+    {
+        string[] methods = typeof(MethodInstructions).Assembly
+            .GetExportedTypes()
+            .SelectMany(type => type.GetMethods(
+                System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.DeclaredOnly))
+            .Where(method => method.GetParameters().Any(
+                parameter => parameter.ParameterType == typeof(PEReader)))
+            .Select(method =>
+                $"{method.DeclaringType!.FullName}.{method.Name}")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            methods.Length == 0,
+            "Instructions exposes raw assembly-image entry points: "
+                + string.Join(", ", methods));
     }
 
     [Fact]

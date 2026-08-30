@@ -98,10 +98,10 @@ public static class AssemblyReader
         bool noResultEstablished = false;
         try
         {
+            ownedStream = stream;
             peReader = new PEReader(
                 stream,
                 PEStreamOptions.LeaveOpen);
-            ownedStream = stream;
 
             if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
@@ -189,10 +189,10 @@ public static class AssemblyReader
         bool noResultEstablished = false;
         try
         {
+            ownedStream = stream;
             peReader = new PEReader(
                 stream,
                 PEStreamOptions.LeaveOpen);
-            ownedStream = stream;
 
             if (!MetadataFormatAdmission.AdmitImage(peReader))
             {

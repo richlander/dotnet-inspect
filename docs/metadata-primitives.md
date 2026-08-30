@@ -222,11 +222,14 @@ no-metadata boundary. Neither it nor a malformed-root result is translated to
 
 Acquisition owners call it before exposing metadata sessions. Public or
 reusable `PEReader` entry points that can bypass those owners call it directly.
+The lower Instructions substrate exposes no raw `PEReader` entry point; its
+internal helpers consume readers only through admitted higher-layer owners.
 That closure includes `AssemblyImage`, `PdbContext`, Decompiler
 `MetadataSource`, referenced-assembly context, and body production; Analysis
 `LibraryBodyIndex` and its referenced-image consumers; Research and ILDiff
 assembly comparison; Services platform and intrinsic-core-library probes;
-`MetadataImageInspector`; every `MetadataTableProjector`
+TypeScript-generation acquisition; `MetadataImageInspector`; every
+`MetadataTableProjector`
 table/row/reference/heap operation; and the defensive
 `MethodSemanticsRowReader` leaf check. `MDP017` in
 [member inspection planning and Metadata
@@ -250,21 +253,28 @@ construction. The `Analysis_MetadataReadersRequireFormatAdmission` and
 reader and predicate paths across the Analysis assembly.
 `RemainingProduct_MetadataReadersRequireFormatAdmission` and
 `RemainingProduct_MetadataPredicatesRequireFormatAdmission` close those paths
-across Decompiler, Research, ILDiff, Queries, and Services without treating
-wrapper state or portable-PDB readers as assembly-metadata admission sites.
+across Decompiler, Research, ILDiff, Queries, Services, and TypeScript
+generation without treating wrapper state or portable-PDB readers as
+assembly-metadata admission sites.
+`Instructions_DoesNotExposeAssemblyImageEntryPoints` keeps the lower
+Instructions layer from publishing a raw assembly-image bypass.
 `MetadataAdmissionCleanupTests`,
 `MetadataSourceFormatAdmissionTests`, and
 `SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
 gate cleanup precedence across the stream-backed Metadata and Decompiler
 admission consumers, including no-metadata results from Metadata scanners and
-descriptor-backed inspection. Typed snapshot, declaration-inventory, and
+descriptor-backed inspection, constructor failures, and prefetched-image
+ownership transfer. Typed snapshot, declaration-inventory, and
 structural-clone failure receipts retain the classifier's exact malformed-root
-reason.
+reason without changing `CandidateOpenFailure`'s two-position public record
+contract.
 `MetadataFormatAdmissionTests` and `AnalysisIndexCacheAdmissionTests` gate
 Analysis and Research propagation.
 `IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata`,
 `IlAssemblyDiffTests.ReaderTakingOverloads_RejectWindowsMetadata`, and the
 Services `MetadataFormatAdmissionTests` gate ILDiff and Services propagation.
+`TypeScriptFacadeEmitterTests.SurfaceLoader_PreservesMalformedMetadataRoot`
+gates TypeScript-generation propagation.
 Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.

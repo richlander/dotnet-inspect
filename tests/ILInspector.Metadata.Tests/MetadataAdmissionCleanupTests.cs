@@ -113,6 +113,26 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void ApiSurface_ReaderConstructionFailureDisposesStreamOnce()
+    {
+        var stream = new UnreadableDisposeCountingStream();
+
+        Assert.Null(AssemblyReader.ExtractApiSurface(stream));
+
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Fact]
+    public void ApiSummary_ReaderConstructionFailureDisposesStreamOnce()
+    {
+        var stream = new UnreadableDisposeCountingStream();
+
+        Assert.Null(AssemblyReader.ExtractApiSummarySurface(stream));
+
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    [Fact]
     public void FallbackIdentity_CleanupCannotPreventFallback()
     {
         AssertFallback(BuildManagedWindowsMetadata());
@@ -218,6 +238,31 @@ public sealed class MetadataAdmissionCleanupTests
         Assert.Equal(
             MetadataRootMalformedReason.InvalidSignature,
             rejected.Failure.MetadataRootReason);
+    }
+
+    [Fact]
+    public void CandidateOpenFailure_PreservesTwoPositionRecordContract()
+    {
+        Type type = typeof(CandidateOpenFailure);
+
+        Assert.NotNull(type.GetConstructor(
+            [typeof(CandidateOpenFailureKind), typeof(string)]));
+        System.Reflection.MethodInfo deconstruct = Assert.Single(
+            type.GetMethods(),
+            method => method.Name == "Deconstruct");
+        Assert.Equal(2, deconstruct.GetParameters().Length);
+    }
+
+    [Fact]
+    public void OpenPrefetched_FormatRejectionDisposesStreamOnce()
+    {
+        var stream = new DisposeCountingMemoryStream(
+            BuildManagedWindowsMetadata());
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => AssemblyInspectionSession.OpenPrefetched(stream));
+
+        Assert.Equal(1, stream.DisposeCount);
     }
 
     [Fact]
@@ -499,6 +544,20 @@ public sealed class MetadataAdmissionCleanupTests
         : MemoryStream(image, writable: false)
     {
         public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                DisposeCount++;
+            base.Dispose(disposing);
+        }
+    }
+
+    sealed class UnreadableDisposeCountingStream : MemoryStream
+    {
+        public int DisposeCount { get; private set; }
+
+        public override bool CanRead => false;
 
         protected override void Dispose(bool disposing)
         {

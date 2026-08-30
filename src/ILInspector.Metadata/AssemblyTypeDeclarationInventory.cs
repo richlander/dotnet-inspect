@@ -245,7 +245,10 @@ public static class AssemblyTypeDeclarationInventoryReader
         CandidateOpenFailureKind kind,
         string detail,
         MetadataRootMalformedReason? metadataRootReason = null) =>
-        new(new CandidateOpenFailure(kind, detail, metadataRootReason));
+        new(new CandidateOpenFailure(kind, detail)
+        {
+            MetadataRootReason = metadataRootReason,
+        });
 }
 
 public enum AssemblySurfaceKind
@@ -321,8 +324,10 @@ public static class AssemblySurfaceClassifier
             return new AssemblySurfaceClassificationOutcome.Rejected(
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.InvalidImage,
-                    $"The selected assembly has a malformed metadata root ({ex.Reason}).",
-                    ex.Reason));
+                    $"The selected assembly has a malformed metadata root ({ex.Reason}).")
+                {
+                    MetadataRootReason = ex.Reason,
+                });
         }
         catch (BadImageFormatException)
         {

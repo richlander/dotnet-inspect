@@ -15,14 +15,20 @@ static class IntrinsicCoreLibraryBinding
         ArgumentNullException.ThrowIfNull(requestingAssembly);
         ArgumentNullException.ThrowIfNull(selectReference);
 
+        Stream? stream = null;
+        PEReader? peReader = null;
+        bool noMetadataEstablished = false;
         try
         {
-            using Stream stream = requestingAssembly.OpenRead();
-            using var peReader = new PEReader(
+            stream = requestingAssembly.OpenRead();
+            peReader = new PEReader(
                 stream,
                 PEStreamOptions.LeaveOpen);
             if (!MetadataFormatAdmission.AdmitImage(peReader))
+            {
+                noMetadataEstablished = true;
                 return CandidateUnavailable();
+            }
 
             MetadataReader reader =
                 MetadataFormatAdmission.GetMetadataReader(peReader);
@@ -55,12 +61,20 @@ static class IntrinsicCoreLibraryBinding
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.UnsupportedScope));
         }
-        catch (UnsupportedMetadataFormatException)
+        catch (UnsupportedMetadataFormatException ex)
         {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             throw;
         }
-        catch (MalformedMetadataRootException)
+        catch (MalformedMetadataRootException ex)
         {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             throw;
         }
         catch (Exception ex) when (
@@ -73,8 +87,57 @@ static class IntrinsicCoreLibraryBinding
                 or ArgumentException
                 or System.Security.SecurityException)
         {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             return CandidateUnavailable();
         }
+        finally
+        {
+            if (noMetadataEstablished)
+            {
+                DisposeWithoutReplacingOutcome(ref peReader);
+                DisposeWithoutReplacingOutcome(ref stream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
+        }
+    }
+
+    static void DisposeAfterFailure<T>(
+        ref T? resource,
+        Exception primaryFailure)
+        where T : class, IDisposable
+    {
+        ArgumentNullException.ThrowIfNull(primaryFailure);
+        DisposeWithoutReplacingOutcome(ref resource);
+    }
+
+    static void DisposeAfterFailure(
+        ref PEReader? peReader,
+        ref Stream? stream,
+        Exception primaryFailure)
+    {
+        DisposeAfterFailure(ref peReader, primaryFailure);
+        DisposeAfterFailure(ref stream, primaryFailure);
+    }
+
+    static void DisposeWithoutReplacingOutcome<T>(
+        ref T? resource)
+        where T : class, IDisposable
+    {
+        try
+        {
+            resource?.Dispose();
+        }
+        catch
+        {
+        }
+        resource = null;
     }
 
     static IEnumerable<AssemblyReferenceIdentity> CoreLibraryReferences(

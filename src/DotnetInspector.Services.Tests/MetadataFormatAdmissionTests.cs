@@ -50,6 +50,29 @@ public sealed class MetadataFormatAdmissionTests
                 static _ => AssemblyBindingSelection.NotFound()));
     }
 
+    [Fact]
+    public void IntrinsicBinding_CleanupCannotReplaceFormatRejection()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        var assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Unsupported",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                BuildManagedWindowsMetadata()),
+            AssemblyResolutionProvenance.Local(
+                "services format admission test"));
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => IntrinsicCoreLibraryBinding.Select(
+                assembly,
+                static _ => AssemblyBindingSelection.NotFound()));
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
     static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();
@@ -85,5 +108,23 @@ public sealed class MetadataFormatAdmissionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    sealed class ThrowingDisposeMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                DisposeCount++;
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic disposal failure.");
+            }
+        }
     }
 }

@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
+    <InternalsVisibleTo Include="dotnet-inspect.Tests" />
     <InternalsVisibleTo Include="tsbindgen" />
     <InternalsVisibleTo Include="ts-jsexport" />
   </ItemGroup>
