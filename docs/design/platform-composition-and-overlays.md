@@ -498,7 +498,7 @@ Policy preparation consumes one owner-issued
 `AssemblyBindingContextEnvelope` before group construction. The envelope
 contains the context generation identity, the exact planned participant
 registrations, the immutable registration-to-role projection issued by the
-[explicit assembly-context realization](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context).
+[explicit assembly-context realization](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context),
 and the exact delegated binding policy and version associated with each
 planned requesting registration. The workspace owner remains the only role
 assigner. The platform owner validates the handoff and creates one
@@ -574,9 +574,11 @@ the snapshot. Those in-group registrations are classified from the snapshot,
 never from provenance.
 
 When any returned candidate is outside the group or has no designated/platform
-role, the delegated result remains an adjacent-policy outcome in full. It is
-not reclassified, added to the group, or recorded as an inactive shadow, and
-its selection or ambiguity is not bypassed by an in-group role candidate.
+role, role arbitration leaves the delegated result unchanged. It is not
+reclassified, added to the group, or recorded as an inactive shadow, and its
+selection or ambiguity is not bypassed by an in-group role candidate. The
+ordinary outer identity-policy validation still applies, so an outside-group
+selection can become the existing typed `IdentityPolicyRequired` result.
 Returning an outside-group candidate is not invalid role evidence because the
 adjacent policy owns that candidate. The delegated policy's existing
 `Unavailable` and `Rejected` outcomes likewise remain authoritative.
@@ -619,20 +621,31 @@ The policy snapshot also captures the exact delegated binding policy and its
 `AssemblyBindingPolicyVersion` for every requesting registration routed through
 the outer policy. The outer policy version is binding-consistent only while the
 group, role snapshot, delegated-policy map, and every captured delegate version
-remain unchanged. Its version observation and selection path revalidate those
-dependencies before returning either a cached or newly computed answer.
+remain unchanged. Each delegated answer arrives in #5213's atomic selection
+snapshot with the exact non-reusable version that governed it; an independent
+before/after read of `IAssemblyBindingPolicy.Version` is insufficient.
 
-If a delegate version differs before selection, or changes while its selection
-is in flight, the changed or stale answer is rejected and the request fails
-visibly as an invalid policy result. The existing group and context generation
-cannot be rebound to a replacement policy. Continuing requires the workspace
-owner to terminate that generation and atomically realize a new prepared
-snapshot, participant set, and group over the current delegate versions.
-Repeated equal requests under one unchanged outer version return the same
-selection instance. A different group, context generation, registration set,
-role set, delegated-policy map, or delegate version requires a different outer
-version; evidence and cached answers cannot be rebound or mixed across
-versions.
+If the returned governing version differs from the captured version, the
+changed or stale answer is rejected and the request fails visibly as an invalid
+policy result. The existing group and context generation cannot be rebound to
+a replacement policy. Continuing requires the workspace owner to terminate
+that generation and atomically realize a new prepared snapshot, participant
+set, and group over the current delegate versions. Repeated equal requests
+under one unchanged outer version return the same selection instance. A
+different group, context generation, registration set, role set,
+delegated-policy map, or delegate version requires a different outer version;
+evidence and cached answers cannot be rebound or mixed across versions.
+
+### Adjacent prerequisites
+
+[#5210](https://github.com/richlander/dotnet-inspect/issues/5210) owns typed
+name ownership for Metadata binding misses.
+[#5213](https://github.com/richlander/dotnet-inspect/issues/5213) owns atomic
+answer-to-version association. Implementation of this policy must not expose
+`NoNameOwner` fallback until #5210 lands or accept a delegated answer as
+version-consistent until #5213 lands. The platform owner consumes those
+currencies; it does not recreate name ownership or version evidence from
+candidate lists, provenance, package state, or separate version reads.
 
 ### Migration boundary
 
@@ -686,24 +699,27 @@ authority-bearing field to it.
   role, plus the Metadata-owned `NoNameOwner` and `NameOwnedNoMatch`
   dispositions from #5210 and today's undifferentiated `Missing`. Only an
   all-role-bearing in-group result or owner-issued `NoNameOwner` permits role
-  arbitration; every other result and every typed delegated failure remains
-  the adjacent policy's exact outcome without group mutation, role translation,
-  or inactive-shadow promotion. Before #5210 is available, the same gate proves
-  that undifferentiated `Missing` cannot reach role arbitration.
+  arbitration; every other result remains outside
+  role arbitration and then receives the ordinary outer identity-policy
+  validation without group mutation, role translation, or inactive-shadow
+  promotion. Before #5210 is available, the same gate proves that
+  undifferentiated `Missing` cannot reach role arbitration.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
   registration, role, delegated-policy, or delegate-version change requires a
   new outer version.
 - `WorkspaceRoleBinding_DelegateVersionChangeInvalidatesContextGeneration`
-  changes a captured delegate version before selection, during delegated
-  selection, and after warming a cached answer. It proves the old generation
-  returns no changed or stale selection or shadow evidence, fails the request
-  visibly as an invalid policy result, and requires atomic realization of a
-  new snapshot, participant set, and group before continuing.
+  supplies #5213 selection snapshots governed by a version other than the
+  captured delegate version before selection and after warming a cached answer.
+  It proves the old generation returns no changed or stale selection or shadow
+  evidence, fails the request visibly as an invalid policy result, and requires
+  atomic realization of a new snapshot, participant set, and group before
+  continuing. #5213 owns the non-reusable-version and ABA mutation gates.
 - `WorkspaceRoleBinding_NameOwnerMissCannotFallThroughToRoles` covers package,
   sibling, and other adjacent name owners whose candidates fail identity
-  matching and proves their authoritative missing result cannot select an
-  in-group designated or platform candidate.
+  matching and proves their #5210 `NameOwnedNoMatch` result cannot select an
+  in-group designated or platform candidate. Before #5210, the same gate proves
+  every legacy `Missing` fails closed and no `NoNameOwner` fallback is exposed.
 - `WorkspaceRoleBinding_LegacyAndRoleFixturesProduceEquivalentOutcomes`
   runs every #4593 precedence and failure fixture against the replacement
   policy, using the current implementation only as a test oracle.

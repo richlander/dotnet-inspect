@@ -106,14 +106,16 @@ identity, group disposal, source-lease lifetime, or admission's rejection of
 replayed platform-realization evidence before `PlatformAuthorized` is granted.
 Pre-publication policy preparation and exact group adoption, delegated-policy
 composition, the Metadata-owned typed name-owner disposition tracked by #5210,
-and context replacement after a delegated `AssemblyBindingPolicyVersion`
-change are implementation-boundary gates rather than additional model states.
-Before #5210 lands, undifferentiated delegated `Missing` is fail-closed as
-name-owned rather than modeled as no-owner evidence. An all-role-bearing in-group
+and the atomic answer-to-version association tracked by #5213 are
+implementation-boundary gates rather than additional model states. Before
+#5210 lands, undifferentiated delegated `Missing` is fail-closed as name-owned
+rather than modeled as no-owner evidence. This model neither defines nor
+checks either adjacent Metadata currency. An all-role-bearing in-group
 delegated result is represented by the modeled registrations, while a result
-containing any outside-group or non-authority candidate remains an
-adjacent-policy outcome. TLC does not establish group-construction,
-name-ownership, or policy-version consistency.
+containing any outside-group or non-authority candidate remains outside role
+arbitration; the ordinary outer identity-policy validation is also not modeled.
+TLC does not establish group construction, name ownership, or policy-version
+consistency.
 TLC results establish properties of this state machine under the stated
 assumptions and bounds, not properties of the shipped implementation. Formal
 model-to-implementation correspondence is unverified.
