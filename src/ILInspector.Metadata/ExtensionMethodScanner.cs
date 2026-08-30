@@ -383,18 +383,15 @@ public static class ExtensionMethodScanner
         {
             foreach (var assemblyPath in assemblyPaths)
             {
+                FileStream? stream = null;
+                PEReader? peReader = null;
+                bool retained = false;
                 try
                 {
-                    var stream = File.OpenRead(assemblyPath);
-                    var peReader = new PEReader(stream);
+                    stream = File.OpenRead(assemblyPath);
+                    peReader = new PEReader(stream);
                     if (!MetadataFormatAdmission.AdmitImage(peReader))
-                    {
-                        peReader.Dispose();
-                        stream.Dispose();
                         continue;
-                    }
-                    disposables.Add(peReader);
-                    disposables.Add(stream);
 
                     var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
                     foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -404,12 +401,24 @@ public static class ExtensionMethodScanner
                         byFullName.TryAdd(reader.GetFullTypeName(typeDef), (reader, typeDefHandle));
                         bySimpleName.TryAdd(reader.GetString(typeDef.Name), (reader, typeDefHandle));
                     }
+
+                    disposables.Add(peReader);
+                    disposables.Add(stream);
+                    retained = true;
                 }
                 // Skip assemblies with unreadable metadata
                 catch (Exception ex) when (
                     ex is not UnsupportedMetadataFormatException
                         and not MalformedMetadataRootException)
                 {
+                }
+                finally
+                {
+                    if (!retained)
+                    {
+                        peReader?.Dispose();
+                        stream?.Dispose();
+                    }
                 }
             }
 

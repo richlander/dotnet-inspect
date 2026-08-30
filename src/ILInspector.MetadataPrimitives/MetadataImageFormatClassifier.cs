@@ -81,6 +81,7 @@ public abstract record MetadataImageFormatResult
 public static class MetadataImageFormatClassifier
 {
     internal const int FixedPrefixLength = 16;
+    internal const int MaximumVersionStringLength = 255;
     internal const int MaximumPaddedVersionLength = 256;
 
     const uint MetadataRootSignature = 0x424A5342;
@@ -163,7 +164,10 @@ public static class MetadataImageFormatClassifier
         bool foundTerminator = false;
         int markerOffset = 0;
         ReadOnlySpan<byte> marker = "WindowsRuntime"u8;
-        for (int i = 0; i < versionLength; i++)
+        int versionStringLength = Math.Min(
+            versionLength,
+            MaximumVersionStringLength);
+        for (int i = 0; i < versionStringLength; i++)
         {
             byte value = reader.ReadByte();
             if (value == 0)

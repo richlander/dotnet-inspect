@@ -316,6 +316,30 @@ public sealed class MetadataImageFormatClassifierTests
     }
 
     [Fact]
+    public void Mdp017_PaddedByteCannotTerminateMaximumVersionString()
+    {
+        byte[] image = BuildImage(
+            "v4.0.30319",
+            additionalTypeCount: 20);
+        int versionStart =
+            MetadataStart(image)
+            + MetadataImageFormatClassifier.FixedPrefixLength;
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(versionStart - sizeof(int), sizeof(int)),
+            MetadataImageFormatClassifier.MaximumPaddedVersionLength);
+        Span<byte> version = image.AsSpan(
+            versionStart,
+            MetadataImageFormatClassifier.MaximumPaddedVersionLength);
+        version.Fill((byte)'A');
+        version[MetadataImageFormatClassifier.MaximumVersionStringLength] = 0;
+        using var peReader = Open(image);
+
+        AssertMalformed(
+            peReader,
+            MetadataRootMalformedReason.MissingVersionTerminator);
+    }
+
+    [Fact]
     public void Mdp017_NoMetadataDoesNotRequestAMetadataBlock()
     {
         byte[] image = BuildImage("v4.0.30319");
@@ -505,6 +529,11 @@ public sealed class MetadataImageFormatClassifierTests
                     "Missing.Type",
                     [path],
                     maxDepth: 1));
+            using var exclusive = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
         }
         finally
         {

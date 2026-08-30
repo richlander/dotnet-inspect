@@ -426,8 +426,8 @@ public sealed partial class AssemblyDependencyResolver :
         }
         var entitled = new List<ResolvedAssemblyReference>();
         CandidateOpenFailureKind? budgetFailure = null;
-        CandidateOpenFailureKind? unsupportedFormatFailure = null;
-        ExceptionDispatchInfo? unsupportedAdmissionFailure = null;
+        CandidateOpenFailureKind? admissionFailureKind = null;
+        ExceptionDispatchInfo? admissionFailure = null;
         foreach (ResolvedAssemblyDependency dependency in candidates)
         {
             bool designated =
@@ -457,13 +457,13 @@ public sealed partial class AssemblyDependencyResolver :
             }
             else if (descriptor.FailureKind
                     is CandidateOpenFailureKind.UnsupportedMetadataFormat
+                        or CandidateOpenFailureKind.InvalidImage
+                && descriptor.AdmissionFailure is not null
                 && (designated
                     || PathNameMatches(dependency, identity)))
             {
-                unsupportedFormatFailure =
-                    CandidateOpenFailureKind.UnsupportedMetadataFormat;
-                unsupportedAdmissionFailure =
-                    descriptor.AdmissionFailure;
+                admissionFailureKind = descriptor.FailureKind;
+                admissionFailure = descriptor.AdmissionFailure;
             }
         }
 
@@ -482,12 +482,12 @@ public sealed partial class AssemblyDependencyResolver :
                 Assembly: null,
                 budgetFailure);
         }
-        if (unsupportedFormatFailure is not null)
+        if (admissionFailureKind is not null)
         {
             return new AssemblyResolutionAttempt(
                 Assembly: null,
-                unsupportedFormatFailure,
-                AdmissionFailure: unsupportedAdmissionFailure);
+                admissionFailureKind,
+                AdmissionFailure: admissionFailure);
         }
         if (selection is null)
             return null;

@@ -230,15 +230,16 @@ accidents. Any other tie between entitled candidates needs its own stated rule
 or a diagnostic rather than a silent pick. Multiple eligible designated
 candidates remain ambiguous rather than being chosen by registration order.
 If a caller-designated candidate cannot enter that arbitration because its
-metadata format is unsupported or its snapshot exceeds the resource budget,
-the typed candidate failure remains visible and vetoes platform fallback.
-Ordinary unreadable peers do not gain that veto.
+metadata format is unsupported or malformed, or its snapshot exceeds the
+resource budget, the typed candidate failure remains visible and vetoes
+platform fallback. Ordinary unreadable peers do not gain that veto.
 
 The designated-precedence cases in `AssemblyDependencyResolverTests` gate
 version and registration-order independence, identity constraints, typed
 ambiguity and shadow evidence, same-path provenance, and preservation of
 unrelated name-owning tiers.
 `Select_UnsupportedDesignatedMetadataCannotFallBackToPlatform`,
+`SelectAndResolve_MalformedDesignatedMetadataCannotFallBackToPlatform`,
 `Select_SnapshotBudgetCannotFallBackFromDesignatedToPlatform`,
 `Select_RenamedSnapshotBudgetCannotFallBackToPlatform`, and
 `Select_UnreadablePeerDoesNotVetoDesignatedOverlay` gate the failure boundary.
