@@ -414,12 +414,9 @@ public static partial class InspectionEngine
                     : "Annotated source projection produced no document.");
         }
 
-        // The document's wire shape belongs to ILInspector.Decompiler; carry it verbatim so the
-        // viewer's model validates the same artifact the CLI writes.
-        using JsonDocument serialized = SerializeAnnotatedSourceDocument(document);
         return JsonSerializer.Serialize(
-            new BrowserAnnotatedSource(
-                serialized.RootElement,
+            BrowserAnnotatedSource.Create(
+                document,
                 $"Annotated by dotnet-inspect from {participant.Coordinate.PackageId} "
                     + $"{participant.Coordinate.Version} {participant.Asset.Path}",
                 projection.ContextLimitation is { } limitation
@@ -427,12 +424,6 @@ public static partial class InspectionEngine
                     : null),
             BrowserJsonContext.Default.BrowserAnnotatedSource);
     }
-
-    static JsonDocument SerializeAnnotatedSourceDocument(AnnotatedSourceDocument document) =>
-        JsonDocument.Parse(
-            JsonSerializer.Serialize(
-                document,
-                AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument));
 
     /// <summary>
     /// Exact method-body Analysis and metadata evidence for one implementation
