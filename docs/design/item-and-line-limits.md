@@ -48,6 +48,7 @@ CLI tokens
    and reduction identities
 -> typed execution request
 -> source owner may perform semantics-preserving execution
+-> typed source execution result and completion evidence return to L2
 -> L2 completes its owner-defined residual operations and result binding,
    invoking shared RowSelection for residual semantic stages where required
 -> typed L2 result
