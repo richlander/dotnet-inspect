@@ -706,7 +706,8 @@ public sealed class AnalysisRequestTests
     {
         Type resultType = typeof(AnalysisRequestPlanResult);
         Type[] cases = resultType
-            .GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic)
+            .Assembly
+            .GetTypes()
             .Where(type => type.IsSubclassOf(resultType))
             .OrderBy(type => type.Name, StringComparer.Ordinal)
             .ToArray();
