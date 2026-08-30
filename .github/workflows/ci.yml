@@ -196,11 +196,11 @@ jobs:
       - name: Audit shipped browser dependencies
         working-directory: prototypes/inspect-web
         # The runtime libraries are lockfile dependencies, so advisories against the code that
-        # actually reaches a user's browser are visible to `npm audit`. Scoped to production
-        # dependencies: a build-tool advisory is not shipped and should not fail unrelated PRs.
-        # `npm audit` buckets each package by its highest severity, so `--audit-level=low` is
-        # what makes a package whose advisories are all low still fail.
-        run: npm audit --omit=dev --audit-level=low
+        # reaches a user's browser are visible to `npm audit`. No `--audit-level` and no
+        # `--omit=dev`: the threshold buckets whole packages rather than advisories, and the
+        # dev/production split does not correspond to what ships (Vite is a devDependency and
+        # its helpers are in the bundle). Auditing everything needs no qualification to be true.
+        run: npm audit
 
       - name: Check generated inspect-web-engine surface for drift
         run: eng/generate-inspect-web-engine-dts.sh --check

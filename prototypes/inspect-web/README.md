@@ -963,23 +963,30 @@ and 5 against that mermaid build. The code comment asserting that DOMPurify
 makes package Markdown safe had been resting on that build. None of it was
 hidden; nothing was in a position to look.
 
-CI now runs `npm audit --omit=dev --audit-level=low`. Both parts of that are
-deliberate. Scoping to production dependencies keeps a build tool's advisory --
-which never reaches a browser -- from failing unrelated pull requests, because a
-gate that cries wolf gets ignored. That leaves 115 packages, few enough that the
-threshold can be the strictest one rather than a negotiated middle.
+CI now runs `npm audit`, with no scoping and no threshold flags. That plain
+form is the conclusion of two review rounds spent on cleverer versions of the
+same line, and both flags turned out to describe something other than what they
+appeared to.
 
-The threshold is worth stating precisely, because `npm audit` does not apply it
-to advisories. It buckets each *package* by the highest severity affecting it
-and compares that. Of the 24 advisories above, 19 are moderate and 5 are low;
-both packages bucket as moderate, so `--audit-level=high` returns success on all
-24, including all 19 sanitizer bypasses. The stricter-sounding threshold is the
-one that passes precisely when it matters. `low` is chosen over `moderate` for a
-narrower reason: a package whose advisories are *all* low buckets as low, so a
-future low-only DOMPurify bypass would leave a `moderate` gate green. At 115
-packages that costs nothing today -- the tree is clean at `low` -- and it lets
-the sanitization comment claim a known vulnerability fails the build without
-qualifying the word.
+`--audit-level` reads as a severity filter over advisories. `npm audit` applies
+it to *packages*: each is bucketed by the highest severity affecting it, and the
+threshold is compared against that. Of the 24 advisories above, 19 are moderate
+and 5 are low, and both packages bucket as moderate -- so `--audit-level=high`
+returns success on all 24, including all 19 sanitizer bypasses. Every threshold
+short of the strictest has some version of that hole: `low` still passes a
+package whose advisories are all `info`.
+
+`--omit=dev` filters by where a package is declared, which is not the same
+question as whether its code reaches a browser. Vite is a devDependency and its
+`__vite__mapDeps` helper is in the shipped bundle, so the dev/production split
+was never the boundary it resembled.
+
+Auditing everything at every severity has neither hole and needs no qualifying
+clause to stay true, which is why the sanitization comment can name it plainly.
+It costs nothing today: the tree is 168 packages and clean. It will sometimes
+fail for a build tool rather than for shipped code, and that is the accepted
+trade -- the alternative was a narrower gate whose description had to be exactly
+right, and twice it was not.
 
 What remains on a CDN is the three Prism scripts in `index.html`. Those are
 markup, they carry digests, and the freshness check reads them -- so the
