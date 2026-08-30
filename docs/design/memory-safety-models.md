@@ -12,7 +12,11 @@ It does not take implementation ownership from the participating subsystems:
   version-aware caller-contract classification.
 - Analysis owns IL-body evidence and method-level compositions over Metadata
   facts.
+- CSharp owns model-bound declaration spelling from typed Metadata facts.
 - Decompiler owns source reconstruction and safety-context rendering.
+- Research owns cross-evidence summaries.
+- JsExportSurface owns export admission and its unsupported-shape policy.
+- The CLI owns user-visible presentation.
 - Project inspection owns facts declared by or evaluated from project inputs.
 - A provenance service, when available, owns correspondence between a project
   and a binary.
@@ -64,7 +68,7 @@ Consumers must preserve the distinction between these states:
 | Updated v2 | The module has one valid module attribute with version `2`; apply v2 rules. |
 | Unsupported version | The module attribute contains another integer. Preserve it as unrecognized; Roslyn also applies legacy compatibility inference and reports the unsupported marker when imported methods or accessors are consumed. |
 | Malformed marker | The attribute cannot be decoded according to its expected constructor shape. Preserve the failure; Roslyn likewise uses compatibility inference while treating imported methods and accessors as carrying an unrecognized marker. |
-| Conflicting markers | More than one candidate marker prevents a unique module judgment. |
+| Conflicting markers | More than one candidate marker prevents a unique module judgment; member contracts are unavailable. |
 
 The raw integer and the recognized model are separate facts. Reporting an
 actual version must not silently turn every value greater than or equal to `2`
@@ -81,10 +85,10 @@ Metadata owns one normalized rules-model fact per inspected module and one
 version-aware contract resolver for members in that module. The module fact
 must preserve both recognition state and the raw integer when one was decoded.
 The contract resolver combines that state with the correct member-kind carrier
-and legacy pointer compatibility. Analysis, Decompiler, and API-surface
-extraction should consume those Metadata-owned facts rather than independently
-testing for attribute names, and the CLI should render them rather than
-reinterpret the integer.
+and legacy pointer compatibility, producing `None`, `Implicit`, `Explicit`, or
+`Unavailable`. Analysis, Decompiler, and API-surface extraction should consume
+those Metadata-owned facts rather than independently testing for attribute
+names, and the CLI should render them rather than reinterpret the integer.
 
 This shared handoff prevents caller-contract analysis, source reconstruction,
 and user-visible Signals from assigning different meanings to the same module.
@@ -99,7 +103,8 @@ In the legacy model:
 
 - a pointer or function-pointer type in a callable member's parameter or return
   signature makes the member propagate unsafe;
-- the compiler's compatibility rule also applies to pointer-bearing fields;
+- the compiler's compatibility rule also applies to pointer-bearing fields,
+  except fixed-size-buffer fields;
 - the `unsafe` modifier on a type or member establishes a lexical unsafe
   context for declarations and bodies within its scope;
 - metadata does not preserve that source modifier by itself;
@@ -170,7 +175,7 @@ reapplying runtime reflection-target policy.
 | Question | V1: legacy | V2: updated |
 | --- | --- | --- |
 | Binary model marker | Attribute absent | Module attribute version `2` |
-| What propagates unsafe? | Pointer or function-pointer callable signatures and fields under compatibility rules | `RequiresUnsafeAttribute` |
+| What propagates unsafe? | Pointer or function-pointer callable signatures and non-fixed-buffer fields under compatibility rules | `RequiresUnsafeAttribute` |
 | Meaning of member `unsafe` | Establishes a lexical unsafe context | Publishes a caller contract; an instance constructor also establishes its initializer context |
 | Meaning of a pointer-bearing signature | Compatibility propagator | Not a propagator by itself |
 | How a body establishes unsafe context | Enclosing type/member context or inner unsafe context | Inner unsafe block or expression |
@@ -187,10 +192,11 @@ Mixed-model behavior has two inputs:
 
 | Target-member evidence | Contract | V1 caller | V2 caller |
 | --- | --- | --- | --- |
-| Unmarked module and pointer-bearing callable signature or field | Implicit | Requires unsafe context | Requires unsafe context |
+| Unmarked module and pointer-bearing callable signature or non-fixed-buffer field | Implicit | Requires unsafe context | Requires unsafe context |
 | Unmarked module without a compatibility pointer contract | None | No caller requirement | No caller requirement |
 | V2 module and `RequiresUnsafeAttribute` | Explicit | Contract not enforced | Requires unsafe context |
 | V2 module without `RequiresUnsafeAttribute`, including a pointer-bearing signature or field | None | No caller requirement | No caller requirement |
+| Conflicting module markers | Unavailable | Enforcement unavailable | Enforcement unavailable |
 
 For an unsupported or malformed target-module marker, preserve and report the
 unrecognized state. Roslyn also classifies member contracts with the legacy
@@ -200,6 +206,11 @@ Field use does not consistently produce the same Roslyn use-site diagnostic,
 so product output must surface the invalid module marker independently of
 member access. It should present both facts: a compatibility-derived contract
 is not permission to call the module v1 or to hide its invalid marker.
+
+Conflicting markers do not have a compatibility fallback in this product
+contract because there is no unique module fact to interpret. Consumers must
+propagate the unavailable contract instead of rendering or reporting either a
+safe call or an invented unsafe requirement.
 
 The caller's project policy also determines which source operations it may
 express, but it does not rewrite the callee's classified contract. A legacy
@@ -339,8 +350,10 @@ substitute for typed provenance.
   `AssemblyAuditMetadata.MemorySafetyRulesVersion`; and
 - counts `RequiresUnsafeAttribute` occurrences.
 
-`ApiSurfaceExtractor` also publishes `ApiMember.IsUnsafe`, which feeds
-user-visible `api --unsafe` filtering and API-diff facts.
+`ApiSurfaceExtractor` also publishes `ApiMember.IsUnsafe`. That Boolean feeds
+user-visible `api --unsafe` filtering and API-diff facts, C# declaration
+spelling, Decompiler member shells, Research summaries, and JsExportSurface
+admission.
 
 `AuditSignalBuilder` presents those facts as the **Memory safety model** and
 **RequiresUnsafe members** signals. This is the existing user-visible answer
@@ -358,8 +371,13 @@ The following gaps remain with Metadata and presentation:
 - property `ApiMember.IsUnsafe` uses pointer shape without reading its v2
   PropertyDef/accessor contract, while events and fields do not currently set
   `IsUnsafe`; and
+- consumers use `ApiMember.IsUnsafe` for distinct questions: whether to spell
+  an `unsafe` modifier, summarize a contract, or reject an unsupported export.
+  Changing the Boolean to mean only caller contract would silently change
+  structural pointer policy in those consumers; and
 - there is no shared association-aware resolver for MethodDef, FieldDef,
-  PropertyDef, and EventDef contracts.
+  PropertyDef, and EventDef contracts, including the fixed-size-buffer
+  compatibility exception.
 
 ### Analysis
 
@@ -446,11 +464,17 @@ Implementation should proceed through focused owner changes:
 
 1. Metadata introduces the normalized per-module rules state, exact marker
    validation, and the member-kind-aware contract resolver, including
-   PropertyDef/EventDef accessor association.
-2. `ApiSurfaceExtractor` and Library Signals consume those facts without
-   independently combining pointer shapes, attributes, or raw version numbers.
-   The API surface gains version-aware field and accessor coverage.
-3. Analysis consumes the shared state and applies pointer compatibility only
+   PropertyDef/EventDef accessor association, the fixed-size-buffer exception,
+   and an unavailable result for conflicting markers.
+2. Library Signals renders the module fact without independently interpreting
+   raw version numbers.
+3. The Metadata API projection publishes caller contract and structural pointer
+   shape as distinct facts before retiring or narrowing `ApiMember.IsUnsafe`.
+   CSharp, Decompiler member shells, Research, and JsExportSurface migrate in
+   owner-scoped slices: declaration spelling follows the contract and selected
+   language semantics, while export admission retains any independent
+   unsupported pointer-shape rule.
+4. Analysis consumes the shared state and applies pointer compatibility only
    to legacy modules. Call and field evidence resolve target contracts through
    Metadata across assembly boundaries and apply the caller/target enforcement
    matrix. Operation evidence separates raw `localloc` and pointer shapes from
@@ -459,7 +483,7 @@ Implementation should proceed through focused owner changes:
    `OpaqueUnsafeMethods()` and `HollowUnsafeMethods()` populations in
    [Memory-safety rendering modes](memory-safety-modes.md), because correcting
    `CallerUnsafeMode` and realized-operation evidence changes their inputs.
-4. Decompiler consumes the shared state for conservative replay while keeping
+5. Decompiler consumes the shared state for conservative replay while keeping
    its explicit simulation mode. Same- and cross-assembly call and field paths
    consume Metadata's target contract, including accessor associations, before
    deciding where source needs an unsafe context. Rendering follows the selected
@@ -467,13 +491,13 @@ Implementation should proceed through focused owner changes:
    operations as unsafe because of the module model, and constructor-chain
    rendering handles the initializer exception without widening the
    constructor body.
-5. Project inspection acquires declared or evaluated rule and permission
+6. Project inspection acquires declared or evaluated rule and permission
    facts through its own design.
-6. A composition query joins project policy, binary contracts, body evidence,
+7. A composition query joins project policy, binary contracts, body evidence,
    and optional provenance to answer policy and safe-boundary questions.
 
-Each stage must leave unsupported, malformed, and unavailable evidence visible
-rather than producing a legacy- or safety-shaped default.
+Each stage must leave unsupported, malformed, conflicting, and unavailable
+evidence visible rather than producing a legacy- or safety-shaped default.
 
 ## Demo
 
