@@ -97,7 +97,6 @@ id
 display name
 kind
 endpoint, when the kind requires one
-enabled state
 ```
 
 Credentials, resolved resources, response caches, and runtime health are not
@@ -1111,13 +1110,47 @@ configuration, not absence, and never re-enables Gallery. Resetting package
 sources explicitly removes the persisted registry record; the next
 initialization may then apply the bootstrap again.
 
-The persisted registry record is a versioned closed shape containing portable
-source descriptors, enabled IDs, and selected IDs. Version 1 has no default or
-preference member. Duplicate or unknown properties, unsupported versions,
-unknown selected IDs, and partially written or malformed records produce a
-typed configuration failure with an empty active set and a visible reset
-action. They are not treated as first run. A future format must define an
-explicit migration before its fields are accepted.
+The persisted registry record has exactly this version-1 envelope:
+
+```json
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "id": "gallery",
+      "kind": "nuget-gallery"
+    },
+    {
+      "id": "corp",
+      "kind": "nuget-v3",
+      "name": "Corporate mirror",
+      "url": "https://packagefeedproxy.microsoft.io/nuget/v3/index.json"
+    }
+  ],
+  "enabled": [
+    "gallery",
+    "corp"
+  ],
+  "selected": [
+    "gallery",
+    "corp"
+  ]
+}
+```
+
+`sources` is the sole registry of descriptors; enablement is represented only
+by the top-level `enabled` IDs. All three arrays are required, unique, and
+ordered by ordinal source ID. Every `enabled` ID must resolve to one source,
+and every `selected` ID must resolve to one enabled source. The canonical
+built-in Gallery descriptor occurs exactly once and cannot be replaced;
+custom descriptors follow the admission rules above.
+
+Version 1 has no default or preference member. Duplicate or unknown properties
+at any depth, unsupported versions, duplicate or dangling IDs,
+selected-but-disabled IDs, noncanonical array order, and partially written or
+malformed records produce a typed configuration failure with an empty active
+set and a visible reset action. They are not treated as first run. A future
+format must define an explicit migration before its fields are accepted.
 
 There is no implemented legacy browser default-feed record to migrate: the
 current browser has no persisted package-source policy. If storage or a source
@@ -1166,6 +1199,7 @@ These semantics are unverified pending
 `BrowserPackageSourcePolicyTests.FirstRunSelectsGallery`,
 `PersistedEmptySelectionDoesNotRestoreGallery`,
 `MalformedOrUnsupportedPolicyFailsWithoutBootstrap`,
+`EnabledAndSelectedIdsAreCanonicalResolvedSubsets`,
 `UnknownPreferenceFieldIsRejected`,
 `ResetRemovesPolicyBeforeGalleryBootstrap`,
 `SelectedSourcesHaveNoDefaultOrPreference`,

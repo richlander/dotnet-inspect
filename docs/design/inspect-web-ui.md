@@ -1222,11 +1222,11 @@ and producer provenance. This UI owner consumes those typed results and does
 not redefine them.
 
 The initial UI does not expose feed tabs or in-workspace source switching.
-Settings renders the package-source owner's registration, selection,
-capability, authentication, and cache-action descriptors and submits their
-typed actions. There is no `Default feed` control: the source owner bootstraps
-Gallery only when no persisted registry exists, then the selected source set is
-the complete browser policy.
+Settings renders the package-source owner's registration, enablement,
+multi-selection, capability, authentication, and cache-action descriptors and
+submits their typed actions. There is no `Default feed` control: the source
+owner bootstraps Gallery only when no persisted registry exists, then the
+selected source set is the complete browser policy.
 
 Once a package is acquired, Workspace, package headings, and the data bar show
 its owner-issued compact producer label as read-only context. Source-scoped
@@ -1698,9 +1698,9 @@ outcomes:
 
 ### Package-source composition
 
-1. Supply registration, selection, capability, authentication, and cache-action
-   descriptors and confirm that the one Settings surface renders them and
-   dispatches their typed actions.
+1. Supply registration, enablement, multi-selection, capability,
+   authentication, and cache-action descriptors and confirm that the one
+   Settings surface renders them and dispatches their typed actions.
 2. Give two custom sources the same display name and confirm that search results
    and version choices render their distinct owner-issued compact labels
    verbatim.
@@ -1709,6 +1709,10 @@ outcomes:
 4. Confirm that no feed tabs or in-workspace feed-switching control appears.
 5. Confirm that `Default feed` is absent and that source multi-selection is the
    complete browser policy after first-run Gallery bootstrap.
+
+`InspectWebPackageSourceSettingsTests.RendersEnablementAndSelectionWithoutDefaultFeed`
+gates enabled, disabled, selected, and unselected source descriptors together
+with the absence of a synthesized `Default feed` control.
 
 ### Search input
 
