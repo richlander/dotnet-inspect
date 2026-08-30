@@ -370,6 +370,7 @@ gates;
 `ResearchTargetAbsence_UnscopedForwarderFailureBlocksOnlyAbsence`,
 `ResearchTargetDeclaringType_DistinguishesAbsentFromForwarded`,
 `ResearchTargetDeclaringType_DoesNotInferAbsenceUnderForwarder`,
+`ResearchTargetDeclaringType_DoesNotInferAbsenceFromMalformedExport`,
 `ResearchTargetDeclaringType_RejectsFailedExactDuplicate`,
 `ResearchTargetForwarder_RetainedEvidencePrecedesUnscopedFailure`,
 `ResearchTargetReferenceOnlyInput_TerminatesWithoutOpening`,

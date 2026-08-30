@@ -1276,6 +1276,42 @@ public class ResearchTargetResolverTests
     }
 
     [Fact]
+    public void ResearchTargetDeclaringType_DoesNotInferAbsenceFromMalformedExport()
+    {
+        byte[] image = BuildResearchSurfaceImage(
+            cyclicTypeName: null,
+            duplicateTypeName: null,
+            malformedAssemblyRefExportTypeName: "Malformed");
+        ApiSurface surface = ExtractSurface(image);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            ApiSurfaceInspectionFailure.TypeForwarderIdentityOperation,
+            failure.Operation);
+        Assert.Equal(0x27000001, failure.SubjectToken);
+
+        TargetFixture fixture = TargetFixture.Create(
+            [(Occurrence(image), null, null)]);
+        var failed = Assert.IsType<ResearchTargetOutcome.Failed>(
+            Assert.Single(
+                fixture.ResolveDefault("N.Malformed", "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.IncompleteMetadataSurface,
+            failed.Diagnostic.Kind);
+
+        TargetFixture complete = TargetFixture.Create(
+            [(Sample(), null, null)]);
+        var notFound = Assert.IsType<ResearchTargetOutcome.NotFound>(
+            Assert.Single(
+                complete.ResolveDefault(AbsentType, "Method").Attempts)
+                .Outcome);
+        Assert.Equal(
+            ResearchTargetDiagnosticKind.DeclaringTypeAbsent,
+            notFound.ResearchDiagnostic!.Kind);
+    }
+
+    [Fact]
     public void ResearchTargetDeclaringType_RejectsDuplicateExactDeclarations()
     {
         byte[] image = BuildResearchSurfaceImage(
@@ -2025,7 +2061,8 @@ public class ResearchTargetResolverTests
         string? cyclicTypeName,
         string? duplicateTypeName,
         string? forwarderTypeName = null,
-        string? nestedForwarderTypeName = null)
+        string? nestedForwarderTypeName = null,
+        string? malformedAssemblyRefExportTypeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2107,6 +2144,24 @@ public class ResearchTargetResolverTests
                     root,
                     typeDefinitionId: 0);
             }
+        }
+
+        if (malformedAssemblyRefExportTypeName is not null)
+        {
+            AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("MalformedTarget"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+            metadata.AddExportedType(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(
+                    malformedAssemblyRefExportTypeName),
+                target,
+                typeDefinitionId: 0);
         }
 
         var pe = new ManagedPEBuilder(
