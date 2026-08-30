@@ -921,10 +921,14 @@ Ten cases gate whole-image method ownership across the type-scoped,
 whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
 covering duplicate, out-of-range, cross-type aliased, and silently empty
 projections, a descending `MethodList` range, an uncovered `MethodPtr` row, and
-metadata declaring no TypeDef rows. An eleventh case gates uniqueness of the
-exact seed member, which a rejected sibling leaves unproven, and a twelfth
-gates that matching a candidate leaf charges the declaring-chain traversal it
-performs rather than only the names it compares.
+metadata declaring no TypeDef rows. An eleventh case gates that a null
+`MethodList`, which ECMA-335 permits and the runtime reader projects as an
+empty run, is accepted rather than reported as malformed. A twelfth gates
+uniqueness of the exact seed member, which a rejected sibling leaves unproven,
+and a thirteenth gates that matching a candidate leaf charges the
+declaring-chain traversal it performs rather than only the names it compares;
+that case pins its fixture's declaring depth, because a shallow fixture would
+exhaust the same budget while leaving the traversal unexercised.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

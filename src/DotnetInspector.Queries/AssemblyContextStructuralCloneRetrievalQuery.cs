@@ -954,7 +954,13 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         BlobReader rows = block.GetReader(
             reader.GetTableMetadataOffset(TableIndex.TypeDef),
             typeRows * rowSize);
-        int previous = 1;
+        // ECMA-335 II.22.37 permits a null MethodList, which SRM
+        // projects as an empty run. Starting the floor at zero accepts
+        // that while still requiring the column to be sorted, so a
+        // null cannot appear after a populated run and leave the
+        // column unordered for declaring-type lookup. A null that
+        // actually drops methods still fails the coverage check.
+        int previous = 0;
         for (int row = 0; row < typeRows; row++)
         {
             rows.Offset = (row * rowSize) + rowSize - width;

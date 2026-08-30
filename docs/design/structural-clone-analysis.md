@@ -342,6 +342,15 @@ follows SRM's own rule, so public table geometry locates it without parsing the
 metadata header. That check accepts all 41,085 sampled assemblies, 9 of which
 exercise the four-byte index width.
 
+Ordering is required, but a *null* start is not a violation of it. ECMA-335
+II.22.37 permits a null `MethodList`, and the reader projects such a run as
+empty, so the column may legally begin at zero. The ordering floor therefore
+starts at zero rather than one. A null that follows a populated run still
+fails, because it would leave the column unsorted for declaring-type lookup,
+and a null that actually drops methods still fails coverage.
+`Execute_NullMethodListIsNotRejected` gates that a legal null run is not
+reported as malformed metadata.
+
 Resolving the exact seed member has a matching obligation. A sibling MethodDef
 whose anchor cannot be decoded is not evidence that it names a different
 member, so a lone healthy match does not establish uniqueness and must not be
@@ -358,7 +367,13 @@ amplification of a budget that claimed to bound the work. Matching a leaf
 therefore charges the traversal ceiling as well. Real assemblies have ample
 headroom: the most any sampled assembly repeats a single leaf name is 435,
 against roughly 16,000 permitted by the budget.
-`Execute_RepeatedLeafNameChargesChainTraversal` gates the charge.
+`Execute_RepeatedLeafNameChargesChainTraversal` gates the charge, and pins its
+fixture's declaring depth: a shallow fixture exhausts the same budget without
+ever walking a chain, so it would gate the charge's existence while leaving the
+traversal it is sized for unexercised. The gate constrains the charge's
+magnitude, not its position — removing the traversal term fails it, whereas
+moving the charge after the comparison does not, because that reordering costs
+at most one additional traversal rather than reopening the amplification.
 
 ## Correspondence and automorphisms
 

@@ -1409,6 +1409,49 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_NullMethodListIsNotRejected()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildNullMethodListAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // A null run is legal metadata, not malformed metadata. The
+        // ordering check must not turn a valid package into a typed
+        // inspection failure; coverage remains the guard that a null
+        // run does not silently drop methods.
+        AssemblyContextStructuralCloneRetrievalResult result =
+            Execute(
+                new(
+                    group,
+                    participant,
+                    group,
+                    participant,
+                    new StructuralCloneQuerySeed
+                        .MethodDefinitionToken(
+                            MetadataTokens.GetToken(
+                                MetadataTokens
+                                    .MethodDefinitionHandle(1))),
+                    new StructuralCloneQueryPopulation.Type(
+                        TypeName("N.Fixture"))));
+
+        if (result
+            is AssemblyContextStructuralCloneRetrievalResult.Failed
+                rejected)
+        {
+            Assert.NotEqual(
+                StructuralCloneQueryFailureKind
+                    .MetadataInspectionFailed,
+                rejected.Failure.Kind);
+        }
+    }
+
+    [Fact]
     public void Execute_RepeatedLeafNameChargesChainTraversal()
     {
         // Every candidate clears the leaf comparison and reaches the
@@ -1417,7 +1460,13 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         // more work than the budget claims to bound.
         ImmutableArray<byte> image =
             ImmutableCollectionsMarshal.AsImmutableArray(
-                BuildRepeatedLeafNameAssembly(17_000));
+                BuildRepeatedLeafNameAssembly(17_000, depth: 64));
+
+        // Pin the fixture's declaring depth. A depth-1 fixture would
+        // still exhaust the budget and so would still pass, leaving
+        // the traversal this charge exists to bound unexercised.
+        Assert.Equal(64, MeasureLeafDeclaringDepth(image, "C"));
+
         var policy = new TestBindingPolicy();
         using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group =
@@ -3045,12 +3094,60 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         return bytes;
     }
 
+    static int MeasureLeafDeclaringDepth(
+        ImmutableArray<byte> image,
+        string leafName)
+    {
+        using var reader = new PEReader(image);
+        MetadataReader metadata = reader.GetMetadataReader();
+        foreach (TypeDefinitionHandle handle in
+            metadata.TypeDefinitions)
+        {
+            TypeDefinition type = metadata.GetTypeDefinition(handle);
+            if (!metadata.GetString(type.Name).Equals(
+                    leafName,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            int depth = 1;
+            TypeDefinition current = type;
+            while (true)
+            {
+                TypeDefinitionHandle declaring =
+                    current.GetDeclaringType();
+                if (declaring.IsNil)
+                {
+                    return depth;
+                }
+
+                current = metadata.GetTypeDefinition(declaring);
+                depth++;
+            }
+        }
+
+        return 0;
+    }
+
+    static byte[] BuildNullMethodListAssembly()
+    {
+        // ECMA-335 II.22.37 permits a null MethodList. The module
+        // pseudo-type owns no methods, so the run is genuinely empty
+        // and the following type still covers the table exactly.
+        byte[] bytes = BuildMethodPtrAssembly(1, 2);
+        WriteMethodListStart(bytes, typeDefRow: 0, start: 0);
+        return bytes;
+    }
+
     /// <summary>
     /// Builds an assembly whose types repeat one short leaf name, so
     /// every candidate passes the cheap leaf comparison and reaches the
     /// declaring-chain walk.
     /// </summary>
-    static byte[] BuildRepeatedLeafNameAssembly(int leaves)
+    static byte[] BuildRepeatedLeafNameAssembly(
+        int leaves,
+        int depth = 1)
     {
         MetadataBuilder metadata = CreateMetadata(
             "RepeatedLeafName",
@@ -3066,16 +3163,54 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: seed);
+        // Enclose the leaves in a chain so a leaf match actually walks
+        // a declaring chain. A depth-1 fixture leaves the traversal
+        // this budget is meant to bound completely unexercised.
+        StringHandle enclosing = metadata.GetOrAddString("E");
+        var chain = new List<TypeDefinitionHandle>();
+        for (int d = 0; d < depth - 1; d++)
+        {
+            chain.Add(
+                metadata.AddTypeDefinition(
+                    d == 0
+                        ? TypeAttributes.Public
+                        : TypeAttributes.NestedPublic,
+                    default,
+                    enclosing,
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: seed));
+        }
+
         StringHandle leaf = metadata.GetOrAddString("C");
+        var nested = new List<TypeDefinitionHandle>();
         for (int i = 0; i < leaves; i++)
         {
-            metadata.AddTypeDefinition(
-                TypeAttributes.Public,
-                default,
-                leaf,
-                baseType: default,
-                fieldList: MetadataTokens.FieldDefinitionHandle(1),
-                methodList: seed);
+            nested.Add(
+                metadata.AddTypeDefinition(
+                    chain.Count == 0
+                        ? TypeAttributes.Public
+                        : TypeAttributes.NestedPublic,
+                    default,
+                    leaf,
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: seed));
+        }
+
+        // NestedClass rows must ascend by nested type, and every rid
+        // added above already ascends.
+        for (int d = 1; d < chain.Count; d++)
+        {
+            metadata.AddNestedType(chain[d], chain[d - 1]);
+        }
+
+        if (chain.Count > 0)
+        {
+            foreach (TypeDefinitionHandle type in nested)
+            {
+                metadata.AddNestedType(type, chain[^1]);
+            }
         }
 
         var pe = new ManagedPEBuilder(
