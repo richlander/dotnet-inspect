@@ -93,10 +93,10 @@ keeps both closable.
 
 Design documents state the smallest contract needed to guide implementation and
 review: the owner's boundary, observable obligations, invariants, failure
-semantics, and non-claims. They do not narrate current fields, methods, branches,
-or execution steps, and they prescribe an implementation only when that choice
-is itself part of the contract. Code implements the contract; do not duplicate
-it in words.
+semantics, and non-claims. They do not narrate current or planned fields,
+methods, branches, or execution steps. State architectural constraints as
+contract boundaries, not as prose implementation plans. Code implements the
+contract; do not duplicate it in words.
 
 When correctness depends on significant stateful, concurrent, distributed, or
 scheduling interactions, use a small TLA+ model that states the relevant safety

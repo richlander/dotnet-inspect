@@ -236,8 +236,8 @@ over-broad-design recovery procedure live in
   may reference adjacent owner-issued types but must not redefine another
   owner's contract; beyond the single-claim transfer exception, cross-owner
   normative changes need focused efforts joined by a thin composition map.
-- State boundaries and contracts as simply as possible. Never translate
-  implementation into prose or prescribe it; code implements the contract.
+- State boundaries and contracts as simply as possible. Never translate current
+  or planned implementation into prose; code implements the contract.
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
   Do not start or broaden into one without the user's explicit request or
