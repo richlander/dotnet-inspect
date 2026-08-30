@@ -18,6 +18,8 @@ public class SubstratePredicateCensusTests
             "Classic-async resume authentication compares one exact-machine awaiter spill/load pair inside the bounded protocol CFG; it is not general field or place identity.",
         [new("ClassicAsyncReconstructionPass.cs", "SameExactType")] =
             "Classic-async protocol authentication requires semantic type equality plus every available resolution/definition provenance field and ordered required/optional custom modifier recursively; this stronger pass boundary is not the pipeline's general TypeRef equality.",
+        [new("ClassicAsyncReconstructionPass.cs", "SameExactFieldDefinition")] =
+            "Classic-async planning compares one acquisition-bound imported FieldDef with live IR or its detached storage/binding claim; this pass-owned provenance proof is not general re-evaluable-place or member identity.",
         [new("EhStructuringPass.cs", "SameZone")] =
             "Control-flow legality check over EH constructs and branch offsets, not a place/member identity predicate.",
         [new("IncrementDecrementPass.cs", "SameField")] =
