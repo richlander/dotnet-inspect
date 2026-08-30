@@ -46,6 +46,7 @@ public static class ChangeDetectionApp
                 "Usage: dotnet run eng/test-ci-change-detection.cs [-- --refresh-evil-provenance-pin]");
         }
 
+        InspectWebProjectGraphPolicy.Validate(repository);
         WorkflowContractResult result = LoadContract(
             repository,
             workflowText,
