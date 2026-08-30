@@ -1316,6 +1316,8 @@ The implementation gates are:
 - `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesSynchronousEof`;
 - `PackageSourceClientTests.PayloadObjectDisposedFailureRetainsSafeSourceIdentity`;
 - `PackageSourceClientTests.PayloadObjectDisposedFailurePreservesRequestDeadline`;
+- `PackageSourceClientTests.PayloadInvalidDataFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadInvalidDataFailurePreservesRequestDeadline`;
 - `PackageSourceClientTests.PayloadReadAfterDisposalRemainsObjectDisposed`;
   and
 - `PackageSourceClientTests.PayloadAsyncDisposalFailureRetainsSafeSourceIdentity`.
@@ -1325,6 +1327,10 @@ gates deadline precedence across concurrent Gallery page requests.
 `GalleryConcurrentTransportFaultCannotHideTransportTimeout` and
 `GalleryLateProtocolFailureCannotBecomePartial` gate the lower-precedence
 transport-timeout and protocol-failure cases.
+`GalleryLateMetadataProtocolFailurePreservesBodyDeadline`,
+`GalleryLateInvalidDataPreservesRequestDeadline`, and
+`GalleryLateStreamingTimeoutPreservesDeadline` gate the same precedence at the
+remaining metadata-body, decode, and streaming-acquisition boundaries.
 `PackagePayloadAcquisitionTests.TypedAcquisition_PreservesPayloadStreamTimeout`
 is the non-vacuity gate for the `DotnetInspector.Packages` stream handoff.
 `PackagePayloadAcquisitionTests.TypedCacheHit_DoesNotEscapeExpiredOperationContext`

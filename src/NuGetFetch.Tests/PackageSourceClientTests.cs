@@ -3172,6 +3172,97 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryLateMetadataProtocolFailurePreservesBodyDeadline()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromSeconds(2),
+            MetadataBodyTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new LateMalformedRegistrationHandler(),
+                options);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.MetadataBody,
+                options.MetadataBodyTimeout),
+            failure.Timeout);
+    }
+
+    [Fact]
+    public async Task GalleryLateInvalidDataPreservesRequestDeadline()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(20),
+            OperationTimeout = TimeSpan.FromSeconds(5),
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new LateInvalidDataRegistrationHandler(),
+                options);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            failure.Timeout);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GalleryLateStreamingTimeoutPreservesDeadline(
+        bool operationExpires)
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = operationExpires
+                ? TimeSpan.FromSeconds(2)
+                : TimeSpan.FromMilliseconds(40),
+            OperationTimeout = operationExpires
+                ? TimeSpan.FromMilliseconds(40)
+                : TimeSpan.FromSeconds(2),
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new LateStreamingTimeoutHandler(),
+                options);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                operationExpires
+                    ? PackageSourceTimeoutKind.Operation
+                    : PackageSourceTimeoutKind.Request,
+                operationExpires
+                    ? options.OperationTimeout
+                    : options.RequestTimeout),
+            failure.Timeout);
+    }
+
+    [Fact]
     public void GalleryFinalListingProjectionPreservesOperationTimeout()
     {
         var candidate = new PackageCandidateObservation(
@@ -4744,6 +4835,102 @@ public sealed class PackageSourceClientTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PayloadInvalidDataFailureRetainsSafeSourceIdentity(
+        bool readAsync)
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new InvalidDataPayloadStream(delay: false)),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error;
+        if (readAsync)
+        {
+            error = await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+        }
+        else
+        {
+            error = Assert.Throws<PackageSourceStreamException>(
+                () => content.ReadByte());
+        }
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.Null(error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PayloadInvalidDataFailurePreservesRequestDeadline()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(20),
+            OperationTimeout = TimeSpan.FromSeconds(1),
+        };
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new InvalidDataPayloadStream(delay: true)),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PayloadReadAfterDisposalRemainsObjectDisposed()
     {
@@ -5398,6 +5585,50 @@ public sealed class PackageSourceClientTests
             throw new NotSupportedException();
     }
 
+    private sealed class InvalidDataPayloadStream(bool delay) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw CreateFailure();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (delay)
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+            throw CreateFailure();
+        }
+
+        private static InvalidDataException CreateFailure() =>
+            new(
+                "Simulated invalid payload from "
+                + "https://secret.example/package.");
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
     private sealed class StallingPayloadStream : Stream
     {
         public override bool CanRead => true;
@@ -5865,6 +6096,77 @@ public sealed class PackageSourceClientTests
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class LateInvalidDataRegistrationHandler
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            HttpContent content =
+                request.RequestUri!.AbsoluteUri == GalleryVersions
+                    ? new StringContent(
+                        """{"versions":["1.0.0"]}""")
+                    : new StreamContent(
+                        new LateInvalidDataRegistrationStream());
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content,
+                });
+        }
+    }
+
+    private sealed class LateInvalidDataRegistrationStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            throw new InvalidDataException(
+                "Simulated late invalid registration data.");
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class LateStreamingTimeoutHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            throw new TimeoutException(
+                "Simulated late streaming transport timeout.");
+        }
     }
 
     private sealed class CancelableRegistrationHandler : HttpMessageHandler

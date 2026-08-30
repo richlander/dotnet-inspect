@@ -239,7 +239,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             throw;
         }
         catch (Exception ex)
-            when (IsDeadlineAbort(ex)
+            when (IsDeadlineEligibleFailure(ex)
                 && IsAnyDeadlineExpired(requestStarted, requestCancellation))
         {
             try
@@ -362,9 +362,10 @@ internal sealed class NuGetOperationDeadline : IDisposable
             or HttpRequestException
             or ObjectDisposedException;
 
-    private static bool IsDeadlineEligibleFailure(Exception exception) =>
+    internal static bool IsDeadlineEligibleFailure(Exception exception) =>
         IsDeadlineAbort(exception)
         || exception is TimeoutException
+            or InvalidDataException
             or System.Text.Json.JsonException
             or NuGetSourceResponseException;
 
@@ -790,6 +791,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
         private bool IsStreamReadFailure(Exception exception) =>
             exception is OperationCanceledException
                 or IOException
+                or InvalidDataException
                 or HttpRequestException
                 or TimeoutException
                 or ObjectDisposedException

@@ -135,7 +135,7 @@ internal static class NuGetMetadataReader
         }
         catch (Exception ex)
             when (cancellationToken.IsCancellationRequested
-                && IsDeadlineAbort(ex))
+                && NuGetOperationDeadline.IsDeadlineEligibleFailure(ex))
         {
             throw new OperationCanceledException(
                 "NuGet metadata read was canceled by the caller.",
@@ -159,7 +159,7 @@ internal static class NuGetMetadataReader
                     started,
                     timeout,
                     options.MetadataBodyTimeout)
-                && IsDeadlineAbort(ex))
+                && NuGetOperationDeadline.IsDeadlineEligibleFailure(ex))
         {
             var cancellation = new OperationCanceledException(
                 "NuGet metadata body was aborted after its deadline expired.",
@@ -177,14 +177,6 @@ internal static class NuGetMetadataReader
         TimeSpan bodyTimeout) =>
         timeout.IsCancellationRequested
         || Stopwatch.GetElapsedTime(started) >= bodyTimeout;
-
-    private static bool IsDeadlineAbort(Exception exception) =>
-        exception is IOException
-            and not NuGetMetadataResponseTooLargeException
-            and not NuGetRedirectLimitExceededException
-            and not NuGetRegistrationResourceLimitExceededException
-            or HttpRequestException
-            or ObjectDisposedException;
 
     private sealed class MaximumReadStream(
         Stream inner,
