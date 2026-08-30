@@ -10,13 +10,18 @@ The prose owner is
 The model assumes:
 
 - one loaded, immutable annotated document;
-- a finite product-issued Finding, target, node, and default-annotation census;
+- finite product-issued annotation, Finding, target, node, and
+  default-annotation censuses;
 - an immutable product-issued supported-media set containing C# and optionally
   IL;
-- every target belongs to exactly one Finding;
+- every target belongs to exactly one annotation;
+- every Finding target belongs to exactly one Finding;
 - C# and IL targets are disjoint;
 - one Finding has two distinct C# targets plus an IL target, one is IL-only,
   and one is unanchored;
+- one non-Finding structural annotation has one IL target, is initially off,
+  and participates in **All** without gaining Finding detail or inspector
+  actions;
 - user gestures are atomic; and
 - shell open, dismissal, and focus handoff occur as one atomic boundary event.
 
@@ -24,12 +29,13 @@ The model explores every subset of the two annotatable Findings as the default
 set when both media are supported, and every subset of the C#-annotatable
 Finding when only C# is supported. Its finite target identities span both
 document configurations; the immutable supported-media set derives each
-document's annotation universe. The configuration contains three Findings,
-four targets, two supported-media sets, two media, and one selectable node.
-These bounds exercise empty, singleton, all-equal, C#-only documents, optional
-IL, two same-medium targets for one Finding, IL-only Findings, dual-media
-targets, and unanchored cases without claiming that production cardinality is
-bounded.
+document's complete annotation universe. The configuration contains three
+Findings, one structural annotation, five targets, two supported-media sets,
+two media, and one selectable node. These bounds exercise empty, singleton,
+all-equal, C#-only documents, optional IL, two same-medium targets for one
+Finding, IL-only Findings, dual-media targets, unanchored Findings, and a
+non-Finding annotation that distinguishes **Default** from **All** in the
+dual-media document, without claiming that production cardinality is bounded.
 
 ## Checked behavior
 
@@ -42,7 +48,8 @@ The safety invariants check:
 - absence of modal detail after dismissal;
 - at least one document-supported visible medium;
 - exact derivation of the annotation universe and defaults from supported
-  media;
+  media, including a non-Finding structural annotation that is excluded from
+  defaults;
 - independent precedence checks for exact derivation of **Default**, **All**,
   **Clear**, and **Custom**;
 - a concrete valid focus target throughout an open modal;
@@ -54,7 +61,8 @@ The safety invariants check:
   every modeled fixed action, including an unanchored inspector witness and
   pointer **Close** while detail is open;
 - exact rendered-target derivation from active membership and currently
-  visible media;
+  visible media using each target's owning annotation rather than assuming
+  every target owns Finding behavior;
 - exact annotation and presentation preservation across modal Finding and node
   selection;
 - exact detail closure, primary and presentation preservation, and
@@ -65,8 +73,12 @@ The safety invariants check:
   derived from pre-control state, including orthogonal-state preservation and
   final-medium rejection;
 - fresh modal initialization and transfer of a representable embedded primary;
+- shell-permitted modal-opening focus at the heading or, for a transferred
+  Finding, its persistent inspector as the modeled current-selection target;
 - exact dismissal, embedded-primary derivation, and **Explore** focus; and
-- the rule that Escape cannot bypass Finding detail on either surface.
+- the rule that Escape cannot bypass Finding detail on either surface, plus
+  exact viewer-state and focus preservation when embedded Escape falls
+  through.
 
 The embedded reader can produce primary state only from a default rendered C#
 chip. Its ineligible-primary rejection branch is therefore structural, not a
@@ -82,6 +94,13 @@ every action. `CloseCurrentDetail` abstracts the identical viewer-state outcome
 of the detail close control and detail-level Escape; the distinct Escape
 actions model only modal dismissal and embedded fall-through after detail is
 absent.
+
+The shell permits primary-input, current-selection, or heading focus when it
+opens a modal. Primary-input composition is not otherwise part of this bounded
+viewer state, so `OpenModal` explores heading focus and the persistent
+inspector action for an eligible transferred Finding. A temporary reachability
+canary that prohibited that current-selection choice failed after 41 generated
+states, demonstrating that the model does not pin opening focus to the heading.
 
 This is a safety model only. It makes no liveness claim: users may stop after
 any gesture, ignored input is admitted as stuttering, and asynchronous
@@ -104,24 +123,24 @@ java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
 ```
 
 TLC 1.8.0, build `2026.08.21.155922`, revision `9787e65`, completed with no
-error:
+error. The checked configuration registers 29 safety invariants:
 
 | Result | Value |
 | --- | ---: |
-| Generated states | 422,928 |
-| Distinct states | 27,738 |
-| Search depth | 12 |
+| Generated states | 825,314 |
+| Distinct states | 53,760 |
+| Search depth | 13 |
 
 The coverage run reported nonzero distinct transitions for every top-level
 action. The smallest count was 12 for `OpenEmbeddedChip`; representative
-transition counts were 18 for `OpenModal`, 60 each for the two dismissal
-actions, 1,344 for `OpenModalFinding`, 1,548 for `CloseCurrentDetail`, 5,976
-each for `ToggleAnnotation` and `ToggleMedium`, and 3,096 for
+transition counts were 24 for `OpenModal`, 60 each for the two dismissal
+actions, 2,592 for `OpenModalFinding`, 2,988 for `CloseCurrentDetail`, 11,736
+each for `ToggleAnnotation` and `ToggleMedium`, and 5,976 for
 `ToggleCoordinates`.
 
 ## Mutation evidence
 
-Fifty-five deliberate targeted mutations were run against the same
+Fifty-eight deliberate targeted mutations were run against the same
 configuration.
 Each produced a concrete counterexample:
 
@@ -140,6 +159,7 @@ Each produced a concrete counterexample:
 | Make annotation membership toggle a no-op | `AnnotationToggleOutcomeIsExact` |
 | Make **Default** membership a no-op | `ControlOutcomeIsExact` |
 | Make **All** membership a no-op | `ControlOutcomeIsExact` |
+| Omit the structural annotation from **All** | `ControlOutcomeIsExact` |
 | Let **Clear** preserve primary and detail | `ControlOutcomeIsExact` |
 | Let **All** reset visible media | `ControlOutcomeIsExact` |
 | Focus **Clear** after activating **Default** | `ControlOutcomeIsExact` |
@@ -156,8 +176,10 @@ Each produced a concrete counterexample:
 | Swap **Default** and **All** precedence | `ReportedStateIsDerived` |
 | Treat a hidden chip as an available opener | `FocusIsValid` |
 | Let embedded Escape fall through while detail is open | `EscapeCannotBypassDetail` |
+| Clear primary selection and focus while embedded Escape falls through | `EmbeddedEscapeOutcomeIsExact` |
 | Clear primary selection when directly closing detail | `DetailClosureOutcomeIsExact` |
 | Include an unsupported-medium Finding in the annotation universe | `AnnotatableUniverseIsSupported` |
+| Restrict the annotation universe to Findings | `AnnotatableUniverseIsSupported` |
 | Record a sibling C# target for an embedded chip opener | `FindingOpeningIsExact` |
 | Clear eligible primary state while opening the modal | `ModalOpeningIsFresh` |
 | Make transfer eligibility reject every primary | `ModalOpeningIsFresh` |
@@ -184,18 +206,23 @@ Each produced a concrete counterexample:
 | Remove one selectable-node action | `NodeActionsAreExact` |
 
 The mutations are evidence that these properties are observed by the checked
-invariants rather than restatements that TLC cannot falsify.
+invariants rather than restatements that TLC cannot falsify. The three new
+domain, **All**, and embedded-Escape mutations failed in the initial state,
+after 74 generated states, and after 160 generated states, respectively.
 
 ## Non-claims
 
 The model does not represent:
 
 - browser-history entries, workspace packets, or canonical view restoration;
-- modal stacking or focus trapping owned by the shell;
+- modal stacking, focus trapping, or the shell's complete initial-focus target
+  set;
 - asynchronous loading, navigation authority, cancellation, or supersession;
 - pointer geometry, drag selection, DOM ordering, or rendering;
 - declaration construction;
 - Finding census construction or cross-projection identity;
+- individual structural or capture controls beyond their participation in the
+  bulk annotation sets and rendering;
 - source, IL, Finding, node, target, or coordinate production (coordinate
   visibility itself is modeled); or
 - performance and production-scale cardinality.

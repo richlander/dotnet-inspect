@@ -143,6 +143,13 @@ Each **Explore** activation starts a fresh modal session:
 - no node is selected; and
 - Finding detail is closed.
 
+The shell chooses initial modal focus from its permitted primary input, current
+selection, or heading targets. The viewer requires the chosen target to remain
+valid but does not require heading focus. The bounded model represents the
+heading and, for an eligible transferred Finding, its persistent inspector
+action as the current-selection focus choice; exact shell focus composition
+remains outside this viewer owner.
+
 The embedded reader can produce a primary only from a default rendered C# chip,
 so every representable embedded primary is eligible to transfer into the fresh
 modal. Unanchored, IL-only, and non-default Findings have no embedded action and
@@ -347,6 +354,9 @@ bounded executable design model for viewer-local interaction. It checks:
   every modeled fixed action, including an unanchored inspector witness and
   pointer **Close** while detail is open;
 - exact rendered-target derivation from active annotations and visible media;
+- distinct Finding and non-Finding annotation identities, with structural
+  annotations excluded from defaults but included by **All** and rendered from
+  their own targets;
 - primary selection, active annotations, rendered annotations, and derived
   reported state with independently checked precedence;
 - exact **Default**, **All**, **Clear**, medium, and coordinate control
@@ -354,6 +364,7 @@ bounded executable design model for viewer-local interaction. It checks:
 - document-supported C#/IL visibility with at least one available medium and
   a document-relative annotation universe, plus coordinate visibility;
 - layered Escape on both surfaces and pointer dismissal;
+- exact viewer-state preservation when embedded Escape falls through;
 - destruction of embedded detail on modal opening;
 - exact focus and state preservation after direct or indirect detail closure;
   and
@@ -380,13 +391,15 @@ Conformance requires:
   open;
 - modal-session tests proving fresh initialization, eligible primary transfer,
   independently derived transfer eligibility, embedded-detail destruction on
-  opening, state destruction on dismissal, and no detail transfer;
+  opening, shell-permitted heading or current-selection focus, state
+  destruction on dismissal, and no detail transfer;
 - active-versus-rendered tests covering C#-only, IL-only, dual-target, and
-  unanchored Findings, with rendered targets derived directly from active
-  membership and visible media;
+  unanchored Findings plus a non-Finding structural annotation, with rendered
+  targets derived directly from owning-annotation membership and visible media;
 - **Default**, **All**, **Clear**, and **Custom** precedence tests, including
   empty and universe-equal defaults plus rejection of unsupported-medium
-  Findings from the universe and default set;
+  Findings from the universe and default set, exclusion of structural or
+  capture annotations from defaults, and their inclusion by **All**;
 - media tests proving controls come only from the product-supported set,
   unsupported media cannot satisfy the non-empty guard, membership is
   orthogonal, a hidden opener falls back to the exact Finding's inspector
@@ -405,7 +418,8 @@ Conformance requires:
   media, and coordinate state and proving those orthogonal states are
   preserved;
 - layered Escape tests distinguishing detail closure, modal dismissal, and
-  embedded fall-through;
+  embedded fall-through, with an independent before/after oracle for every
+  viewer-owned state field and focus;
 - focus tests for direct close, annotation-set controls, annotation, media, and
   coordinate toggles, pointer dismissal, rejected navigation, and successful
   destination handoff;
