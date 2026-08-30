@@ -290,7 +290,7 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
-    public void CallerScopes_VersionSkewKeepsTheCallerForGraphDiagnostics()
+    public void CallerScopes_ExactReferencedVersionExcludesDifferentTarget()
     {
         string targetV2 =
             FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath();
@@ -307,12 +307,9 @@ public class ApiMemberAnalysisInspectionTests
             inspection.BuildCallerTree(ping);
 
         Assert.NotNull(scopes);
-        Assert.Contains(
-            scopes,
-            scope => Path.GetFullPath(scope.Assembly.Path!)
-                == Path.GetFullPath(caller));
+        Assert.Empty(scopes);
         Assert.Empty(tree.Children);
-        Assert.True(inspection.CallGraphDiagnostics.IsIncomplete);
+        Assert.False(inspection.CallGraphDiagnostics.IsIncomplete);
     }
 
     // Round-2 review found that "would the unfiltered walk have opened it?" is not decidable in

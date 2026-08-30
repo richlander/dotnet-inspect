@@ -3728,6 +3728,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   `ScopeFirstBindingPolicy_NoNameOwnerRequiresIdentityPolicy` prove the
   caller-scope wrapper preserves every delegated terminal result and reaches
   its local identity-policy outcome only after `NoNameOwner`.
+- `CallerScopes_ExactReferencedVersionExcludesDifferentTarget` proves that
+  preserving an exact selected assembly keeps a different-version definition
+  distinct from the inspected target and produces a complete empty caller
+  graph rather than an indeterminate diagnostic.
 - `BindingPolicyResolver_PreservesDelegatedNonSelectedResults` proves the
   Queries-to-Analysis bridge retains the structured policy channel and does
   not collapse a typed miss or failure through nullable resolution.
