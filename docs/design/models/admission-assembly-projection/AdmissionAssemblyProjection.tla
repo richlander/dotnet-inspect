@@ -9,9 +9,10 @@
 (* against those frozen facts. It never retains a path, opener, stream,     *)
 (* content reference, lease, or bytes.                                      *)
 (*                                                                         *)
-(* Images A-D are managed assemblies. B keeps A's identity but changes the  *)
+(* Images A-E are managed assemblies. B keeps A's identity but changes the  *)
 (* MVID; C keeps A's MVID but changes identity; D keeps both but belongs to  *)
-(* another artifact generation and registration. The remaining images      *)
+(* a different artifact generation and identity; E keeps both and the       *)
+(* generation but reports a different artifact identity. The remaining      *)
 (* exercise native, netmodule, malformed, and empty-MVID classification.    *)
 (*                                                                         *)
 (* Mutation constants independently weaken the authority, output, or        *)
@@ -25,24 +26,24 @@ CONSTANTS
     AllowStaleAdmission,
     LeakContentAuthority,
     DropArtifactRegistration,
+    AcceptRegistrationMismatch,
     AcceptIdentityMismatch,
     AcceptMvidMismatch,
-    AcceptGenerationMismatch,
     AllowRevokedQuery
 
 ASSUME
     /\ AllowStaleAdmission \in BOOLEAN
     /\ LeakContentAuthority \in BOOLEAN
     /\ DropArtifactRegistration \in BOOLEAN
+    /\ AcceptRegistrationMismatch \in BOOLEAN
     /\ AcceptIdentityMismatch \in BOOLEAN
     /\ AcceptMvidMismatch \in BOOLEAN
-    /\ AcceptGenerationMismatch \in BOOLEAN
     /\ AllowRevokedQuery \in BOOLEAN
 
 NoImage == "NoImage"
 NoValue == "NoValue"
 
-ManagedAssemblies == {"A", "B", "C", "D"}
+ManagedAssemblies == {"A", "B", "C", "D", "E"}
 Images ==
     ManagedAssemblies
         \union {"Native", "Module", "Malformed", "EmptyMvid"}
@@ -55,12 +56,12 @@ ImageKind(image) ==
       [] image = "EmptyMvid" -> "EmptyMvid"
 
 ImageIdentity(image) ==
-    CASE image \in {"A", "B", "D", "EmptyMvid"} -> "Identity1"
+    CASE image \in {"A", "B", "D", "E", "EmptyMvid"} -> "Identity1"
       [] image = "C" -> "Identity2"
       [] OTHER -> NoValue
 
 ImageMvid(image) ==
-    CASE image \in {"A", "C", "D"} -> "Mvid1"
+    CASE image \in {"A", "C", "D", "E"} -> "Mvid1"
       [] image = "B" -> "Mvid2"
       [] OTHER -> NoValue
 
@@ -68,8 +69,9 @@ ImageGeneration(image) ==
     IF image = "D" THEN "Generation2" ELSE "Generation1"
 
 ImageRegistration(image) ==
-    IF image = "D" THEN "ArtifactRegistration2"
-    ELSE "ArtifactRegistration1"
+    CASE image = "D" -> "ArtifactRegistration3"
+      [] image = "E" -> "ArtifactRegistration2"
+      [] OTHER -> "ArtifactRegistration1"
 
 VARIABLES
     admissionAuthority,
@@ -84,6 +86,7 @@ VARIABLES
     published,
     queryAuthority,
     queryState,
+    queryReason,
     queryImage,
     admissionAuthorityWitness,
     contentFreeWitness,
@@ -107,6 +110,7 @@ vars == <<
     published,
     queryAuthority,
     queryState,
+    queryReason,
     queryImage,
     admissionAuthorityWitness,
     contentFreeWitness,
@@ -122,7 +126,12 @@ ProjectionStates == {"None", "Projected", "NotAssembly", "Rejected"}
 ProjectionReasons ==
     {"None", "NativeImage", "ManagedModule", "MalformedMetadata",
      "EmptyModuleVersionId"}
-QueryStates == {"None", "Validated", "Rejected"}
+QueryStates == {"None", "Validated", "NotAssembly", "Rejected"}
+QueryReasons ==
+    {"None", "NativeImage", "ManagedModule", "MalformedMetadata",
+     "EmptyModuleVersionId", "GenerationMismatch",
+     "ArtifactIdentityMismatch", "AssemblyIdentityMismatch",
+     "ModuleVersionIdMismatch"}
 
 ExactQueryMatch(image) ==
     /\ image \in ManagedAssemblies
@@ -133,9 +142,8 @@ ExactQueryMatch(image) ==
 
 AcceptedQueryMatch(image) ==
     /\ image \in ManagedAssemblies
-    /\ (AcceptGenerationMismatch
-        \/ ImageGeneration(image) = projectionGeneration)
-    /\ (AcceptGenerationMismatch
+    /\ ImageGeneration(image) = projectionGeneration
+    /\ (AcceptRegistrationMismatch
         \/ ImageRegistration(image) = projectionRegistration)
     /\ (AcceptIdentityMismatch
         \/ ImageIdentity(image) = projectionIdentity)
@@ -150,13 +158,15 @@ TypeOK ==
     /\ projectionGeneration
         \in {"Generation1", "Generation2", NoValue}
     /\ projectionRegistration
-        \in {"ArtifactRegistration1", "ArtifactRegistration2", NoValue}
+        \in {"ArtifactRegistration1", "ArtifactRegistration2",
+            "ArtifactRegistration3", NoValue}
     /\ projectionIdentity \in {"Identity1", "Identity2", NoValue}
     /\ projectionMvid \in {"Mvid1", "Mvid2", NoValue}
     /\ projectionCarriesAuthority \in BOOLEAN
     /\ published \in BOOLEAN
     /\ queryAuthority \in {"None", "Current", "Revoked"}
     /\ queryState \in QueryStates
+    /\ queryReason \in QueryReasons
     /\ queryImage \in Images \union {NoImage}
     /\ admissionAuthorityWitness \in BOOLEAN
     /\ contentFreeWitness \in BOOLEAN
@@ -180,6 +190,7 @@ Init ==
     /\ published = FALSE
     /\ queryAuthority = "None"
     /\ queryState = "None"
+    /\ queryReason = "None"
     /\ queryImage = NoImage
     /\ admissionAuthorityWitness = TRUE
     /\ contentFreeWitness = TRUE
@@ -198,7 +209,7 @@ RevokeAdmission ==
         projectionGeneration,
         projectionRegistration, projectionIdentity, projectionMvid,
         projectionCarriesAuthority, published, queryAuthority, queryState,
-        queryImage, admissionAuthorityWitness, contentFreeWitness,
+        queryReason, queryImage, admissionAuthorityWitness, contentFreeWitness,
         exactRegistrationWitness, publicationWitness,
         queryAuthorityWitness, queryMatchWitness,
         matchingRoundTripReached, mismatchRejectionReached
@@ -213,8 +224,8 @@ EndGeneration ==
         projectionState, projectionReason, projectionImage,
         projectionGeneration,
         projectionRegistration, projectionIdentity, projectionMvid,
-        projectionCarriesAuthority, published, queryState, queryImage,
-        admissionAuthorityWitness, contentFreeWitness,
+        projectionCarriesAuthority, published, queryState, queryReason,
+        queryImage, admissionAuthorityWitness, contentFreeWitness,
         exactRegistrationWitness, publicationWitness,
         queryAuthorityWitness, queryMatchWitness,
         matchingRoundTripReached, mismatchRejectionReached
@@ -222,7 +233,7 @@ EndGeneration ==
 
 Project(image) ==
     /\ image \in Images
-    /\ image # "D"
+    /\ image \notin {"B", "C", "D", "E"}
     /\ projectionState = "None"
     /\ IF AllowStaleAdmission
         THEN admissionAuthority \in {"Current", "Revoked", "Ended"}
@@ -273,8 +284,9 @@ Project(image) ==
             /\ contentFreeWitness' = contentFreeWitness
             /\ exactRegistrationWitness' = exactRegistrationWitness
     /\ UNCHANGED <<
-        admissionAuthority, published, queryAuthority, queryState, queryImage,
-        publicationWitness, queryAuthorityWitness, queryMatchWitness,
+        admissionAuthority, published, queryAuthority, queryState, queryReason,
+        queryImage, publicationWitness, queryAuthorityWitness,
+        queryMatchWitness,
         matchingRoundTripReached, mismatchRejectionReached
         >>
 
@@ -297,8 +309,8 @@ Publish ==
         projectionState, projectionReason, projectionImage,
         projectionGeneration,
         projectionRegistration, projectionIdentity, projectionMvid,
-        projectionCarriesAuthority, queryAuthority, queryState, queryImage,
-        admissionAuthorityWitness, contentFreeWitness,
+        projectionCarriesAuthority, queryAuthority, queryState, queryReason,
+        queryImage, admissionAuthorityWitness, contentFreeWitness,
         exactRegistrationWitness, queryAuthorityWitness, queryMatchWitness,
         matchingRoundTripReached, mismatchRejectionReached
         >>
@@ -313,7 +325,7 @@ AuthorizeQuery ==
         projectionImage,
         projectionGeneration, projectionRegistration, projectionIdentity,
         projectionMvid, projectionCarriesAuthority, published, queryState,
-        queryImage, admissionAuthorityWitness, contentFreeWitness,
+        queryReason, queryImage, admissionAuthorityWitness, contentFreeWitness,
         exactRegistrationWitness, publicationWitness,
         queryAuthorityWitness, queryMatchWitness,
         matchingRoundTripReached, mismatchRejectionReached
@@ -327,15 +339,36 @@ RevokeQuery ==
         projectionImage,
         projectionGeneration, projectionRegistration, projectionIdentity,
         projectionMvid, projectionCarriesAuthority, published, queryState,
-        queryImage, admissionAuthorityWitness, contentFreeWitness,
+        queryReason, queryImage, admissionAuthorityWitness, contentFreeWitness,
         exactRegistrationWitness, publicationWitness,
         queryAuthorityWitness, queryMatchWitness,
         matchingRoundTripReached, mismatchRejectionReached
         >>
 
 ValidateQuery(image) ==
-    LET accepted == AcceptedQueryMatch(image)
+    LET kind == ImageKind(image)
+        accepted == AcceptedQueryMatch(image)
         exact == ExactQueryMatch(image)
+        outcome ==
+            IF kind \in {"Native", "Module"}
+                THEN "NotAssembly"
+            ELSE IF accepted
+                THEN "Validated"
+                ELSE "Rejected"
+        reason ==
+            CASE kind = "Native" -> "NativeImage"
+              [] kind = "Module" -> "ManagedModule"
+              [] kind = "Malformed" -> "MalformedMetadata"
+              [] kind = "EmptyMvid" -> "EmptyModuleVersionId"
+              [] ImageGeneration(image) # projectionGeneration ->
+                    "GenerationMismatch"
+              [] ImageRegistration(image) # projectionRegistration ->
+                    "ArtifactIdentityMismatch"
+              [] ImageIdentity(image) # projectionIdentity ->
+                    "AssemblyIdentityMismatch"
+              [] ImageMvid(image) # projectionMvid ->
+                    "ModuleVersionIdMismatch"
+              [] OTHER -> "None"
     IN
     /\ image \in Images
     /\ published
@@ -344,7 +377,8 @@ ValidateQuery(image) ==
         THEN queryAuthority \in {"Current", "Revoked"}
         ELSE queryAuthority = "Current"
     /\ queryImage' = image
-    /\ queryState' = IF accepted THEN "Validated" ELSE "Rejected"
+    /\ queryState' = outcome
+    /\ queryReason' = reason
     /\ queryAuthorityWitness' =
         (queryAuthorityWitness /\ queryAuthority = "Current")
     /\ queryMatchWitness' =
@@ -352,7 +386,8 @@ ValidateQuery(image) ==
     /\ matchingRoundTripReached' =
         (matchingRoundTripReached \/ (accepted /\ exact))
     /\ mismatchRejectionReached' =
-        (mismatchRejectionReached \/ (~accepted /\ ~exact))
+        (mismatchRejectionReached
+            \/ (outcome \in {"NotAssembly", "Rejected"} /\ ~exact))
     /\ UNCHANGED <<
         admissionAuthority, projectionState, projectionReason,
         projectionImage,
@@ -411,6 +446,31 @@ PublishedProjectionIsContentFree ==
 
 QueryStartsAfterPublication ==
     queryState # "None" => published
+
+QueryOutcomesAreTyped ==
+    /\ (queryState = "None" => queryReason = "None")
+    /\ (queryState = "Validated" => queryReason = "None")
+    /\ (queryState = "NotAssembly"
+        => queryReason \in {"NativeImage", "ManagedModule"})
+    /\ (queryState = "Rejected"
+        => queryReason
+            \in {"MalformedMetadata", "EmptyModuleVersionId",
+                "GenerationMismatch", "ArtifactIdentityMismatch",
+                "AssemblyIdentityMismatch", "ModuleVersionIdMismatch"})
+
+QueryMismatchReasonsAreExact ==
+    /\ (queryImage = "B"
+        => /\ queryState = "Rejected"
+           /\ queryReason = "ModuleVersionIdMismatch")
+    /\ (queryImage = "C"
+        => /\ queryState = "Rejected"
+           /\ queryReason = "AssemblyIdentityMismatch")
+    /\ (queryImage = "D"
+        => /\ queryState = "Rejected"
+           /\ queryReason = "GenerationMismatch")
+    /\ (queryImage = "E"
+        => /\ queryState = "Rejected"
+           /\ queryReason = "ArtifactIdentityMismatch")
 
 MatchingQueryRoundTripIsUnreachable == ~matchingRoundTripReached
 MismatchRejectionIsUnreachable == ~mismatchRejectionReached

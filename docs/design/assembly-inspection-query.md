@@ -248,6 +248,40 @@ does not retain the callback input, and does not mint artifact authority. This
 is the immediate typed boundary the assembly query consumes:
 
 ```csharp
+public readonly ref struct ArtifactAssemblyAdmissionView
+{
+    internal ArtifactAssemblyAdmissionView(
+        ArtifactGenerationIdentity generation,
+        ArtifactIdentity artifact,
+        ReadOnlySpan<byte> content)
+    {
+        Generation = generation;
+        Artifact = artifact;
+        Content = content;
+    }
+
+    public ArtifactGenerationIdentity Generation { get; }
+    public ArtifactIdentity Artifact { get; }
+    public ReadOnlySpan<byte> Content { get; }
+}
+
+public readonly ref struct ArtifactAssemblyQueryView
+{
+    internal ArtifactAssemblyQueryView(
+        ArtifactGenerationIdentity generation,
+        ArtifactIdentity artifact,
+        ReadOnlySpan<byte> content)
+    {
+        Generation = generation;
+        Artifact = artifact;
+        Content = content;
+    }
+
+    public ArtifactGenerationIdentity Generation { get; }
+    public ArtifactIdentity Artifact { get; }
+    public ReadOnlySpan<byte> Content { get; }
+}
+
 public abstract record ArtifactAssemblyProjectionOutcome
 {
     public sealed record Projected(
@@ -264,10 +298,12 @@ public abstract record ArtifactAssemblyProjectionOutcome
 }
 
 public sealed record ArtifactAssemblyProjection(
+    AssemblyProjectionRegistration Registration,
+    AssemblyReferenceIdentity Identity);
+
+public sealed record AssemblyProjectionRegistration(
     ArtifactGenerationIdentity Generation,
-    ArtifactAcquisitionRegistration ArtifactRegistration,
-    AssemblyAcquisitionRegistration AssemblyRegistration,
-    AssemblyReferenceIdentity Identity,
+    ArtifactIdentity Artifact,
     Guid ModuleVersionId);
 
 public enum ArtifactNonAssemblyKind
@@ -276,13 +312,38 @@ public enum ArtifactNonAssemblyKind
     ManagedModule,
 }
 
+public sealed record ArtifactAssemblyProjectionFailure(
+    ArtifactAssemblyProjectionFailureKind Kind);
+
 public enum ArtifactAssemblyProjectionFailureKind
 {
     AdmissionUnauthorized,
     MalformedMetadata,
     EmptyModuleVersionId,
-    ArtifactRegistrationMismatch,
+}
+
+public abstract record ArtifactAssemblyQueryOutcome<TResult>
+{
+    public sealed record Validated(TResult Value)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+
+    public sealed record NotAssembly(ArtifactNonAssemblyKind Kind)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+
+    public sealed record Rejected(ArtifactAssemblyQueryFailure Failure)
+        : ArtifactAssemblyQueryOutcome<TResult>;
+}
+
+public sealed record ArtifactAssemblyQueryFailure(
+    ArtifactAssemblyQueryFailureKind Kind);
+
+public enum ArtifactAssemblyQueryFailureKind
+{
+    QueryUnauthorized,
     GenerationMismatch,
+    ArtifactIdentityMismatch,
+    MalformedMetadata,
+    EmptyModuleVersionId,
     AssemblyIdentityMismatch,
     ModuleVersionIdMismatch,
 }
@@ -291,18 +352,27 @@ public enum ArtifactAssemblyProjectionFailureKind
 These declarations describe the value shape and typed outcomes; they do not
 assign the artifact owner's callback API or authorization implementation to
 Metadata. The implementation may use a closed hierarchy instead of records or
-enums, but it must preserve the distinctions above.
+enums, but it must preserve the distinctions above. The two `ref struct` views
+illustrate the required phase distinction and non-retention boundary; the
+artifact owner owns their construction and may expose an equivalent scoped
+callback shape.
 
 `ArtifactAssemblyProjection` is immutable, content-free, and bound to one
 in-process artifact generation. It is not a durable or serializable identity.
-`Generation` must be the same owner-issued object exposed by
-`ArtifactRegistration.Generation`.
-`AssemblyRegistration.ArtifactRegistration` must be the exact
-`ArtifactRegistration` object, and `AssemblyRegistration.ModuleVersionId` must
-already equal the non-empty `ModuleVersionId` when the outcome is returned.
-The assembly registration is therefore bound once during admission. Later
-query validation compares identity and MVID; it does not call a bind operation
-or mutate the projection.
+`Registration.Generation` must be the same owner-issued object exposed by
+`Registration.Artifact.Generation`. `Registration.Artifact` must be the exact
+`ArtifactIdentity` from the selected
+`ArtifactAcquisitionRegistration.Artifact`, compared by reference identity.
+The artifact owner retains the complete acquisition registration and its
+provenance; neither crosses this boundary.
+
+`AssemblyProjectionRegistration` is the content-free assembly registration for
+this path. Its non-empty MVID is bound when the admission outcome is returned.
+The existing `AssemblyAcquisitionRegistration`, including its public
+`ArtifactRegistration` compatibility property and mutable internal bind
+operation, does not appear inside the projection. Later query validation
+compares identity and MVID; it does not mutate or replace the projection
+registration.
 
 The successful output exposes none of the following, directly or through a
 nested public value:
@@ -311,14 +381,15 @@ nested public value:
 - `Stream`, `Func<Stream>`, or another content opener;
 - immutable or mutable content bytes;
 - `ArtifactContentReference` or retained-content handle;
+- `ArtifactAcquisitionRegistration` or source provenance;
 - `ArtifactAdmissionLease` or `ArtifactQueryLease`; or
 - an operation that can reacquire, reopen, or reconstruct any of those values.
 
-The exact artifact registration is required even though it indirectly carries
-source-specific provenance. It is correspondence evidence minted by the
-artifact owner, not a source interpretation performed by Metadata. Consumers
-may retain the registration and generation to join owner-issued workspace
-facts, but only the artifact owner can turn current authorization into another
+The exact artifact identity is correspondence evidence minted with the full
+artifact acquisition registration, not a source interpretation performed by
+Metadata. Consumers may retain that opaque identity and generation to join
+owner-issued workspace facts, but only the artifact owner retains the mapping
+to acquisition provenance or can turn current authorization into another
 content callback.
 
 ##### Admission classification
@@ -340,48 +411,66 @@ projection. Whether a non-assembly artifact is allowed to remain in a broader
 artifact catalog belongs to that catalog's owner. It cannot enter an
 `AssemblyContextGroup` through this contract.
 
-The projector receives the exact artifact registration selected by the
-artifact owner. It does not accept a caller-reconstructed registration,
-generation, identity, or MVID. The context realizer owns the frozen map from
-selected artifact registrations to successful projections and the atomic
-decision to publish a complete group; this component neither assigns workspace
-roles nor constructs the group.
+The projector receives an artifact-owner-attested admission view. The
+`Artifact` value is the exact identity carried by the selected acquisition
+registration; it is not caller-reconstructed from ordinal, generation, path,
+provenance, or display data. The context realizer owns the frozen map from
+selected artifact identities to successful projections and the atomic decision
+to publish a complete group; this component neither assigns workspace roles
+nor constructs the group.
 
 ##### Query-time revalidation
 
 The later query path starts from a published
 `ArtifactAssemblyProjection`. Under current query authorization, the artifact
-owner locates the exact retained artifact registration and lends its immutable
-bytes for one operation. Before any producer observes assembly evidence, the
-assembly query validates all of:
+owner locates the exact retained acquisition registration and supplies an
+owner-attested `ArtifactAssemblyQueryView` for one operation. Registration and
+generation are not decoded from PE bytes: they come from this scoped owner
+view. Before any producer observes assembly evidence, the assembly query
+validates all of:
 
-1. the content callback belongs to the projection's artifact generation;
-2. its artifact registration is the exact registered artifact;
+1. the view's generation is the projection registration's exact generation;
+2. its artifact identity is the projection registration's exact artifact;
 3. the retained image is still a managed assembly;
 4. its assembly identity equals the projected identity; and
-5. its non-empty MVID equals the projected MVID.
+5. its non-empty MVID equals the projection registration's MVID.
 
-A generation, registration, identity, or MVID mismatch is a typed rejection.
-Native, module, malformed, and empty-MVID replacements retain their distinct
-classification where that distinction is available. None is retried through a
-path, source adapter, descriptor opener, or new acquisition. The query returns
-the visible failure under its existing result contract and does not inspect or
-publish evidence from the mismatched bytes.
+Because an `ArtifactIdentity` is scoped to its owner-issued generation, exact
+artifact identity already entails generation equality. The explicit generation
+comparison runs first to classify a foreign-generation owner view as
+`GenerationMismatch`; it is not a second way to authenticate the artifact.
+
+A generation, artifact identity, assembly identity, or MVID mismatch is a
+typed `Rejected` outcome. Native and module replacements produce the query
+outcome's typed `NotAssembly` arm; malformed and empty-MVID replacements use
+their dedicated query failure kinds. None is retried through a path, source
+adapter, descriptor opener, or new acquisition.
+
+The `Validated<TResult>` value is produced inside the query view's callback.
+The assembly query opens an internal `AssemblyImage` or
+`AssemblyInspectionSession`, invokes the selected producer, and disposes all
+image-local state before returning `TResult` to the artifact owner. A validated
+marker cannot escape first and authorize a later unguarded open.
 
 The artifact owner remains responsible for rejecting a missing, foreign,
 revoked, disposed, or ended query authorization before lending content. The
-assembly query consumes that guarantee and performs the content-derived checks;
-it does not infer authorization from equal registrations or generations.
+outer query operation maps that rejection to `QueryUnauthorized`. The assembly
+query consumes the owner-attested generation and artifact identity and performs
+the content-derived checks; it does not infer owner state from PE bytes,
+ordinal equality, or display values.
 
 ##### Relationship to compatibility descriptors
 
 `ResolvedAssemblyReference` remains a compatibility descriptor for current
 path- and stream-based consumers. Implementing this design must not put an
 admission callback, query callback, retained-content handle, or lease into that
-descriptor. A query may adapt currently authorized bytes to an internal
-`AssemblyImage` or `AssemblyInspectionSession` for the duration of one
-operation, but the adapter cannot escape the artifact callback or recreate a
-parameterless opener.
+descriptor. The existing artifact-backed
+`AssemblyAcquisitionRegistration.ArtifactRegistration` property also remains a
+compatibility path and is intentionally absent from
+`AssemblyProjectionRegistration`. A query may adapt currently authorized bytes
+to an internal `AssemblyImage` or `AssemblyInspectionSession` for the duration
+of one operation, but the adapter cannot escape the artifact callback or
+recreate a parameterless opener.
 
 General removal of `ResolvedAssemblyReference.Path` and
 `ResolvedAssemblyReference.OpenRead` waits for their existing consumers to
@@ -395,31 +484,38 @@ The
 checks the bounded interaction among current admission authority, projection,
 publication, authority expiry, and later query revalidation. It verifies that
 successful projection requires current admission authority, published facts
-retain the exact registration but no content authority, and query validation
-requires current query authority plus exact generation, registration,
-identity, and MVID agreement. Mutation configurations independently show that
-stale admission, leaked authority, dropped registration, relaxed identity,
-MVID or generation checks, and revoked-query access violate those properties.
-The model does not establish implementation conformance.
+retain the exact opaque artifact identity but no content authority or
+provenance, and query validation requires current query authority plus exact
+generation, artifact identity, assembly identity, and MVID agreement. Mutation
+configurations independently show that stale admission, leaked authority,
+dropped artifact identity, relaxed artifact, assembly-identity, MVID, or
+revoked-query checks violate those properties; the positive model separately
+requires a foreign-generation view to produce `GenerationMismatch`. The model
+does not establish implementation conformance.
 
 ##### Required gates
 
 Implementation is complete only when Release tests equivalent to these exist:
 
-- `AdmissionProjection_BindsExactArtifactAndAssemblyRegistrationsIdentityAndMvid`
+- `AdmissionProjection_BindsExactArtifactIdentityAssemblyRegistrationIdentityAndMvid`
 - `AdmissionProjection_RejectsForeignRevokedDisposedOrEndedAuthority`
-- `AdmissionProjection_PublicSurfaceCarriesNoContentOrLeaseCapability`
+- `AdmissionProjection_PublicSurfaceCarriesNoProvenanceContentOrLeaseCapability`
 - `AdmissionProjection_ClassifiesNativeModuleMalformedAndEmptyMvid`
-- `QueryValidation_AcceptsExactRetainedImageWithoutRebinding`
-- `QueryValidation_RejectsRegistrationGenerationIdentityAndMvidMismatch`
-- `AdmissionProjection_ExactArtifactRegistrationIsNonVacuous`
+- `QueryValidation_ConsumesOwnerAttestedArtifactIdentityAndGeneration`
+- `QueryValidation_AcceptsExactRetainedImageInsideCallbackWithoutRebinding`
+- `QueryValidation_ClassifiesNativeModuleMalformedAndEmptyMvid`
+- `QueryValidation_RejectsArtifactGenerationAssemblyIdentityAndMvidMismatch`
+- `AdmissionProjection_ExactArtifactIdentityIsNonVacuous`
 
 The first gate uses the existing artifact-backed fixture from #4954/#4957 and
-requires the same artifact registration, assembly identity, and non-empty MVID.
+requires the same `ArtifactAcquisitionRegistration.Artifact` object, assembly
+identity, and non-empty MVID while proving the full acquisition registration
+remains artifact-owner-private.
 The public-surface gate recursively inspects nested public types for paths,
-content, openers, content references, and leases. The non-vacuity gate removes
-the exact artifact registration from an otherwise valid projection and must
-fail before publication.
+source provenance, content, openers, content references, and leases. The
+non-vacuity gate substitutes a different owner-issued artifact identity from
+the same generation in an otherwise valid query view and must fail before
+producer execution.
 
 ##### Non-goals
 
