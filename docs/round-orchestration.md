@@ -65,8 +65,9 @@ wait before dispatch. Conflict recovery may dispatch after its status attempt
 while post-push local gates remain pending, but closes only after they pass.
 Markdown-only attempts dispatch and may close after `markdownlint` and their
 status attempt without waiting on unresolved CI or mergeability. Fresh green
-current-head `ci-required` and positive mergeability remain mandatory at
-six-round boundaries and final merge.
+current-head `ci-required` and positive mergeability remain mandatory for the
+separate next-block approval goal after every sixth completed round and for
+final merge.
 
 ### Review-clean, and recovery
 
@@ -221,7 +222,7 @@ Status not observed for PR <number> at round <n> after <mm> minutes.
 - This is not a CI result. No failing check was observed. GitHub documents
   hosted-job execution limits up to 6 hours and self-hosted queue limits up to
   24 hours, so this repository's 60-minute budget can expire first.
-- Effect: <next round not started | boundary approval withheld>.
+- Effect: <reviewer dispatch withheld for round n | boundary approval withheld>.
 - Next: <what a later user or workflow turn should re-check>.
 Recommendation: stop (status budget exhausted); nothing is closed or abandoned.
 ```

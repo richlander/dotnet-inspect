@@ -24,9 +24,9 @@ documentation.
   push, and open its PR without separate approval. Once eligible, round 1 and
   replacements inside the current six-round block dispatch automatically; only
   a new block requires approval. Merge remains separately authorized.
-- **Review normally runs alongside CI.** Each round normally tries status; ordinary
-  non-Markdown rounds continue if unavailable, every third round may wait 60 minutes,
-  and every sixth boundary needs green CI/mergeability. Conflict recovery and Markdown never wait.
+- **Review normally runs alongside CI.** Ordinary non-Markdown rounds continue for
+  pending, missing, rate-limited, or transient status; terminal failures stop, and every
+  third round may wait 60 minutes. Conflict recovery and Markdown never wait; sixth boundaries need green CI/mergeability.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -397,8 +397,8 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    round tries current-head status. Required CI failure blocks; unresolved
    status does not block closure when cadence permits dispatch. A normal-cadence attempt in every third round
    follows [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
-   At non-boundary rounds, a Markdown-only PR's gate is pre-commit
-   `markdownlint`; its final CI gate follows the detailed transition. A gate
+   Every Markdown-only round's gate is pre-commit `markdownlint`; its final CI
+   gate follows the detailed transition. A gate
    failure requiring an author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
@@ -556,9 +556,9 @@ Put it under `## Demo` above validation in the PR body.
   exact commands and the `-F`/`-f` distinction that matters for PR bodies.
 - For non-Markdown-only PRs, run the focused gate, push promptly, and start
   eligible local suites and CI concurrently. Follow the round's status cadence:
-  pending or unavailable status does not block an ordinary round, while every
-  normal attempt in a third round uses the bounded wait; conflict recovery does not. Follow
-  [GitHub status queries](docs/github-status-queries.md) instead of polling. If
+  pending, missing, rate-limited, or transient status does not block an ordinary
+  round; terminal query failures stop. Every normal attempt in a third round
+  uses the bounded wait; conflict recovery does not. Follow [GitHub status queries](docs/github-status-queries.md) instead of polling. If
   an hour passes without an authored change while an independent gate hasn't
   started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
