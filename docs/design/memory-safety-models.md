@@ -60,8 +60,8 @@ Consumers must preserve the distinction between these states:
 | --- | --- |
 | Legacy, unmarked | The module has no `MemorySafetyRulesAttribute`; apply v1 compatibility rules. |
 | Updated v2 | The module has one valid module attribute with version `2`; apply v2 rules. |
-| Unsupported version | The module attribute contains another integer. Preserve it as unrecognized; Roslyn also applies legacy compatibility inference while reporting the unsupported marker when members are consumed. |
-| Malformed marker | The attribute cannot be decoded according to its expected constructor shape. Preserve the failure; Roslyn likewise uses compatibility inference while treating the marker as unrecognized. |
+| Unsupported version | The module attribute contains another integer. Preserve it as unrecognized; Roslyn also applies legacy compatibility inference and reports the unsupported marker when imported methods or accessors are consumed. |
+| Malformed marker | The attribute cannot be decoded according to its expected constructor shape. Preserve the failure; Roslyn likewise uses compatibility inference while treating imported methods and accessors as carrying an unrecognized marker. |
 | Conflicting markers | More than one candidate marker prevents a unique module judgment. |
 
 The raw integer and the recognized model are separate facts. Reporting an
@@ -107,6 +107,15 @@ When a consumer reads an unmarked module, pointer-bearing signatures are the
 compatibility rule for deciding which members propagate unsafe. A
 `RequiresUnsafeAttribute` lookalike in an unmarked module does not opt that
 module into v2 semantics.
+
+Historically, declaring those pointer shapes also required a lexical unsafe
+context. The unsafe-evolution pointer relaxations are language-feature-gated
+independently of the module's v1/v2 marker, however. An unmarked module compiled
+with those relaxations can contain pointer signatures or locals that did not
+establish an unsafe context. Pointer shape is therefore sufficient binary
+evidence for v1 compatibility propagation, but not universal evidence that a
+member is an unsafe user. That latter judgment needs a context-requiring
+operation or corresponding source/build evidence.
 
 ### V2: updated rules
 
@@ -159,9 +168,11 @@ Mixed-model behavior has two inputs:
 For an unsupported or malformed target-module marker, preserve and report the
 unrecognized state. Roslyn also classifies member contracts with the legacy
 pointer compatibility rule in this state, while reporting an unrecognized
-attribute-version diagnostic when a member is consumed. Product output should
-present both facts: a compatibility-derived contract is not permission to call
-the module v1 or to hide its invalid marker.
+attribute-version diagnostic when an imported method or accessor is consumed.
+Field use does not consistently produce the same Roslyn use-site diagnostic,
+so product output must surface the invalid module marker independently of
+member access. It should present both facts: a compatibility-derived contract
+is not permission to call the module v1 or to hide its invalid marker.
 
 The caller's project policy also determines which source operations it may
 express, but it does not rewrite the callee's classified contract. A legacy
@@ -258,7 +269,7 @@ substitute for typed provenance.
 | Did this project request updated enforcement? | Declared or evaluated `LangVersion`, `Features`, and future supported model property | Not currently answered. The `project` command reads `project.assets.json`, not these project properties. |
 | Was unsafe source permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
 | Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, or `RequiresUnsafeAttribute` | Analysis exposes method `CallerUnsafeMode`, but its current computation does not yet implement the model split faithfully; no equivalent field classification is exposed. |
-| Which methods use unsafe facilities? | Version-aware declaration, local, call, and IL-operation evidence | `MethodSafetyAnalysis` produces related evidence categories, but their interpretation is not yet fully version-aware. |
+| Which methods use unsafe facilities? | Context-requiring operations plus source/build evidence where pointer declarations are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet separate pointer shape from proof that an unsafe context was established. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive body-unsafety evidence | Not currently exposed as a composed query. |
 | How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
 | Is the project configured for the strongest default? | Updated project policy, unsafe permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
@@ -292,6 +303,11 @@ The following gaps remain with Metadata and presentation:
 creates method identities with `CallerUnsafeMode`.
 `MethodSafetyAnalysis` separately records unsafe API, signature, local, call,
 and opcode evidence.
+`LibraryBodyIndex` composes those facts into the existing
+`OpaqueUnsafeMethods()` and `HollowUnsafeMethods()` classifications:
+opaque means a caller-unsafe contract is hidden from the pointer signature,
+while hollow means no unsafe operation is directly visible in the scanned
+body. Neither classification is a safe-boundary query.
 
 The following gaps remain with Analysis:
 
@@ -302,9 +318,11 @@ The following gaps remain with Analysis:
   `RequiresUnsafeAttribute` before testing the model, so a pointer-bearing v2
   member without `RequiresUnsafeAttribute` is incorrectly classified as an
   explicit propagator;
-- declaration and local evidence currently treats pointer types as unsafe
-  independently of the active model, although v2 does not make a pointer type
-  unsafe by itself; and
+- declaration and local evidence currently treats pointer types as proof of
+  unsafe use. The unsafe-evolution language feature can make those declarations
+  safe independently of the module model, so binary pointer shape must remain
+  structural evidence unless a context-requiring operation or corresponding
+  source/build evidence is available;
 - call evidence currently considers selected API types and pointer-bearing
   signatures, but `MemberRef` carries no callee rules model or caller contract.
   Analysis therefore misses pointerless `RequiresUnsafe` calls and treats
@@ -353,7 +371,10 @@ Implementation should proceed through focused owner changes:
    to legacy modules. Its call resolver carries the callee module model and
    member contract across assembly boundaries, its field resolver supplies the
    equivalent field contract, and both apply the caller/target enforcement
-   matrix.
+   matrix. The same stage re-states and gates the resulting
+   `OpaqueUnsafeMethods()` and `HollowUnsafeMethods()` populations in
+   [Memory-safety rendering modes](memory-safety-modes.md), because correcting
+   `CallerUnsafeMode` changes their inputs.
 4. Decompiler consumes the shared state for conservative replay while keeping
    its explicit simulation mode. Same- and cross-assembly call and field
    resolution carry the target module model with the member contract before
