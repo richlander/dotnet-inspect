@@ -13,6 +13,8 @@ const configureHostKey =
 const echoKey = facadeSource.match(/"(Echo\.-?\d+)"/)?.[1];
 const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
+const getRuntimeApiAsyncKey =
+  facadeSource.match(/"(GetRuntimeApiAsync\.-?\d+)"/)?.[1];
 assert.ok(
   configureHostKey,
   "The generated ConfigureHost runtime dispatch key was not found.",
@@ -21,6 +23,10 @@ assert.ok(echoKey, "The generated Echo runtime dispatch key was not found.");
 assert.ok(
   getWidgetAsyncKey,
   "The generated GetWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getRuntimeApiAsyncKey,
+  "The generated GetRuntimeApiAsync runtime dispatch key was not found.",
 );
 let importSequence = 0;
 
@@ -36,6 +42,9 @@ function managedExports(methods = {}) {
             [getWidgetAsyncKey]:
               methods.getWidgetAsync
               ?? (async (name, count) => JSON.stringify({ name, count })),
+            [getRuntimeApiAsyncKey]:
+              methods.getRuntimeApiAsync
+              ?? (async (value) => JSON.stringify({ value })),
           },
         },
       },
@@ -90,10 +99,17 @@ async function freshFacade() {
   });
   const facade = await freshFacade();
 
-  assert.throws(() => facade.echo("before"), /not initialized/);
+  let notInitializedError;
+  assert.throws(
+    () => facade.echo("before"),
+    (error) => {
+      notInitializedError = error;
+      return /not initialized/.test(error.message);
+    },
+  );
   assert.throws(
     () => facade.runEntryPoint("Before.dll", ["before"]),
-    /not initialized/,
+    (error) => error === notInitializedError,
   );
 
   const initializationResults = await Promise.all([
@@ -117,6 +133,10 @@ async function freshFacade() {
   assert.deepEqual(
     await facade.getWidgetAsync("widget", 3),
     { name: "widget", count: 3 },
+  );
+  assert.deepEqual(
+    await facade.getRuntimeApiAsync("runtime"),
+    { value: "runtime" },
   );
   assert.equal(await facade.runEntryPoint("Main.dll", ["one", "two"]), 37);
   assert.deepEqual(

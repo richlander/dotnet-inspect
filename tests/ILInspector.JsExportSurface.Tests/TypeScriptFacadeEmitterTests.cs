@@ -118,6 +118,17 @@ public sealed class TypeScriptFacadeEmitterTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            """
+            const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
+            """,
+            source,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            source.Split(
+                "throw $notInitializedError;",
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains(
             "export function initializeRuntime(): Promise<void>",
             source,
             StringComparison.Ordinal);
@@ -509,9 +520,14 @@ public sealed class TypeScriptFacadeEmitterTests
     [Fact]
     public void Emit_AllocatesProducerBindingsWithoutRenamingInfrastructure()
     {
-        var collidingType = new ApiType
+        var promiseType = new ApiType
         {
             Name = "Promise",
+            Kind = "class",
+        };
+        var runtimeApiType = new ApiType
+        {
+            Name = "RuntimeAPI",
             Kind = "class",
         };
         var surface =
@@ -522,7 +538,7 @@ public sealed class TypeScriptFacadeEmitterTests
                     new Version(1, 0, 0, 0),
                     culture: null,
                     publicKeyToken: null),
-                Records = [collidingType],
+                Records = [promiseType, runtimeApiType],
                 Functions =
                 [
                     Function(
@@ -537,8 +553,13 @@ public sealed class TypeScriptFacadeEmitterTests
             surface,
             RuntimeModule);
 
-        Assert.Contains(
-            "export interface type_",
+        Assert.Equal(
+            2,
+            source.Split(
+                "export interface type_",
+                StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(
+            "export interface RuntimeAPI",
             source,
             StringComparison.Ordinal);
         Assert.Equal(

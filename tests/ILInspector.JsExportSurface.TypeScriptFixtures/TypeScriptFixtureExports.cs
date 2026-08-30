@@ -7,7 +7,10 @@ namespace ILInspector.JsExportSurface.TypeScriptFixtures;
 
 public sealed record WidgetDto(string Name, int Count);
 
+public sealed record RuntimeAPI(string Value);
+
 [JsonSerializable(typeof(WidgetDto))]
+[JsonSerializable(typeof(RuntimeAPI))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class FixtureJsonContext : JsonSerializerContext;
 
@@ -31,5 +34,14 @@ public static partial class TypeScriptFixtureExports
         return JsonSerializer.Serialize(
             new WidgetDto(name, count),
             FixtureJsonContext.Default.WidgetDto);
+    }
+
+    [JSExport]
+    public static async Task<string> GetRuntimeApiAsync(string value)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new RuntimeAPI(value),
+            FixtureJsonContext.Default.RuntimeAPI);
     }
 }

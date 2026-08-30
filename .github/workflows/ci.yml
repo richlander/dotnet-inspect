@@ -538,6 +538,25 @@ jobs:
             fi
           done
 
+      - name: Run ts-jsexport generator acceptance gates
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/ts-jsexport-generator-tests.xml"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
+            -xml "$results"
+          for class in \
+            ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
+            ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
+          do
+            if ! grep -Fq "type=\"$class\"" "$results"; then
+              echo "::error::ts-jsexport generator gate '$class' selected no tests." >&2
+              exit 1
+            fi
+          done
+
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
 

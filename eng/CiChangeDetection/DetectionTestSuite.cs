@@ -594,6 +594,40 @@ internal static class DetectionTestSuite
                 "MethodSemantics platform-probe source did not select code and web: "
                 + FormatValues(methodSemanticsProbeSource));
         }
+        Dictionary<string, string> tsJsExportGate = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/test-ts-jsexport-typescript.sh",
+            outputs);
+        if (tsJsExportGate["code"] != "false"
+            || tsJsExportGate["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "ts-jsexport TypeScript gate did not select only web: "
+                + FormatValues(tsJsExportGate));
+        }
+        foreach (string tsJsExportInput in new[]
+        {
+            "tests/ILInspector.JsExportSurface.TypeScriptFixtures/TypeScriptFixtureExports.cs",
+            "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/runtime-probe.mjs",
+            "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/dotnet.js",
+        })
+        {
+            Dictionary<string, string> tsJsExportInputRouting = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                tsJsExportInput,
+                outputs);
+            if (tsJsExportInputRouting["code"] != "true"
+                || tsJsExportInputRouting["web"] != "true")
+            {
+                throw new InvalidOperationException(
+                    $"ts-jsexport input {tsJsExportInput} did not select code and web: "
+                    + FormatValues(tsJsExportInputRouting));
+            }
+        }
         foreach (string promotionInput in new[]
         {
             ".github/workflows/deploy-inspect-web.yml",

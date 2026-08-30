@@ -11,9 +11,11 @@ internal static class TypeScriptFacadeEmitter
     private static readonly string[] InfrastructureBindings =
     [
         "dotnet",
+        "RuntimeAPI",
         "initializeRuntime",
         "runEntryPoint",
         "$ManagedExports",
+        "$notInitializedError",
         "$runtime",
         "$managedExports",
         "$initialization",
@@ -209,6 +211,7 @@ internal static class TypeScriptFacadeEmitter
     {
         sb.Append(
             """
+            const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
             let $runtime: RuntimeAPI | undefined;
             let $managedExports: $ManagedExports | undefined;
             let $initialization: Promise<void> | undefined;
@@ -228,7 +231,7 @@ internal static class TypeScriptFacadeEmitter
             function $requireRuntime(): RuntimeAPI {
               if ($initializationFailure !== undefined) throw $initializationFailure.error;
               if ($runtime === undefined) {
-                throw new Error("The .NET runtime facade is not initialized.");
+                throw $notInitializedError;
               }
               return $runtime;
             }
@@ -236,7 +239,7 @@ internal static class TypeScriptFacadeEmitter
             function $requireManagedExports(): $ManagedExports {
               if ($initializationFailure !== undefined) throw $initializationFailure.error;
               if ($managedExports === undefined) {
-                throw new Error("The .NET runtime facade is not initialized.");
+                throw $notInitializedError;
               }
               return $managedExports;
             }
