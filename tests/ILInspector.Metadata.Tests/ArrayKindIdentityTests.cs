@@ -114,14 +114,14 @@ public sealed class ArrayKindIdentityTests
             "T[*]",
             "M0[]");
         const string modifiedArrayStructural =
-            "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[]";
+            "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[][]";
         AssertParameterIdentity(
             reader,
             typeHandle,
             type,
             "ModifiedVector",
-            "int[]",
-            "int[]",
+            "int[][]",
+            "int[][]",
             modifiedArrayStructural,
             emittedStructural: modifiedArrayStructural);
         AssertParameterIdentity(
@@ -129,8 +129,8 @@ public sealed class ArrayKindIdentityTests
             typeHandle,
             type,
             "ModifiedMd1",
-            "int[*]",
-            "int[*]",
+            "int[][*]",
+            "int[][*]",
             modifiedArrayStructural,
             emittedStructural: modifiedArrayStructural);
 
@@ -444,7 +444,7 @@ public sealed class ArrayKindIdentityTests
         byte[] md1 = MdArray(Int32, rank: 1);
         byte[] sz = Sz(Int32);
         byte[] md2 = MdArray(Int32, rank: 2);
-        byte[] modifiedInt32 = RequiredModifier(isVolatile, Int32);
+        byte[] modifiedVector = Sz(RequiredModifier(isVolatile, Int32));
         byte[] nested = GenericInstance(
             isValueType: false,
             list,
@@ -466,8 +466,8 @@ public sealed class ArrayKindIdentityTests
                 new("ByRef", ByRef(md1), Void, IsGeneric: false),
                 new("Tuple", tuple, Void, IsGeneric: false),
                 new("Generic", MdArray(MethodGeneric0, rank: 1), Void, IsGeneric: true),
-                new("ModifiedVector", Sz(modifiedInt32), Void, IsGeneric: false),
-                new("ModifiedMd1", MdArray(modifiedInt32, rank: 1), Void, IsGeneric: false),
+                new("ModifiedVector", Sz(modifiedVector), Void, IsGeneric: false),
+                new("ModifiedMd1", MdArray(modifiedVector, rank: 1), Void, IsGeneric: false),
                 new("ReturnVector", null, sz, IsGeneric: false),
                 new("ReturnVectorTwin", null, sz, IsGeneric: false),
                 new("ReturnMd1", null, md1, IsGeneric: false),
