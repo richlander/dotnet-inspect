@@ -15,7 +15,9 @@
 (*                                                                         *)
 (* Participant internals are deliberately abstract. "workspace",            *)
 (* "navigation", and "query" in the checked configuration stand for owners  *)
-(* that independently return ready, changed-ready, or failed.               *)
+(* that independently return exact-ready, replacement-ready, or failed. A   *)
+(* replacement-ready fragment may contain owner semantic non-effective      *)
+(* evidence; failed means that no complete fragment was prepared.           *)
 (***************************************************************************)
 EXTENDS FiniteSets, Naturals
 

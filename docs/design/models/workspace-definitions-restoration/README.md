@@ -14,7 +14,10 @@ admits the opaque request and issues its token in one transition; a separate
 guarded transition starts preflight. The checked participant names are
 `workspace`, `navigation`, and `query`, but the model gives them identical
 mechanics after preflight: each independently returns exact-ready,
-replacement-ready, or failed.
+replacement-ready, or failed. Replacement-ready means the owner supplied one
+complete replacement fragment; it may contain owner semantic non-effective
+evidence. Failed means no complete fragment was prepared and is the model's
+`ParticipantNonSuccess` abstraction.
 
 Admission captures the request payload and complete prior installed snapshot.
 The model's coordinator token abstracts the one intent token issued by the
@@ -58,8 +61,10 @@ to the implementation gates in the owning document.
 - Participant preparation and candidate projection classification eventually
   resolve when continuously enabled. New request arrival is deliberately
   unfair and bounded, so an attempt can settle once requests stop arriving.
-- A replacement-ready participant supplies an owner-issued complete fragment.
-  The coordinator does not synthesize a replacement from failure.
+- A replacement-ready participant supplies an owner-issued complete fragment,
+  even when its retained owner evidence is semantically non-effective. A failed
+  participant supplies no fragment; the coordinator does not synthesize a
+  replacement from that failure.
 - Prepared fragments have no installed or consumer-visible effect. Cache
   population beneath a participant is outside the modeled state.
 - A stale completion can arrive once per settled attempt. Which participant
