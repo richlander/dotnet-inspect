@@ -41,6 +41,9 @@ internal static class EvaluatedProjectGraph
             startInfo.ArgumentList.Add(
                 $"-p:RestoreGraphOutputPath={graphPath}");
             startInfo.ArgumentList.Add("-p:Configuration=Release");
+            // Change detection runs before workload installation and only needs
+            // evaluated project references, not workload packs.
+            startInfo.ArgumentList.Add("-p:MSBuildEnableWorkloadResolver=false");
             startInfo.ArgumentList.Add("-nologo");
             startInfo.ArgumentList.Add("-v:q");
 
