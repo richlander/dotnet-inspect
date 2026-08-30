@@ -8,14 +8,15 @@ It is configured as a standalone .NET tool like `mdi`, but is currently built
 from repository source rather than distributed as a NuGet package. It does not
 add a `dotnet-inspect` subcommand.
 
-> **Target architecture:** This implementation is transitioning to
-> `ts-jsexport`, which generates one native TypeScript facade and leaves
-> compilation and optional declaration emission to the consumer's TypeScript
-> compiler.
+> **Legacy compatibility path:** New consumers should use `ts-jsexport`, which
+> generates one native TypeScript facade and leaves compilation and optional
+> declaration emission to the consumer's TypeScript compiler. `tsbindgen`
+> remains temporarily for the current inspect-web generated artifacts;
+> [#5003](https://github.com/richlander/dotnet-inspect/issues/5003) owns that
+> consumer migration and retirement of this compatibility path.
 > [`ts-jsexport` TypeScript facade generation](../../docs/design/ts-jsexport.md)
-> owns that decision, its boundaries, and the current implementation
-> mismatches. The usage below describes the current command until that migration
-> lands.
+> owns the replacement contract. The usage below describes only the legacy
+> command.
 
 ## Usage
 
@@ -38,19 +39,22 @@ a C#-faithful object model of an assembly's `[JSExport]` surface built on
 target-language rewriting: a `Task<T>` return type is reported as `Task<T>`,
 not unwrapped to a target-language "promise" concept.
 
-All reachable TypeScript-specific opinion — `Task<T>` unwrapping to
+Shared TypeScript projection code now lives in the host-side
+`ILInspector.TypeScriptGeneration` project and is used by both tools during the
+staged migration. All reachable TypeScript-specific opinion — `Task<T>`
+unwrapping to
 `Promise<T>`, property naming based on the owning `JsonSerializerContext`'s
 `[JsonSourceGenerationOptions(PropertyNamingPolicy = ...)]`, array/nullable
 syntax, and `.d.ts` layout — lives entirely in this tool (`TsTypeMapper`,
 `CamelCase`, `DtsEmitter`). A future binding-generation target besides
-TypeScript would add its own "personality" layer here without needing to touch
-the OM. `TsTypeMapper` currently also contains legacy `ValueTask` mapping
+TypeScript would add its own "personality" layer without needing to touch the
+OM. `TsTypeMapper` currently also contains legacy `ValueTask` mapping
 branches that mapper tests and hand-composed declaration-only surfaces can
 reach. The SDK's JavaScript interop source generator instead rejects a compiled
 `[JSExport] ValueTask` signature with `SYSLIB1072`, before a runtime-publishable
-surface exists. The target architecture removes those mapper branches, retains
-that SDK compile-time negative, and rejects an unsupported hand-composed input
-visibly. For supported `Task<string>` exports whose serializer result reaches
+surface exists. `ts-jsexport` rejects those unsupported hand-composed inputs visibly while
+retaining the SDK compile-time negative. For supported `Task<string>` exports
+whose serializer result reaches
 the completion sink with direct or Analysis-authenticated state-machine-field
 provenance, `ILInspector.JsExportSurface` authenticates async JSON returns in
 both the compiler-async form whose physical result sink is in `MoveNext` and
@@ -86,7 +90,7 @@ happens to share the same MVID and token layout, and every downstream
 authentication gate would then be checking one image's declarations against
 another image's IL. A read failure is contained as an ordinary diagnostic
 rather than escaping as an unhandled exception.
-`GeneratedJsExportAuthenticationTests.TsBindGen_ReadsOneImageForMetadataAndBodyEvidence`
+`GeneratedJsExportAuthenticationTests.GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence`
 gates the single read by dogfooding `LibraryBodyIndex` over `tsbindgen`'s own
 assembly.
 
@@ -111,7 +115,7 @@ lookup, so an inherited segment can escape the assembly export root.
 hash and retains the exact runtime member key as
 `JsExportFunction.RuntimeDispatchKey`, but the current emitter does not consume
 it and therefore cannot select overloads exactly. The replacement
-`ts-jsexport` emitter will consume that target-language-neutral input instead of
+`ts-jsexport` emitter consumes that target-language-neutral input instead of
 inferring dispatch from a TypeScript or managed display name, and will validate
 the complete path through own data-property descriptors before publishing
 initialized state.
@@ -547,8 +551,8 @@ strict-mode names and collisions with the wrapper's generated `dotnet`,
 `<name>Export`, and `result` bindings are fatal. Valid Unicode TypeScript
 identifiers remain supported, including TypeScript's measured continuation-only
 edge points. Identifier acceptance is pinned to the TypeScript 7.0.2 scanner
-rather than the runtime's newer Unicode tables. The target architecture
-replaces current public operation, parameter, enum, and DTO spelling collisions
+rather than the runtime's newer Unicode tables. `ts-jsexport`
+replaces public operation, parameter, enum, and DTO spelling collisions
 with deterministic, scope-aware allocation from complete managed identities
 while keeping genuinely illegal identifier input visible.
 
