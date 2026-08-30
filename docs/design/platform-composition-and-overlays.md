@@ -66,10 +66,11 @@ not fallbacks.
 
 ### Closure contract
 
-Two manifests in each selected framework directory are authoritative:
+The selected framework's manifests are authoritative:
 
-- `<family>.runtimeconfig.json` defines direct shared-framework dependencies;
-- `<family>.deps.json` defines the exact managed runtime members under the
+- `<family>.runtimeconfig.json`, when present, defines direct shared-framework
+  dependencies; absence means the framework is a dependency-free leaf;
+- `<family>.deps.json` is required and defines the exact managed members under the
   target named by `runtimeTarget.name`.
 
 Directory contents are not membership. Extra DLLs, native assets, resource
@@ -181,7 +182,7 @@ contract.
 | `UnsupportedHost` | The desktop adapter is unavailable; no filesystem work occurs |
 | `Unavailable` | No `shared/` root; absent root family or exact root version; absent dependency family or compatible version |
 | `Rejected(InvalidRequest)` | Invalid family, version, layout, or positive limit |
-| `Rejected(InvalidManifest)` | Missing, malformed, duplicate-bearing, or unsupported runtime configuration or dependency manifest |
+| `Rejected(InvalidManifest)` | Missing dependency manifest; malformed, duplicate-bearing, or unsupported present runtime configuration or dependency manifest |
 | `Rejected(InvalidFrameworkGraph)` | Duplicate reference, cycle, incompatible requirements, or equal-precedence candidate/reference ambiguity |
 | `Rejected(InvalidMember)` | Escaping or invalid coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
 | `Rejected(BudgetExceeded)` | Reached-family inventory, name, framework, resolution-work, manifest, member, or byte limit exceeded |
@@ -242,6 +243,7 @@ rules are owned by their rejection gates.
 | Claim | Named gate |
 | --- | --- |
 | Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure`, `InstalledPlatformRealization_CoreMembershipMatchesIndependentOracle` |
+| Dependency-free leaf compatibility | `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf` |
 | Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_RejectsEqualPrecedenceReferenceAmbiguity`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
 | Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
 | Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
