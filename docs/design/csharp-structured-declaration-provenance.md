@@ -97,6 +97,13 @@ Inert text carried only for complete `FallbackRequired` presentation. It cannot
 be concatenated into `CSharpDeclarationText`, reparsed to manufacture semantic
 facts, promoted by rescanning, or attached to `Degraded` or `Unavailable`.
 
+A dominant fallback's compatibility payload is an immutable path-keyed
+collection of these values. Its path set exactly equals the
+`CompatibilityContained` paths in that result's receipt: every such path has
+one value, no value lacks a receipt entry, and equal values at different paths
+remain separate. If the receipt has no compatibility path, the payload is
+absent.
+
 ### `CSharpDeclarationReceipt`
 
 Immutable occurrence evidence for a complete declaration attempt. Each entry
@@ -126,15 +133,15 @@ into whole-declaration text.
 | Arm | Meaning | Permitted payload |
 | --- | --- | --- |
 | `Representable` | CSharp proved a complete faithful declaration | contained declaration text, exact namespace requirements, and a complete receipt containing only faithfully admitted dispositions |
-| `FallbackRequired` | Metadata facts are complete but C# cannot faithfully represent them | stable reason, complete typed fallback facts, optional subordinate compatibility text, and an optional receipt that may contain compatibility or opaque entries |
+| `FallbackRequired` | Metadata facts are complete but C# cannot faithfully represent them | stable reason, complete typed fallback facts, optional path-keyed compatibility payload, and an optional receipt that may contain compatibility or opaque entries |
 | `Degraded` | The owner-issued outcome reports degraded input | exact input status, bounded nonauthoritative typed evidence, and an optional partial receipt for attempted occurrences; no declaration-text or compatibility-text payload |
 | `Unavailable` | The owner-issued outcome reports Metadata declaration failure | one or more exact Metadata failures, bounded typed diagnostics, and an optional receipt for selected-subtree attempts; no declaration-text or compatibility-text payload |
 
 Each constituent record retains its semantic path, native arm, and required
 non-text evidence:
 
-- a representable contributor retains exact namespace requirements and its
-  receipt;
+- a representable contributor retains its complete typed declaration facts,
+  exact namespace requirements, and receipt;
 - a fallback contributor retains its stable reason, complete typed fallback
   facts, and any attempt receipt;
 - a degraded contributor retains its exact status, bounded typed evidence, and
@@ -146,9 +153,9 @@ The envelope is not another outcome and cannot be consumed separately from its
 result. It preserves lower-precedence evidence when a different arm dominates.
 Its receipts are text-free projections: they retain paths, value classes,
 dispositions, and child receipts, but no contained or compatibility fragment
-bytes. A dominant `FallbackRequired` result may expose compatibility text only
-through its arm payload; the corresponding receipt paths keep equal fragments
-distinct.
+bytes. A dominant `FallbackRequired` result exposes compatibility text only
+through its path-keyed arm payload; exact path-set equality with the receipt
+keeps equal fragments distinct.
 
 The Metadata status and failure mapping is forwarded unchanged from
 `member-inspection-planning-and-metadata-projection.md`. CSharp does not infer
@@ -291,7 +298,7 @@ Composition follows the result algebra rather than string concatenation.
 - An `Unavailable` parent retains every causative Metadata failure; a
   `Degraded` parent retains every exact incomplete input status; and a
   `FallbackRequired` parent has complete facts containing every selected
-  child's complete fallback facts and stable reason.
+  complete-fact child's typed facts plus every fallback child's stable reason.
 - A `Representable` parent therefore requires its own representable admission
   and all-`Representable` selected children.
 
@@ -402,12 +409,15 @@ itself:
   text.
 - `CSharpDeclarationProtocolTests.CompatibilityTextCannotBecomeDeclarationText`
   proves inert text has no promotion or concatenation path and occurs only on
-  complete fallback results.
+  complete fallback results; it asserts set equality between the path-keyed
+  payload and `CompatibilityContained` receipt entries, including equal values
+  at different paths.
 - `CSharpDeclarationProtocolTests.CompositionIsTotalAndMonotone` covers the
   cross product of parent-own and selected-child arms and proves a parent
   cannot hide either source's fallback, degradation, or unavailability; the
   constituent envelope retains every native reason, fact, status, failure, and
-  text-free receipt under its prefixed path.
+  text-free receipt under its prefixed path, and mixed fallback fixtures prove
+  complete-fact set equality across representable and fallback contributors.
 - `CSharpDeclarationProtocolTests.QualificationOwnsNamespaceRequirements`
   proves requirements come from one shared qualification policy, union every
   selected representable child's requirements, and reject policy mismatch
