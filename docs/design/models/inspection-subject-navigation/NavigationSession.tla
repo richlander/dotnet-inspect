@@ -4,7 +4,7 @@
 (*                                                                         *)
 (* The model checks the ordering, supersession, and authority rules of the *)
 (* design in `docs/design/inspection-subject-navigation.md`.  It models    *)
-(* unavailable revision behavior, but not descriptor classification,       *)
+(* non-success revision behavior, but not descriptor classification,       *)
 (* identity ranking, lens contents, rendering, or any implementation.       *)
 (*                                                                         *)
 (* Product concept                    Model variable                       *)
@@ -108,10 +108,13 @@ Outcomes == {"applied", "retained", "aborted", "maintenance", "synchronize"}
 SemanticOutcomes ==
   {"applied", "unavailable", "rejected", "failed", "aborted", "maintenance",
    "synchronize"}
+ResultSources == {"none", "evaluation", "navigationPreparation"}
 Dispositions == {"current", "synchronizationRequired"}
 
 NoResult ==
   [ outcome         |-> "none",
+    source          |-> "none",
+    preparationFailureOccurred |-> FALSE,
     disposition     |-> "none",
     receiptSnapshot |-> InitialSnapshot,
     receiptRev      |-> 0,
@@ -126,9 +129,12 @@ ConsumerDisposition(resultSnapshot, resultRev) ==
     THEN "current"
     ELSE "synchronizationRequired"
 
-Result(outcome, disposition, receiptSnapshot, receiptRev,
+Result(outcome, source, preparationFailureOccurred,
+       disposition, receiptSnapshot, receiptRev,
        priorSnapshot, resultSnapshot, priorRev, resultRev) ==
   [ outcome         |-> outcome,
+    source          |-> source,
+    preparationFailureOccurred |-> preparationFailureOccurred,
     disposition     |-> disposition,
     receiptSnapshot |-> receiptSnapshot,
     receiptRev      |-> receiptRev,
@@ -201,6 +207,8 @@ TypeOK ==
   /\ lastAdmitted \in 0 .. MaxMaintenance
   /\ admittedRequests \subseteq 1 .. MaxMaintenance
   /\ lastResult.outcome \in SemanticOutcomes \cup {"none"}
+  /\ lastResult.source \in ResultSources
+  /\ lastResult.preparationFailureOccurred \in BOOLEAN
   /\ lastResult.disposition \in Dispositions \cup {"none"}
   /\ lastResult.receiptSnapshot \in SnapshotValues
   /\ lastResult.receiptRev \in Nat
@@ -309,7 +317,7 @@ ExplicitResultInstalls(returnedSnapshot) ==
   /\ effect' = Authority("applied", installedRev + 1, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("applied",
+       Result("applied", "none", FALSE,
               ConsumerDisposition(returnedSnapshot, installedRev + 1),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, returnedSnapshot,
@@ -329,10 +337,11 @@ ExplicitResultInstalls(returnedSnapshot) ==
                   visibleWitness, consumerSyncWitness, consumerAckWitness,
                   synchronizationWitness, abandonmentWitness >>
 
-\* An unavailable request returns a complete snapshot value.  Change is
-\* derived by comparing that value with the installed snapshot, not supplied
-\* as an independent choice.
-ExplicitUnavailable(returnedSnapshot) ==
+\* A completed unavailable or failed result returns a complete snapshot value.
+\* Change is derived by comparing that value with the installed snapshot, not
+\* supplied as an independent choice.
+ExplicitNonSuccess(outcome, returnedSnapshot) ==
+  /\ outcome \in {"unavailable", "failed"}
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
   /\ LET changed == returnedSnapshot # installedSnapshot IN
@@ -344,7 +353,9 @@ ExplicitUnavailable(returnedSnapshot) ==
                       installedRev', currentIntent, effectEpoch + 1)
        /\ hostAuthority' = effect'
        /\ lastResult' =
-            Result("unavailable",
+            Result(outcome,
+                   IF outcome = "failed" THEN "evaluation" ELSE "none",
+                   FALSE,
                    ConsumerDisposition(returnedSnapshot, installedRev'),
                    acknowledgedSnapshot, acknowledgedRev,
                    installedSnapshot, returnedSnapshot,
@@ -370,10 +381,54 @@ ExplicitUnavailable(returnedSnapshot) ==
                   consumerSyncWitness, consumerAckWitness,
                   synchronizationWitness, abandonmentWitness >>
 
-\* Rejected and failed navigation results retain the installed snapshot but
-\* receive a fresh effect epoch so delayed outcome work cannot surface later.
-ExplicitResultRetains(outcome) ==
-  /\ outcome \in {"rejected", "failed"}
+\* Navigation preparation can fail after Registry evaluation succeeds.  It
+\* returns a distinguishable failed result and retains the complete snapshot
+\* and revision because it has no installable replacement snapshot.
+NavigationPreparationFailure ==
+  /\ explicit # NoExplicitWork
+  /\ explicit.token = currentIntent
+  /\ installedSnapshot' = installedSnapshot
+  /\ installedRev' = installedRev
+  /\ effectEpoch' = effectEpoch + 1
+  /\ effect' =
+       Authority("retained", installedRev, currentIntent, effectEpoch + 1)
+  /\ hostAuthority' = effect'
+  /\ lastResult' =
+       Result("failed", "navigationPreparation", TRUE,
+              ConsumerDisposition(installedSnapshot, installedRev),
+              acknowledgedSnapshot, acknowledgedRev,
+              installedSnapshot, installedSnapshot,
+              installedRev, installedRev)
+  /\ dispositionWitness' =
+       /\ dispositionWitness
+       /\ CorrectDispositionAtIssue(lastResult')
+  /\ revisionWitness' =
+       /\ revisionWitness
+       /\ installedSnapshot' = installedSnapshot
+       /\ installedRev' = installedRev
+       /\ lastResult'.priorSnapshot = installedSnapshot
+       /\ lastResult'.resultSnapshot = installedSnapshot'
+       /\ lastResult'.priorRev = installedRev
+       /\ lastResult'.resultRev = installedRev'
+       /\ lastResult'.outcome = "failed"
+       /\ lastResult'.source = "navigationPreparation"
+       /\ effect' =
+            Authority("retained", installedRev, currentIntent, effectEpoch + 1)
+       /\ hostAuthority' = effect'
+  /\ explicit' = NoExplicitWork
+  /\ UNCHANGED << consumerSnapshot, consumerRev, consumerInstalledEpoch,
+                  acknowledgedSnapshot, acknowledgedRev,
+                  currentIntent, superseded, nextMaintenance,
+                  maintenanceQueue, lastAdmitted, admittedRequests,
+                  nextSynchronization, synchronizationRequest,
+                  settledSynchronizations,
+                  admissionWitness, regatherWitness, orderWitness,
+                  visibleWitness, consumerSyncWitness, consumerAckWitness,
+                  synchronizationWitness, abandonmentWitness >>
+
+\* A rejected navigation result retains the installed snapshot but receives a
+\* fresh effect epoch so delayed outcome work cannot surface later.
+ExplicitRejected ==
   /\ explicit # NoExplicitWork
   /\ explicit.token = currentIntent
   /\ effectEpoch' = effectEpoch + 1
@@ -381,7 +436,7 @@ ExplicitResultRetains(outcome) ==
        Authority("retained", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result(outcome,
+       Result("rejected", "none", FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -414,7 +469,7 @@ ExternalPrerequisiteAbort ==
   /\ effect' = Authority("aborted", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("aborted",
+       Result("aborted", "none", FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -557,7 +612,7 @@ AdmitMaintenance ==
      IN
        /\ installedSnapshot' = replacement
        /\ lastResult' =
-            Result("maintenance",
+            Result("maintenance", "none", FALSE,
                    ConsumerDisposition(replacement, installedRev + 1),
                    acknowledgedSnapshot, acknowledgedRev,
                    installedSnapshot, replacement,
@@ -632,7 +687,7 @@ SynchronizeConsumer ==
        Authority("synchronize", installedRev, currentIntent, effectEpoch + 1)
   /\ hostAuthority' = effect'
   /\ lastResult' =
-       Result("synchronize",
+       Result("synchronize", "none", FALSE,
               ConsumerDisposition(installedSnapshot, installedRev),
               acknowledgedSnapshot, acknowledgedRev,
               installedSnapshot, installedSnapshot,
@@ -797,9 +852,11 @@ ForeignAuthorityOffered ==
 ResolveExplicit ==
   \/ \E returnedSnapshot \in SnapshotValues :
        ExplicitResultInstalls(returnedSnapshot)
-  \/ \E returnedSnapshot \in SnapshotValues :
-       ExplicitUnavailable(returnedSnapshot)
-  \/ \E outcome \in {"rejected", "failed"} : ExplicitResultRetains(outcome)
+  \/ \E outcome \in {"unavailable", "failed"},
+          returnedSnapshot \in SnapshotValues :
+       ExplicitNonSuccess(outcome, returnedSnapshot)
+  \/ NavigationPreparationFailure
+  \/ ExplicitRejected
   \/ ExternalPrerequisiteAbort
 
 Next ==
@@ -873,17 +930,38 @@ MaintenanceRegatherDiscipline ==
   /\ regatherWitness
   /\ \A e \in Range(maintenanceQueue) : e.needsRegather => ~e.ready
 
-\* An unavailable outcome advances the state revision exactly when the
-\* complete returned snapshot changed.  The semantic outcome and change bit
-\* are explicit model currencies rather than inferred from apply/retain class.
-UnavailableRevisionMatchesSnapshotChange ==
+\* A completed unavailable or failed outcome advances the state revision
+\* exactly when the complete returned snapshot changed.  The semantic outcome
+\* and change bit are explicit model currencies rather than inferred from
+\* apply/retain class.
+NonSuccessRevisionMatchesSnapshotChange ==
   /\ revisionWitness
-  /\ (lastResult.outcome = "unavailable" =>
+  /\ (lastResult.outcome \in {"unavailable", "failed"} =>
         /\ lastResult.snapshotChanged =
              (lastResult.resultSnapshot # lastResult.priorSnapshot)
         /\ IF lastResult.snapshotChanged
              THEN lastResult.resultRev = lastResult.priorRev + 1
              ELSE lastResult.resultRev = lastResult.priorRev)
+
+\* Navigation preparation failure has no complete replacement snapshot to
+\* install.  Its distinguishable result therefore records identical
+\* before/after state, and the live result authority names that retained
+\* revision.  A model-only occurrence field identifies the action independently
+\* from its result source, while the pre-state witness independently latches
+\* the source and full returned authority.
+PreparationFailureRetainsSnapshotAndRevision ==
+  /\ revisionWitness
+  /\ lastResult.preparationFailureOccurred =
+       (lastResult.source = "navigationPreparation")
+  /\ (lastResult.preparationFailureOccurred =>
+        /\ ~lastResult.snapshotChanged
+        /\ lastResult.resultSnapshot = lastResult.priorSnapshot
+        /\ lastResult.resultRev = lastResult.priorRev
+        /\ (effect # NoAuthority =>
+              /\ effect.outcome = "retained"
+              /\ effect.rev = lastResult.resultRev
+              /\ installedSnapshot = lastResult.resultSnapshot
+              /\ installedRev = lastResult.resultRev))
 
 \* Consumer-installed and product-acknowledged state are separate currencies.
 \* Neither may lead its authority source, and equal revisions mean equal
