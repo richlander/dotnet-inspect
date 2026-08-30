@@ -214,10 +214,12 @@ type-definition candidate in the merged failure.
 
 ## Completeness
 
-The sections above specify what one query returns. This section specifies what
-must hold across *every* structural state machine in an image at once. The
-distinction matters because the failure modes differ: a single lookup can be
-correct while the index as a whole has silently lost rows.
+The sections above specify what one query returns. C1, C3, and C6 below specify
+what must hold across *every structural async state machine* in an image at
+once; synchronous iterator state machines are outside those population
+invariants. C2, C4, and C5 concern index failure and rejection merging rather
+than that async-only population. The distinction matters because a single
+lookup can be correct while the index as a whole has silently lost rows.
 
 A **structural async state machine** is a `TypeDef` in the image that directly
 declares `System.Runtime.CompilerServices.IAsyncStateMachine`, judged by
@@ -386,8 +388,9 @@ with the index.
 
 [`models/state-machine-completeness/`](models/state-machine-completeness/)
 holds two small TLA+ models rather than conflating their state domains.
-`StateMachineCompleteness.tla` checks C1, C3, and the structural
-`GetByStateMachine` fragment of C2, plus failure absorption and termination.
+`StateMachineCompleteness.tla` checks C1, C3, and the structural-async
+`GetByStateMachine` fragment of C2, plus cause-specific failure mapping,
+absorption, and termination.
 `RejectionComponentMerge.tla` checks C5 over published rejections, tagged
 merge keys, and diagnostic payloads.
 

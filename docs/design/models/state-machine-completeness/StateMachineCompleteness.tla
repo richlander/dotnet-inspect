@@ -1,20 +1,20 @@
 ---------------------- MODULE StateMachineCompleteness ----------------------
 (***************************************************************************)
-(* C1, C3, and the structural GetByStateMachine fragment of C2 from        *)
+(* C1, C3, and the structural-async GetByStateMachine fragment of C2 from  *)
 (* docs/design/state-machine-relationship-index.md.                        *)
 (*                                                                         *)
-(* This model owns structural-machine classification and whole-module      *)
+(* This model owns structural-async-machine classification and whole-module *)
 (* failure. Rejection-component merging has a different unit of state --   *)
 (* published rejections connected by tagged merge keys -- and lives in     *)
 (* RejectionComponentMerge.tla. Keeping those domains separate prevents a  *)
 (* merge key such as a kickoff or claimed name from being mistaken for a   *)
-(* structural state machine.                                               *)
+(* structural async state machine.                                         *)
 (***************************************************************************)
 
 EXTENDS Naturals
 
 CONSTANTS
-    MachineCount, \* structural state machines in the image
+    MachineCount, \* structural async state machines in the image
     MaxBudget,    \* classification steps before exhaustion
     FailureMode,  \* how whole-module failure rewrites results
     FailureMutationMode, \* whether a published failure may change
@@ -27,6 +27,7 @@ CONSTANTS
 (*               = "PreserveClassified" leave earlier results standing      *)
 (*               = "ReportAbsent"       report Absent instead of Rejected   *)
 (*               = "Untyped"            publish failure with no typed kind  *)
+(*               = "WrongKind"          publish the other cause's kind      *)
 (*                                                                         *)
 (*   FailureMutationMode = "Stable"      published failure is immutable      *)
 (*                       = "RewriteDetail" mutate it after publication        *)
@@ -39,7 +40,8 @@ ASSUME
     /\ MachineCount \in Nat \ {0}
     /\ MaxBudget \in Nat
     /\ FailureMode \in
-        {"Total", "PreserveClassified", "ReportAbsent", "Untyped"}
+        {"Total", "PreserveClassified", "ReportAbsent", "Untyped",
+         "WrongKind"}
     /\ FailureMutationMode \in {"Stable", "RewriteDetail"}
     /\ FinishMode \in {"Guarded", "AllowUnvisited", "DropAsAbsent"}
 
@@ -47,7 +49,14 @@ Machines == 1..MachineCount
 Results == {"Resolved", "Rejected", "Absent", "Unclassified"}
 Truths == {"Resolvable", "Refused", "NoClaim"}
 FailureKinds == {"Malformed", "BudgetExceeded"}
+FailureCauses == {"MalformedInput", "BudgetExhaustion"}
 Phases == {"Building", "Built", "Failed"}
+
+ExpectedFailureKind(c) ==
+    IF c = "MalformedInput" THEN "Malformed" ELSE "BudgetExceeded"
+
+WrongFailureKind(c) ==
+    IF c = "MalformedInput" THEN "BudgetExceeded" ELSE "Malformed"
 
 Expected(t) ==
     CASE t = "Resolvable" -> "Resolved"
@@ -57,12 +66,13 @@ Expected(t) ==
 VARIABLES
     truth,        \* independently recomputed classification
     phase,        \* Building, Built, or Failed
+    cause,        \* independent whole-module failure trigger, or None
     kind,         \* whole-module failure kind, or None
     failureDetail,\* abstract published failure detail, or zero
-    result,       \* published result per structural machine
+    result,       \* published result per structural async machine
     budget        \* remaining classification steps
 
-vars == <<truth, phase, kind, failureDetail, result, budget>>
+vars == <<truth, phase, cause, kind, failureDetail, result, budget>>
 
 Visited == {m \in Machines : result[m] # "Unclassified"}
 
@@ -71,6 +81,7 @@ FailureProjection == <<phase, kind, failureDetail, result>>
 TypeOK ==
     /\ truth \in [Machines -> Truths]
     /\ phase \in Phases
+    /\ cause \in FailureCauses \cup {"None"}
     /\ kind \in FailureKinds \cup {"None"}
     /\ failureDetail \in 0..2
     /\ result \in [Machines -> Results]
@@ -79,6 +90,7 @@ TypeOK ==
 Init ==
     /\ truth \in [Machines -> Truths]
     /\ phase = "Building"
+    /\ cause = "None"
     /\ kind = "None"
     /\ failureDetail = 0
     /\ result = [m \in Machines |-> "Unclassified"]
@@ -91,7 +103,7 @@ ClassifyOne(m, expectedTruth, classification) ==
     /\ truth[m] = expectedTruth
     /\ result' = [result EXCEPT ![m] = classification]
     /\ budget' = budget - 1
-    /\ UNCHANGED <<truth, phase, kind, failureDetail>>
+    /\ UNCHANGED <<truth, phase, cause, kind, failureDetail>>
 
 ResolveOne(m) == ClassifyOne(m, "Resolvable", "Resolved")
 RejectOne(m) == ClassifyOne(m, "Refused", "Rejected")
@@ -101,10 +113,14 @@ AbsentOne(m) == ClassifyOne(m, "NoClaim", "Absent")
 (* A whole-module failure overwrites every result, including classifications *)
 (* already recorded and machines construction had not reached.             *)
 (***************************************************************************)
-FailModule(k) ==
+FailModule(c) ==
     /\ phase = "Building"
     /\ phase' = "Failed"
-    /\ kind' = IF FailureMode = "Untyped" THEN "None" ELSE k
+    /\ cause' = c
+    /\ kind' =
+        CASE FailureMode = "Untyped" -> "None"
+          [] FailureMode = "WrongKind" -> WrongFailureKind(c)
+          [] OTHER -> ExpectedFailureKind(c)
     /\ failureDetail' = 1
     /\ result' = [m \in Machines |->
                     CASE FailureMode = "ReportAbsent" -> "Absent"
@@ -114,18 +130,18 @@ FailModule(k) ==
                       [] OTHER -> "Rejected"]
     /\ UNCHANGED <<truth, budget>>
 
-Malform == FailModule("Malformed")
+Malform == FailModule("MalformedInput")
 
 ExhaustBudget ==
     /\ budget = 0
     /\ Visited # Machines
-    /\ FailModule("BudgetExceeded")
+    /\ FailModule("BudgetExhaustion")
 
 MutateFailedDetail ==
     /\ phase = "Failed"
     /\ FailureMutationMode = "RewriteDetail"
     /\ failureDetail' = 2
-    /\ UNCHANGED <<truth, phase, kind, result, budget>>
+    /\ UNCHANGED <<truth, phase, cause, kind, result, budget>>
 
 Finish ==
     /\ phase = "Building"
@@ -136,7 +152,7 @@ Finish ==
                          IF result[m] = "Unclassified" THEN "Absent"
                          ELSE result[m]]
                  ELSE result
-    /\ UNCHANGED <<truth, kind, failureDetail, budget>>
+    /\ UNCHANGED <<truth, cause, kind, failureDetail, budget>>
 
 Next ==
     \/ \E m \in Machines : ResolveOne(m)
@@ -157,7 +173,7 @@ C1_Totality ==
     (phase = "Built") => \A m \in Machines : result[m] = Expected(truth[m])
 
 C2_FailureIsTyped ==
-    /\ (phase = "Failed") => kind \in FailureKinds
+    /\ (phase = "Failed") => kind = ExpectedFailureKind(cause)
     /\ (phase = "Failed") => \A m \in Machines : result[m] # "Absent"
 
 C3_FailureRejectsAll ==

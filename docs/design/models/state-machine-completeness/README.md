@@ -6,9 +6,9 @@ A TLA+ model of the stateful fragment of
 ## What this model is for
 
 Most of the completeness property is a sequential partition: every structural
-state machine gets exactly one of three results. A model that restated it would
-add ceremony without adding information, and a reader would learn less from the
-model than from the sentence.
+async state machine gets exactly one of three results. A model that restated it
+would add ceremony without adding information, and a reader would learn less
+from the model than from the sentence.
 
 Three fragments are not like that, and they are the ones that repeatedly went
 wrong in review:
@@ -38,15 +38,15 @@ state machine of the construction can express.
 The two models also do not prove their composition. The completeness model
 treats `Rejected` as one classification; the merge model begins from rejection
 publications. The implementation must still ensure that a refused structural
-machine is represented by a publication and projected through its
+async machine is represented by a publication and projected through its
 state-machine index. Keeping that seam explicit is preferable to putting
 kickoff, state-machine, implementation, and claimed-name keys back into C1's
-structural-machine domain.
+structural-async-machine domain.
 
-The completeness model's `result` domain corresponds only to structural
+The completeness model's `result` domain corresponds only to structural async
 `GetByStateMachine` queries. It does not model kickoff or implementation keys,
-so `C2_FailureIsTyped` checks the state-machine-query fragment of C2 rather
-than all three keyed surfaces. It also does not model the public
+so `C2_FailureIsTyped` checks the async-state-machine-query fragment of C2
+rather than all three keyed surfaces. It also does not model the public
 `Relationships` enumeration. Production returns an empty enumeration after
 whole-module failure with no accompanying status, so that surface remains
 success-shaped and is tracked by #4833 rather than idealized here.
@@ -54,12 +54,13 @@ success-shaped and is tracked by #4833 rather than idealized here.
 ## Structure
 
 There are two models because the invariants have different units.
-`StateMachineCompleteness.tla` ranges over structural machines:
+`StateMachineCompleteness.tla` ranges over structural async machines:
 
 | Variable | Meaning |
 | --- | --- |
 | `truth` | per machine: what it **actually** is, independent of the index |
 | `phase` | `"Building"`, `"Built"`, or `"Failed"` |
+| `cause` | independent whole-module trigger: malformed input or exhausted budget |
 | `kind` | the typed failure kind once `phase = "Failed"` |
 | `failureDetail` | abstract published whole-module failure detail |
 | `result` | per machine: `Unclassified`, `Resolved`, `Absent`, `Rejected` |
@@ -88,6 +89,11 @@ a real index that loses a row publishes no such marker. It publishes `Absent`,
 which is exactly what it publishes for a machine that genuinely has no claim.
 The invariant was therefore satisfiable by an index that dropped rows, which is
 the failure it exists to catch. `BrokenDroppedRow.cfg` is the regression test.
+
+`cause` is independent of the published `kind`. That separation makes C2's
+cause-to-kind mapping checkable: `BrokenWrongFailureKind.cfg` swaps
+`Malformed` and `BudgetExceeded` while remaining typed, so membership in the
+set of failure kinds is not enough to pass.
 
 **The publication is the unit, not the machine.** This is the correction that
 took two review rounds to reach. The implementation creates one union-find node
@@ -127,7 +133,7 @@ vacuous: a broken merge could never reach the state in which it is checked.
 | Name | Design invariant | Statement |
 | --- | --- | --- |
 | `C1_Totality` | C1 | Once `Built`, every machine's result matches an independent recount of `truth` |
-| `C2_FailureIsTyped` | C2 (`GetByStateMachine` fragment) | `Failed` implies typed, non-`Absent` structural-machine results |
+| `C2_FailureIsTyped` | C2 (structural-async `GetByStateMachine` fragment) | `Failed` implies the cause-specific kind and non-`Absent` results |
 | `C3_FailureRejectsAll` | C3 | `Failed` implies *every* machine reports `Rejected` |
 | `C5_ComponentsEqualGraphClosure` | C5 | Component equality is exactly connectivity through tagged merge keys |
 | `C5_ComponentProjectionAgrees` | C5 | One component has one frozen evidence set and reason |
@@ -193,7 +199,7 @@ State 2: <ClassifyOne(1,"Resolvable","Resolved")>
   /\ result = <<"Resolved", "Unclassified", "Unclassified">>
   /\ phase  = "Building"
 
-State 3: <FailModule("Malformed")>
+State 3: <FailModule("MalformedInput")>
   /\ result = <<"Resolved", "Rejected", "Rejected">>
   /\ phase  = "Failed"
   /\ kind   = "Malformed"
@@ -235,6 +241,7 @@ weaker than it looks.
 | `BrokenPartialFailure.cfg` | Module failure preserves results already recorded, rejecting only unclassified machines | `C3_FailureRejectsAll` |
 | `BrokenAbsentOnFailure.cfg` | Module failure reports `Absent` rather than `Rejected` | `C2_FailureIsTyped` |
 | `BrokenUntypedFailure.cfg` | Module failure publishes no typed failure kind | `C2_FailureIsTyped` |
+| `BrokenWrongFailureKind.cfg` | Module failure publishes the other cause's typed kind | `C2_FailureIsTyped` |
 | `BrokenMutatingFailure.cfg` | A published whole-module failure changes its detail | `FailureIsAbsorbing` |
 | `BrokenPartialMerge.cfg` | A publication joins current representatives but not their whole components | `C5_ComponentsEqualGraphClosure` |
 | `BrokenUnvisitedPublish.cfg` | Construction publishes before classifying every machine | `C1_Totality` |
@@ -346,6 +353,8 @@ expect_violation BrokenPartialFailure StateMachineCompleteness \
 expect_violation BrokenAbsentOnFailure StateMachineCompleteness \
   "Invariant C2_FailureIsTyped"
 expect_violation BrokenUntypedFailure StateMachineCompleteness \
+  "Invariant C2_FailureIsTyped"
+expect_violation BrokenWrongFailureKind StateMachineCompleteness \
   "Invariant C2_FailureIsTyped"
 expect_violation BrokenMutatingFailure StateMachineCompleteness \
   "Action property FailureIsAbsorbing"
