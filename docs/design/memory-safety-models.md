@@ -356,6 +356,7 @@ specified here:
 | JS-export admission | [#5258](https://github.com/richlander/dotnet-inspect/issues/5258) | After #5253 |
 | Research summaries | [#5259](https://github.com/richlander/dotnet-inspect/issues/5259) | After #5253 and #5254 |
 | Library Signals | [#5260](https://github.com/richlander/dotnet-inspect/issues/5260) | After #5252 |
+| Cross-evidence posture query | [#5262](https://github.com/richlander/dotnet-inspect/issues/5262) | After #5252, #5254, and #5256 |
 
 Each successor re-derives its own contract in the named owning document. This
 composition document owns only the vocabulary, evidence-plane boundaries, and
