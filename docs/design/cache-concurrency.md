@@ -200,27 +200,20 @@ noncanonical NuGet.org URL shortcut.
 ## Versioned cache retirement
 
 The [CoreCache mechanism](corecache-mechanism.md#versioned-category-retirement)
-owns the scheduling, scanning, draining, suffix-selection, and accounting
-mechanics — see that document for the exact rule. This section states only
+owns the scheduling, scanning, draining, suffix-selection, accounting, and
+overlapping-prefix-failure mechanics — see that document for the exact
+rules and their own Gaps. This section states only
 the cross-process rationale those mechanics exist to satisfy: **automatic
 versioned retirement** is intended to never destroy a cache contract written
 by a newer process,
 and a newer process must tolerate an older one still running
 concurrently and recreating a contract the newer process just retired. That
-intent is not an enforced guarantee within a single registered family
-either, though: it depends on registered version prefixes being disjoint,
-which nothing in the mechanism enforces (see
-[CoreCache mechanism](corecache-mechanism.md#versioned-category-retirement)'s
-own Gap on overlapping prefixes) — a family whose prefix is a strict
-substring of another's own prefix can have its cleanup delete a directory
-that is actually the *other*, unrelated family's current contract, written
-by any process regardless of relative age. This rationale governs only the
-automatic retirement path; it does not extend to
-an operator-requested `dotnet-inspect cache clear`, which deletes the entire
-active cache root unconditionally (`CoreCache.Clear()`, with no
-version-aware filtering) — an older process can still destroy a newer
-contract that way, by explicit operator request rather than by the
-versioned-retirement mechanism this section describes.
+intent is not an enforced guarantee, as the linked document's own
+overlapping-prefix Gap describes; this section states the rationale only,
+not the mechanics that can violate it. It also governs only the automatic
+retirement path — [CoreCache's `Clear`](corecache-mechanism.md#clear-and-concurrent-writers)
+and its CLI-level `cache clear` caller are separate, unconditional deletion
+paths this rationale does not extend to.
 
 ## Filesystem coordination
 

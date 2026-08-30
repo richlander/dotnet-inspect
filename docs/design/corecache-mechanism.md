@@ -70,7 +70,13 @@ differently, but the difference is enforced for only one of them:
 - **`key`** is always SHA-256 hashed before it reaches the filesystem
   (`GetFilePath`'s `hashString[..2]/hashString[2..].{extension}` layout). A
   key built from untrusted content — a package id, a URL, source text — can
-  never produce a path outside the two-level hash bucket.
+  never produce a path outside the two-level hash bucket. The filesystem path
+  is not `key`'s only sink, though: every read/write operation also forwards
+  the original, unhashed `key` to `CacheTelemetry.Record` (see
+  [Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)
+  below) — that is a second, independent path for the same untrusted input,
+  contained by a different owner's mechanism (`CacheTelemetry`'s own
+  redaction), not by the hashing described here.
 - **`category`** is concatenated into the path verbatim (`GetCategoryPath` is
   `Path.Combine(GetBasePath(), category)`), and `GetCacheInfo(category)` uses
   the same unguarded path to recursively measure and enumerate files. Every
@@ -274,7 +280,26 @@ a different location than the one actually checked. No current caller
 changes the working directory during a commit/cleanup cycle, but the guard
 does not itself close this window; it assumes a stable current directory
 and an absolute (or effectively unchanging) resolved path across the reused
-call.
+call. This particular exposure (a guard's coverage going stale before the
+guarded string is used) is not the only consequence of an unresolved
+relative root, either: because `CoreCache` stores and forwards `basePath`
+verbatim rather than resolving it to an absolute path once at
+`Initialize` time, *every* operation that constructs a path from
+`GetBasePath()` and then performs a filesystem call against that same
+unresolved string — not just the guard-reuse case above — depends on the
+process's current directory being the one in effect when that later call
+actually runs, not when the string was built. `Set`/`SetBytes`'s
+`WriteAtomically` builds a temp-file path and later moves it to the
+original path in a separate operation on the same relative string; `Clear`
+validates, measures, and deletes the same unresolved `targetPath` across
+three separate filesystem calls; and versioned-category retirement (see
+below) captures `root = GetBasePath()` synchronously when scheduling, then
+resolves and deletes against that captured string later, from a background
+`Task.Run` that can execute an arbitrary amount of time afterward — the
+asynchronous case with the widest window of any of these. A stable current
+directory is therefore an unstated precondition for the mechanism as a
+whole whenever `basePath` is relative, not only for the NuGetCache/
+PlatformPackService guard-reuse pattern described above.
 Only `PlatformPackService`'s separate `destDir` guard (inside its
 content-copy helper, before overwriting an existing destination
 subdirectory) and `PackageCacheService`'s legacy-cache guard are dedicated
@@ -573,14 +598,24 @@ from `GetBasePath` at all, only from whichever of `GetCategoryPath`/
 enumeration — none of which touch `AppName` a second time once `GetBasePath`
 has already returned. `Clear` reaches the same exception while deriving its
 `targetPath` (after its own maintenance wait, which does not depend on
-`AppName` — see below). `CancelAndWaitForMaintenance` is the one public
-method that does *not* propagate this exception pre-initialization: it calls
+`AppName` — see below). `CancelAndWaitForMaintenance` does not propagate
+this exception pre-initialization either, and for a distinct reason from
+`Set`/`SetBytes`'s swallowing `catch` or `IsPathInCacheContext`'s
+`false`-returning `catch` above: it calls
 `WaitForMaintenance`, which calls `RequestVersionedCategoryCleanupAsync`,
 which checks `_appName is null` explicitly and returns a completed
 `default(CacheMaintenanceResult)` task rather than touching the throwing
 `AppName` property — so `CancelAndWaitForMaintenance(timeout)` called before
-`Initialize` returns a zeroed result instead of throwing, unlike every other
-lock-free method discussed here. There is no single
+`Initialize` returns a zeroed result instead of throwing, without ever
+depending on a `catch` to do so. `RegisterVersionedCategory` similarly does
+not require prior `Initialize`: it validates and stores its `prefix`/
+`current` pair unconditionally, then calls
+`ScheduleVersionedCategoryCleanup`, which itself checks `_appName is null`
+and returns immediately without scheduling anything — so registering a
+versioned category before `Initialize` succeeds and takes effect
+retroactively once `Initialize` eventually runs (the category is already in
+`s_versionedCategories` for `Initialize`'s own generation-scheduling pass to
+pick up). There is no single
 "every lock-free method does X" pre-initialization rule; each method's
 documented behavior above already states its own case.
 
@@ -594,8 +629,21 @@ be non-null and non-whitespace, and `current` must start with `prefix`
 case-insensitively and have the remainder parse as a non-negative integer
 via `int.TryParse(..., NumberStyles.None, ...)` (so no leading `+`/`-` sign,
 no thousands separator, and no leading/trailing whitespace in the suffix) —
-any violation throws `ArgumentException` synchronously from the call itself,
-before any background work is scheduled. Retirement:
+any violation throws synchronously from the call itself, before any
+background work is scheduled, but not uniformly as `ArgumentException`: a
+`null` `prefix` or `current` throws `ArgumentNullException` specifically
+(`ArgumentException.ThrowIfNullOrWhiteSpace`'s own behavior for a `null`
+argument), a whitespace-only value throws plain `ArgumentException`, and a
+`current` that does not start with `prefix` or whose suffix does not parse
+throws `ArgumentException` naming parameter `current`. A *second*
+registration of an already-registered `prefix` is a separate case with its
+own exception type: if the new call's `current`/parsed version disagrees
+with what was already registered for that `prefix`, `RegisterVersionedCategory`
+throws `InvalidOperationException` (not `ArgumentException`) — a
+conflicting-registration error, distinct from an invalid-argument one — while
+an identical repeat registration (same `prefix`, same `current`) succeeds
+silently and reschedules cleanup for that generation instead of throwing.
+Retirement:
 
 - deletes only sibling directories whose suffix parses as a non-negative
   integer strictly less than the current version;
@@ -613,10 +661,20 @@ before any background work is scheduled. Retirement:
 **Gap:** the retired-directory byte count is itself only a best-effort
 measurement, not a confirmed pre-deletion size — `CleanupVersionedCategory`
 measures each obsolete directory via `GetDirectorySizeBestEffort`, which
-catches any enumeration failure and returns `0` rather than propagating it,
-and then proceeds to `Directory.Delete` the directory regardless and record
+catches any enumeration failure and returns `0` rather than propagating it.
+A failed measurement does not, by itself, guarantee the directory is still
+deleted and counted, though: after measuring, `CleanupVersionedCategory`
+checks its `CancellationToken` again and returns without deleting or
+recording anything at all if cancellation was requested in the interim
+(the same token checked once already, before measurement began) — so a
+directory that failed to measure *and* whose generation was canceled in
+that same window is neither deleted nor counted, not "still deleted and
+still counted with a zero size." Only when cancellation is not requested at
+that second check does `CleanupVersionedCategory` proceed to
+`Directory.Delete` the directory and record
 a deletion with that (possibly `0`) size. A directory that fails to measure
-(permissions, a concurrent modification during enumeration) is still
+(permissions, a concurrent modification during enumeration) but is not
+racing a cancellation is still
 deleted and still counted as one retired directory, but contributes `0` to
 the accumulated byte total — so the maintenance byte counter that `Clear(null)`
 later consumes into its return value (see
@@ -664,16 +722,20 @@ alone whether the target survived untouched or was partially removed.
 
 **Gap:** the two counters `CacheMaintenanceProgress` tracks —
 `_bytesFreed` and `_directoriesDeleted` — are each individually
-thread-safe (`Interlocked.Add`/`Increment`/`Exchange`/`Read`), but the pair
+thread-safe, but not via the same primitive throughout, and the pair
 is not updated or read atomically together. `RecordDeletion` performs two
-separate `Interlocked` operations (bytes, then count), and both
-`Snapshot()`/`TakeSnapshot()` likewise read or reset the two fields with two
-separate `Interlocked` calls. Background cleanup (`CleanupVersionedCategory`)
+separate `Interlocked` operations (`Interlocked.Add` for bytes, then
+`Interlocked.Increment` for count); `TakeSnapshot()` similarly performs two
+separate `Interlocked.Exchange` calls; but `Snapshot()` reads bytes via
+`Interlocked.Read` and reads the directory count via a plain `Volatile.Read`
+— still a thread-safe read of that one field, just not the same
+`Interlocked` operation family the other methods use. Background cleanup (`CleanupVersionedCategory`)
 calls `RecordDeletion` without holding `s_maintenanceLock`, while
 `WaitForMaintenance` reads the pair via `Snapshot()`/`TakeSnapshot()` while
 holding that lock — the lock does not prevent a concurrent, lock-free
-`RecordDeletion` call from executing between the two `Interlocked`
-operations inside `Snapshot()`/`TakeSnapshot()`. A caller can therefore
+`RecordDeletion` call from executing between the two separate operations
+inside `Snapshot()`/`TakeSnapshot()`, regardless of which specific atomic
+primitive each one uses. A caller can therefore
 observe a `CacheMaintenanceResult` where one field reflects a deletion that
 just completed and the other does not yet (or, symmetrically, where
 `TakeSnapshot()`'s reset of one field races a deletion recorded between the
@@ -701,7 +763,15 @@ enforce and today's callers satisfy only by using prefixes that do not
 overlap in practice.
 
 `CancelAndWaitForMaintenance`/`Clear` are the only **public** ways a caller
-observes completed maintenance. The internal `RequestVersionedCategoryCleanupAsync`
+observes completed maintenance *and its accounting*. `Initialize` is also a
+completion barrier of a kind for the *previous* generation — a subsequent
+`Initialize` call cancels the outgoing generation's tasks and waits for them
+(`WaitForMaintenanceTasksBestEffort`'s `Task.WaitAll`) before installing the
+new one — but it does not return the drained `CacheMaintenanceResult` to its
+caller at all (only carrying the byte/directory counters forward internally,
+per [Initialization lifecycle](#initialization-lifecycle) above), so it is
+not a way to *observe* completed maintenance in the sense this section
+means. The internal `RequestVersionedCategoryCleanupAsync`
 is a third, assembly-internal path that test code uses directly to await
 maintenance — but calling what it returns "the real aggregate task"
 overstates what it actually returns: the
@@ -900,7 +970,16 @@ return/throw/counter behavior are unaffected.
 
 `InfoTracker.RecordCacheHit`/`RecordCacheMiss` and `CacheTelemetry.Record` are
 recorded on cache outcomes, but recording itself does nothing to protect a
-cache result: `CacheTelemetry.Record` first adds an `ActivityEvent` to
+cache result. `CoreCache` forwards the original, unhashed `key` (see the
+trust-boundary section above) to `CacheTelemetry.Record` as plain caller
+evidence — what happens to that call is the adjacent `CacheTelemetry`
+owner's own contract, cited here only because it is the first place the
+untrusted `key` is contained rather than hashed: `CacheObservation.Create`
+constructs the observation *before* either `Activity.Current?.AddEvent` or
+subscriber dispatch runs, and that construction routes `key` through
+`RedactCacheKey`, which returns a redacted `UrlRedaction` result for a
+URL-shaped key or wraps any other key in an `InertString(TextPolicy.Field,
+key)` — so by the time `Record` first adds an `ActivityEvent` to
 `Activity.Current` when one exists (`Activity.Current?.AddEvent(...)` — no
 event is added when there is no current activity, which is the ordinary
 state unless one has been established), then calls every subscribed
@@ -1010,16 +1089,27 @@ entry fresh whenever the future skew `δ` exceeds `M` — a small future skew
 can still be stale against a large-magnitude negative `maxAge`, but any
 future skew is read as fresh once `maxAge` is zero or positive. Any failure while resolving
 `FileInfo` or reading the file is caught by the same guarded region and
-*returns* a miss (`null`), exactly like the non-`maxAge` overloads' hit
-path — but the miss is not otherwise *recorded* the same way: the
+falls through toward a miss, exactly like the non-`maxAge` overloads' hit
+path — but the miss is not otherwise *recorded* the same way, and the
+*return value* is not unconditionally `null` either, unlike that comparison
+might suggest: the
 non-`maxAge` overloads' hit-path `catch` returns directly, so a read failure
 there is invisible to telemetry (no hit or miss observation, no
 `InfoTracker.RecordCacheMiss()`); the `maxAge` overloads' `catch` instead
 falls through to the same unguarded miss-telemetry call the missing-entry
-case uses, so a read failure there *is* recorded as a miss. A read failure
-under `maxAge` is therefore observable in telemetry in a way the equivalent
-failure under the plain overloads is not, even though both return `null` to
-the caller identically.
+case uses, so a read failure there *is* recorded as a miss — normally.
+"Normally" matters here: that miss-telemetry call is unguarded on this path
+just as it is on the missing-entry path (see
+[Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)
+above), so a throwing miss-telemetry subscriber propagates out of the
+`maxAge` overload the same way it would out of the plain overload's miss
+path — the caller gets an exception, not `null`, in that case. So a read
+failure under `maxAge` is observable in telemetry in a way the equivalent
+failure under the plain overloads is not, and *usually* still returns `null`
+to the caller identically to the plain overloads — but not in every case,
+since reaching that return still passes through the same unguarded
+miss-telemetry call the plain overloads' *miss* path (not hit-failure path)
+shares.
 
 ## Non-claims
 
