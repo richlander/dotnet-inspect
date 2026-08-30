@@ -325,12 +325,19 @@ parseable.
 
 Every ranked row prints a `Token` column holding the candidate's metadata token,
 which the pairwise form accepts directly as the second operand. That keeps every
-row addressable even when a name is ambiguous across overloads or property
-accessors:
+same-image row addressable even when a name is ambiguous across overloads or
+property accessors:
 
 ```bash
 dotnet-inspect match 'Sample.Encode' 0x06000CF8 --library ./app.dll
 ```
+
+A library range (`--library ./old.dll..new.dll`) ranks candidates from the
+second image against a seed in the first. Cross-image ranks are retrieval
+evidence only, and the disclosure says so: pairwise `match` compares two methods
+within one retained assembly, so there is no checked relation to confirm a
+cross-image row with. Use the ranking to find where a method went between two
+versions, then inspect either side on its own.
 
 ### Relationships and graphs
 

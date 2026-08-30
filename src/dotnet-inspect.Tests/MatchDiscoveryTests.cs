@@ -961,6 +961,202 @@ public sealed class MatchDiscoveryTests
         Assert.DoesNotContain('\u202E', blocker.Kind);
         Assert.DoesNotContain('\u202E', blocker.Detail);
     }
+
+    // ---- Round 4 review findings ----
+
+    /// <summary>
+    /// The disclosure names a transition the run can actually perform. A ranked row's token is
+    /// addressable by pairwise <c>match</c> only within one image; Analysis ranks cross-image
+    /// candidates without establishing cross-reader correspondence, and pairwise <c>match</c>
+    /// compares two methods inside one retained assembly. Telling a cross-image caller to "run
+    /// pairwise `match` on a candidate" named a command that cannot be run.
+    /// </summary>
+    [Fact]
+    public async Task Similar_CrossImage_DisclosesThatNoCheckedRelationIsAvailable()
+    {
+        MatchOptions options = new()
+        {
+            LeftSelector = "DiffSample.Stable",
+            AssemblyPath =
+                $"{FixtureCatalog.DiffV1.AssemblyPath()}..{FixtureCatalog.DiffV2.AssemblyPath()}",
+            IncludeAll = true,
+            Similar = true,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, _) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        string disclosure = Parse(output).GetProperty("disclosure").GetString()!;
+
+        Assert.Contains("no checked relation is available across images", disclosure);
+        Assert.DoesNotContain("Run pairwise `match` on a candidate", disclosure);
+    }
+
+    /// <summary>
+    /// The same-image disclosure still names the transition, because within one image the printed
+    /// token really is addressable. A cross-image wording that leaked here would retract a promise
+    /// the command does keep.
+    /// </summary>
+    [Fact]
+    public async Task Similar_SameImage_StillNamesThePairwiseTransition()
+    {
+        MatchOptions options = Seeded(SampleSeed) with { JsonOutput = true };
+
+        var (exitCode, output, _) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        string disclosure = Parse(output).GetProperty("disclosure").GetString()!;
+
+        Assert.Contains("Run pairwise `match` on a candidate", disclosure);
+        Assert.DoesNotContain("across images", disclosure);
+    }
+
+    /// <summary>
+    /// The tabular modes carry the disclosure on stderr rather than in the single row shape, so
+    /// that path has to render the disclosure the run earned rather than its own copy.
+    /// </summary>
+    [Fact]
+    public async Task Similar_CrossImageTable_WritesTheCrossImageDisclosureToStderr()
+    {
+        MatchOptions options = new()
+        {
+            LeftSelector = "DiffSample.Stable",
+            AssemblyPath =
+                $"{FixtureCatalog.DiffV1.AssemblyPath()}..{FixtureCatalog.DiffV2.AssemblyPath()}",
+            IncludeAll = true,
+            Similar = true,
+            Tabular = true,
+        };
+
+        var (exitCode, _, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("no checked relation is available across images", error);
+    }
+
+    /// <summary>
+    /// Canonicalizing preserves case, but Windows and macOS resolve <c>Foo.dll</c> and
+    /// <c>foo.dll</c> to one file. Comparing those spellings ordinally reported one image as two on
+    /// exactly the hosts where they are one, so retrieval stopped suppressing the seed and ranked
+    /// it as its own best candidate. Skipped where the host volume really is case-sensitive, since
+    /// there the two spellings name different files and must stay distinct.
+    /// </summary>
+    [Fact]
+    public async Task Similar_CaseVariantLibraryPath_IsOneImageWhenTheVolumeSaysSo()
+    {
+        string lowered = LoweredPath(TestAssembly);
+        if (!File.Exists(lowered) || string.Equals(lowered, TestAssembly, StringComparison.Ordinal))
+            return;
+
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyPath = $"{TestAssembly}..{lowered}",
+            AssemblyWide = true,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.False(document.TryGetProperty("candidate_assembly", out _));
+        Assert.Contains("Run pairwise `match` on a candidate", document.GetProperty("disclosure").GetString()!);
+
+        int seedToken = Convert.ToInt32(
+            document.GetProperty("seed_outcome").GetProperty("token").GetString()!, 16);
+
+        Assert.DoesNotContain(
+            document.GetProperty("candidates").EnumerateArray(),
+            candidate => Convert.ToInt32(candidate.GetProperty("token").GetString()!, 16) == seedToken);
+    }
+
+    /// <summary>
+    /// Relaxing image comparison to the host's own case rules must not merge two genuinely
+    /// different files. The V1 and V2 fixtures share a file name and differ only by directory,
+    /// which is exactly the pair a careless case-insensitive comparison would conflate.
+    /// </summary>
+    [Fact]
+    public void SameImage_DistinguishesDifferentFilesAndUnifiesSpellingsOfOne()
+    {
+        string v1 = FixtureCatalog.DiffV1.AssemblyPath();
+        string v2 = FixtureCatalog.DiffV2.AssemblyPath();
+
+        Assert.False(MatchCommand.SameImage(v1, v2));
+        Assert.True(MatchCommand.SameImage(v1, v1));
+        Assert.True(MatchCommand.SameImage(
+            v1,
+            Path.GetRelativePath(Directory.GetCurrentDirectory(), v1)));
+
+        string lowered = LoweredPath(v1);
+        if (!string.Equals(lowered, v1, StringComparison.Ordinal))
+        {
+            // The host volume decides: where both spellings open one file they are one image, and
+            // where they do not they must stay two.
+            Assert.Equal(File.Exists(lowered), MatchCommand.SameImage(v1, lowered));
+        }
+    }
+
+    static string LoweredPath(string path)
+        => Path.Combine(
+            Path.GetDirectoryName(path)!,
+            Path.GetFileName(path).ToLowerInvariant());
+
+    /// <summary>
+    /// The failure document's detail is the query layer's own spelling of a missing or ambiguous
+    /// target and can carry a metadata exception's message, so it is metadata-derived exactly like
+    /// every other document string here. It was the one record left uncontained.
+    /// </summary>
+    [Fact]
+    public void MatchDiscoveryFailureDocument_ContainsRenderingHazards()
+    {
+        const string Hostile = "Evil\u202EName";
+
+        var failure = new MatchDiscoveryFailureDocument
+        {
+            Kind = Hostile,
+            Role = Hostile,
+            Detail = Hostile,
+        };
+
+        Assert.DoesNotContain('\u202E', failure.Kind);
+        Assert.DoesNotContain('\u202E', failure.Role);
+        Assert.DoesNotContain('\u202E', failure.Detail);
+    }
+
+    /// <summary>
+    /// Containment is a property of every document record, not of the three a gate happened to
+    /// name. Driving all six with the same hazard is what keeps a later record from being added
+    /// without it.
+    /// </summary>
+    [Fact]
+    public void MatchDiscoveryCandidateAndOutcomeDocuments_ContainRenderingHazards()
+    {
+        const string Hostile = "Evil\u202EName";
+
+        var candidate = new MatchDiscoveryCandidateDocument
+        {
+            Rank = 1,
+            Member = Hostile,
+            Token = Hostile,
+            Similarity = new MatchDiscoverySimilarityDocument(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+        };
+
+        Assert.DoesNotContain('\u202E', candidate.Member);
+        Assert.DoesNotContain('\u202E', candidate.Token);
+
+        var outcome = new MatchDiscoveryMethodOutcomeDocument
+        {
+            Member = Hostile,
+            Token = Hostile,
+            Disposition = "Unsupported",
+        };
+
+        Assert.DoesNotContain('\u202E', outcome.Member);
+        Assert.DoesNotContain('\u202E', outcome.Token);
+    }
 }
 
 

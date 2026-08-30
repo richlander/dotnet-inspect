@@ -104,11 +104,11 @@ public static class MatchCommand
             // metadata tokens that index that *target* assembly, not loaded.ApiDllPath — comparing
             // them against the wrong image would silently reinterpret an unrelated MethodDef row
             // (issue #4304 Slice 3 review). Require both selectors to originate from the same file.
-            if (!string.Equals(left.OriginAssemblyPath, right.OriginAssemblyPath, StringComparison.Ordinal))
+            if (!SameImage(left.OriginAssemblyPath, right.OriginAssemblyPath))
             {
                 CommandError.Write(
                     $"'{options.LeftSelector}' and '{options.RightSelector}' resolve to different assemblies "
-                        + $"({Path.GetFileName(left.OriginAssemblyPath)} vs {Path.GetFileName(right.OriginAssemblyPath)}); "
+                        + $"({DistinguishingImageNames(left.OriginAssemblyPath, right.OriginAssemblyPath)}); "
                         + "match compares two methods within one retained assembly.");
                 return 1;
             }
@@ -188,6 +188,45 @@ public static class MatchCommand
     /// only; it deliberately does not resolve symlinks.
     /// </summary>
     internal static string CanonicalImagePath(string path) => Path.GetFullPath(path);
+
+    /// <summary>
+    /// Matches image identity the way the host volume does. <see cref="CanonicalImagePath"/> makes
+    /// two spellings of one file structurally comparable, but it preserves case, and Windows and
+    /// macOS resolve <c>Foo.dll</c> and <c>foo.dll</c> to the same file. Comparing those spellings
+    /// ordinally reports one image as two on exactly the hosts where they are one, which rejects a
+    /// valid pairwise pair and lets retrieval rank its own seed. Other hosts stay case-sensitive so
+    /// two genuinely distinct case-only siblings are never conflated. Same policy as
+    /// <c>ResourceExtractor.PathsEqual</c>.
+    /// </summary>
+    internal static bool SameImage(string? left, string? right)
+    {
+        if (left is null || right is null)
+            return left is null && right is null;
+
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(CanonicalImagePath(left)),
+            Path.TrimEndingDirectorySeparator(CanonicalImagePath(right)),
+            ImagePathComparison);
+    }
+
+    static StringComparison ImagePathComparison { get; } =
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+    /// <summary>
+    /// Names two distinct images so the reader can tell them apart. File names alone are the
+    /// readable form, but two different directories can hold the same file name, and an error that
+    /// prints one name twice explains nothing; fall back to full paths in that case.
+    /// </summary>
+    static string DistinguishingImageNames(string? left, string? right)
+    {
+        string leftName = Path.GetFileName(left) ?? "";
+        string rightName = Path.GetFileName(right) ?? "";
+        return string.Equals(leftName, rightName, ImagePathComparison)
+            ? $"{CanonicalImagePath(left!)} vs {CanonicalImagePath(right!)}"
+            : $"{leftName} vs {rightName}";
+    }
 
     /// <summary>
     /// Resolves a <c>Type.Member</c> selector to the unique <see cref="ApiMember.MetadataToken"/>

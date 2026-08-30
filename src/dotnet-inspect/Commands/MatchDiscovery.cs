@@ -149,22 +149,23 @@ internal static class MatchDiscovery
 
         // The population's defining image, not the image the caller named: a facade resolves a
         // forwarded type without defining it, and retrieval reads TypeDefs.
-        // Both sides are canonicalized before comparison: the seed origin is already canonical,
-        // and the caller's own --library spelling may be relative. A raw comparison reports one
-        // file as two images, which stops the retrieval from suppressing the seed and ranks the
-        // seed as its own best candidate.
+        // Both sides are canonicalized and compared the way the host volume resolves file
+        // identity: the seed origin is already canonical, and the caller's own --library spelling
+        // may be relative or, on a case-insensitive volume, differently cased. A raw ordinal
+        // comparison reports one file as two images, which stops the retrieval from suppressing
+        // the seed and ranks the seed as its own best candidate.
         string seedImage = resolvedSeed.OriginAssemblyPath!;
         string callerImage = MatchCommand.CanonicalImagePath(candidate.ApiDllPath);
         string candidateImage = populationImage is null
             ? callerImage
             : MatchCommand.CanonicalImagePath(populationImage);
-        bool sameImage = string.Equals(seedImage, candidateImage, StringComparison.Ordinal);
+        bool sameImage = MatchCommand.SameImage(seedImage, candidateImage);
 
         // Names are projected from the surface of the image the tokens come from. When the
         // population lives in a forwarded-to assembly, the caller's surface describes the facade,
         // so extract the defining image's surface instead of mislabelling its tokens.
         LoadedSide? populationSide = null;
-        if (!string.Equals(candidateImage, callerImage, StringComparison.Ordinal))
+        if (!MatchCommand.SameImage(candidateImage, callerImage))
         {
             (populationSide, int? populationError) =
                 await LoadSideAsync(options with { PackagePath = null }, candidateImage);
@@ -221,8 +222,10 @@ internal static class MatchDiscovery
                 // this renders only the ranked candidates. Everything the full view would add --
                 // the disclosure, which is not optional, plus the identity, receipt, and any
                 // blockers -- goes to stderr, which reaches the reader without adding a second row
-                // schema to the parsed stream on stdout.
-                CommandError.WriteNote(MatchDiscoveryFormatter.Disclosure);
+                // schema to the parsed stream on stdout. The disclosure is read off the view so
+                // every rendering carries the one the run actually earned, rather than letting
+                // this path keep its own copy that a cross-image run would make false.
+                CommandError.WriteNote(view.View.Description!);
                 foreach (string line in MatchDiscoveryFormatter.TabularContext(view.View))
                     CommandError.WriteNote(line);
 

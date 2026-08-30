@@ -303,10 +303,21 @@ public sealed record MatchDiscoverySimilarityDocument(
     int SeedLocals,
     int CandidateLocals);
 
-public sealed record MatchDiscoveryFailureDocument(
-    string Kind,
-    string Role,
-    string Detail);
+/// <summary>
+/// Why a retrieval produced no result. <see cref="Detail"/> is metadata-derived — the query layer
+/// spells a missing or ambiguous target as <c>Type '…' does not exist.</c> and reports a metadata
+/// exception's own message — so this record contains it for the same reason every other document
+/// here does, rather than leaving containment to the one construction site that happens to build
+/// it today.
+/// </summary>
+public sealed record MatchDiscoveryFailureDocument
+{
+    public required string Kind { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Role { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Detail { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+}
 
 internal static class MatchDiscoveryFormatter
 {
@@ -342,13 +353,33 @@ internal static class MatchDiscoveryFormatter
     }
 
     /// <summary>
-    /// Retrieval ranks structural candidates. It is a selection step, not a verdict: use pairwise
-    /// <c>match</c> on a ranked row to obtain a checked relation.
+    /// Retrieval ranks structural candidates. It is a selection step, not a verdict. Within one
+    /// image a ranked row is directly addressable by pairwise <c>match</c>, which is what the
+    /// printed token promises. Across two images it is not: Analysis ranks cross-image candidates
+    /// by portable structural categories and explicitly establishes no cross-reader
+    /// correspondence, and pairwise <c>match</c> compares two methods within one retained
+    /// assembly. Naming a transition the tool cannot perform would make the disclosure itself
+    /// false, so the cross-image spelling says what is actually available.
     /// </summary>
-    internal const string Disclosure =
+    internal const string DisclosurePrefix =
         "Ranks structural candidates only. A rank does not establish Exact, Near, or Different, "
-            + "nor semantic equivalence, authorship, copying intent, or vulnerability. "
-            + "Run pairwise `match` on a candidate to obtain a checked relation.";
+            + "nor semantic equivalence, authorship, copying intent, or vulnerability. ";
+
+    internal const string Disclosure =
+        DisclosurePrefix + "Run pairwise `match` on a candidate to obtain a checked relation.";
+
+    internal const string CrossImageDisclosure =
+        DisclosurePrefix
+            + "Cross-image ranks are retrieval evidence only: pairwise `match` compares two "
+            + "methods within one retained assembly, so no checked relation is available across "
+            + "images.";
+
+    /// <summary>
+    /// A cross-image run is exactly the run that carries a candidate assembly, because same-image
+    /// discovery leaves it null rather than repeating the seed's own path.
+    /// </summary>
+    internal static string DisclosureFor(MatchDiscoveryRequest request)
+        => request.CandidateAssembly is null ? Disclosure : CrossImageDisclosure;
 
     internal static (MatchDiscoveryView View, MatchDiscoveryDocument Document) BuildView(
         MatchDiscoveryRequest request,
@@ -362,18 +393,22 @@ internal static class MatchDiscoveryFormatter
                 BuildTerminal(
                     request,
                     RejectedDisposition,
-                    new MatchDiscoveryFailureDocument(
-                        rejected.Failure.GetType().Name,
-                        rejected.Role.ToString(),
-                        rejected.Failure.ToString() ?? "")),
+                    new MatchDiscoveryFailureDocument
+                    {
+                        Kind = rejected.Failure.GetType().Name,
+                        Role = rejected.Role.ToString(),
+                        Detail = rejected.Failure.ToString() ?? "",
+                    }),
             AssemblyContextStructuralCloneRetrievalResult.Failed failed =>
                 BuildTerminal(
                     request,
                     UnresolvedDisposition,
-                    new MatchDiscoveryFailureDocument(
-                        failed.Failure.Kind.ToString(),
-                        failed.Failure.Role.ToString(),
-                        failed.Failure.Detail)),
+                    new MatchDiscoveryFailureDocument
+                    {
+                        Kind = failed.Failure.Kind.ToString(),
+                        Role = failed.Failure.Role.ToString(),
+                        Detail = failed.Failure.Detail,
+                    }),
             _ => throw new InvalidOperationException(
                 $"Unhandled retrieval result '{result.GetType().Name}'."),
         };
@@ -397,7 +432,7 @@ internal static class MatchDiscoveryFormatter
             Scope = request.Scope,
             CandidateAssembly = request.CandidateAssembly,
             Disposition = disposition,
-            Disclosure = Disclosure,
+            Disclosure = DisclosureFor(request),
             Limits = LimitsOf(request),
             Failure = failure,
         };
@@ -460,7 +495,7 @@ internal static class MatchDiscoveryFormatter
             Scope = request.Scope,
             CandidateAssembly = request.CandidateAssembly,
             Disposition = retrieval.Disposition.ToString(),
-            Disclosure = Disclosure,
+            Disclosure = DisclosureFor(request),
             Limits = LimitsOf(request),
             SeedOutcome = new MatchDiscoverySeedDocument
             {
@@ -515,7 +550,7 @@ internal static class MatchDiscoveryFormatter
         => new()
         {
             Title = $"Similar to: {CSharpIdentifier.ContainRenderedText(request.Seed)}",
-            Description = Disclosure,
+            Description = DisclosureFor(request),
             Seed = CSharpIdentifier.ContainRenderedText(request.Seed),
             Scope = CSharpIdentifier.ContainRenderedText(request.Scope),
             CandidateAssembly = request.CandidateAssembly is null

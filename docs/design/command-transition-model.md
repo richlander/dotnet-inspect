@@ -421,6 +421,18 @@ must disclose that it establishes no relation, no semantic equivalence, and no
 authorship or copying claim. `--implementation` is rejected in discovery mode:
 it is a pairwise drill-down and must not run for every ranked row.
 
+The disclosure names only the transition that is actually available. Within one
+image that is pairwise `match`, and the printed token is the promise that the
+transition will work. Across two images there is none: Analysis ranks
+cross-image candidates by portable structural categories and establishes no
+cross-reader correspondence, and pairwise `match` compares two methods within
+one retained assembly. Cross-image discovery is therefore retrieval evidence
+that ends at the ranking, and it says so rather than naming a command the tool
+cannot run. Confirming a cross-image row would require a cross-image comparison
+capability the Analysis layer does not offer; that is issue #5269, a separate
+effort under its own owner, not a disclosure this command may imply it already
+has.
+
 The candidate population follows the disclosure rules rather than the focus
 rules. Type-scoped retrieval is the bounded default and is inferred from the
 seed's declaring type; whole-assembly search changes the cost class and so
@@ -453,7 +465,9 @@ Discovery prints a metadata token on every ranked row, which is a promise that
 the row is directly addressable by the pairwise transition. Honoring that
 promise means the token grammar belongs to `match`'s shared selector resolution
 rather than to discovery alone; a token that only discovery can read would make
-the printed transition false for overloads and multi-accessor properties.
+the printed transition false for overloads and multi-accessor properties. The
+promise is scoped to a same-image population, because that is the only
+population pairwise `match` can accept.
 
 Range spelling has to coexist with relative paths, because `..` is both the
 range separator and a parent directory segment. A `..` that is a bounded parent
@@ -468,18 +482,23 @@ paths, and `old/Foo.dll..../new/Foo.dll` is a range whose right operand is
 parent-relative. Discovery-only options are rejected outright on the pairwise
 path rather than being silently accepted and ignored.
 
-A selector's origin is a physical-file identity, so it is canonicalized before
-any comparison. It arrives by three routes — a forwarded type's defining image,
-a resolved type's extraction path, and, for a token the projection cannot name,
-the caller's own `--library` spelling — and `./Foo.dll` and its absolute path are
-one file. Comparing raw spellings reports one image as two, which both stops
-retrieval from suppressing its own seed and rejects a pairwise pair that the
-discovery output just told the caller to run.
+A selector's origin is a physical-file identity, so it is canonicalized and then
+compared the way the host volume resolves that identity. The spelling arrives by
+three routes — a forwarded type's defining image, a resolved type's extraction
+path, and, for a token the projection cannot name, the caller's own `--library`
+spelling — and `./Foo.dll` and its absolute path are one file. Canonicalizing
+alone is not enough, because it preserves case while Windows and macOS resolve
+`Foo.dll` and `foo.dll` to the same file; hosts with case-sensitive volumes stay
+case-sensitive so two genuine case-only siblings are never conflated. Reporting
+one image as two both stops retrieval from suppressing its own seed and rejects
+a pairwise pair that the discovery output just told the caller to run.
 
 Containment is a property of the structured document, not of its callers. The
 Markout row gate covers views, and a JSON document is not one, so the document
-records contain their own metadata-derived strings. JSON escaping is not
-containment: a parser restores the original control character, so an escaped
+records contain their own metadata-derived strings. That includes the failure
+document, whose detail is the query layer's own spelling of a missing or
+ambiguous target and can carry a metadata exception's message. JSON escaping is
+not containment: a parser restores the original control character, so an escaped
 bidi override would reach a JSON consumer intact.
 
 ## Timeline and bisect consequences
