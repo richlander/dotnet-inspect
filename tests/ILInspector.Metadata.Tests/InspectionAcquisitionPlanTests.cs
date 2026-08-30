@@ -861,7 +861,10 @@ public class InspectionAcquisitionPlanTests
     {
         byte[] image = SelfBytes();
         AssemblyReferenceIdentity identity = ReadIdentity(image);
+        using var twoOpensEntered = new CountdownEvent(2);
         using var release = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
         int entered = 0;
         int active = 0;
         int maximum = 0;
@@ -870,12 +873,20 @@ public class InspectionAcquisitionPlanTests
                 identity,
                 () =>
                 {
-                    Interlocked.Increment(ref entered);
+                    int entrance = Interlocked.Increment(ref entered);
                     int current = Interlocked.Increment(ref active);
                     UpdateMaximum(ref maximum, current);
-                    release.Wait();
-                    Interlocked.Decrement(ref active);
-                    return image;
+                    if (entrance <= 2)
+                        twoOpensEntered.Signal();
+                    try
+                    {
+                        release.Wait(cancellationToken);
+                        return image;
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref active);
+                    }
                 }))
             .ToArray();
         using var plan = new InspectionAcquisitionPlan(
@@ -887,18 +898,29 @@ public class InspectionAcquisitionPlanTests
         Task<CandidateRegistrationResult>[] tasks =
             [.. descriptors.Select(
                 descriptor => StartConcurrent(() => plan.Register(descriptor)))];
-        bool reachedLimit = SpinWait.SpinUntil(
-            () => Volatile.Read(ref entered) == 2,
-            TimeSpan.FromSeconds(5));
-        int observedMaximum = Volatile.Read(ref maximum);
-        release.Set();
+        bool reachedLimit;
+        int observedMaximum;
+        try
+        {
+            reachedLimit = twoOpensEntered.Wait(
+                TimeSpan.FromSeconds(5),
+                cancellationToken);
+            observedMaximum = Volatile.Read(ref maximum);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        CandidateRegistrationResult[] results =
+            await Task.WhenAll(tasks);
+
         Assert.True(reachedLimit);
         Assert.Equal(2, observedMaximum);
-        CandidateRegistrationResult[] results = await Task.WhenAll(tasks);
-
         Assert.All(
             results,
             result => Assert.IsType<CandidateRegistrationResult.Ready>(result));
+        Assert.Equal(descriptors.Length, entered);
         Assert.Equal(2, maximum);
     }
 
