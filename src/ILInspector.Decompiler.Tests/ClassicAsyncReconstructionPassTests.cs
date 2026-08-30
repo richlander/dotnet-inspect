@@ -844,6 +844,132 @@ public class ClassicAsyncReconstructionPassTests
         moveNext.CheckInvariant();
     }
 
+    [Theory]
+    [InlineData("outer-return")]
+    [InlineData("additional-catch")]
+    public void CompletionControlRequiresOneCanonicalOuterPath(
+        string mutation)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitVoid");
+        TryCatch outerTry = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<TryCatch>());
+        switch (mutation)
+        {
+            case "outer-return":
+                {
+                    Block block = outerTry.TryBody.Blocks[0];
+                    IReadOnlyList<IrNode> children =
+                        block.DetachChildren();
+                    var then = new Block(0);
+                    then.Add(new Return(null));
+                    block.Add(new IfStatement(
+                        new Constant(true, Boolean),
+                        then,
+                        elseArm: null));
+                    foreach (IrNode child in children)
+                        block.Add(child);
+                    break;
+                }
+            case "additional-catch":
+                {
+                    BlockContainer tryBody =
+                        outerTry.TryBody;
+                    List<CatchClause> clauses =
+                        [.. outerTry.Clauses];
+                    tryBody.Detach();
+                    foreach (CatchClause clause in clauses)
+                        clause.Detach();
+                    var bypassBlock = new Block(0);
+                    bypassBlock.Add(new Return(null));
+                    var bypassBody = new BlockContainer();
+                    bypassBody.Add(bypassBlock);
+                    outerTry.ReplaceWith(new TryCatch(
+                        tryBody,
+                        [
+                            new CatchClause(
+                                TypeRef.CoreLib(
+                                    "System",
+                                    "InvalidOperationException"),
+                                bypassBody),
+                            .. clauses,
+                        ]));
+                    break;
+                }
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(mutation));
+        }
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+        ClassicAsyncReconstructionPass.Kickoff kickoff =
+            ExpectedKickoff(source, "AwaitVoid");
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    kickoff.StateMachineType,
+                    kickoff.BuilderStorage,
+                    setResult,
+                    [
+                        .. moveNext
+                            .DescendantsOutsideNestedFunctions
+                            .OfType<Call>()
+                            .Where(static call =>
+                                call.Callee.Name
+                                    == "GetResult"),
+                    ],
+                    out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void SequentialEffectRequiresDirectCompletionPlacement()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(
+                source,
+                "TwoSequentialAwaits");
+        var keepAlive = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<ExpressionStatement>(),
+            static statement => statement.Expression
+                is Call { Callee.Name: "KeepAlive" });
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+
+        Assert.True(
+            ClassicAsyncReconstructionPass
+                .IsDirectSequentialCompletionEffect(
+                    setResult,
+                    keepAlive));
+
+        var then = new Block(0);
+        var nestedEffect =
+            Assert.IsType<ExpressionStatement>(
+                keepAlive.Clone());
+        then.Add(nestedEffect);
+        keepAlive.ReplaceWith(new IfStatement(
+            new Constant(false, Boolean),
+            then,
+            elseArm: null));
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .IsDirectSequentialCompletionEffect(
+                    setResult,
+                    nestedEffect));
+        moveNext.CheckInvariant();
+    }
+
     [Fact]
     public void HoistedResultRemappingRequiresExactFieldDefinition()
     {
@@ -2747,6 +2873,35 @@ public class ClassicAsyncReconstructionPassTests
         Assert.Equal(
             ClassicAsyncDeclarationDisposition.NoOpinion,
             iterator.ClassicAsyncDeclarationDisposition);
+    }
+
+    [Theory]
+    [InlineData("AwaitVoid")]
+    [InlineData("RejectedClassicClaim")]
+    public void RuntimeAsyncClassificationNeverEntersClassicInverse(
+        string methodName)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            methodName);
+        ClassicAsyncRelationshipEvidence evidence =
+            Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                function.ClassicAsyncRelationship);
+
+        var result = Assert.IsType<
+            ClassicAsyncPreparationResult.NotApplicable>(
+                ClassicAsyncReconstructionPass.Prepare(
+                    source,
+                    evidence with
+                    {
+                        Classification =
+                            MethodClassification.RuntimeAsync,
+                    }));
+
+        Assert.Equal(
+            MethodClassification.RuntimeAsync,
+            result.Classification);
     }
 
     [Fact]

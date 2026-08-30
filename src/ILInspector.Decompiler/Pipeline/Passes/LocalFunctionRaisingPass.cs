@@ -336,8 +336,8 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     continue;
                 bool allowLocals = environment is null;
                 if (!allowLocals && !body.Locals.IsEmpty
-                    || body.RequiresAsyncBodyModifier
-                    || body.Descendants.OfType<UnsupportedNode>().Any()
+                    || !NestedFunctionEmbeddingPolicy.CanEmbed(
+                        body)
                     || !IsPrintableBody(body, allowLocals))
                     continue;
 

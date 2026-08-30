@@ -1774,6 +1774,19 @@ public class LambdaRaisingPassTests
         Assert.Single(host.Descendants.OfType<DelegateCreation>());
     }
 
+    [Fact]
+    public void FailedClassicLambda_StaysLowered()
+    {
+        var host = RunSyntheticSiblingLambdaRaise(
+            s_int,
+            failedClassicStage: true);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+        Assert.Single(
+            host.Descendants.OfType<DelegateCreation>());
+        host.CheckInvariant();
+    }
+
     public static TheoryData<string, TypeRef> UnspellableExplicitSiblingTypes() => new()
     {
         { "unsupported", TypeRef.Unsupported("unsupported sibling") },
@@ -1939,7 +1952,8 @@ public class LambdaRaisingPassTests
         ImmutableArray<string> methodGenericParameterNames = default,
         TypeRef? declaringType = null,
         TypeRef[]? additionalSiblings = null,
-        bool siblingIsDynamic = false)
+        bool siblingIsDynamic = false,
+        bool failedClassicStage = false)
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
         var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
@@ -2015,6 +2029,15 @@ public class LambdaRaisingPassTests
                 GenericParameterCount: 0),
             [],
             lambdaContainer);
+        if (failedClassicStage)
+        {
+            lambdaBody.ClassicAsyncStageResult =
+                new ClassicAsyncStageResult.Failed(
+                    ClassicAsyncStage.Raised,
+                    new ClassicAsyncFailure(
+                        DiagnosticIds.InternalError,
+                        "classic planning failed"));
+        }
 
         new LambdaRaisingPass().Run(
             host,

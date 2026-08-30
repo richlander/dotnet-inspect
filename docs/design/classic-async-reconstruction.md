@@ -423,12 +423,16 @@ and its second pair must name the exact closed state-machine type and actual
 `catch (System.Exception)` and receive an exact load of that clause's catch
 local whose exact type agrees with the callback parameter, including known
 class-versus-value-type evidence. Any substitution, overwrite of that local in
-the catch body, or callback outside the catch declines. The catch body is the
-exact state-write, callback, return sequence; nesting the callback or placing
-bypass control before it does not prove exception completion. Each suspension
-block is likewise the exact state-local, state-field, awaiter-spill, callback,
-return sequence. Its callback cannot be found by scanning past unrelated
-control.
+the catch body, callback outside the catch, or additional catch clause declines.
+The catch body is the exact state-write, callback, return sequence; nesting the
+callback or placing bypass control before it does not prove exception
+completion. Each suspension block is likewise the exact state-local,
+state-field, awaiter-spill, callback, return sequence. Its callback cannot be
+found by scanning past unrelated control. The exact outer `TryCatch` in the
+success sequence and its canonical suspension, exception, and success returns
+are claimed protocol regions. Any other root-function `Return` or surviving
+`Leave` declines, so preserved structured control cannot bypass every
+completion callback.
 The `Completion callback ownership` gate independently inventories the
 compiler positives and exercises each correlation decline.
 
@@ -455,6 +459,13 @@ and every correlated physical branch must load the same exact FieldDef as the
 kickoff parameter binding; a same-name field is not interchangeable. Compound
 and guarded predicates remain declines until recipes model their complete
 control and effect regions.
+
+The sequential-await recipe's terminal user effect must be a direct statement
+of the exact outer completion try body. Descendant search does not establish
+effect placement: an effect beneath an `if`, loop, nested exception region, or
+other structured-control ancestor declines because reconstruction would
+otherwise discard that control while emitting the effect unconditionally. The
+`Sequential effect placement` gate enforces this modeled-ancestor boundary.
 
 The first guarded-effect realization gate covers the accepted `try`/`finally`
 recipe. The input effect must be one direct call under the exact compiler
@@ -744,10 +755,12 @@ Implemented:
 - exact predicate and guarded-effect realization for the accepted conditional
   and `try`/`finally` recipes.
 
-Result receivers, returns and leaves, and general user calls and writes remain
-unverified. Until each family has input-derived regions, exact output
-realizations, compiler-produced positives, and close declines, its presence
-prevents reconstruction.
+Result receivers, user-authored returns and leaves, and general user calls and
+writes remain unverified. The exact compiler completion returns are
+authenticated and claimed protocol regions; every other root-function return
+or leave prevents reconstruction. Until each user family has input-derived
+regions, exact output realizations, compiler-produced positives, and close
+declines, its presence prevents reconstruction.
 
 For the current result recipes, the exact `GetResult` protocol call may be
 surrounded only by already verified structural conversions and operators.
@@ -778,7 +791,7 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Gate | Evidence | Fails when |
 | --- | --- | --- |
 | Focused owner boundary (automated enforcement unverified) | Manual source inventory against this document's owner and boundary map; an executable source-inventory gate is not yet implemented | Classic code scans Metadata relationships, imports by name/ordinal, defines physical diff/Research/CLI/harness policy, or references #4716–#4719 implementation types |
-| Owner-result preservation | Metadata fixture adapters over every #4669 result arm plus `StateMachineRelationshipIndex_PreservesClaimKindPerKickoff`, `StateMachineRelationshipIndex_BudgetFailureRetainsExactClaim`, `MixedRejectedClaimsClassifyEachKickoffExactly`, and `BudgetFailureWithClassicClaimRemainsInputFailure` | A merged rejection loses the exact kickoff/kind association; another kickoff's claim produces `RejectedRelationship`/`OmitAsync`; `BudgetExceeded` becomes decline despite exact claim evidence; or failure becomes empty success or a guessed candidate |
+| Owner-result preservation | Metadata fixture adapters over every #4669 result arm plus `StateMachineRelationshipIndex_PreservesClaimKindPerKickoff`, `StateMachineRelationshipIndex_BudgetFailureRetainsExactClaim`, `MixedRejectedClaimsClassifyEachKickoffExactly`, `RuntimeAsyncClassificationNeverEntersClassicInverse`, and `BudgetFailureWithClassicClaimRemainsInputFailure` | A merged rejection loses the exact kickoff/kind association; another kickoff's claim produces `RejectedRelationship`/`OmitAsync`; runtime-async evidence enters the classic inverse; `BudgetExceeded` becomes decline despite exact claim evidence; or failure becomes empty success or a guessed candidate |
 | Exact host identity | Kickoff/execution/support fixtures with same-name, same-token, and byte-distinct same-MVID/same-row decoys, plus `KickoffLocalWithoutExactDefinitionIdentityDeclines` | Planning or application drops the owner guard, changes the requested host role, accepts a same-name foreign machine local, or uses another acquired module or MethodDef |
 | Planning totality | Healthy classic, non-classic, owner-failure, import-failure, injected planner-failure fixtures, `ClassicAsyncStageFailureFlowsToBodyFailure`, and `ClassicAsyncStageFailureStopsWholeTypeComposition` | A request has no terminal result; failure becomes decline or success-shaped member/whole-type output; or classic health is inferred from rendered text |
 | Stage-neutral plan | Raised/Lowered fixtures in both request orders | Recognition runs twice; decisions differ by request order; a plan retains stage-owned nodes/locals; or stage snapshots alias |
@@ -791,15 +804,16 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, `SwappedKickoffParameterCopiesDecline`, `NarrowKickoffRequiresProtocolOrder`, `ParameterBindingRequiresExactFieldType`, `ParameterBindingRequiresExactFieldDefinition`, the foreign Create/Start/Task-accessor negatives, `BuilderStorageMustBeCanonical`, `SameExactTypeIncludesOrderedRecursiveCustomModifiers`, `SameExactTypeRejectsConflictingValueTypeHints`, `CustomModifiedBuilderMemberMakesKickoffNonNarrow`, `ExactAddressedBuilderMemberMakesKickoffNonNarrow`, and `InconsistentBuilderMemberProvenanceMakesKickoffNonNarrow` | Shape resemblance, member names, reordered synchronous handoff, custom-modifier, known class-versus-value-type, or provenance loss, unauthenticated definition coordinates, same-name FieldDef aliasing, inconsistent provenance, or a set of valid source arguments establishes ownership without exact builder protocol and field-to-argument identity |
 | Await source uniqueness | `AuthenticatedAwaitProtocolIsAccepted`, `AwaitProtocolRequiresExactCorrelatedMembers`, `CompletionBranchMustDefineAwaitCfgEdges`, `AwaitCompletionBranchRequiresMatchingPolarity`, `SequentialAwaiterLocalReuseHasUniqueReachingSources`, `CompetingAwaiterDefinitionsDecline`, `AwaitSourceReachingDefinitionsRejectBackedgeAfterUse`, and `AwaitSourceRejectsDiamondWithTwoResumeDefinitions` | A `GetResult` selects a source by tree order, accepts a missing/alternate/backedge/cross-container definition or multiple resume definitions, loses direct-versus-negated completion polarity, fails to authenticate the exact correlated `GetAwaiter`/terminating `IsCompleted`/suspension/`GetResult` protocol and one exact spill FieldDef, or rejects ordinary sequential reuse |
 | Result-use boundary | `PostAwaitResultReceiverCallDeclinesAtPartialFidelity`, `PostAwaitInvocationNodesAreUnverified`, `CompilerConstructorAfterAwaitDeclines`, `HoistedResultRemappingRequiresExactFieldDefinition`, and the direct/conversion cases in `FaithfulLegacyRecipeRemainsFullyReconstructed` | A post-await receiver or invocation/effect node is cloned without a region and realization, a hoisted load aliases another same-name FieldDef, a call in the separately inventoried awaited operand is rejected, or a verified direct/conversion/operator result is rejected |
-| Completion callback ownership | `AcceptedRecipesOwnEveryCompletionCallback`, `ExtraExactMachineSetResultIsRejected`, `CallbackBuilderMustMatchKickoffBuilder`, `CallbackBuilderRequiresExactFieldDefinition`, `ExceptionCompletionRequiresCanonicalCaughtValue`, `CallbacksRequireCanonicalUnbypassableSequence`, `SetExceptionRequiresExactParameterTypeKind`, `AwaitCallbackRequiresExactAwaitPointCorrelation`, and `CompletionCallbackRequiresExactExternalMemberIdentity` | An accepted recipe leaves a completion/suspension callback preserved, accepts an extra callback, loses custom-modifier/member provenance or known type-kind evidence, substitutes an execution builder FieldDef not authenticated by the kickoff, forwards a substituted or overwritten value to `SetException`, admits bypass control around exception or suspension completion, mismatches an awaiter or machine argument/type, or derives the compiler-positive inventory from the same permissive matcher |
+| Completion callback ownership | `AcceptedRecipesOwnEveryCompletionCallback`, `ExtraExactMachineSetResultIsRejected`, `CallbackBuilderMustMatchKickoffBuilder`, `CallbackBuilderRequiresExactFieldDefinition`, `ExceptionCompletionRequiresCanonicalCaughtValue`, `CallbacksRequireCanonicalUnbypassableSequence`, `CompletionControlRequiresOneCanonicalOuterPath`, `SetExceptionRequiresExactParameterTypeKind`, `AwaitCallbackRequiresExactAwaitPointCorrelation`, and `CompletionCallbackRequiresExactExternalMemberIdentity` | An accepted recipe leaves a completion/suspension callback or canonical transfer preserved, accepts an extra callback, catch, return, or leave, loses custom-modifier/member provenance or known type-kind evidence, substitutes an execution builder FieldDef not authenticated by the kickoff, forwards a substituted or overwritten value to `SetException`, admits bypass control around exception or suspension completion, mismatches an awaiter or machine argument/type, or derives the compiler-positive inventory from the same permissive matcher |
 | Protocol mutation ownership | `CompilerProtocolMutationsAreAuthenticated`, `UnmatchedProtocolMutationDeclines`, `AcceptedPlanPartitionsEveryPhysicalStatementSlot`, and the complete accepted compiler population | An accepted mutation is inferred from a generated name rather than exact state/awaiter identity and protocol position, a builder clear or extra state/awaiter write/clear survives, or a protocol mutation lacks a physical ownership receipt |
 | Predicate field identity | `ConditionalFieldCorrelationRequiresExactDefinition` plus the accepted conditional fixture and predicate realization gate | A same-name Boolean FieldDef can control a physical branch while reconstruction emits a different kickoff parameter |
+| Sequential effect placement | `SequentialEffectRequiresDirectCompletionPlacement` plus the accepted sequential fixture and complete accepted compiler population | A consumed terminal effect is discovered beneath unmodeled structured control and emitted unconditionally |
 | Finally-state transition correlation | Compiler-produced `AwaitInTryFinally` positives plus `FinallyStateGuardRequiresExactMachineStateAndNoElse` | A guard accepts a foreign state field, else arm, user assignment, direct constant assignment, or uncoupled stack-slot transition |
 | Support preservation | Classic, runtime, iterator, custom-builder, and unrelated support-like methods | An Execution/Support host is not `NotApplicable`, broad builder-name recognition edits a method, or any support body/local changes |
 | Declaration disposition | Reconstructed, declined, not-applicable, owner/import/planner failure matrix | Reconstructed omits `IncludeAsync`, declined does not return `OmitAsync`, or a non-decision invents classic modifier policy |
 | Declaration disposition wiring | `ClassicAsyncDeclarationDispositionFlowsThroughDecompilerBodyResults`, `WholeTypeUsesDecidedClassicAsyncDeclarationDisposition`, and `RejectedClassicClaimRendersAsNonAsyncTaskMethod` over direct member, whole-type, and CLI production | `DecompilerResult` or `MemberBodyProductionResult` drops the value; either body path rederives a decided classic modifier from Metadata; a rejected classic body renders `async`; or the final Decompiler body fact disagrees |
 | Foreign-context isolation | Nested local/lambda/iterator/classic fixtures with pass stepping on and off | Parent classic state reaches a foreign pipeline or a foreign host borrows parent identity |
-| Embedding honesty | Await-bearing/await-free local and lambda fixtures plus failure/marker negatives | A foreign result needing an async carrier, carrying unsupported output, or failing is embedded as plausible synchronous source |
+| Embedding honesty | Await-bearing/await-free local and lambda fixtures plus `FailedClassicLocalFunction_StaysCall`, `FailedClassicLambda_StaysLowered`, and marker negatives | A foreign result needing an async carrier, carrying unsupported output, or failing is embedded as plausible synchronous source |
 | Value semantics | Equality/hash/clone tests for every decision and result arm | A behavior-affecting field is omitted or a mutable plan is shared |
 | Support and marker rendering | Exact `ClassicAsyncSupportBodiesRemainPhysical` and `DeclinedClassicKickoffsRenderExpectedMarkers` fixtures | A support body remains hollowed, a marker/disposition is absent, narrow replacement preserves handoff statements, or non-narrow marking changes an original statement |
 | Classic corpus population A/B | `classic-state-machines` exact-base/head snapshots plus Render A/B; automated delta enforcement is unverified | The source-kickoff population moves, the accepted set changes unexpectedly, or any rendered method remains unclassified |

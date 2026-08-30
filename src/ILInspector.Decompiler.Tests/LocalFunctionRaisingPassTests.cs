@@ -207,6 +207,47 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void FailedClassicLocalFunction_StaysCall()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var method = new MethodRef(
+            TypeRef.Definition(
+                "Synthetic",
+                "Samples",
+                "Owner"),
+            "<M>g__Local|0_0",
+            intType,
+            [intType],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var function = FunctionReturningCall(method, intType);
+        var body = LocalFunctionBody(method, intType);
+        body.ClassicAsyncStageResult =
+            new ClassicAsyncStageResult.Failed(
+                ClassicAsyncStage.Raised,
+                new ClassicAsyncFailure(
+                    DiagnosticIds.InternalError,
+                    "classic planning failed"));
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: candidate =>
+                candidate == method ? body : null);
+
+        new LocalFunctionRaisingPass().Run(
+            function,
+            context);
+
+        Assert.Empty(
+            function.Descendants.OfType<LocalFunctionStatement>());
+        Assert.Empty(
+            function.Descendants.OfType<LocalFunctionInvocation>());
+        Assert.Single(function.Descendants.OfType<Call>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void EnclosingMethodNameContainingGMarker_DemanglesLocalFunctionName()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

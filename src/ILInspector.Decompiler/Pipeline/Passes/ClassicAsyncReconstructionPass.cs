@@ -113,6 +113,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 return new ClassicAsyncPreparationResult.InputUnavailable(
                     rejected.Failure);
             }
+            if (evidence.Classification
+                != MethodClassification.StateMachineAsync)
+            {
+                return new ClassicAsyncPreparationResult.NotApplicable(
+                    evidence.HostRole,
+                    evidence.Classification);
+            }
             if (evidence.HostRole
                 == ClassicAsyncHostRole.DeclaredKickoff)
             {
@@ -131,7 +138,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 rejected.Failure);
         }
 
-        if (evidence.HostRole != ClassicAsyncHostRole.DeclaredKickoff
+        if (evidence.Classification
+                != MethodClassification.StateMachineAsync
+            || evidence.HostRole
+                != ClassicAsyncHostRole.DeclaredKickoff
             || evidence.Relationship is not
                 StateMachineRelationshipResult.Resolved resolved
             || resolved.Relationship.Kind
@@ -2724,7 +2734,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .FirstOrDefault(static statement => statement.Expression is Call { Callee.Name: "KeepAlive" });
         if (keepAlive is not { Expression: Call call })
             return false;
-        if (HasUnexpectedExpressionStatement(moveNext, keepAlive))
+        if (!IsDirectSequentialCompletionEffect(
+                setResult,
+                keepAlive)
+            || HasUnexpectedExpressionStatement(
+                moveNext,
+                keepAlive))
             return false;
         if (!IsRealizedAwaitResult(firstResultStore, getResults[0])
             || !IsRealizedAwaitResult(secondStore, getResults[1]))
@@ -2782,6 +2797,29 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         statements.Add(new Return(null));
         return true;
     }
+
+    internal static bool IsDirectSequentialCompletionEffect(
+        Call setResult,
+        ExpressionStatement effect)
+        => setResult.Parent is ExpressionStatement
+        {
+            Parent: Block
+            {
+                Children:
+                [
+                    _,
+                    TryCatch { TryBody: var completionBody },
+                    ..,
+                ],
+            },
+        }
+        && effect.Parent is Block
+        {
+            Parent: BlockContainer effectContainer,
+        }
+        && ReferenceEquals(
+            completionBody,
+            effectContainer);
 
     static bool IsRealizedAwaitResult(
         StoreLocal store,
@@ -4390,11 +4428,128 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             return false;
         }
+        if (!TryGetExpectedCompletionControlSlots(
+                moveNext,
+                selectedSetResult,
+                setException,
+                expectedSuspensions,
+                out IReadOnlyList<IrNode> controlSlots))
+        {
+            return false;
+        }
 
         callbackSlots =
         [
             .. callbacks.Select(static pair =>
                 (IrNode)pair.Statement),
+            .. controlSlots,
+        ];
+        return true;
+    }
+
+    static bool TryGetExpectedCompletionControlSlots(
+        IrFunction moveNext,
+        Call selectedSetResult,
+        Call setException,
+        IReadOnlySet<Call> suspensions,
+        out IReadOnlyList<IrNode> controlSlots)
+    {
+        controlSlots = [];
+        CatchClause? catchClause =
+            ContainingCatchClause(setException);
+        if (catchClause is not
+            {
+                Parent: TryCatch outerTry,
+                Body.Blocks:
+                [
+                    {
+                        Children:
+                        [
+                            _,
+                            ExpressionStatement
+                            {
+                                Expression: var exceptionCallback,
+                            },
+                            Return exceptionReturn,
+                        ],
+                    },
+                ],
+            }
+            || !ReferenceEquals(
+                exceptionCallback,
+                setException)
+            || outerTry.Clauses is not
+                [var onlyCatch]
+            || !ReferenceEquals(
+                catchClause,
+                onlyCatch)
+            || outerTry.Parent is not
+                Block
+                {
+                    Parent: var completionContainer,
+                    Children:
+                    [
+                        _,
+                        var completionTry,
+                        _,
+                        ExpressionStatement
+                        {
+                            Expression: var resultCallback,
+                        },
+                        Return resultReturn,
+                    ],
+                }
+            || !ReferenceEquals(
+                completionContainer,
+                moveNext.Body)
+            || !ReferenceEquals(
+                completionTry,
+                outerTry)
+            || !ReferenceEquals(
+                resultCallback,
+                selectedSetResult))
+        {
+            return false;
+        }
+
+        var expectedReturns = new HashSet<Return>(
+            ReferenceEqualityComparer.Instance)
+        {
+            exceptionReturn,
+            resultReturn,
+        };
+        foreach (Call suspension in suspensions)
+        {
+            if (suspension.Parent is not
+                ExpressionStatement
+                {
+                    Parent: Block
+                    {
+                        Children: [.., Return suspensionReturn],
+                    },
+                }
+                || !expectedReturns.Add(
+                    suspensionReturn))
+            {
+                return false;
+            }
+        }
+        if (!moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Return>()
+                .ToHashSet(
+                    ReferenceEqualityComparer.Instance)
+                .SetEquals(expectedReturns)
+            || moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Leave>()
+                .Any())
+        {
+            return false;
+        }
+
+        controlSlots =
+        [
+            outerTry,
+            .. expectedReturns,
         ];
         return true;
     }
@@ -4420,9 +4575,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     Filter: null,
                     Parent: TryCatch
                     {
+                        Clauses: [var onlyCatch],
                         Parent: Block outerBlock,
                     },
                 }
+            || !ReferenceEquals(
+                catchClause,
+                onlyCatch)
             || catchClause.Body.Blocks is not
                 [var catchBlock]
             || !ReferenceEquals(
