@@ -829,13 +829,17 @@ static class TsTypeMapper
         }
 
         IReadOnlyDictionary<string, string>? filteredMappedTypeNames = null;
-        if (mappedTypeNames is not null)
+        if (mappedTypeNames is not null
+            || allocatedLocalNames.Count > 0)
         {
             var filtered = new Dictionary<string, string>(
-                mappedTypeNames,
+                mappedTypeNames
+                    ?? new Dictionary<string, string>(),
                 StringComparer.Ordinal);
             foreach (string spelling in authenticatedSpellings)
                 filtered.Remove(spelling);
+            foreach (string allocatedName in allocatedLocalNames)
+                filtered[allocatedName] = allocatedName;
             filteredMappedTypeNames = filtered;
         }
 

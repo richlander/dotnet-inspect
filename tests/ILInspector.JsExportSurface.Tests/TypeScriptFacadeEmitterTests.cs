@@ -242,6 +242,89 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_PreservesAllocatedLocalDelegateTypeWithIntrinsicSpelling()
+    {
+        var assembly = new ApiAssemblyIdentity(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Mine",
+                    System.Collections.Immutable.ImmutableArray.Create(
+                        "IntPtr")))
+                .Name;
+        var identity = new AssemblyReferenceIdentity(
+            assembly.Name,
+            assembly.Version,
+            assembly.Culture,
+            assembly.PublicKeyToken);
+        var localIntPtr = new ApiType
+        {
+            Namespace = "Mine",
+            Name = "IntPtr",
+            Kind = "class",
+            DefinitionName = definitionName,
+        };
+        var function = new JsExportFunction
+        {
+            DeclaringType = "Fixture.Exports",
+            Name = "Observe",
+            RuntimeDispatchKey = "Observe.-42",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Callback",
+                    Type = "System.Action<Mine.IntPtr>",
+                },
+            ],
+            DelegateParameters =
+            [
+                new JsExportDelegateParameter
+                {
+                    ParameterIndex = 0,
+                    Kind = JsExportDelegateKind.Action,
+                    ParameterTypes =
+                    [
+                        TypeRef.Definition(
+                            assembly.Name,
+                            "Mine",
+                            "IntPtr",
+                            new ResolvableTypeReference(
+                                new TypeReferenceOrigin.AssemblyReference(
+                                    identity),
+                                definitionName)),
+                    ],
+                },
+            ],
+        };
+        var surface =
+            new global::ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = assembly,
+                Functions = [function],
+                Records = [localIntPtr],
+            };
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            "export interface IntPtr {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "callback: (arg0: IntPtr) => undefined",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_ModelsTerminalSingleFlightInitializationAndSeparateEntryPoint()
     {
         string source = TypeScriptFacadeEmitter.Emit(

@@ -681,7 +681,10 @@ The generator implementation performs this migration:
     visibly, and retain the SDK compile-time negative;
 12. retain authenticated synchronous delegate facts, preserve callback
     parameter order and nullability, and reject Promise-returning delegates
-    rather than inventing a JavaScript async callback contract;
+    rather than inventing a JavaScript async callback contract. `Action`
+    callbacks use `(...args) => undefined`, not `void`, because TypeScript
+    otherwise accepts Promise-returning functions; named callbacks must
+    likewise declare or infer an `undefined` return;
 13. allocate deterministic operation, parameter, enum, and DTO names from
     complete managed identities, route every typed reference through that
     allocation, and preserve parameter order and types instead of rejecting
@@ -792,7 +795,10 @@ issue references below.
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
   rejects an invalid use of the generic runtime API, and proves the
-  assembly-specific `getAssemblyExports()` narrowing;
+  assembly-specific `getAssemblyExports()` narrowing. The compiled fixture
+  includes synchronous `Action` and `Func` exports; valid inline and named
+  `undefined`-returning callbacks compile and execute through the runtime seam,
+  while async and `void`-returning `Action` callbacks fail compilation;
 - a declaration-emission test proves the public facade declaration does not
   expose or import SDK runtime types;
 - a compiler test proves the generated TypeScript emits executable JavaScript

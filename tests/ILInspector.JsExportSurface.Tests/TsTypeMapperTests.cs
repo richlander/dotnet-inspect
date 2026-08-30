@@ -319,6 +319,40 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
+    public void MapParameterType_PreservesAllocatedLocalIntrinsicSpelling()
+    {
+        MetadataTypeDefinitionName definitionName =
+            DefinitionName("Mine", "IntPtr");
+        var context = new TsDelegateMappingContext(
+            new HashSet<string>(
+                ["Mine.IntPtr", "IntPtr"],
+                StringComparer.Ordinal),
+            new Dictionary<
+                MetadataTypeDefinitionName,
+                TsLocalTypeKind>
+            {
+                [definitionName] = TsLocalTypeKind.Reference,
+            },
+            FixtureAssembly,
+            new Dictionary<MetadataTypeDefinitionName, string>
+            {
+                [definitionName] = "IntPtr",
+            });
+
+        Assert.Equal(
+            "(arg0: IntPtr) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<Mine.IntPtr>",
+                context.RecordNames,
+                delegateParameter: ActionParameter(
+                    ResolvedType(
+                        FixtureAssembly,
+                        "Mine",
+                        "IntPtr")),
+                delegateMappingContext: context));
+    }
+
+    [Fact]
     public void MapParameterType_RejectsIncompleteLocalAssemblyIdentity()
     {
         var assembly = new ApiAssemblyIdentity(
