@@ -532,7 +532,7 @@ public class AuthoredCorpusHistoryStoreTests
         IReadOnlyList<HistoryRun> runs =
             AuthoredCorpusHistoryStore.ParseAndVerify(File.ReadAllText(path), new TrackedRepository());
 
-        Assert.Equal(11, runs.Count);
+        Assert.Equal(12, runs.Count);
     }
 
     static AuthoredCorpusBenchmark.Report Report()
@@ -758,6 +758,7 @@ public class AuthoredCorpusHistoryStoreTests
         static readonly HashSet<string> VersionThreeCommits =
         [
             "56f8cef5831bd969a42196b5999125f982006913",
+            "96be1b3d695cb5d1286938c6df95cc38ec5f3a30",
         ];
 
         public string ResolveCommit(string commit) => commit;
