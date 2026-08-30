@@ -107,9 +107,12 @@ static class AuthoredSourceOracleManifest
         ArgumentNullException.ThrowIfNull(rows);
 
         var failures = new List<string>();
-        if (manifest.Version != Version)
+        bool manifestVersionSupported = manifest.Version == Version;
+        if (!manifestVersionSupported)
             failures.Add($"manifest version {manifest.Version} is unsupported; expected {Version}");
-        if (manifest.PrinterComparisonVersion != PrinterComparisonVersion)
+        bool printerComparisonVersionSupported =
+            manifest.PrinterComparisonVersion == PrinterComparisonVersion;
+        if (!printerComparisonVersionSupported)
         {
             failures.Add(
                 $"printer comparison version {manifest.PrinterComparisonVersion} is unsupported; "
@@ -117,7 +120,9 @@ static class AuthoredSourceOracleManifest
         }
         bool inventoryRequested = manifest.SyntaxInventoryVersion is not null;
         bool inventoryEnabled =
-            manifest.SyntaxInventoryVersion == PrinterSyntaxInventory.Version;
+            manifestVersionSupported
+            && printerComparisonVersionSupported
+            && manifest.SyntaxInventoryVersion == PrinterSyntaxInventory.Version;
         if (inventoryRequested && !inventoryEnabled)
         {
             failures.Add(

@@ -369,6 +369,26 @@ public sealed class AuthoredSourceOracleManifestTests
     }
 
     [Fact]
+    public void SyntaxInventory_DistinguishesRecursivePatternClauses()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "return value is PatternPoint { X: > 0, Y: < 10 };",
+            out IReadOnlyList<string> propertyFeatures,
+            out string? error),
+            error);
+        Assert.Contains("clause.property-pattern", propertyFeatures);
+        Assert.DoesNotContain("clause.positional-pattern", propertyFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "return value is (> 0, < 10);",
+            out IReadOnlyList<string> positionalFeatures,
+            out error),
+            error);
+        Assert.Contains("clause.positional-pattern", positionalFeatures);
+        Assert.DoesNotContain("clause.property-pattern", positionalFeatures);
+    }
+
+    [Fact]
     public void Manifest_SyntaxInventoryRequiresExactObservedFeatureSet()
     {
         var row = Row(
@@ -489,6 +509,51 @@ public sealed class AuthoredSourceOracleManifestTests
             failure.Contains("unsupported", StringComparison.Ordinal));
         Assert.DoesNotContain(report.Failures, failure =>
             failure.Contains("could not parse", StringComparison.Ordinal));
+        Assert.Empty(report.FileInventory!);
+    }
+
+    [Theory]
+    [InlineData("manifest")]
+    [InlineData("printer-comparison")]
+    public void Manifest_SyntaxInventoryRejectsUnsupportedGoverningVersion(
+        string governingVersion)
+    {
+        var row = Row(
+            "Oracle.cs",
+            1,
+            ReturnToSenderSourceOutcome.ValidMatch,
+            PrinterExactOutcome.Exact,
+            printerBody: "return value + 1;");
+        var file = File(row.Record, requirePrinterExact: true) with
+        {
+            ExpectedFeatures =
+            [
+                "expression.add",
+                "expression.numeric-literal",
+                "statement.return",
+            ],
+        };
+        var manifest = governingVersion switch
+        {
+            "manifest" => ManifestWithInventory(file) with
+            {
+                Version = AuthoredSourceOracleManifest.Version + 1,
+            },
+            "printer-comparison" => ManifestWithInventory(file) with
+            {
+                PrinterComparisonVersion =
+                    AuthoredSourceOracleManifest.PrinterComparisonVersion + 1,
+            },
+            _ => throw new InvalidOperationException(),
+        };
+
+        var report = AuthoredSourceOracleManifest.Evaluate(manifest, [row]);
+
+        Assert.False(report.Passed);
+        Assert.Contains(report.Failures, failure =>
+            failure.Contains("unsupported", StringComparison.Ordinal));
+        Assert.Equal(0, report.FilesInventoryTracked);
+        Assert.Empty(report.ObservedFeatures!);
         Assert.Empty(report.FileInventory!);
     }
 

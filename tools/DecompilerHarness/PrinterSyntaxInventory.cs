@@ -52,6 +52,12 @@ static class PrinterSyntaxInventory
                 case PatternSyntax:
                     Add("pattern", node.Kind(), "Pattern");
                     break;
+                case PositionalPatternClauseSyntax:
+                    Features.Add("clause.positional-pattern");
+                    break;
+                case PropertyPatternClauseSyntax:
+                    Features.Add("clause.property-pattern");
+                    break;
                 case ArrayTypeSyntax:
                     Features.Add("type.array");
                     break;
