@@ -887,11 +887,17 @@ body-production limits remain the visible work controls. Exact selection still
 uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
 and custom-attribute work ceilings, so malformed metadata fails visibly before
 retrieval rather than multiplying per-row work. Each candidate type-name
-attempt consumes structural-name work, decode failures also count against the
-decode-failure ceiling, and a TypeDef that projects the same MethodDef row more
-than once is rejected before Analysis. A malformed population therefore cannot
-reach Analysis as an untyped argument error. It introduces no network, source,
-Research, Finding, Decompiler, or presentation capability.
+attempt consumes structural-name work, and decode failures also count against
+the decode-failure ceiling. Every MethodDef handle the query projects is
+validated at the point of projection -- for a type-scoped population, for a
+whole-assembly population, and for exact member-seed selection -- so an
+unoptimized `#-` image whose MethodPtr table repeats a row or points outside
+the MethodDef table is rejected as a typed metadata failure in the participant
+role that produced it. It cannot instead reach Analysis as an untyped argument
+error or be reported as a member ambiguity. This covers the handles the query
+itself selects; it is not a claim that every malformed image is diagnosed
+before Analysis. It introduces no network, source, Research, Finding,
+Decompiler, or presentation capability.
 `AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
 product-result preservation, type and whole-assembly population behavior,
 exact-member, extension-member, and token selection, ambiguity, limit
@@ -901,10 +907,11 @@ independent-reader handling. Its virtual-token, repeated-long-leaf,
 repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
 repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary. Its
-type-name decode-failure and duplicate-projected-method cases gate the
-decode-failure ceiling and the duplicate-population rejection. The
-below-ceiling type-name case proves isolated malformed neighbors remain
-tolerable.
+type-name decode-failure case gates the decode-failure ceiling, paired with a
+below-ceiling case that proves isolated malformed neighbors remain tolerable.
+Its duplicate and out-of-range MethodPtr projection cases gate handle
+validation on the type-scoped, whole-assembly same-image, whole-assembly
+cross-image, and member-seed paths.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

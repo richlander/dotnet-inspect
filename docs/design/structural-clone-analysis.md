@@ -297,13 +297,20 @@ conclusions. Query-owned exact selection uses Metadata safety ceilings for
 cumulative name, member-anchor, method-row, decode-failure, and attribute work;
 selection-budget exhaustion, rejected attribute-constructor type metadata,
 undecodable candidate type names beyond the decode-failure ceiling, and a
-TypeDef projecting the same MethodDef row more than once are typed
-pre-retrieval metadata failures. The
+projected MethodDef handle that repeats a row or falls outside the MethodDef
+table are typed pre-retrieval metadata failures. Queries validates every
+MethodDef handle it projects, on the type-scoped, whole-assembly, and
+member-seed paths, so Analysis's own argument guards stay a backstop for
+programming errors rather than a reporting path for malformed input. The
 `Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget`,
 `Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget`,
 `Execute_RejectedTypeSpecificationAttributeIsVisible`,
-`Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection`, and
-`Execute_DuplicateProjectedMethodRowIsAVisibleRejection` gates cover those
+`Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection`,
+`Execute_DuplicateProjectedMethodRowIsAVisibleRejection`,
+`Execute_WholeAssemblyDuplicateProjectionIsAVisibleRejection`,
+`Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection`,
+`Execute_OutOfRangeMethodProjectionIsAVisibleRejection`, and
+`Execute_DuplicateProjectionSeedMemberIsAMetadataRejection` gates cover those
 boundaries.
 
 ## Correspondence and automorphisms
