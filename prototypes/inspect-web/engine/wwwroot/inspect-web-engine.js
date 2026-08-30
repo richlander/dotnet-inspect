@@ -7,6 +7,7 @@
 import { dotnet } from "./_framework/dotnet.js";
 
 let buildIdentityExport;
+let cancelPackageQueryExport;
 let cancelSourceQueryExport;
 let configureHostExport;
 let decodeWorkspaceShareStateExport;
@@ -14,6 +15,7 @@ let encodeWorkspaceShareStateExport;
 let expandPlatformCallGraphExport;
 let getPackageDocumentExport;
 let listHomeDemosExport;
+let listPackageQueryFacetsExport;
 let listVocabularyExport;
 let loadRuntimePackExport;
 let loadRuntimePackAssemblyExport;
@@ -46,6 +48,7 @@ let queryTypeSourceExport;
 let resolveHomeDemoExport;
 let resolvePackageDependencyVersionExport;
 let runHomeDemoExport;
+let runPackageQueryExport;
 let searchTypesExport;
 
 export async function initializeEngine(onStatus = () => {}) {
@@ -53,6 +56,7 @@ export async function initializeEngine(onStatus = () => {}) {
   const runtime = await dotnet.create();
   const exports = await runtime.getAssemblyExports("InspectWeb.Engine");
   buildIdentityExport = exports.InspectionEngine.BuildIdentity;
+  cancelPackageQueryExport = exports.InspectionEngine.CancelPackageQuery;
   cancelSourceQueryExport = exports.InspectionEngine.CancelSourceQuery;
   configureHostExport = exports.InspectionEngine.ConfigureHost;
   decodeWorkspaceShareStateExport = exports.InspectionEngine.DecodeWorkspaceShareState;
@@ -60,6 +64,7 @@ export async function initializeEngine(onStatus = () => {}) {
   expandPlatformCallGraphExport = exports.InspectionEngine.ExpandPlatformCallGraph;
   getPackageDocumentExport = exports.InspectionEngine.GetPackageDocument;
   listHomeDemosExport = exports.InspectionEngine.ListHomeDemos;
+  listPackageQueryFacetsExport = exports.InspectionEngine.ListPackageQueryFacets;
   listVocabularyExport = exports.InspectionEngine.ListVocabulary;
   loadRuntimePackExport = exports.InspectionEngine.LoadRuntimePack;
   loadRuntimePackAssemblyExport = exports.InspectionEngine.LoadRuntimePackAssembly;
@@ -92,6 +97,7 @@ export async function initializeEngine(onStatus = () => {}) {
   resolveHomeDemoExport = exports.InspectionEngine.ResolveHomeDemo;
   resolvePackageDependencyVersionExport = exports.InspectionEngine.ResolvePackageDependencyVersion;
   runHomeDemoExport = exports.InspectionEngine.RunHomeDemo;
+  runPackageQueryExport = exports.InspectionEngine.RunPackageQuery;
   searchTypesExport = exports.InspectionEngine.SearchTypes;
   configureHostExport(window.location.origin);
   await runtime.runMain();
@@ -102,6 +108,11 @@ export function buildIdentity() {
   if (!buildIdentityExport) throw new Error("The browser inspection engine is not initialized.");
   const result = buildIdentityExport();
   return JSON.parse(result);
+}
+
+export function cancelPackageQuery() {
+  if (!cancelPackageQueryExport) throw new Error("The browser inspection engine is not initialized.");
+  return cancelPackageQueryExport();
 }
 
 export function cancelSourceQuery() {
@@ -141,6 +152,12 @@ export async function getPackageDocument(packageId, version, path) {
 export function listHomeDemos() {
   if (!listHomeDemosExport) throw new Error("The browser inspection engine is not initialized.");
   const result = listHomeDemosExport();
+  return JSON.parse(result);
+}
+
+export function listPackageQueryFacets() {
+  if (!listPackageQueryFacetsExport) throw new Error("The browser inspection engine is not initialized.");
+  const result = listPackageQueryFacetsExport();
   return JSON.parse(result);
 }
 
@@ -329,6 +346,12 @@ export async function resolvePackageDependencyVersion(packageId, declaredRange) 
 export async function runHomeDemo(scenarioId) {
   if (!runHomeDemoExport) throw new Error("The browser inspection engine is not initialized.");
   const result = await runHomeDemoExport(scenarioId);
+  return JSON.parse(result);
+}
+
+export async function runPackageQuery(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, eventSink) {
+  if (!runPackageQueryExport) throw new Error("The browser inspection engine is not initialized.");
+  const result = await runPackageQueryExport(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, eventSink);
   return JSON.parse(result);
 }
 
