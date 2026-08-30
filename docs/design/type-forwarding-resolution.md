@@ -39,8 +39,8 @@ evaluation, evidence and proof vocabulary re-expressing a tri-state that
 consumer. The section below is the replacement, written around the resolution
 primitive that ships plus three newly specified additions: a terminal-definition
 accessibility operation, an authorized baseline scope carried with a resolved
-candidate, and field and property member addresses extending the module-scoped
-method address that already ships. The bounded decode contract that effort
+candidate and supplied by its composer at registration, and field and property
+member addresses extending the module-scoped method address that already ships. The bounded decode contract that effort
 produced is retained unchanged.
 
 This consumer extension is **design-only and unverified**. `Resolve` ships; the
@@ -455,17 +455,33 @@ public sealed class ResolvedAssemblyCandidate
 `AuthorizedScope` is the one piece of candidate state this document adds. It is
 the widest scope the catalog authorized for lookups rooted at this candidate,
 and it is issued at construction rather than inferred later. Because the scope
-is a required constructor argument, a candidate cannot exist without one, and
-the "missing baseline" rejection below is reachable only across a catalog
-generation boundary, never from a freshly registered candidate.
+is a required non-nullable constructor argument, a candidate without one is
+unrepresentable: it cannot be constructed, and no generation change can remove a
+property from a constructed object. There is therefore no "missing baseline"
+runtime rejection and no gate for one. The compiler enforces the property, which
+is the strongest available enforcement and the reason not to specify a weaker
+runtime one beside it.
 
-The acquisition plan is the owner that issues it: both candidate construction
-sites live in the plan, so the plan passes the authorized scope it already
-decided when it admitted the assembly. Nothing outside `ILInspector.Metadata`
-supplies or overrides it, and no other registration or descriptor type changes.
-The scope is not derived from the assembly's name, path, public key, or
-provenance at construction time; those inputs inform the plan's admission
-decision, not a later re-derivation.
+The acquisition plan is the owner that issues it, but **it has nothing to issue
+today**: `Register` and `RegisterRoot` accept only a `ResolvedAssemblyReference`,
+and no admission path computes or records a scope. The plan therefore gains the
+scope as an explicit registration input rather than deciding it, and the caller
+composing the catalog supplies it:
+
+- A candidate admitted as part of a platform composition — a targeting or
+  runtime pack, or a resolved platform overlay — registers as `Platform`.
+- Every other candidate, including a package asset and a loose file, registers
+  as `Any`.
+
+Metadata does not re-derive the scope from the assembly's name, path, public key,
+or provenance. Those inputs are how the composer reaches its decision; treating
+them as a fallback inside registration would let a confusable local copy of a
+platform assembly authorize itself. A composer that cannot classify a candidate
+registers `Any`, which is the widest scope and therefore the one that grants no
+authority the composer did not intend.
+
+This is one parameter on two existing internal registration methods. It is
+listed here as an addition because it does not exist, not because it is large.
 
 `ResolvedAssemblyReference` evolves in slice 2 from a value-equal record to a
 non-equatable sealed class containing identity, optional path, opener,
@@ -2155,17 +2171,28 @@ Finally, it requires field and property member addresses, described under
 Those are the existing module-scoped method address applied to two more tables,
 so they add a pattern's instances rather than a pattern.
 
-Those three additions — one operation, one candidate property, and two more
-instances of an existing address type — are the entire cost of this consumer,
-against the 45 public types the previous specification required. A fourth change
-is not an addition at all: the scope-tightening operation already exists and only
-becomes reachable.
+Those additions — one operation, one candidate property with a parameter on two
+internal registration methods to supply it, and two more instances of an existing
+address type — are the entire cost of this consumer, against the 45 public types
+the previous specification required. One further change is not an addition at
+all: the scope-tightening operation already exists and only becomes reachable.
 
 A speller walks the signature's named occurrences, asks for each to be bound,
 and asks the second question only of the external definitions the first one
 produced. A signature is spellable when every occurrence bound and every
 participating external definition came back accessible. Anything else is not
 spellable, and the reason is the outcome that stopped it.
+
+Which outcome that is must not depend on the implementation. Occurrences are
+visited in signature order — for a method, the return type, then each parameter
+left to right — and within one occurrence, modifiers precede the type they
+modify and a constructed type's children precede nothing else. The reported
+reason is the **first** failing occurrence in that order, and the first failure
+of an occurrence is binding failure before accessibility, because accessibility
+is only asked of a definition binding produced. A signature with two distinct
+failures therefore reports the same reason from every conforming
+implementation. The walk may still be short-circuited at that first failure; the
+order fixes which failure is reported, not how much work is done.
 
 That is the whole contract, and the reason it is this small is that resolution
 already models the tri-state a speller needs and already carries forwarding
@@ -2201,17 +2228,24 @@ is what keeps that worst case to selecting the wrong same-row member rather than
 reading outside the module.
 
 Before any decode, the session validates, against the source candidate it was
-opened for:
+opened for, that the address's module version id matches the candidate's
+verified MVID, and that the handle's row is within bounds of the corresponding
+table in that candidate's reader. A cross-module address or an out-of-range row
+is rejected here, before decode, with the reason retained. This is a
+precondition on the operation, not a type a consumer constructs and passes back.
 
-- the verified source MVID and acquisition registration;
-- the token's member table and row bounds;
-- the declaring `TypeDef` ownership of that member;
-- module identity.
+Two validations that an earlier draft of this section required are deliberately
+absent, because the address makes them unnecessary or unaskable:
 
-A cross-reader row, a wrong member table, an out-of-range row, a declaring-type
-mismatch, or a stale module address is rejected here, before decode, with the
-reason retained. This is a precondition on the operation, not a type a consumer
-constructs and passes back.
+- **A wrong member table is unrepresentable.** The address carries a typed
+  handle, so a property handle cannot be supplied where a field address is
+  expected. The compiler rejects it, which is a stronger gate than a runtime
+  check and leaves no case for one.
+- **There is no declaring-type mismatch to detect.** The declaring `TypeDef` is
+  *derived* from the validated row, not independently asserted by the caller, so
+  there are not two values to disagree. Specifying a comparison would require
+  the caller to pass an expected declaring type it does not have and Metadata
+  does not need.
 
 #### Occurrence roles and participation
 
@@ -2296,10 +2330,12 @@ default that platform references escape. That is the whole observable effect of
 the baseline, and it is what makes its use testable.
 
 Given that state, a speller neither infers scope from assembly names or file
-paths nor substitutes an unconstrained scope when it is absent. A candidate
-without a recorded baseline is a rejection with its own reason; substituting
-`Any` would silently widen every lookup the speller performs and is exactly the
-success-shaped degradation this document forbids.
+paths nor substitutes an unconstrained scope of its own. Substituting `Any`
+would silently widen every lookup the speller performs and is exactly the
+success-shaped degradation this document forbids. The speller reads
+`AuthorizedScope` and has no other source of scope; because absence is
+unrepresentable, the failure mode this rule guards against is a speller that
+ignores the property, which the matched pair of gates below detects.
 
 The scope-tightening operation itself does exist, but is private to the context
 builder; this consumer requires it to be reachable. That is existing behaviour
@@ -2415,10 +2451,13 @@ attributable.
 
 Forwarding failures keep their own distinctions rather than collapsing. A nested
 exported-type chain is spellable when resolution reaches a terminal definition
-and that definition is accessible. A top-level forwarding row whose target
-assembly is unavailable remains `UnboundBinding`; a target that binds but lacks
-the type remains `NotFound`; cycles, malformed chains, ambiguity, open failure,
-and budget exhaustion retain their exact typed outcomes.
+and that definition is accessible. The two ways a target assembly fails to
+produce a candidate are distinct arms and stay distinct: policy reporting **no
+candidate at all** is `UnboundBinding`, while policy understanding the request
+and **declining to select** under the requested policy or scope is `Unavailable`
+carrying that binding failure. An assembly that binds but lacks the type remains
+`NotFound`. Cycles, malformed chains, ambiguity, candidate open failure, and
+budget exhaustion retain their exact typed outcomes.
 
 #### What spellability does not ask
 
@@ -4021,13 +4060,15 @@ implementation that produces it. A gate that can only be satisfied by one
 internal vocabulary constrains structure rather than behaviour.
 
 - `SignatureSpellability_RejectsForeignMemberRow` proves that a cross-module
-  address, a wrong member table, an out-of-range row number, a declaring-type
-  mismatch, or a stale module identity is rejected before signature decode,
-  rather than decoding whatever bytes the mismatched row addresses. Each case is
-  distinct, and each retains its reason. The cross-module case is expressible
-  because the operation takes a module-scoped member address; it could not be
-  written against a bare reader-and-handle pair, which is what makes the address
-  a contract requirement rather than a convenience.
+  address and an out-of-range row number are each rejected before signature
+  decode, rather than decoding whatever bytes the mismatched row addresses. Each
+  case is distinct and retains its reason. Both are expressible only because the
+  operation takes a module-scoped member address; neither could be written
+  against a bare reader-and-handle pair, which is what makes the address a
+  contract requirement rather than a convenience. The gate does not cover a
+  wrong member table or a declaring-type mismatch, for the reasons given with the
+  precondition: the first is a compile error and the second has no two values to
+  compare.
 - `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
   by-reference parameters and ref returns, function pointers, generic
   arguments, generic type and method parameters, and modified types.
@@ -4074,10 +4115,6 @@ internal vocabulary constrains structure rather than behaviour.
   occurrence starts from it rather than from `Any`. Without this, an
   implementation could widen a platform-authorized lookup and select a
   confusable non-platform forwarder target while passing every other gate.
-- `SignatureSpellability_RejectsMissingBaselineScope` proves that a source
-  candidate registered without an authorized baseline scope produces a rejection
-  with its own reason. Substituting `Any` fails the gate. The three gates above
-  prove the baseline is used; this one proves its absence is not papered over.
 - `SignatureSpellability_MergesModifierParticipation` covers optional-only,
   required-only, ordinary, and mixed duplicate occurrences. Resolution is
   required for all; external accessibility is ignored only for an
@@ -4106,17 +4143,27 @@ internal vocabulary constrains structure rather than behaviour.
   terminal candidate opener to fail after resolution records its completed
   inventory and durable-session open count, then proves that accessibility
   succeeds without increasing that count.
+- `SignatureSpellability_ReportsFirstFailureInSignatureOrder` supplies a method
+  signature with two distinct failures — an unbindable return type and an
+  inaccessible parameter type — and proves the reported reason is the return
+  type's, then reverses the arrangement and proves it follows the order rather
+  than the failure kind. An implementation that reports whichever failure it
+  happens to reach first, or that prefers one failure kind over another, fails
+  one of the two arrangements.
 - `SignatureSpellability_RetainsResolutionFailureKinds` covers ambiguous
   binding and declaration, malformed nested chains, forwarding cycles,
   candidate open failure, and relationship or hop-budget exhaustion without
   collapsing them into one empty or successful result.
 - `SignatureSpellability_RetainsPolicyUnavailable` proves the arm the previous
-  gate does not reach. When the binding policy declines to bind and no candidate
-  open failure occurred, resolution reports `Unavailable` rather than a
-  rejection, because nothing malfunctioned. The occurrence is still unbound, so
-  the signature is not spellable and the policy failure is retained. An
-  implementation that treats "no failure to report" as "nothing wrong" and
-  spells the signature fails here and passes every other failure-kind gate.
+  gate does not reach, and separates it from the one it is most easily confused
+  with. Policy reporting no candidate is `UnboundBinding`; policy understanding
+  the request and declining to select, with no candidate open failure, is
+  `Unavailable` carrying the binding failure. The gate exercises both against the
+  same occurrence and proves each keeps its own arm and reason. The occurrence is
+  unbound either way, so neither is spellable. An implementation that treats "no
+  failure to report" as "nothing wrong" and spells the signature fails here, and
+  one that folds the two arms together fails here while passing every other
+  failure-kind gate.
 - `SignatureSpellability_RejectsPinnedMemberSignature` supplies a field,
   property, and method signature each carrying `ELEMENT_TYPE_PINNED`, which the
   blob guard admits, and proves each is rejected with a reason rather than
