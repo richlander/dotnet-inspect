@@ -4,6 +4,38 @@ namespace ILInspector.Metadata;
 
 internal static class OwnedResourceCleanup
 {
+    internal static TResult ReadPeImage<TResult>(
+        Func<Stream> openStream,
+        Func<PEReader, TResult> read)
+    {
+        ArgumentNullException.ThrowIfNull(openStream);
+        ArgumentNullException.ThrowIfNull(read);
+
+        Stream? stream = null;
+        PEReader? peReader = null;
+        try
+        {
+            stream = openStream();
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            return read(peReader);
+        }
+        catch (Exception ex)
+        {
+            DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
+        }
+        finally
+        {
+            peReader?.Dispose();
+            stream?.Dispose();
+        }
+    }
+
     internal static void DisposeAfterFailure(
         IDisposable? resource,
         Exception primaryFailure)

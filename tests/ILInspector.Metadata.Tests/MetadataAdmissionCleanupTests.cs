@@ -32,6 +32,32 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void TypeDeclarationInventory_PreservesMalformedRootReason()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        AssemblyTypeDeclarationInventoryOutcome outcome =
+            AssemblyTypeDeclarationInventoryReader.Read(
+                ResolvedAssemblyReference.Create(
+                    Identity(),
+                    path: null,
+                    () => opened = new ThrowingDisposeMemoryStream(
+                        BuildMalformedMetadataRoot()),
+                    AssemblyResolutionProvenance.Local(
+                        "format admission test")));
+
+        var rejected =
+            Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Rejected>(
+                outcome);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            rejected.Failure.MetadataRootReason);
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
     public void TypeDeclarationInventory_CleanupCannotReplaceNoMetadataRejection()
     {
         AssemblyTypeDeclarationInventoryOutcome outcome =
@@ -141,6 +167,99 @@ public sealed class MetadataAdmissionCleanupTests
         Assert.Equal(
             CandidateOpenFailureKind.ResourceBudget,
             rejected.Failure.Kind);
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void Snapshot_PreservesMalformedRootReason()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        AssemblyImageSnapshotResult outcome =
+            AssemblyImageSnapshot.Open(
+                ResolvedAssemblyReference.Create(
+                    Identity(),
+                    path: null,
+                    () => opened = new ThrowingDisposeMemoryStream(
+                        BuildMalformedMetadataRoot()),
+                    AssemblyResolutionProvenance.Local(
+                        "format admission test")),
+                static _ => true,
+                static _ => { });
+
+        var rejected =
+            Assert.IsType<AssemblyImageSnapshotResult.Rejected>(
+                outcome);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            rejected.Failure.MetadataRootReason);
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void RetainedSnapshot_PreservesMalformedRootReason()
+    {
+        byte[] image = BuildMalformedMetadataRoot();
+        AssemblyImageSnapshotResult outcome =
+            AssemblyImageSnapshot.FromRetainedContent(
+                ResolvedAssemblyReference.Create(
+                    Identity(),
+                    path: null,
+                    () => new MemoryStream(image, writable: false),
+                    AssemblyResolutionProvenance.Local(
+                        "format admission test")),
+                ImmutableArray.Create(image));
+
+        var rejected =
+            Assert.IsType<AssemblyImageSnapshotResult.Rejected>(
+                outcome);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            rejected.Failure.MetadataRootReason);
+    }
+
+    [Fact]
+    public void SurfaceClassification_PreservesMalformedRootReason()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"malformed-surface-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, BuildMalformedMetadataRoot());
+        try
+        {
+            var rejected =
+                Assert.IsType<AssemblySurfaceClassificationOutcome.Rejected>(
+                    AssemblySurfaceClassifier.Classify(
+                        path,
+                        AssemblyResolutionProvenance.Local(
+                            "format admission test")));
+            Assert.Equal(
+                MetadataRootMalformedReason.InvalidSignature,
+                rejected.Failure.MetadataRootReason);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void AssemblyInspector_CleanupCannotReplaceFormatRejection()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        var assembly = ResolvedAssemblyReference.Create(
+            Identity(),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                BuildManagedWindowsMetadata()),
+            AssemblyResolutionProvenance.Local(
+                "format admission test"));
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => AssemblyInspector.ExtractReferenceIdentitiesAndCompany(
+                assembly));
         Assert.Equal(1, opened!.DisposeCount);
     }
 
@@ -258,6 +377,17 @@ public sealed class MetadataAdmissionCleanupTests
             peReader.PEHeaders.PEHeaderStartOffset
             + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
         image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
+    }
+
+    internal static byte[] BuildMalformedMetadataRoot()
+    {
+        byte[] image = BuildManagedWindowsMetadata();
+        using var peReader = new PEReader(
+            ImmutableArray.Create(image));
+        image.AsSpan(
+            peReader.PEHeaders.MetadataStartOffset,
+            sizeof(uint)).Clear();
         return image;
     }
 

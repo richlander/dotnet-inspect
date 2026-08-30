@@ -245,11 +245,9 @@ public static class AssemblyInspector
     /// Extracts typed assembly-reference identities from a file path.
     /// </summary>
     public static List<AssemblyReferenceIdentity> ExtractReferenceIdentities(string assemblyPath)
-    {
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        return ExtractReferenceIdentities(peReader);
-    }
+        => OwnedResourceCleanup.ReadPeImage(
+            () => File.OpenRead(assemblyPath),
+            ExtractReferenceIdentities);
 
     /// <summary>
     /// Extracts assembly references and company name in a single pass.
@@ -267,11 +265,9 @@ public static class AssemblyInspector
     /// </summary>
     public static (List<AssemblyReferenceIdentity> References, string? Company)
         ExtractReferenceIdentitiesAndCompany(string assemblyPath)
-    {
-        using var stream = File.OpenRead(assemblyPath);
-        using var peReader = new PEReader(stream);
-        return ExtractReferenceIdentitiesAndCompany(peReader);
-    }
+        => OwnedResourceCleanup.ReadPeImage(
+            () => File.OpenRead(assemblyPath),
+            ExtractReferenceIdentitiesAndCompany);
 
     /// <summary>
     /// Extracts assembly references and company name from a resolved descriptor.
@@ -292,10 +288,13 @@ public static class AssemblyInspector
         ExtractReferenceIdentitiesAndCompany(ResolvedAssemblyReference assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        using var stream = assembly.OpenRead();
-        using var peReader = new PEReader(stream);
-        assembly.ValidateArtifactContent(peReader);
-        return ExtractReferenceIdentitiesAndCompany(peReader);
+        return OwnedResourceCleanup.ReadPeImage(
+            assembly.OpenRead,
+            peReader =>
+            {
+                assembly.ValidateArtifactContent(peReader);
+                return ExtractReferenceIdentitiesAndCompany(peReader);
+            });
     }
 
     /// <summary>

@@ -118,10 +118,11 @@ public sealed class AssemblyImageSnapshot
             bool rejectionEstablished = false;
             AssemblyImageSnapshotResult RejectOpenedImage(
                 CandidateOpenFailureKind kind,
-                string detail)
+                string detail,
+                MetadataRootMalformedReason? metadataRootReason = null)
             {
                 rejectionEstablished = true;
-                return Reject(kind, detail);
+                return Reject(kind, detail, metadataRootReason);
             }
 
             try
@@ -209,6 +210,13 @@ public sealed class AssemblyImageSnapshot
                 CandidateOpenFailureKind.UnsupportedMetadataFormat,
                 "The selected image uses an unsupported metadata format.");
         }
+        catch (MalformedMetadataRootException ex)
+        {
+            return Reject(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The selected image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
+        }
         catch (Exception ex) when (
             ex is IOException
                 or UnauthorizedAccessException
@@ -285,6 +293,13 @@ public sealed class AssemblyImageSnapshot
                 CandidateOpenFailureKind.UnsupportedMetadataFormat,
                 "The retained image uses an unsupported metadata format.");
         }
+        catch (MalformedMetadataRootException ex)
+        {
+            return Reject(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The retained image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
+        }
         catch (Exception ex) when (
             ex is BadImageFormatException
                 or ArgumentOutOfRangeException
@@ -339,6 +354,7 @@ public sealed class AssemblyImageSnapshot
 
     static AssemblyImageSnapshotResult.Rejected Reject(
         CandidateOpenFailureKind kind,
-        string detail) =>
-        new(new CandidateOpenFailure(kind, detail));
+        string detail,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new(new CandidateOpenFailure(kind, detail, metadataRootReason));
 }

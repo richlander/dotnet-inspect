@@ -437,6 +437,7 @@ public sealed class LayeringTests
             typeof(ILInspector.Decompiler.Pipeline.MetadataSource),
             typeof(ResearchMatch),
             typeof(IlAssemblyDiff),
+            typeof(AssemblyContextStructuralCloneRetrievalQuery),
             typeof(PlatformResolver));
     }
 
@@ -448,6 +449,7 @@ public sealed class LayeringTests
             typeof(ILInspector.Decompiler.Pipeline.MetadataSource),
             typeof(ResearchMatch),
             typeof(IlAssemblyDiff),
+            typeof(AssemblyContextStructuralCloneRetrievalQuery),
             typeof(PlatformResolver));
     }
 

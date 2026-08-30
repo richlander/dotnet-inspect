@@ -42,4 +42,5 @@ public enum CandidateOpenFailureKind
 
 public sealed record CandidateOpenFailure(
     CandidateOpenFailureKind Kind,
-    string Detail);
+    string Detail,
+    MetadataRootMalformedReason? MetadataRootReason = null);

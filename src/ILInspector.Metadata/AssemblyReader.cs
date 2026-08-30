@@ -22,18 +22,25 @@ public static class AssemblyReader
     {
         try
         {
-            using var stream = File.OpenRead(path);
-            using var peReader = new PEReader(stream);
-            if (!MetadataFormatAdmission.AdmitImage(peReader)
-                || MetadataFormatAdmission.GetMetadataReader(peReader).IsAssembly)
-            {
-                return null;
-            }
+            ApiSurface? surface = OwnedResourceCleanup.ReadPeImage(
+                () => File.OpenRead(path),
+                peReader =>
+                {
+                    if (!MetadataFormatAdmission.AdmitImage(peReader)
+                        || MetadataFormatAdmission.GetMetadataReader(peReader)
+                            .IsAssembly)
+                    {
+                        return null;
+                    }
 
-            ApiSurface surface = ApiSurfaceExtractor.Extract(
-                peReader,
-                includeAll,
-                typesOnly);
+                    return ApiSurfaceExtractor.Extract(
+                        peReader,
+                        includeAll,
+                        typesOnly);
+                });
+            if (surface is null)
+                return null;
+
             SetSourceAssemblyPath(surface, path);
             return surface;
         }
@@ -56,8 +63,10 @@ public static class AssemblyReader
     {
         try
         {
-            using var stream = File.OpenRead(dllPath);
-            var surface = ExtractApiSurface(stream, includeAll, typesOnly);
+            var surface = ExtractApiSurface(
+                File.OpenRead(dllPath),
+                includeAll,
+                typesOnly);
             if (surface != null)
                 SetSourceAssemblyPath(surface, dllPath);
             return surface;
@@ -151,8 +160,8 @@ public static class AssemblyReader
     {
         try
         {
-            using var stream = File.OpenRead(dllPath);
-            var surface = ExtractApiSummarySurface(stream);
+            var surface = ExtractApiSummarySurface(
+                File.OpenRead(dllPath));
             if (surface != null)
             {
                 foreach (var type in surface.Types)
@@ -243,13 +252,17 @@ public static class AssemblyReader
     {
         try
         {
-            using var stream = File.OpenRead(dllPath);
-            using var peReader = new PEReader(stream);
+            return OwnedResourceCleanup.ReadPeImage(
+                () => File.OpenRead(dllPath),
+                peReader =>
+                {
+                    if (!MetadataFormatAdmission.AdmitImage(peReader))
+                        return null;
 
-            if (!MetadataFormatAdmission.AdmitImage(peReader))
-                return null;
-
-            return FindUniquePublicType(MetadataFormatAdmission.GetMetadataReader(peReader), typeName);
+                    return FindUniquePublicType(
+                        MetadataFormatAdmission.GetMetadataReader(peReader),
+                        typeName);
+                });
         }
         catch (Exception ex)
             when (ex is not UnsupportedMetadataFormatException
@@ -318,10 +331,14 @@ public static class AssemblyReader
     {
         try
         {
-            using var stream = File.OpenRead(dllPath);
-            using var peReader = new PEReader(stream);
-            // Must materialize results before PEReader is disposed
-            return TypeHierarchyScanner.FindImplementers(peReader, targetType, includeHidden).ToList();
+            return OwnedResourceCleanup.ReadPeImage(
+                () => File.OpenRead(dllPath),
+                peReader =>
+                    TypeHierarchyScanner.FindImplementers(
+                            peReader,
+                            targetType,
+                            includeHidden)
+                        .ToList());
         }
         catch (Exception ex)
             when (ex is not UnsupportedMetadataFormatException
@@ -339,30 +356,34 @@ public static class AssemblyReader
     {
         try
         {
-            using var stream = File.OpenRead(dllPath);
-            using var peReader = new PEReader(stream);
-
-            if (!MetadataFormatAdmission.AdmitImage(peReader))
-                return 0;
-
-            var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
-            int count = 0;
-
-            foreach (var typeDefHandle in reader.TypeDefinitions)
-            {
-                var typeDef = reader.GetTypeDefinition(typeDefHandle);
-
-                if (typeDef.IsPublic)
+            return OwnedResourceCleanup.ReadPeImage(
+                () => File.OpenRead(dllPath),
+                peReader =>
                 {
-                    var name = reader.GetString(typeDef.Name);
-                    if (!TypeFilters.IsCompilerGenerated(name))
-                    {
-                        count++;
-                    }
-                }
-            }
+                    if (!MetadataFormatAdmission.AdmitImage(peReader))
+                        return 0;
 
-            return count;
+                    var reader =
+                        MetadataFormatAdmission.GetMetadataReader(peReader);
+                    int count = 0;
+
+                    foreach (var typeDefHandle in reader.TypeDefinitions)
+                    {
+                        var typeDef =
+                            reader.GetTypeDefinition(typeDefHandle);
+
+                        if (typeDef.IsPublic)
+                        {
+                            var name = reader.GetString(typeDef.Name);
+                            if (!TypeFilters.IsCompilerGenerated(name))
+                            {
+                                count++;
+                            }
+                        }
+                    }
+
+                    return count;
+                });
         }
         catch (Exception ex)
             when (ex is not UnsupportedMetadataFormatException

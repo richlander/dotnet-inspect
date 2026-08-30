@@ -29,6 +29,29 @@ public sealed class AnalysisIndexCacheAdmissionTests
     }
 
     [Fact]
+    public void ForAssembly_MalformedSnapshotPreservesReason()
+    {
+        byte[] image = BuildMalformedMetadataRoot();
+        var assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Malformed",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local(
+                "research format admission test"));
+
+        MalformedMetadataRootException exception =
+            Assert.Throws<MalformedMetadataRootException>(
+                () => AnalysisIndexCache.ForAssembly(assembly));
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            exception.Reason);
+    }
+
+    [Fact]
     public void ResearchMatch_RejectsWindowsMetadata()
     {
         byte[] image = BuildManagedWindowsMetadata();
@@ -78,5 +101,16 @@ public sealed class AnalysisIndexCacheAdmissionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildMalformedMetadataRoot()
+    {
+        byte[] image = BuildManagedWindowsMetadata();
+        using var peReader = new PEReader(
+            System.Collections.Immutable.ImmutableArray.Create(image));
+        image.AsSpan(
+            peReader.PEHeaders.MetadataStartOffset,
+            sizeof(uint)).Clear();
+        return image;
     }
 }

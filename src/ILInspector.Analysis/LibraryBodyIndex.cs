@@ -1505,8 +1505,12 @@ public sealed class LibraryBodyIndex
 
     static Exception RootSnapshotFailure(
         string path,
-        CandidateOpenFailure failure) =>
-        failure.Kind switch
+        CandidateOpenFailure failure)
+    {
+        if (failure.MetadataRootReason is { } reason)
+            return new MalformedMetadataRootException(reason);
+
+        return failure.Kind switch
         {
             CandidateOpenFailureKind.UnsupportedMetadataFormat =>
                 new UnsupportedMetadataFormatException(),
@@ -1522,6 +1526,7 @@ public sealed class LibraryBodyIndex
             _ => new InvalidOperationException(
                 $"Unknown root-image failure for {path}."),
         };
+    }
 
     public ImmutableArray<DirectCall> FindCalls(MemberPattern pattern)
         => [.. DirectCalls.Where(call => pattern.Matches(call.Callee))];

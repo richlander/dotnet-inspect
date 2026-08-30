@@ -250,14 +250,16 @@ construction. The `Analysis_MetadataReadersRequireFormatAdmission` and
 reader and predicate paths across the Analysis assembly.
 `RemainingProduct_MetadataReadersRequireFormatAdmission` and
 `RemainingProduct_MetadataPredicatesRequireFormatAdmission` close those paths
-across Decompiler, Research, ILDiff, and Services without treating wrapper
-state or portable-PDB readers as assembly-metadata admission sites.
+across Decompiler, Research, ILDiff, Queries, and Services without treating
+wrapper state or portable-PDB readers as assembly-metadata admission sites.
 `MetadataAdmissionCleanupTests`,
 `MetadataSourceFormatAdmissionTests`, and
 `SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
 gate cleanup precedence across the stream-backed Metadata and Decompiler
-admission consumers. `MetadataFormatAdmissionTests` and
-`AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation.
+admission consumers. Typed snapshot and declaration-inventory receipts retain
+the classifier's exact malformed-root reason.
+`MetadataFormatAdmissionTests` and `AnalysisIndexCacheAdmissionTests` gate
+Analysis and Research propagation.
 `IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata` and the Services
 `MetadataFormatAdmissionTests` gate ILDiff and Services propagation.
 Browser projection

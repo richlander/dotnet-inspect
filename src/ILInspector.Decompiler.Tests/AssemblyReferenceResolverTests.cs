@@ -76,7 +76,7 @@ public class AssemblyReferenceResolverTests
     }
 
     [Fact]
-    public void SiblingResolver_InvalidImageReturnsNull()
+    public void SiblingResolver_MalformedMetadataIsTyped()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -91,15 +91,50 @@ public class AssemblyReferenceResolverTests
                 new MetadataSource.SiblingAssemblyReferenceResolver(
                     Path.Combine(directory, "Owner.dll"));
 
-            ResolvedAssemblyReference? result = resolver.Resolve(
-                new AssemblyReferenceIdentity(
-                    "Invalid",
-                    Version: null,
-                    Culture: null,
-                    PublicKeyToken: null),
-                AssemblyResolutionScope.Any);
+            MalformedMetadataRootException exception =
+                Assert.Throws<MalformedMetadataRootException>(
+                    () => resolver.Resolve(
+                        new AssemblyReferenceIdentity(
+                            "Invalid",
+                            Version: null,
+                            Culture: null,
+                            PublicKeyToken: null),
+                        AssemblyResolutionScope.Any));
+            Assert.Equal(
+                MetadataRootMalformedReason.UnmappableMetadataDirectory,
+                exception.Reason);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
-            Assert.Null(result);
+    [Fact]
+    public void SiblingResolver_UnsupportedMetadataIsTyped()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"resolver-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllBytes(
+                Path.Combine(directory, "Unsupported.dll"),
+                MetadataSourceFormatAdmissionTests
+                    .BuildManagedWindowsMetadata());
+            var resolver =
+                new MetadataSource.SiblingAssemblyReferenceResolver(
+                    Path.Combine(directory, "Owner.dll"));
+
+            Assert.Throws<UnsupportedMetadataFormatException>(
+                () => resolver.Resolve(
+                    new AssemblyReferenceIdentity(
+                        "Unsupported",
+                        Version: null,
+                        Culture: null,
+                        PublicKeyToken: null),
+                    AssemblyResolutionScope.Any));
         }
         finally
         {

@@ -17,7 +17,10 @@ public sealed class UnsupportedMetadataFormatException()
 public sealed class MalformedMetadataRootException(
     MetadataRootMalformedReason reason)
     : BadImageFormatException(
-        $"The assembly metadata root is malformed ({reason}).");
+        $"The assembly metadata root is malformed ({reason}).")
+{
+    public MetadataRootMalformedReason Reason { get; } = reason;
+}
 
 /// <summary>
 /// Maps the MetadataPrimitives-owned root classification to Metadata's direct

@@ -67,10 +67,11 @@ public static class AssemblyTypeDeclarationInventoryReader
         bool rejectionEstablished = false;
         AssemblyTypeDeclarationInventoryOutcome Reject(
             CandidateOpenFailureKind kind,
-            string detail)
+            string detail,
+            MetadataRootMalformedReason? metadataRootReason = null)
         {
             rejectionEstablished = true;
-            return Rejected(kind, detail);
+            return Rejected(kind, detail, metadataRootReason);
         }
 
         try
@@ -182,6 +183,17 @@ public static class AssemblyTypeDeclarationInventoryReader
                 CandidateOpenFailureKind.UnsupportedMetadataFormat,
                 "The selected image uses an unsupported metadata format.");
         }
+        catch (MalformedMetadataRootException ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            return Rejected(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The selected image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
+        }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException)
         {
@@ -231,8 +243,9 @@ public static class AssemblyTypeDeclarationInventoryReader
 
     static AssemblyTypeDeclarationInventoryOutcome.Rejected Rejected(
         CandidateOpenFailureKind kind,
-        string detail) =>
-        new(new CandidateOpenFailure(kind, detail));
+        string detail,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new(new CandidateOpenFailure(kind, detail, metadataRootReason));
 }
 
 public enum AssemblySurfaceKind
@@ -302,6 +315,14 @@ public static class AssemblySurfaceClassifier
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.UnsupportedMetadataFormat,
                     "The selected assembly uses an unsupported metadata format."));
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return new AssemblySurfaceClassificationOutcome.Rejected(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    $"The selected assembly has a malformed metadata root ({ex.Reason}).",
+                    ex.Reason));
         }
         catch (BadImageFormatException)
         {

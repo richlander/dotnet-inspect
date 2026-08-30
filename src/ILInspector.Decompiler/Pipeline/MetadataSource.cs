@@ -458,13 +458,7 @@ public sealed class MetadataSource : IDisposable
                     _assemblies.GetOrAdd(
                         sibling,
                         static path => new Lazy<ResolvedAssemblyReference?>(
-                            () => ResolvedAssemblyReference.TryCreateFromPath(
-                                path,
-                                AssemblyResolutionProvenance.Local(
-                                    "SiblingAssembly"),
-                                out ResolvedAssemblyReference? reference)
-                                    ? reference
-                                    : null,
+                            () => CreateCandidate(path),
                             LazyThreadSafetyMode.ExecutionAndPublication)).Value;
                 if (candidate is not null
                     && identity.MatchesCandidate(
@@ -473,6 +467,27 @@ public sealed class MetadataSource : IDisposable
                 {
                     return candidate;
                 }
+            }
+
+            return null;
+        }
+
+        static ResolvedAssemblyReference? CreateCandidate(string path)
+        {
+            bool created = ResolvedAssemblyReference.TryCreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("SiblingAssembly"),
+                out ResolvedAssemblyReference? reference,
+                out Exception? failure);
+            if (created)
+                return reference;
+
+            if (failure is UnsupportedMetadataFormatException
+                or MalformedMetadataRootException)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(failure)
+                    .Throw();
             }
 
             return null;

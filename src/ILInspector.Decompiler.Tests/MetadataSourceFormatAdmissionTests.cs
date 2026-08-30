@@ -110,7 +110,7 @@ public sealed class MetadataSourceFormatAdmissionTests
         Assert.Equal(1, opened!.DisposeCount);
     }
 
-    static byte[] BuildManagedWindowsMetadata()
+    internal static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(

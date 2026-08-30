@@ -383,15 +383,21 @@ public static class ExtensionMethodScanner
         {
             foreach (var assemblyPath in assemblyPaths)
             {
-                FileStream? stream = null;
+                Stream? stream = null;
                 PEReader? peReader = null;
                 bool retained = false;
+                bool unavailableEstablished = false;
                 try
                 {
                     stream = File.OpenRead(assemblyPath);
-                    peReader = new PEReader(stream);
+                    peReader = new PEReader(
+                        stream,
+                        PEStreamOptions.LeaveOpen);
                     if (!MetadataFormatAdmission.AdmitImage(peReader))
+                    {
+                        unavailableEstablished = true;
                         continue;
+                    }
 
                     var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
                     foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -406,18 +412,39 @@ public static class ExtensionMethodScanner
                     disposables.Add(stream);
                     retained = true;
                 }
+                catch (Exception ex) when (
+                    ex is UnsupportedMetadataFormatException
+                        or MalformedMetadataRootException)
+                {
+                    OwnedResourceCleanup.DisposeAfterFailure(
+                        ref peReader,
+                        ref stream,
+                        ex);
+                    throw;
+                }
                 // Skip assemblies with unreadable metadata
                 catch (Exception ex) when (
                     ex is not UnsupportedMetadataFormatException
                         and not MalformedMetadataRootException)
                 {
+                    unavailableEstablished = true;
                 }
                 finally
                 {
                     if (!retained)
                     {
-                        peReader?.Dispose();
-                        stream?.Dispose();
+                        if (unavailableEstablished)
+                        {
+                            OwnedResourceCleanup
+                                .DisposeWithoutReplacingOutcome(
+                                    ref peReader,
+                                    ref stream);
+                        }
+                        else
+                        {
+                            peReader?.Dispose();
+                            stream?.Dispose();
+                        }
                     }
                 }
             }
