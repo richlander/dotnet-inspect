@@ -1,6 +1,6 @@
 using CSharpText;
 
-namespace tsbindgen;
+namespace ILInspector.TypeScriptGeneration;
 
 internal sealed class TsBindGenDiagnostics
 {

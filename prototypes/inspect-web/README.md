@@ -89,14 +89,15 @@ selected assembly set.
    `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
    `GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
    `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
-   `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
+   `GalleryFinalListingProjectionPreservesOperationTimeout` gate the source
+   contract.
    `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and
    `GalleryCallerCancellationOutranksConcurrentRegistrationFault` distinguish
    actual caller cancellation from optional-registration fallback.
    `DependencyRangeUsesAuthoritativeGalleryListingState`,
-   `DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`,
-   `BrowserGalleryDeadlineLeavesTimeForPartialRegistration`, and
-   `VersionPickerRetainsFlatListWhenRegistrationTimesOut` gate Browser
+   `DependencyRangePreservesGalleryRegistrationTimeout`,
+   `BrowserGalleryDeadlineLeavesTimeForSourceTimeout`, and
+   `VersionPickerPreservesGalleryRegistrationTimeout` gate Browser
    consumption.
 3. **Hand a role group to a query.** The participants open one
    `InspectionWorkspace` and one or two binding-consistent

@@ -1,7 +1,7 @@
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
-namespace tsbindgen;
+namespace ILInspector.TypeScriptGeneration;
 
 enum TsTypeMappingContext
 {
@@ -30,24 +30,48 @@ static class TsTypeMapper
 
     public static bool IsJsonEnvelopeReturnType(string csharpType)
     {
-        string trimmed = csharpType.Trim();
-        if (trimmed is "string" or "System.String")
-            return true;
-
-        return ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
-                    || TryUnwrapGeneric(trimmed, "Task", out taskArg))
-                && taskArg!.Trim() is "string" or "System.String")
-            || ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
-                    || TryUnwrapGeneric(trimmed, "ValueTask", out valueTaskArg))
-                && valueTaskArg!.Trim() is "string" or "System.String");
+        return TryGetJsonEnvelopeType(
+            csharpType,
+            out _,
+            out _);
     }
+
+    public static bool IsNullableJsonEnvelopeReturnType(
+        string csharpType) =>
+        TryGetJsonEnvelopeType(
+            csharpType,
+            out _,
+            out bool nullable)
+        && nullable;
+
+    internal static bool IsIntrinsicTypeSpelling(string csharpType) =>
+        csharpType.Trim() is
+            "string" or "System.String"
+            or "char" or "System.Char"
+            or "bool" or "System.Boolean"
+            or "byte" or "System.Byte"
+            or "sbyte" or "System.SByte"
+            or "short" or "System.Int16"
+            or "ushort" or "System.UInt16"
+            or "int" or "System.Int32"
+            or "uint" or "System.UInt32"
+            or "long" or "System.Int64"
+            or "ulong" or "System.UInt64"
+            or "double" or "System.Double"
+            or "float" or "System.Single"
+            or "decimal" or "System.Decimal"
+            or "void" or "System.Void"
+            or "System.Text.Json.JsonElement" or "JsonElement"
+            or "System.Runtime.InteropServices.JavaScript.JSObject"
+            or "JSObject";
 
     public static string MapReturnType(
         string csharpType,
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null)
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null)
     {
         string trimmed = csharpType.Trim();
         if (IsBlockedType(trimmed, blockedAliases))
@@ -67,6 +91,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 TsTypeMappingContext.JsInterop)}>";
         }
 
@@ -79,6 +104,7 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 TsTypeMappingContext.JsInterop)}>";
         }
 
@@ -94,6 +120,7 @@ static class TsTypeMapper
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             TsTypeMappingContext.JsInterop);
     }
 
@@ -112,10 +139,15 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null)
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null,
+        ApiTypeShape? wireTypeShape = null,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames = null,
+        IReadOnlySet<string>? envelopeBlockedAliases = null)
     {
         string trimmed = csharpType.Trim();
-        if (IsBlockedType(trimmed, blockedAliases))
+        if (IsBlockedType(trimmed, envelopeBlockedAliases))
         {
             diagnostics?.ReportUnmappedType(
                 location ?? trimmed,
@@ -128,7 +160,10 @@ static class TsTypeMapper
             diagnostics,
             location,
             blockedAliases,
-            TsTypeMappingContext.JsonWire);
+            mappedTypeNames,
+            TsTypeMappingContext.JsonWire,
+            wireTypeShape,
+            identityNames);
 
         if (IsJsonEnvelopeReturnType(trimmed))
         {
@@ -146,7 +181,7 @@ static class TsTypeMapper
             {
                 envelopeType = taskArg!;
             }
-            if (IsBlockedType(envelopeType, blockedAliases))
+            if (IsBlockedType(envelopeType, envelopeBlockedAliases))
             {
                 diagnostics?.ReportUnmappedType(
                     location ?? envelopeType,
@@ -161,7 +196,8 @@ static class TsTypeMapper
             recordNames,
             diagnostics,
             location,
-            blockedAliases);
+            blockedAliases,
+            mappedTypeNames);
     }
 
     public static string MapParameterType(
@@ -169,13 +205,15 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null) =>
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null) =>
         Map(
             csharpType.Trim(),
             recordNames,
             diagnostics,
             location,
             blockedAliases,
+            mappedTypeNames,
             TsTypeMappingContext.JsInterop);
 
     public static string MapJsonWireType(
@@ -183,14 +221,21 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
-        IReadOnlySet<string>? blockedAliases = null) =>
+        IReadOnlySet<string>? blockedAliases = null,
+        IReadOnlyDictionary<string, string>? mappedTypeNames = null,
+        ApiTypeShape? typeShape = null,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames = null) =>
         Map(
             csharpType.Trim(),
             recordNames,
             diagnostics,
             location,
             blockedAliases,
-            TsTypeMappingContext.JsonWire);
+            mappedTypeNames,
+            TsTypeMappingContext.JsonWire,
+            typeShape,
+            identityNames);
 
     static string Map(
         string csharpType,
@@ -198,41 +243,20 @@ static class TsTypeMapper
         TsBindGenDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
-        TsTypeMappingContext mappingContext)
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
+        TsTypeMappingContext mappingContext,
+        ApiTypeShape? typeShape = null,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames = null)
     {
         string trimmed = csharpType.Trim();
-        if (IsBlockedType(trimmed, blockedAliases))
+        if (typeShape is null
+            && IsBlockedType(trimmed, blockedAliases))
         {
             diagnostics?.ReportUnmappedType(
                 location ?? trimmed,
                 trimmed);
             return "unknown";
-        }
-
-        // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
-        // signatures instead retain their marshalled numeric-array shape.
-        if (mappingContext == TsTypeMappingContext.JsonWire
-            && (trimmed is "byte[]" or "System.Byte[]"))
-            return "string";
-
-        if (trimmed.EndsWith("[]", StringComparison.Ordinal))
-        {
-            string element = trimmed[..^2];
-            string mappedElement = Map(
-                element,
-                recordNames,
-                diagnostics,
-                location,
-                blockedAliases,
-                mappingContext);
-            if (mappingContext == TsTypeMappingContext.JsonWire)
-            {
-                return $"ReadonlyArray<{mappedElement}>";
-            }
-
-            return mappedElement.Contains(" | ", StringComparison.Ordinal)
-                ? $"({mappedElement})[]"
-                : $"{mappedElement}[]";
         }
 
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
@@ -244,19 +268,75 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
-                mappingContext)} | null";
+                mappedTypeNames,
+                mappingContext,
+                typeShape,
+                identityNames)} | null";
+        }
+
+        // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
+        // signatures instead retain their marshalled numeric-array shape.
+        if (mappingContext == TsTypeMappingContext.JsonWire
+            && IsPrimitiveByteArray(trimmed, typeShape))
+            return "string";
+
+        if (trimmed.EndsWith("[]", StringComparison.Ordinal))
+        {
+            if (typeShape is not null
+                && typeShape.Kind != ApiTypeShapeKind.SzArray)
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    trimmed);
+                return "unknown";
+            }
+            string element = trimmed[..^2];
+            string mappedElement = Map(
+                element,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases,
+                mappedTypeNames,
+                mappingContext,
+                ArrayElementShape(typeShape),
+                identityNames);
+            if (mappingContext == TsTypeMappingContext.JsonWire)
+            {
+                return $"ReadonlyArray<{mappedElement}>";
+            }
+
+            return mappedElement.Contains(" | ", StringComparison.Ordinal)
+                ? $"({mappedElement})[]"
+                : $"{mappedElement}[]";
         }
 
         if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
             || TryUnwrapGeneric(trimmed, "Nullable", out nullableArg))
         {
+            if (typeShape is not null
+                && (!IsGenericShape(
+                        typeShape,
+                        "System.Nullable`1")
+                    || IsBlockedType(
+                        trimmed,
+                        blockedAliases)))
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    trimmed);
+                return "unknown";
+            }
             return $"{Map(
                 nullableArg!,
                 recordNames,
                 diagnostics,
                 location,
                 blockedAliases,
-                mappingContext)} | null";
+                mappedTypeNames,
+                mappingContext,
+                GenericArgumentShape(typeShape, 0),
+                identityNames)} | null";
         }
 
         if (TryMapDictionary(
@@ -265,22 +345,86 @@ static class TsTypeMapper
                 diagnostics,
                 location,
                 blockedAliases,
+                mappedTypeNames,
                 mappingContext,
+                typeShape,
+                identityNames,
                 out string? dictionaryType))
         {
             return dictionaryType!;
         }
 
-        if (recordNames.Contains(trimmed))
+        if (typeShape is
+                {
+                    Kind: ApiTypeShapeKind.Primitive,
+                    Primitive: { } exactPrimitive,
+                }
+            && MapPrimitive(exactPrimitive) is { } exactPrimitiveName)
         {
-            if (blockedAliases?.Contains(trimmed) == true)
+            return exactPrimitiveName;
+        }
+
+        if (typeShape is
+                {
+                    Kind: ApiTypeShapeKind.Named,
+                    Definition: { } exactIdentity,
+                }
+            && identityNames?.TryGetValue(
+                exactIdentity,
+                out string? exactName) == true)
+        {
+            return exactName;
+        }
+
+        if (typeShape is not null)
+        {
+            if (typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition.FullName: "System.Decimal",
+                    }
+                && !IsBlockedType(
+                    trimmed,
+                    blockedAliases))
             {
-                diagnostics?.ReportUnmappedType(
-                    location ?? trimmed,
-                    trimmed);
+                return "number";
+            }
+            if (typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition.FullName:
+                            "System.Text.Json.JsonElement",
+                    }
+                && !IsBlockedType(
+                    trimmed,
+                    blockedAliases))
+            {
                 return "unknown";
             }
-            return LastSegment(trimmed);
+            if (mappingContext == TsTypeMappingContext.JsInterop
+                && typeShape is
+                {
+                    Kind: ApiTypeShapeKind.Named,
+                    Definition.FullName:
+                        "System.Runtime.InteropServices.JavaScript.JSObject",
+                }
+                && !IsBlockedType(
+                    trimmed,
+                    blockedAliases))
+            {
+                return "unknown";
+            }
+            diagnostics?.ReportUnmappedType(
+                location ?? trimmed,
+                trimmed);
+            return "unknown";
+        }
+
+        if (mappedTypeNames?.TryGetValue(
+                trimmed,
+                out string? mappedTypeName) == true)
+        {
+            return mappedTypeName;
         }
 
         // JsonElement is STJ's own representation of arbitrary/untyped JSON — there is no more
@@ -316,12 +460,63 @@ static class TsTypeMapper
             _ => "unknown",
         };
 
-        if (mapped == "unknown")
+        if (mapped != "unknown")
+            return mapped;
+
+        if (recordNames.Contains(trimmed))
         {
-            diagnostics?.ReportUnmappedType(location ?? trimmed, trimmed);
+            if (blockedAliases?.Contains(trimmed) == true)
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    trimmed);
+                return "unknown";
+            }
+            return LastSegment(trimmed);
         }
 
+        diagnostics?.ReportUnmappedType(location ?? trimmed, trimmed);
         return mapped;
+    }
+
+    static string? MapPrimitive(ApiPrimitiveType primitive) =>
+        primitive switch
+        {
+            ApiPrimitiveType.Char or ApiPrimitiveType.String => "string",
+            ApiPrimitiveType.Boolean => "boolean",
+            ApiPrimitiveType.SByte or ApiPrimitiveType.Byte
+                or ApiPrimitiveType.Int16 or ApiPrimitiveType.UInt16
+                or ApiPrimitiveType.Int32 or ApiPrimitiveType.UInt32
+                or ApiPrimitiveType.Int64 or ApiPrimitiveType.UInt64
+                or ApiPrimitiveType.Single or ApiPrimitiveType.Double
+                or ApiPrimitiveType.Decimal => "number",
+            ApiPrimitiveType.Void => "void",
+            _ => null,
+        };
+
+    static bool TryGetJsonEnvelopeType(
+        string csharpType,
+        out string envelopeType,
+        out bool nullable)
+    {
+        string trimmed = csharpType.Trim();
+        if (TryUnwrapGeneric(
+                trimmed,
+                "System.Threading.Tasks.Task",
+                out string? taskArg)
+            || TryUnwrapGeneric(trimmed, "Task", out taskArg)
+            || TryUnwrapGeneric(
+                trimmed,
+                "System.Threading.Tasks.ValueTask",
+                out taskArg)
+            || TryUnwrapGeneric(trimmed, "ValueTask", out taskArg))
+        {
+            trimmed = taskArg!.Trim();
+        }
+
+        nullable = trimmed.EndsWith('?');
+        envelopeType = nullable ? trimmed[..^1].TrimEnd() : trimmed;
+        return envelopeType is "string" or "System.String";
     }
 
     static bool TryMapDictionary(
@@ -330,7 +525,11 @@ static class TsTypeMapper
         TsBindGenDiagnostics? diagnostics,
         string? location,
         IReadOnlySet<string>? blockedAliases,
+        IReadOnlyDictionary<string, string>? mappedTypeNames,
         TsTypeMappingContext mappingContext,
+        ApiTypeShape? typeShape,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, string>?
+            identityNames,
         out string? mappedType)
     {
         if (!TryUnwrapGeneric(typeName, "System.Collections.Generic.Dictionary", out string? dictionaryArgs)
@@ -348,6 +547,29 @@ static class TsTypeMapper
             mappedType = "unknown";
             return true;
         }
+        string expectedDefinition =
+            typeName.StartsWith(
+                "System.Collections.Generic.IReadOnlyDictionary<",
+                StringComparison.Ordinal)
+            || typeName.StartsWith(
+                "IReadOnlyDictionary<",
+                StringComparison.Ordinal)
+                ? "System.Collections.Generic.IReadOnlyDictionary`2"
+                : "System.Collections.Generic.Dictionary`2";
+        if (typeShape is not null
+            && (!IsGenericShape(
+                    typeShape,
+                    expectedDefinition)
+                || IsBlockedType(
+                    typeName,
+                    blockedAliases)))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? typeName,
+                typeName);
+            mappedType = "unknown";
+            return true;
+        }
 
         string mappedKey = Map(
             keyType!,
@@ -355,14 +577,20 @@ static class TsTypeMapper
             diagnostics,
             location,
             blockedAliases,
-            mappingContext);
+            mappedTypeNames,
+            mappingContext,
+            GenericArgumentShape(typeShape, 0),
+            identityNames);
         string mappedValue = Map(
             valueType!,
             recordNames,
             diagnostics,
             location,
             blockedAliases,
-            mappingContext);
+            mappedTypeNames,
+            mappingContext,
+            GenericArgumentShape(typeShape, 1),
+            identityNames);
         if (mappedKey != "string")
         {
             diagnostics?.ReportUnmappedType(location ?? typeName, typeName);
@@ -376,6 +604,45 @@ static class TsTypeMapper
             : recordType;
         return true;
     }
+
+    static bool IsPrimitiveByteArray(
+        string csharpType,
+        ApiTypeShape? typeShape) =>
+        (csharpType is "byte[]" or "System.Byte[]")
+        && (typeShape is null
+            || typeShape is
+            {
+                Kind: ApiTypeShapeKind.SzArray,
+                ElementType:
+                {
+                    Kind: ApiTypeShapeKind.Primitive,
+                    Primitive: ApiPrimitiveType.Byte,
+                },
+            });
+
+    static bool IsGenericShape(
+        ApiTypeShape typeShape,
+        string expectedDefinition) =>
+        typeShape is
+        {
+            Kind: ApiTypeShapeKind.GenericInstance,
+            Definition.FullName: var fullName,
+        }
+        && fullName == expectedDefinition;
+
+    static ApiTypeShape? ArrayElementShape(ApiTypeShape? typeShape) =>
+        typeShape?.Kind is ApiTypeShapeKind.SzArray
+            or ApiTypeShapeKind.Array
+                ? typeShape.ElementType
+                : null;
+
+    static ApiTypeShape? GenericArgumentShape(
+        ApiTypeShape? typeShape,
+        int index) =>
+        typeShape?.Kind == ApiTypeShapeKind.GenericInstance
+            && typeShape.TypeArguments.Length > index
+                ? typeShape.TypeArguments[index]
+                : null;
 
     static bool TrySplitTopLevelGenericArguments(
         string arguments,

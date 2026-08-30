@@ -1,9 +1,5 @@
-using System.Collections.Immutable;
 using System.CommandLine;
-using System.Reflection.PortableExecutable;
-using ILInspector.Analysis;
 using ILInspector.JsExportSurface;
-using ILInspector.Metadata;
 
 namespace tsbindgen;
 
@@ -53,104 +49,20 @@ public static class TsBindGenCommand
             string? diffAgainst = parseResult.GetValue(diffOption);
             string? emitJsPath = parseResult.GetValue(emitJsOption);
 
-            if (!File.Exists(assemblyPath))
+            if (!JsExportSurfaceLoader.TryLoad(
+                    assemblyPath,
+                    "tsbindgen",
+                    stderr,
+                    out global::ILInspector.JsExportSurface.JsExportSurface?
+                        jsExportSurface))
             {
-                stderr.WriteLine($"tsbindgen: assembly not found: {assemblyPath}");
                 return 1;
             }
-
-            // One read, one image. The metadata surface and the IL body index
-            // must describe the same bytes: reading the file twice lets two
-            // different images share an MVID and token layout, so evidence
-            // gathered from one can authenticate a member that only exists in
-            // the other.
-            ImmutableArray<byte> image;
-            try
-            {
-                image = ImmutableArray.CreateRange(
-                    File.ReadAllBytes(assemblyPath));
-            }
-            catch (Exception ex) when (
-                ex is IOException or UnauthorizedAccessException
-                    or ArgumentException or NotSupportedException)
-            {
-                stderr.WriteLine(
-                    $"tsbindgen: could not read '{assemblyPath}': {ex.Message}");
-                return 1;
-            }
-
-            ApiSurface apiSurface;
-            try
-            {
-                using var peReader = new PEReader(image);
-
-                // includeAll: true, not false. The [JSExport] wire boundary is not "public API" in
-                // the documentation sense: a consuming assembly commonly keeps its
-                // JsonSerializerContext (and the DTOs it roots) internal, since nothing outside the
-                // assembly ever touches them in C# — the wasm/JS boundary is their only external
-                // consumer. JsExportSurfaceBuilder's record/enum discovery walks surface.Types
-                // looking for a JsonSerializerContext-derived type; extracting public-only silently
-                // drops that type (and therefore every DTO it roots) whenever it's internal, which
-                // collapses every JSON-shaped return/parameter to "unknown" instead of a real
-                // interface.
-                apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
-            }
-            catch (Exception ex) when (
-                ex is BadImageFormatException or IOException or UnauthorizedAccessException)
-            {
-                stderr.WriteLine($"tsbindgen: could not read '{assemblyPath}' as a .NET assembly: {ex.Message}");
-                return 1;
-            }
-
-            ApiSurfaceInspectionFailure? incompleteExtraction =
-                apiSurface.InspectionFailures.FirstOrDefault(
-                    static failure =>
-                        failure.Operation
-                            != ApiSurface.ConstraintResolutionOperation);
-            if (incompleteExtraction is not null)
-            {
-                string location = incompleteExtraction.SubjectToken == 0
-                    ? "assembly metadata"
-                    : $"metadata token 0x{incompleteExtraction.SubjectToken:X8}";
-                stderr.WriteLine(
-                    $"tsbindgen: {location}: metadata extraction did not produce a complete surface.");
-                return 1;
-            }
-
             if (emitJsPath is not null
-                && apiSurface.AssemblyIdentity is null)
+                && jsExportSurface!.AssemblyIdentity is null)
             {
                 stderr.WriteLine(
                     "tsbindgen: --emit-js requires an assembly manifest identity.");
-                return 1;
-            }
-
-            global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface;
-            try
-            {
-                // JsonWireContractFlow adds only the argument and result value
-                // provenance that authenticates generated JsonTypeInfo<T>
-                // registrations. Allocation and opportunity analysis remain
-                // unrelated work this command does not request.
-                LibraryBodyIndex bodyIndex =
-                    LibraryBodyIndex.OpenFromPrefetchedImage(
-                        assemblyPath,
-                        image,
-                        LibraryBodyAnalysisFeatures.MethodEvidence
-                            | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
-                jsExportSurface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
-            }
-            catch (UnsupportedJsExportSurfaceException ex)
-            {
-                stderr.WriteLine($"tsbindgen: {ex.Message}");
-                return 1;
-            }
-            catch (Exception ex) when (
-                ex is BadImageFormatException or IOException or UnauthorizedAccessException)
-            {
-                stderr.WriteLine(
-                    $"tsbindgen: could not read IL bodies from '{assemblyPath}' for wire-contract "
-                        + $"resolution: {ex.Message}");
                 return 1;
             }
 
@@ -158,7 +70,7 @@ public static class TsBindGenCommand
             string generated;
             try
             {
-                generated = DtsEmitter.Emit(jsExportSurface, diagnostics);
+                generated = DtsEmitter.Emit(jsExportSurface!, diagnostics);
             }
             catch (UnsupportedWireContractException ex)
             {
@@ -196,7 +108,7 @@ public static class TsBindGenCommand
             if (emitJsPath is not null
                 && !diagnostics.HasUnmappedTypes)
             {
-                string generatedJs = JsEmitter.Emit(jsExportSurface);
+                string generatedJs = JsEmitter.Emit(jsExportSurface!);
                 try
                 {
                     File.WriteAllText(emitJsPath, generatedJs);
