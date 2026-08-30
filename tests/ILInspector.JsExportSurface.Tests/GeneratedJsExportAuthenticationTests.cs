@@ -318,6 +318,245 @@ public sealed class GeneratedJsExportAuthenticationTests
     }
 
     [Fact]
+    public void Build_RejectsDelegateRegistrationWithMismatchedSignatureHash()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        DirectCall registration =
+            Registration(bodyIndex, "ReportValue");
+        ResolvedValueSource hash =
+            Assert.IsType<ResolvedValueSource>(
+                registration.ResolvedArgumentValues[1].Single);
+
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            hash.ILOffset,
+            expected: [LdcI4],
+            replacement: [LdcI4, 0, 0, 0, 0]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-mismatched-signature-hash",
+                "ReportValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDelegateRegistrationWithWrongNestedDescriptor()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        DirectCall registration =
+            Registration(bodyIndex, "TransformValue");
+        DirectCall functionFactory =
+            DelegateDescriptorFactory(bodyIndex, registration);
+        ResolvedValueSource stringDescriptor = Assert.IsType<ResolvedValueSource>(
+            functionFactory.ResolvedArgumentValues[1].Single);
+        int booleanMarshalerToken = MarshalerFactoryToken(
+            bodyIndex,
+            registration,
+            "get_Boolean");
+
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            stringDescriptor.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(booleanMarshalerToken),
+            ]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-wrong-nested-descriptor",
+                "TransformValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDelegateRegistrationWithWrongResultDescriptor()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        DirectCall registration =
+            Registration(bodyIndex, "TransformValue");
+        DirectCall functionFactory =
+            DelegateDescriptorFactory(bodyIndex, registration);
+        ResolvedValueSource resultDescriptor =
+            Assert.IsType<ResolvedValueSource>(
+                functionFactory.ResolvedArgumentValues[2].Single);
+        int stringMarshalerToken = MarshalerFactoryToken(
+            bodyIndex,
+            registration,
+            "get_String");
+
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            resultDescriptor.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(stringMarshalerToken),
+            ]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-wrong-result-descriptor",
+                "TransformValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDelegateRegistrationWithWrongOuterFactory()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        DirectCall registration =
+            Registration(bodyIndex, "TransformValue");
+        DirectCall functionFactory =
+            DelegateDescriptorFactory(bodyIndex, registration);
+        DirectCall actionRegistration =
+            Registration(bodyIndex, "ObserveValues");
+        DirectCall actionFactory =
+            DelegateDescriptorFactory(
+                bodyIndex,
+                actionRegistration);
+
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            functionFactory.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(actionFactory.OperandToken),
+            ]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-wrong-outer-factory",
+                "TransformValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDelegateRegistrationWithReorderedDescriptors()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        DirectCall registration =
+            Registration(bodyIndex, "TransformValue");
+        DirectCall functionFactory =
+            DelegateDescriptorFactory(bodyIndex, registration);
+        ResolvedValueSource firstDescriptor = Assert.IsType<ResolvedValueSource>(
+            functionFactory.ResolvedArgumentValues[0].Single);
+        ResolvedValueSource secondDescriptor = Assert.IsType<ResolvedValueSource>(
+            functionFactory.ResolvedArgumentValues[1].Single);
+        int intMarshalerToken = MarshalerFactoryToken(
+            bodyIndex,
+            registration,
+            "get_Int32");
+        int stringMarshalerToken = MarshalerFactoryToken(
+            bodyIndex,
+            registration,
+            "get_String");
+
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            firstDescriptor.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(stringMarshalerToken),
+            ]);
+        PatchIl(
+            image,
+            registration.EvidenceMethod.MetadataToken,
+            secondDescriptor.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(intMarshalerToken),
+            ]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-reordered-descriptors",
+                "TransformValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsDelegateWrapperThatCallsDifferentExport()
+    {
+        byte[] image = FixtureImage();
+        LibraryBodyIndex bodyIndex = OpenWireContractBodyIndex(
+            typeof(FixtureExports).Assembly.Location);
+        MethodIdentity wrapper = Wrapper(bodyIndex, "ReportValue");
+        DirectCall wrapperCall = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == wrapper.MetadataToken
+                && call.CalleeDefinitionToken != 0);
+        MethodIdentity stub = Assert.Single(
+            bodyIndex.Methods,
+            method => method.MetadataToken
+                == wrapperCall.CalleeDefinitionToken);
+        DirectCall exportCall = Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == stub.MetadataToken
+                && call.Callee.Name == "ReportValue");
+        MethodIdentity otherExport = Assert.Single(
+            bodyIndex.Methods,
+            method => method.Name == "ReportValueAgain"
+                && method.DeclaringType.Name == nameof(FixtureExports));
+
+        PatchIl(
+            image,
+            stub.MetadataToken,
+            exportCall.ILOffset,
+            expected: [Call],
+            replacement:
+            [
+                Call,
+                .. BitConverter.GetBytes(otherExport.MetadataToken),
+            ]);
+
+        Assert.Contains(
+            "no compiler-generated runtime wrapper",
+            BuildPatchedFixture(
+                image,
+                "delegate-wrapper-different-export",
+                "ReportValue"),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Build_RejectsRegistrationWithSwappedDescriptorElement()
     {
         byte[] image = FixtureImage();
@@ -483,10 +722,13 @@ public sealed class GeneratedJsExportAuthenticationTests
     /// failure message, asserting that the unpatched control publishes first so
     /// the negative cannot pass by rejecting everything.
     /// </summary>
-    static string BuildPatchedFixture(byte[] image, string name)
+    static string BuildPatchedFixture(
+        byte[] image,
+        string name,
+        string controlName = "Ping")
     {
         Assert.Contains(
-            "Ping",
+            controlName,
             BuildFixtureSurface().Functions.Select(
                 function => function.Name));
 
@@ -513,19 +755,60 @@ public sealed class GeneratedJsExportAuthenticationTests
         => File.ReadAllBytes(typeof(FixtureExports).Assembly.Location);
 
     static MethodIdentity PingWrapper(LibraryBodyIndex bodyIndex)
-        => Assert.Single(
-            bodyIndex.Methods,
-            method => method.Name.StartsWith(
-                "__Wrapper_Ping_",
-                StringComparison.Ordinal));
+        => Wrapper(bodyIndex, "Ping");
 
     static DirectCall PingRegistration(LibraryBodyIndex bodyIndex)
-        => Assert.Single(
+        => Registration(bodyIndex, "Ping");
+
+    static MethodIdentity Wrapper(
+        LibraryBodyIndex bodyIndex,
+        string exportName) =>
+        Assert.Single(
+            bodyIndex.Methods,
+            method => method.Name.StartsWith(
+                $"__Wrapper_{exportName}_",
+                StringComparison.Ordinal));
+
+    static DirectCall Registration(
+        LibraryBodyIndex bodyIndex,
+        string exportName) =>
+        Assert.Single(
             bodyIndex.DirectCalls,
             call => call.Callee.Name == "BindManagedFunction"
                 && call.FirstArgumentStringLiteral?.EndsWith(
-                    ":Ping",
+                    $":{exportName}",
                     StringComparison.Ordinal) == true);
+
+    static DirectCall DelegateDescriptorFactory(
+        LibraryBodyIndex bodyIndex,
+        DirectCall registration)
+    {
+        SpanArgumentElements descriptor = Assert.IsType<SpanArgumentElements>(
+            registration.SpanArgumentSources.ForArgument(2));
+        ResolvedValueSource delegateDescriptor =
+            Assert.IsType<ResolvedValueSource>(
+                Assert.Single(descriptor.Elements.Skip(1)).Single);
+        return Assert.Single(
+            bodyIndex.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                    == registration.EvidenceMethod.MetadataToken
+                && call.ILOffset == delegateDescriptor.ILOffset);
+    }
+
+    static int MarshalerFactoryToken(
+        LibraryBodyIndex bodyIndex,
+        DirectCall registration,
+        string factoryName) =>
+        Assert.Single(
+            bodyIndex.DirectCalls
+                .Where(call =>
+                    call.EvidenceMethod.MetadataToken
+                        == registration.EvidenceMethod.MetadataToken
+                    && call.Callee.Name == factoryName
+                    && call.Callee.DeclaringType.Name
+                        == "JSMarshalerType")
+                .Select(call => call.OperandToken)
+                .Distinct());
 
     /// <summary>
     /// Overwrites IL bytes in place, asserting the opcode found at the site is
