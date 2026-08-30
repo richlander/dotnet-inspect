@@ -86,6 +86,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
 | [Platform Composition and Overlays](design/platform-composition-and-overlays.md) | Platform library composition, overlays, and core-library entitlement. |
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
+| [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
