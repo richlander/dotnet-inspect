@@ -238,33 +238,27 @@ modifier changes how a selected payload is rendered.
 | Vector | `--fields X` / `--columns X` when resolved as a one-column cell projection |
 | Scalar or count Table | Count reduction: one declared row-set outcome becomes a Scalar; multiple outcomes become an ordered count Table |
 
-### Count projection
+### Count results
 
-Count is the terminal logical reduction defined by
-[Section-row shaping](section-row-shaping.md#count-semantics). It observes
-membership projection, filtering, effective baseline order, and every
-preceding semantic row-selection stage.
+[Section-row shaping](section-row-shaping.md#count-semantics) owns which row
+sets participate, what Count observes, when its evidence is exact, and whether
+L2 binds a successful Count or failure result. This document begins with that
+already-bound typed result and owns only its place on the shape ladder and its
+presentation.
 
-- With no projection intent, every selected row set participates with full
-  cells. A non-empty projection resolves across all selected row schemas: a
-  name resolving in any selected schema succeeds, a nonmatching set contributes
-  no Count entry, and a request resolving nowhere rejects. Within a
-  participating set, field-entry membership projection changes the count, while
-  selecting table columns does not create or remove rows.
-
-- One exact declared-row-set outcome produces a culture-invariant decimal
-  scalar. The scalar is the complete payload in every format: JSON emits a JSON
-  number and JSONL emits one numeric record; text and tabular formats emit the
-  same bare value.
-- Multiple exact declared-row-set outcomes produce ordered row-set/count rows,
-  including zero for a requested complete empty set. Markdown, table, and plain
-  text render those rows as their native table form; TSV emits two columns;
-  JSONL emits one object per row; JSON emits an array of objects. JSON and JSONL
-  counts are numbers rather than numeric strings. Standalone Mermaid is
-  rejected because a count map is a table, not a graph.
-- Any participating failed or request-incomplete row set prevents the
-  successful Count shape. Failure presentation belongs to the consuming output
-  owner; it is not encoded as a zero count.
+- A successful Count result containing one exact declared-row-set entry
+  produces a culture-invariant decimal scalar. The scalar is the complete
+  payload in every format: JSON emits a JSON number and JSONL emits one numeric
+  record; text and tabular formats emit the same bare value.
+- A successful Count result containing multiple exact declared-row-set entries
+  produces ordered row-set/count rows. Markdown, table, and plain text render
+  those rows as their native table form; TSV emits two columns; JSONL emits one
+  object per row; JSON emits an array of objects. JSON and JSONL counts are
+  numbers rather than numeric strings. Standalone Mermaid is rejected because
+  a count map is a table, not a graph.
+- An already-bound failure result produces no Scalar or count Table. Failure
+  presentation belongs to the consuming output owner and is not encoded as a
+  numeric value.
 
 The multi-row-set reduction is itself one table, so table, TSV, and JSONL
 formats accept a request that resolves to multiple row sets under `--count`.

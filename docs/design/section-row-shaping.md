@@ -68,6 +68,13 @@ semantic-selection operations apply independently. Its owner supplies:
 - its ordered caller-owned row values; and
 - the shape capabilities valid for those rows.
 
+The shaping request separately supplies zero or more ordered row-intent
+associations. Each explicit association contains one immutable typed
+row-query/selection intent instance and a non-empty ordered list of selected
+row-set identities to which that instance applies. L2 owns validating and
+binding those associations; the declared-row-set owner does not infer them
+from schema, position, or presentation.
+
 The row-set identity is not a section display name, subject label, heading, or
 rendered path. Those values may accompany an outer presentation envelope, but
 they do not participate in binding and never enter `SectionRowResult`.
@@ -101,11 +108,24 @@ a schema mismatch reject binding rather than selecting an arbitrary set.
 ## Shaping cohorts
 
 During request resolution, L2 assigns one immutable, request-local
-`RowIntentBindingIdentity` to each typed row-query/selection intent instance.
-Every row set explicitly associated with the same intent instance receives the
-same identity. Separately declared instances receive different identities even
+`RowIntentBindingIdentity` to each typed row-query/selection intent instance
+reached through the ordered associations. Reuse of the same instance reuses
+the identity. Separately declared instances receive different identities even
 when their fields are structurally equal. Equality is owner-issued token
 equality only.
+
+When the request carries no row-intent associations, L2 mints one default
+request-local `RowIntentBindingIdentity` and associates it with every
+participating row set in declaration order. Per schema, that binding resolves
+to no predicates, the effective baseline order defined by the row-query owner,
+and an empty semantic selection plan. Plain Rows and Count requests therefore
+use the same cohort path rather than bypassing row-query or semantic
+composition.
+
+An explicit association may name a selected set that projection later makes
+nonparticipating, but every participating set must be named by exactly one
+association. An unknown row-set identity, a repeated association for one
+selected set, or a participating set with no association rejects resolution.
 
 L2 then mints one immutable, request-local `ShapingCohortIdentity` for each
 exact pair of owner-issued row-schema identity and
@@ -210,16 +230,27 @@ Resolution is fail-fast in this total order:
    4. if no match exists, return request-wide failure; and
    5. classify every selected set in declaration order as membership, cell, or
       no-contribution.
-6. Assign `RowIntentBindingIdentity` values in typed-intent declaration order.
+6. Resolve row-intent associations:
+   1. when the request carries none, mint one default
+      `RowIntentBindingIdentity` and associate every participating row set with
+      it in declaration order;
+   2. otherwise visit associations in declaration order, require one typed
+      intent instance and a non-empty associated-row-set list, and assign or
+      reuse that instance's `RowIntentBindingIdentity`;
+   3. within each association, visit row-set identities in declaration order,
+      reject an identity outside the selected-row-set list at the reached
+      reference, and reject a repeated association at the later reference; and
+   4. visit participating row sets in declaration order and reject the first
+      set with no association.
 7. Visit participating row sets in declaration order. For each set:
-   1. require exactly one associated `RowIntentBindingIdentity`;
-   2. combine it with the set's schema identity;
-   3. at that exact pair's first occurrence, mint its cohort identity, resolve
+   1. combine its associated `RowIntentBindingIdentity` with the set's schema
+      identity;
+   2. at that exact pair's first occurrence, mint its cohort identity, resolve
       row-query intent under the row-query owner's internal failure order, and
       construct its semantic plan and order catalog;
-   4. at later occurrences, reuse that exact cohort identity and resolved
+   3. at later occurrences, reuse that exact cohort identity and resolved
       contract; and
-   5. validate the terminal branch against the set's shape capabilities.
+   4. validate the terminal branch against the set's shape capabilities.
 8. Visit cohorts in first-participating-declaration order and require:
    1. at least one participating row set;
    2. every member to carry the cohort's schema and intent-binding identities;
@@ -228,12 +259,12 @@ Resolution is fail-fast in this total order:
       the immutable forward and reverse result-binding maps.
 
 The first failure wins and no later category is evaluated. Its failure variant
-names request-wide scope for steps 1-3 and projection-wide failure, the
-declared row-set identity reached by per-set validation, or the first
-participating row-set identity of an invalid cohort. Atomicity prevents a
-partial executable request; it does not permit an implementation to choose
-among simultaneous invalid bindings. This list is complete; there is no
-unordered "remaining invariant" bucket.
+names request-wide scope for steps 1-3, projection-wide scope for the unmatched
+request in step 5, the reached declared row-set or association reference in
+steps 4, 6, and 7, or the first participating row-set identity of an invalid
+cohort in step 8. Atomicity prevents a partial executable request; it does not
+permit an implementation to choose among simultaneous invalid bindings. This
+list is complete; there is no unordered "remaining invariant" bucket.
 
 ## Reference composition
 
@@ -452,10 +483,12 @@ The implementation must add these named Release gates:
 | `CountObservesPrecedingSemanticStages` | Empty, undersized, exact, and oversized `Head`, `Tail`, and `Top` plans reduce to the cardinality of their selected result, including `Head(N) -> Count = min(N, input count)`. |
 | `CountConsumesSuccessfulWindows` | Successful closed, prefix, suffix, and boundless `Window` stages feed their selected cardinality to Count, including a Window after an earlier stage has reindexed its input. |
 | `CountPreservesTopStageObservations` | A Count terminal still reaches every reached `Top` stage, resolves its comparer once through the supplied resolver, and propagates sentinel resolver or comparer exceptions unchanged instead of returning a cardinality. |
+| `CountPreservesRowQueryObservations` | Count reflects predicate survivors and propagates the exact sentinel exception instance from a reached row accessor, predicate, or effective-baseline-order comparer over enough rows to exercise it; no Count-specific path bypasses row-query execution or turns its failure into a cardinality. |
 | `StrictWindowFailurePreemptsCount` | Closed, prefix, and suffix windows return their semantic failure rather than a partial cardinality when the required position is absent. |
 | `HeadCountAcceptsProvenPrefixCompletion` | N ordered applicable rows with proof sufficient for `Head(N) -> Count` return exact N without corpus exhaustion; fewer than N without proof that no later applicable row exists returns source failure rather than a count. |
 | `CountPreservesDeclaredRowSetScope` | One participating request-complete set produces one exact entry; multiple participating request-complete sets retain declaration order and identity; no total is invented unless the producer declared one aggregate set. |
-| `RowIntentBindingIdentityIsOwnerIssued` | Repeated use of one request-local intent-binding identity shares that identity; structurally equal separately identified intent instances remain distinct. |
+| `RowIntentBindingIdentityIsOwnerIssued` | Repeated use of one typed intent instance shares one request-local identity; structurally equal separately declared instances remain distinct; unknown, duplicate, or missing participating-set associations reject in the exact resolution order. |
+| `NoRowIntentUsesDefaultBinding` | A request with no row-intent associations assigns one default request-local identity to every participating set; each schema resolves empty predicates, its effective baseline order, and an empty semantic plan, and plain Rows and Count requests complete through the ordinary cohort path. |
 | `ShapingCohortIdentityIsOwnerIssued` | Exactly one cohort identity is minted per schema-identity/intent-binding-identity pair; sets sharing it reuse one resolved contract and named semantic invocation; no structural intent, plan, or catalog comparison participates. |
 | `HeterogeneousSchemasFormOrderedCohorts` | Different cohort identities follow first participating declaration; two schemas with different `Top` bindings use their own resolvers; a sentinel failure skips every later cohort without replaying or rolling back earlier callbacks; successful results reassemble in declared order. |
 | `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any participating source-failed, `Absent`, or request-insufficient set prevents every residual cohort and Count; source evidence sufficient for the request executes cohorts in order, and the first semantic cohort failure prevents every count entry. |
