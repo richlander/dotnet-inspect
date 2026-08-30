@@ -170,20 +170,21 @@ public sealed class CustomAttributeDifferentialOracleTests
         bool nullArray = false;
         bool emptyArray = false;
         bool objectArray = false;
-        bool nullString = false;
-        bool emptyString = false;
-        bool multiByteLengthString = false;
         bool systemType = false;
         bool enumHandleSpelled = false;
         bool int32Enum = false;
         bool int64Enum = false;
 
         var emitted = new HashSet<byte>();
+        var primitives = new HashSet<PrimitiveTypeCode>();
+        var stringForms = new HashSet<CustomAttributeDifferentialOracle.SerStringForm>();
 
         for (int seed = 0; seed < SeedCount; seed++)
         {
             using var generated = CustomAttributeDifferentialOracle.Generate(seed);
             emitted.UnionWith(generated.InlineElementTypes);
+            primitives.UnionWith(generated.Primitives);
+            stringForms.UnionWith(generated.StringForms);
             foreach (var shape in generated.Shapes)
                 Visit(shape, boxedContext: false, generated.EnumUnderlying);
         }
@@ -193,11 +194,6 @@ public sealed class CustomAttributeDifferentialOracleTests
         Assert.True(nullArray, "no null array was generated");
         Assert.True(emptyArray, "no zero-length array was generated");
         Assert.True(objectArray, "no object[] was generated");
-        Assert.True(nullString, "no null string was generated");
-        Assert.True(emptyString, "no empty string was generated");
-        Assert.True(
-            multiByteLengthString,
-            "no string long enough to force a multi-byte compressed length was generated");
         Assert.True(systemType, "no System.Type argument was generated");
         Assert.True(enumHandleSpelled, "no handle-spelled enum was generated");
         Assert.True(int32Enum, "no enum over an Int32 underlying type was generated");
@@ -209,6 +205,35 @@ public sealed class CustomAttributeDifferentialOracleTests
         Assert.Contains((byte)0x55, emitted);   // enum, spelled by serialized name
         Assert.Contains((byte)0x1d, emitted);   // SZARRAY, spelled inline
         Assert.Contains((byte)0x0e, emitted);   // string, spelled inline
+
+        // Every non-string primitive ECMA-335 II.23.3 admits as a fixed argument
+        // must actually have been written. The expectation is the grammar, not
+        // the generator's own array: anchoring it to that array would let the
+        // array be collapsed to a single primitive with the gate still green,
+        // because the expectation would collapse along with it.
+        Assert.Equal(
+            new HashSet<PrimitiveTypeCode>
+            {
+                PrimitiveTypeCode.Boolean,
+                PrimitiveTypeCode.Char,
+                PrimitiveTypeCode.SByte,
+                PrimitiveTypeCode.Byte,
+                PrimitiveTypeCode.Int16,
+                PrimitiveTypeCode.UInt16,
+                PrimitiveTypeCode.Int32,
+                PrimitiveTypeCode.UInt32,
+                PrimitiveTypeCode.Int64,
+                PrimitiveTypeCode.UInt64,
+                PrimitiveTypeCode.Single,
+                PrimitiveTypeCode.Double,
+            },
+            primitives);
+
+        // All four SerString forms, read from what was written rather than from
+        // the shape that asked for it.
+        Assert.Equal(
+            Enum.GetValues<CustomAttributeDifferentialOracle.SerStringForm>().ToHashSet(),
+            stringForms);
 
         void Visit(
             CustomAttributeDifferentialOracle.Shape shape,
@@ -242,11 +267,7 @@ public sealed class CustomAttributeDifferentialOracleTests
                 case CustomAttributeDifferentialOracle.SystemTypeShape:
                     systemType = true;
                     break;
-                case CustomAttributeDifferentialOracle.StringShape s:
-                    nullString |= s.Value is null;
-                    emptyString |= s.Value?.Length == 0;
-                    multiByteLengthString |= s.Value?.Length >= 128;
-                    break;
+
             }
         }
     }

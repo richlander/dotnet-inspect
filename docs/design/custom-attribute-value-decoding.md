@@ -416,11 +416,27 @@ only, and the direction it misses is the one where the guard has already said
 
 That seam now exists: `CustomAttributeValueGuard.Boundary` reports where the
 value walk stopped, and reports it as *unknown* when no walk ran or the walk
-ended by exception. A mutation confirms the asymmetry this section describes.
-Narrowing a single primitive skip from four bytes to three fails the boundary
-assertions immediately, and leaves
-`GeneratedBlobs_SrmDecodesEveryBlobTheGuardApproves` **passing** — a misaligned
-guard is invisible to the SRM-side check, exactly as argued above.
+ended by exception.
+
+A mutation shows the asymmetry, though less cleanly than a first reading
+suggests. Widening a single primitive skip from four bytes to five — the
+over-consumption this section is about — fails both boundary assertions
+immediately. The SRM-side decode check, `Assert.Empty(divergences)`, stays
+**green**: SRM still decodes every blob the guard approved, exactly as argued
+above. What does react is that test's separate non-vacuity count, which falls
+from 600 to 594.
+
+That count is not a second detector of misalignment. It moves because a
+misaligned walk reads a named-argument header at the wrong offset and the guard
+then *refuses* those blobs — the guard declining to answer, not SRM observing
+where it stopped. The blobs the guard still approves decode cleanly, which is
+the point: for every blob that reaches the SRM-side check, over-consumption
+remains invisible to it. Narrowing the skip to three bytes produces the same
+pattern from the opposite direction.
+
+The distinction matters because the count assertion exists to catch a corpus
+that stopped exercising the guard, not to witness boundary error. Read the
+decode check, not the enclosing test method, as the SRM-side signal.
 
 I2 is checked separately and does not depend on these, but it needs **two**
 assertions, because I2 covers both what SRM allocates and what it spends:

@@ -57,6 +57,26 @@ static class CustomAttributeDifferentialOracle
         /// what was written, so the writer records it instead.
         /// </summary>
         public HashSet<byte> InlineElementTypes { get; } = [];
+
+        /// <summary>Every primitive an argument value actually carried.</summary>
+        public HashSet<PrimitiveTypeCode> Primitives { get; } = [];
+
+        /// <summary>Every SerString form a string argument actually took.</summary>
+        public HashSet<SerStringForm> StringForms { get; } = [];
+    }
+
+    /// <summary>
+    /// The SerString encodings a string argument can take. These are distinct
+    /// encodings rather than stylistic variants: null is the single byte
+    /// <c>0xFF</c>, empty is the single byte <c>0x00</c>, and a payload of 128
+    /// bytes or more forces a multi-byte compressed length prefix.
+    /// </summary>
+    internal enum SerStringForm
+    {
+        Null,
+        Empty,
+        SingleByteLength,
+        MultiByteLength,
     }
 
     internal sealed record PrimitiveShape(PrimitiveTypeCode Code) : Shape
@@ -65,7 +85,7 @@ static class CustomAttributeDifferentialOracle
             => WritePrimitiveSignature(encoder, Code);
 
         public override void WriteValue(BlobBuilder value, Context context)
-            => WritePrimitiveValue(value, Code);
+            => WriteRecordedPrimitiveValue(value, Code, context);
 
         public override string ToString() => Code.ToString();
     }
@@ -76,7 +96,7 @@ static class CustomAttributeDifferentialOracle
             => encoder.String();
 
         public override void WriteValue(BlobBuilder value, Context context)
-            => value.WriteSerializedString(Value);
+            => WriteRecordedString(value, Value, context);
 
         public override string ToString() => Value is null ? "string(null)" : $"string(\"{Value}\")";
     }
@@ -206,6 +226,40 @@ static class CustomAttributeDifferentialOracle
             default:
                 throw new InvalidOperationException($"{code} is not a generated primitive.");
         }
+    }
+
+    /// <summary>
+    /// Writes a string argument and records the form it took. The write and the
+    /// record derive from the same payload, so a writer that ignored the shape's
+    /// value could not leave the coverage gate still claiming the forms the
+    /// shape tree describes.
+    /// </summary>
+    static void WriteRecordedString(BlobBuilder value, string? payload, Context context)
+    {
+        context.StringForms.Add(payload switch
+        {
+            null => SerStringForm.Null,
+            { Length: 0 } => SerStringForm.Empty,
+            { Length: < 128 } => SerStringForm.SingleByteLength,
+            _ => SerStringForm.MultiByteLength,
+        });
+
+        value.WriteSerializedString(payload);
+    }
+
+    /// <summary>
+    /// Writes a primitive argument value and records which primitive it was.
+    /// Enum values deliberately do not route through here: their width is
+    /// asserted separately, and crediting them as primitives would let an
+    /// enum-only corpus satisfy the primitive coverage assertion.
+    /// </summary>
+    static void WriteRecordedPrimitiveValue(
+        BlobBuilder value,
+        PrimitiveTypeCode code,
+        Context context)
+    {
+        context.Primitives.Add(code);
+        WritePrimitiveValue(value, code);
     }
 
     static void WritePrimitiveValue(BlobBuilder value, PrimitiveTypeCode code)
@@ -343,10 +397,18 @@ static class CustomAttributeDifferentialOracle
         int valueLength,
         PrimitiveTypeCode enumUnderlying,
         int seed,
-        IReadOnlySet<byte> inlineElementTypes) : IDisposable
+        IReadOnlySet<byte> inlineElementTypes,
+        IReadOnlySet<PrimitiveTypeCode> primitives,
+        IReadOnlySet<SerStringForm> stringForms) : IDisposable
     {
         /// <summary>The inline element-type bytes this blob actually carried.</summary>
         public IReadOnlySet<byte> InlineElementTypes => inlineElementTypes;
+
+        /// <summary>The primitives this blob actually carried.</summary>
+        public IReadOnlySet<PrimitiveTypeCode> Primitives => primitives;
+
+        /// <summary>The SerString forms this blob actually carried.</summary>
+        public IReadOnlySet<SerStringForm> StringForms => stringForms;
 
         readonly PEReader _peReader = new(new MemoryStream(image, writable: false));
 
@@ -525,7 +587,9 @@ static class CustomAttributeDifferentialOracle
             valueLength,
             enumUnderlying,
             seed,
-            context.InlineElementTypes);
+            context.InlineElementTypes,
+            context.Primitives,
+            context.StringForms);
     }
 
     static byte[] Serialize(MetadataBuilder metadata)
