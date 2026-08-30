@@ -498,7 +498,7 @@ Policy preparation consumes one owner-issued
 `AssemblyBindingContextEnvelope` before group construction. The envelope
 contains the context generation identity, the exact planned participant
 registrations, the immutable registration-to-role projection issued by the
-[explicit assembly-context realization](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context).
+[explicit assembly-context realization](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context),
 and the exact delegated binding policy and version associated with each
 planned requesting registration. The workspace owner remains the only role
 assigner. The platform owner validates the handoff and creates one
@@ -647,6 +647,21 @@ evidence and cached answers cannot be rebound or mixed across versions. Until
 issue #5213 lands, a delegate whose version can change cannot supply acceptable
 version-consistent evidence to the role policy.
 
+### Adjacent prerequisites
+
+[#5210](https://github.com/richlander/dotnet-inspect/issues/5210) owns typed
+name ownership for Metadata binding misses.
+[#5213](https://github.com/richlander/dotnet-inspect/issues/5213) owns atomic
+answer-to-version association.
+[#5214](https://github.com/richlander/dotnet-inspect/issues/5214) owns the
+complete identity-eligible binding composition currency. Implementation of
+this policy must not expose `NoNameOwner` fallback until #5210 lands, accept a
+delegated answer as version-consistent until #5213 lands, or reinterpret a
+final selection as an arbitration domain until #5214 lands. The platform owner
+consumes those currencies; it does not recreate name ownership, identity
+eligibility, or version evidence from candidate lists, inactive shadows,
+provenance, package state, or separate version reads.
+
 ### Migration boundary
 
 The target architecture has one authority input:
@@ -709,17 +724,17 @@ authority-bearing field to it.
   registration, role, delegated-policy, or delegate-version change requires a
   new outer version.
 - `WorkspaceRoleBinding_DelegateVersionChangeInvalidatesContextGeneration`
-  changes a captured delegate version before selection, performs an ABA change
-  during delegated selection, and changes it after warming a cached answer. It
-  proves the exact governing version from the #5213 atomic selection snapshot
-  cannot be mislabeled or reused, the old generation returns no changed or
-  stale selection or shadow evidence, the request fails visibly as an invalid
-  policy result, and continuing requires atomic realization of a new snapshot,
-  participant set, and group.
+  supplies #5213 selection snapshots governed by a version other than the
+  captured delegate version before selection and after warming a cached answer.
+  It proves the old generation returns no changed or stale selection or shadow
+  evidence, fails the request visibly as an invalid policy result, and requires
+  atomic realization of a new snapshot, participant set, and group before
+  continuing. #5213 owns the non-reusable-version and ABA mutation gates.
 - `WorkspaceRoleBinding_NameOwnerMissCannotFallThroughToRoles` covers package,
   sibling, and other adjacent name owners whose candidates fail identity
-  matching and proves their authoritative missing result cannot select an
-  in-group designated or platform candidate.
+  matching and proves their #5210 `NameOwnedNoMatch` result cannot select an
+  in-group designated or platform candidate. Before #5210, the same gate proves
+  every legacy `Missing` fails closed and no `NoNameOwner` fallback is exposed.
 - `WorkspaceRoleBinding_LegacyAndRoleFixturesProduceEquivalentOutcomes`
   runs every #4593 precedence and failure fixture against the replacement
   policy, using the current implementation only as a test oracle.

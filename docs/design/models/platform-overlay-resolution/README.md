@@ -112,11 +112,13 @@ delegated `AssemblyBindingPolicyVersion` change are implementation-boundary
 gates rather than additional model states. Before those prerequisites land,
 undifferentiated delegated `Missing` is fail-closed as name-owned and current
 selected, ambiguous, or mutable-version answers are not treated as role
-arbitration evidence. An all-role-bearing in-group #5214 domain is represented
+arbitration evidence. This model neither defines nor checks those adjacent
+Metadata currencies. An all-role-bearing in-group #5214 domain is represented
 by the modeled registrations, while a domain containing any outside-group or
-non-authority candidate remains an adjacent-policy outcome. TLC does not
-establish group-construction, delegated-domain completeness, name ownership, or
-policy-version consistency.
+non-authority candidate remains outside role arbitration; the ordinary outer
+identity-policy validation is also not modeled. TLC does not establish group
+construction, delegated-domain completeness, name ownership, or policy-version
+consistency.
 TLC results establish properties of this state machine under the stated
 assumptions and bounds, not properties of the shipped implementation. Formal
 model-to-implementation correspondence is unverified.
