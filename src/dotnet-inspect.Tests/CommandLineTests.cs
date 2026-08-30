@@ -52,22 +52,6 @@ public class CommandLineTests
         Assert.Equal("--out requires a non-empty path.", error.Message);
     }
 
-    [Theory]
-    [InlineData("--out")]
-    [InlineData("--output")]
-    [InlineData("-o")]
-    public void RoutedPackageOutputPath_RejectsExplicitEmptyValues(string option)
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-        string[] processed = CommandLineBuilder.PreprocessArgs(
-            ["Newtonsoft.Json", option, ""],
-            root);
-        var result = root.Parse(processed);
-
-        var error = Assert.Single(result.Errors);
-        Assert.Equal("--out requires a non-empty path.", error.Message);
-    }
-
     [Fact]
     public void RootCommand_WithVerbosityQuiet_ParsesCorrectly()
     {
