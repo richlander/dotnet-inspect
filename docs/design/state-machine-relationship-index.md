@@ -288,10 +288,10 @@ proves the failure was per-claim, while observing a total one proves nothing
 about which path produced it. Combined with C4, a consumer that needs the
 distinction cannot obtain it from the index as it stands.
 
-Trimming is explicitly **not** evidence for this invariant. When ILLink removes
-`SetStateMachine`, the attribute claim survives and role lookup refuses it
-(see #4827). A fixture can make that per-claim refusal total by converting all
-of its machines, but it still never reaches the whole-module failure path.
+Trimming is explicitly **not** evidence for this invariant. A trimmed artifact
+can retain a claim while losing required role evidence, producing per-claim
+refusal rather than whole-module failure. Making that refusal total does not
+change which failure path produced it.
 
 Gate: `unverified`. #4835 proposes exactly that total per-claim fixture; it is
 useful negative evidence for a completeness sweep, not a C3 gate. C2's budget
@@ -317,54 +317,43 @@ rather than advisory.
 
 ### C5 — Merged rejections agree
 
-A **publication** is one `RejectionComponent` appended by
-`PublishRejection`. It is the unit of merging; a machine is not. One
-publication can carry several kickoff, state-machine, and implementation
-tokens, several claimed names, one `(Kind, Detail)` pair, and three diagnostic
-evidence arrays.
+A **rejection publication** is the atomic input to merging; a machine is not.
+One publication can carry several kickoff, state-machine, and implementation
+tokens, several claimed names, one `(Kind, Detail)` pair, and diagnostic
+evidence from those identity domains.
 
 A **merge key** is a domain-tagged identity: kickoff MethodDef,
 state-machine TypeDef, implementation MethodDef, or a claimed type name
-registered by `RejectKickoffCandidates`. The tag matters because equal numeric
-tokens in different metadata tables are not the same key. A claimed name
-carried only as diagnostic evidence is not thereby a merge key. Two
-publications are adjacent when they share a merge key. The component they
-belong to is the connected component of that undirected publication graph, so
-overlap is transitive. This statement is conditional on a fixed set of
-publications and keys; it does not claim that arbitrarily reordering discovery
-would produce the same publications.
+admitted for reuse. The tag matters because equal numeric tokens in different
+metadata tables are not the same key. A claimed name carried only as
+diagnostic evidence is not thereby a merge key. Two publications are adjacent
+when they share a merge key. The component they belong to is the connected
+component of that undirected publication graph, so overlap is transitive. This
+statement is conditional on a fixed set of publications and keys; it does not
+claim that arbitrarily reordering discovery would produce the same
+publications.
 
-Freezing projects each connected component as follows:
+The published projection of each connected component guarantees:
 
-- Every kickoff, state-machine, and implementation index entry pointing into
-  the component returns the same immutable `Failure` instance.
+- Every kickoff, state-machine, and implementation query into the component
+  returns the same immutable `Failure` instance.
 - Each evidence array contains the distinct union of that evidence contributed
   by every publication in the component.
 - The selected `(Kind, Detail)` pair comes intact from one contributing
   publication.
 
-Those are membership and agreement properties, not ordering properties.
-`OrderedEvidence` currently emits the distinct union in first-seen publication
-order, and `FreezeRejections` currently selects `(Kind, Detail)` from the first
-publication in append order. Neither selection rule is part of C5's contract;
-consumers must not depend on evidence positions or on which contributing
-publication supplied the reason.
+Those are membership and agreement properties, not ordering or selection
+properties. Evidence order and the contributing publication chosen for the
+reason are unspecified; consumers must not depend on either.
 
 Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`,
 `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce`.
 
-All three are narrower than the invariant.
-`RejectsSharedStateMachineClaims` creates one publication and gates its shared
-projection across kickoff and state-machine indexes.
-`MergesEveryOverlappingRejection` creates two publications joined by one
-state-machine key. It gates their shared projection and the union of their
-kickoff evidence; its ordered token assertion is stronger than C5 requires.
-`ExpandsAmbiguousClaimsOnce` creates 4,000 publications. Only the first expands
-the shared claimed name to state-machine tokens; the rest can join it only
-through the registered claimed-name component. Its 4,000-kickoff evidence
-assertion therefore gates that merge-key path and accumulated kickoff
-membership.
+Together these narrower gates cover shared projection across kickoff and
+state-machine keys, direct overlap, claimed-name connectivity, unioned kickoff
+evidence, and 4,000-item accumulation. Their ordered-token assertion is
+stronger than C5 requires.
 
 Transitive closure through mixed key domains, implementation merge keys, the
 union of `ClaimedTypes`, state-machine evidence contributed by multiple
@@ -380,9 +369,8 @@ This is what keeps C1 from being self-certifying, and per C1 it is not optional
 garnish: a consumer that asked the index for both the population and the
 classification could not detect a lost row at all.
 
-Gate: `unverified` on `main`. #4835 proposes a cross-check that computes the
-population with its own walk over `reader.TypeDefinitions`, sharing no code
-with the index.
+Gate: `unverified` on `main`. #4835 proposes a raw-metadata population recount
+that shares no code with the index.
 
 ### Model
 

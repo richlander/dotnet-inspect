@@ -37,10 +37,10 @@ state machine of the construction can express.
 
 The two models also do not prove their composition. The completeness model
 treats `Rejected` as one classification; the merge model begins from rejection
-publications. The implementation must still ensure that a refused structural
-async machine is represented by a publication and projected through its
-state-machine index. Keeping that seam explicit is preferable to putting
-kickoff, state-machine, implementation, and claimed-name keys back into C1's
+publications. Implementation conformance must bridge that seam by representing
+a refused structural async machine as a publication projected through its
+state-machine query. The models keep the seam explicit rather than putting
+kickoff, state-machine, implementation, and claimed-name keys into C1's
 structural-async-machine domain.
 
 The completeness model's `result` domain corresponds only to structural async
@@ -75,7 +75,7 @@ There are two models because the invariants have different units.
 | `links` | per publication: tagged keys that connect components |
 | `payload` | per publication: contributed diagnostic evidence |
 | `claimKind`, `claimDetail` | per publication: its own failure reason |
-| `component` | per publication: union-find component identity |
+| `component` | per publication: abstract component identity |
 | `frozenEvidence` | per publication: frozen evidence membership |
 | `frozenKind`, `frozenDetail` | per publication: frozen component reason |
 
@@ -98,19 +98,16 @@ both directions of C2's cause-to-kind mapping checkable:
 misreports it. Both remain typed, so membership in the set of failure kinds is
 not enough to pass.
 
-**The publication is the unit, not the machine.** This is the correction that
-took two review rounds to reach. The implementation creates one union-find node
-per call to `PublishRejection`; one node may carry several machines, and a
-machine is only one of several identities through which nodes can connect.
+**The publication is the unit, not the machine.** One publication may carry
+several machines, and a machine is only one of several identities through which
+publications can connect.
 
-The next read found the deeper error: a publication does not merge merely
-through machines. It connects through four **tagged** domains — kickoff
-MethodDef, state-machine TypeDef, implementation MethodDef, and claimed type
-name when `RejectKickoffCandidates` registers that name for reuse. A claimed
-name carried only as evidence is not automatically a link. Equal numeric tokens
-from different domains do not collide. `links` abstracts those tagged
-identities into one finite set because their connectivity semantics are
-identical.
+A publication can connect through four **tagged** domains — kickoff MethodDef,
+state-machine TypeDef, implementation MethodDef, and claimed type name admitted
+for reuse. A claimed name carried only as evidence is not automatically a link.
+Equal numeric tokens from different domains do not collide. `links` abstracts
+those tagged identities into one finite set because their connectivity
+semantics are identical.
 
 `payload` is deliberately separate from `links`. The identities that explain
 why two rejection publications merge are not the same thing as the diagnostic
@@ -121,15 +118,13 @@ state-machine candidates, and claimed types without making their unrelated
 identities collide.
 
 Kind and detail are separate values in the model so a mutation can combine
-fields from different publications. Production captures both from one
-publication in `new(component.Kind, component.Detail)`. C5 requires that
-intact pair to come from the component and to agree across its projection; it
-deliberately does not specify which contributor wins.
+fields from different publications. C5 requires the intact pair to come from
+the component and to agree across its projection; it deliberately does not
+specify which contributor wins.
 
-Freeze has no "everything is merged" precondition. Production merges eagerly
-when publishing and performs no such check before freezing. Adding the guard
-would both invent an obligation and make `C5_ComponentsEqualGraphClosure`
-vacuous: a broken merge could never reach the state in which it is checked.
+Freeze has no "everything is merged" precondition. Adding one would invent a
+contract obligation and make `C5_ComponentsEqualGraphClosure` vacuous: a broken
+merge could never reach the state in which it is checked.
 
 ## Checked properties
 
@@ -279,8 +274,7 @@ was checking less than it appeared to.
   direction. Unrelated publications could still merge without violating any
   invariant.
 - `BrokenLocalReason.cfg` replaces an earlier first-publication-wins mutation.
-  The current implementation does select the first appended publication, but
-  no consumer needs that selection rule and no gate enforces it. The contract
+  No consumer needs that selection rule and no gate enforces it. The contract
   is that one intact component reason is shared, not which reason wins.
 - `BrokenHybridReason.cfg` replaces an atomic reason value with independently
   modeled kind and detail, so a hybrid pair can now falsify the intact-pair
@@ -291,10 +285,9 @@ was checking less than it appeared to.
   violates C1.
 
 The last two are worth generalizing from. A model can fail by idealizing the
-implementation, but it can also fail by promoting an incidental implementation
-choice into a contract. Correcting the property is not enough if the
-abstraction still conflates state domains or specifies behavior no consumer
-needs.
+system, but it can also fail by promoting an incidental mechanism into a
+contract. Correcting the property is not enough if the abstraction still
+conflates state domains or specifies behavior no consumer needs.
 
 ## Running it
 
