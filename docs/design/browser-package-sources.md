@@ -1283,6 +1283,8 @@ deadline failure.
 the configured duration for a library-owned deadline. A transport-originated
 `TimeoutException` retains the existing timeout classification without falsely
 claiming one of those owner-issued bounds, so its typed timeout detail is null.
+An elapsed owner-issued deadline still outranks a concurrent or later
+transport failure, including an inner-stream `ObjectDisposedException`.
 Caller cancellation remains an exception carrying the original caller token.
 
 After payload transfer, `PackageSourceStreamException` retains the exact
@@ -1313,12 +1315,16 @@ The implementation gates are:
 - `PackageSourceClientTests.PayloadConcurrentDisposalEofTranslatesOutstandingRead`;
 - `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesSynchronousEof`;
 - `PackageSourceClientTests.PayloadObjectDisposedFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadObjectDisposedFailurePreservesRequestDeadline`;
 - `PackageSourceClientTests.PayloadReadAfterDisposalRemainsObjectDisposed`;
   and
 - `PackageSourceClientTests.PayloadAsyncDisposalFailureRetainsSafeSourceIdentity`.
 
 `PackageSourceClientTests.GalleryConcurrentTransportFaultCannotHideTimeout`
 gates deadline precedence across concurrent Gallery page requests.
+`GalleryConcurrentTransportFaultCannotHideTransportTimeout` and
+`GalleryLateProtocolFailureCannotBecomePartial` gate the lower-precedence
+transport-timeout and protocol-failure cases.
 `PackagePayloadAcquisitionTests.TypedAcquisition_PreservesPayloadStreamTimeout`
 is the non-vacuity gate for the `DotnetInspector.Packages` stream handoff.
 `PackagePayloadAcquisitionTests.TypedCacheHit_DoesNotEscapeExpiredOperationContext`
@@ -1719,7 +1725,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3MalformedAdvertisedSearchIsTypedInvalidResponse`,
 `V3SearchWithoutAdvertisedResourceIsTypedUnsupported`,
 `V3SearchUsesLibraryDeadline`,
-`V3SearchTransportTimeoutIsTypedTimeout`,
+`V3SearchTransportTimeoutRemainsTypedTimeout`,
 `V3SearchDoesNotFailOverAuthenticationRejection`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
 `GalleryEnumerationJoinsAuthoritativeListingState`,
@@ -1747,7 +1753,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
 `GalleryCallerCancellationDuringRegistrationRemainsCancellation`,
 `GalleryCallerCancellationOutranksConcurrentRegistrationFault`,
-`GalleryFinalListingProjectionExpiresToPartial`,
+`GalleryFinalListingProjectionPreservesOperationTimeout`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
 `V3InvalidVersionMetadataIsTypedFailure`,

@@ -3122,6 +3122,56 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryConcurrentTransportFaultCannotHideTransportTimeout()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromSeconds(5),
+        };
+        var handler = new FaultAndTimeoutRegistrationHandler(
+            transportTimeout: true);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Null(failure.Timeout);
+        Assert.True(handler.FastTransportRequests > 0);
+        Assert.True(handler.StallingRequests > 0);
+    }
+
+    [Fact]
+    public async Task GalleryLateProtocolFailureCannotBecomePartial()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(20),
+            OperationTimeout = TimeSpan.FromSeconds(1),
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new LateMalformedRegistrationHandler(),
+                options);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Operation,
+                options.OperationTimeout),
+            failure.Timeout);
+    }
+
+    [Fact]
     public void GalleryFinalListingProjectionPreservesOperationTimeout()
     {
         var candidate = new PackageCandidateObservation(
@@ -4648,6 +4698,53 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task PayloadObjectDisposedFailurePreservesRequestDeadline()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(20),
+            OperationTimeout = TimeSpan.FromSeconds(1),
+        };
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new LateObjectDisposedPayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PayloadReadAfterDisposalRemainsObjectDisposed()
     {
         var handler = new RecordingHandler();
@@ -5262,6 +5359,45 @@ public sealed class PackageSourceClientTests
             throw new NotSupportedException();
     }
 
+    private sealed class LateObjectDisposedPayloadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            throw new ObjectDisposedException(
+                "https://secret.example/package");
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
     private sealed class StallingPayloadStream : Stream
     {
         public override bool CanRead => true;
@@ -5666,6 +5802,71 @@ public sealed class PackageSourceClientTests
             };
     }
 
+    private sealed class LateMalformedRegistrationHandler
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            HttpContent content =
+                request.RequestUri!.AbsoluteUri == GalleryVersions
+                    ? new StringContent(
+                        """{"versions":["1.0.0"]}""")
+                    : new StreamContent(
+                        new LateMalformedRegistrationStream());
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content,
+                });
+        }
+    }
+
+    private sealed class LateMalformedRegistrationStream : Stream
+    {
+        private bool _sent;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_sent)
+                return 0;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100));
+            buffer.Span[0] = (byte)'{';
+            _sent = true;
+            return 1;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
     private sealed class CancelableRegistrationHandler : HttpMessageHandler
     {
         public TaskCompletionSource RegistrationStarted { get; } =
@@ -5755,7 +5956,8 @@ public sealed class PackageSourceClientTests
             };
     }
 
-    private sealed class FaultAndTimeoutRegistrationHandler
+    private sealed class FaultAndTimeoutRegistrationHandler(
+        bool transportTimeout = false)
         : HttpMessageHandler
     {
         public int FastTransportRequests;
@@ -5799,6 +6001,12 @@ public sealed class PackageSourceClientTests
             }
 
             Interlocked.Increment(ref StallingRequests);
+            if (transportTimeout)
+            {
+                throw new TimeoutException(
+                    "Simulated registration transport timeout.");
+            }
+
             await Task.Delay(
                 Timeout.InfiniteTimeSpan,
                 cancellationToken);

@@ -666,13 +666,18 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         callerCancellation.ThrowIfCancellationRequested();
         operation.ThrowIfExpired();
 
-        Exception? timeout = requests
+        Exception[] failures = requests
             .Where(request => request.Exception is not null)
             .SelectMany(request =>
                 request.Exception!.Flatten().InnerExceptions)
+            .ToArray();
+        Exception? timeout = failures
             .FirstOrDefault(exception =>
                 exception is NuGetRequestTimeoutException
-                    or NuGetMetadataBodyTimeoutException);
+                    or NuGetMetadataBodyTimeoutException
+                    or NuGetOperationTimeoutException);
+        timeout ??= failures.FirstOrDefault(
+            exception => exception is TimeoutException);
         if (timeout is not null)
             ExceptionDispatchInfo.Capture(timeout).Throw();
     }

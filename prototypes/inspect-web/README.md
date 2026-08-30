@@ -89,7 +89,8 @@ selected assembly set.
    `GalleryMalformedRegistrationIsTypedPartialEnumeration`,
    `GalleryCorruptEncodedRegistrationIsTypedPartialEnumeration`,
    `GalleryIncompleteRegistrationIsTypedPartialEnumeration`, and
-   `GalleryFinalListingProjectionExpiresToPartial` gate the source contract.
+   `GalleryFinalListingProjectionPreservesOperationTimeout` gate the source
+   contract.
    `GalleryCallerCancellationDuringRegistrationRemainsCancellation` and
    `GalleryCallerCancellationOutranksConcurrentRegistrationFault` distinguish
    actual caller cancellation from optional-registration fallback.

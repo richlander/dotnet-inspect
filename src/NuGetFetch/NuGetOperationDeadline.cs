@@ -120,7 +120,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             throw;
         }
         catch (Exception ex)
-            when (IsDeadlineAbort(ex)
+            when (IsDeadlineEligibleFailure(ex)
                 && IsAnyDeadlineExpired(requestStarted, requestCancellation))
         {
             ThrowTranslatedAbort(
@@ -361,6 +361,12 @@ internal sealed class NuGetOperationDeadline : IDisposable
             and not NuGetRegistrationResourceLimitExceededException
             or HttpRequestException
             or ObjectDisposedException;
+
+    private static bool IsDeadlineEligibleFailure(Exception exception) =>
+        IsDeadlineAbort(exception)
+        || exception is TimeoutException
+            or System.Text.Json.JsonException
+            or NuGetSourceResponseException;
 
     private sealed class DeadlineStream : Stream
     {
