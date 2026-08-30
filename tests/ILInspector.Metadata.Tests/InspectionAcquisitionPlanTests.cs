@@ -879,44 +879,98 @@ public class InspectionAcquisitionPlanTests
     {
         byte[] image = SelfBytes();
         AssemblyReferenceIdentity identity = ReadIdentity(image);
+        const int DescriptorCount = 6;
+        const int ExpectedQueuedOpens = DescriptorCount - 2;
+        using var twoOpensEntered = new CountdownEvent(2);
+        using var remainingOpensQueued =
+            new CountdownEvent(ExpectedQueuedOpens);
         using var release = new ManualResetEventSlim();
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
         int entered = 0;
+        int queued = 0;
         int active = 0;
         int maximum = 0;
-        var descriptors = Enumerable.Range(0, 6)
+        var descriptors = Enumerable.Range(0, DescriptorCount)
             .Select(_ => Descriptor(
                 identity,
                 () =>
                 {
-                    Interlocked.Increment(ref entered);
+                    int entrance = Interlocked.Increment(ref entered);
                     int current = Interlocked.Increment(ref active);
                     UpdateMaximum(ref maximum, current);
-                    release.Wait();
-                    Interlocked.Decrement(ref active);
-                    return image;
+                    if (entrance <= 2)
+                        twoOpensEntered.Signal();
+                    try
+                    {
+                        release.Wait();
+                        return image;
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref active);
+                    }
                 }))
             .ToArray();
         using var plan = new InspectionAcquisitionPlan(
             new InspectionAcquisitionPlanOptions
             {
                 MaxConcurrentSourceOpens = 2,
+                TestHooks = new InspectionAcquisitionPlan.TestHooks
+                {
+                    SourceOpenWaitStarted = () =>
+                    {
+                        int wait = Interlocked.Increment(ref queued);
+                        if (wait <= ExpectedQueuedOpens)
+                            remainingOpensQueued.Signal();
+                    },
+                },
             });
 
         Task<CandidateRegistrationResult>[] tasks =
             [.. descriptors.Select(
                 descriptor => StartConcurrent(() => plan.Register(descriptor)))];
-        bool reachedLimit = SpinWait.SpinUntil(
-            () => Volatile.Read(ref entered) == 2,
-            TimeSpan.FromSeconds(5));
-        int observedMaximum = Volatile.Read(ref maximum);
-        release.Set();
-        Assert.True(reachedLimit);
-        Assert.Equal(2, observedMaximum);
-        CandidateRegistrationResult[] results = await Task.WhenAll(tasks);
+        bool reachedLimit = false;
+        bool allRemainingQueued = false;
+        int observedMaximum = 0;
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? cancellation =
+            null;
+        try
+        {
+            reachedLimit = twoOpensEntered.Wait(
+                TimeSpan.FromSeconds(5),
+                cancellationToken);
+            if (reachedLimit)
+            {
+                allRemainingQueued = remainingOpensQueued.Wait(
+                    TimeSpan.FromSeconds(5),
+                    cancellationToken);
+                observedMaximum = Volatile.Read(ref maximum);
+            }
+        }
+        catch (OperationCanceledException exception)
+        {
+            cancellation =
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(
+                    exception);
+        }
+        finally
+        {
+            release.Set();
+        }
 
+        CandidateRegistrationResult[] results =
+            await Task.WhenAll(tasks);
+        cancellation?.Throw();
+
+        Assert.True(reachedLimit);
+        Assert.True(allRemainingQueued);
+        Assert.Equal(2, observedMaximum);
         Assert.All(
             results,
             result => Assert.IsType<CandidateRegistrationResult.Ready>(result));
+        Assert.Equal(descriptors.Length, entered);
+        Assert.Equal(ExpectedQueuedOpens, queued);
         Assert.Equal(2, maximum);
     }
 

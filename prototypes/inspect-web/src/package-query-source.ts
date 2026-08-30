@@ -1,0 +1,377 @@
+import type {
+  BrowserPackageQueryEvent,
+  BrowserPackageQueryFacetCatalog,
+  BrowserPackageQueryFacetDescriptor,
+  BrowserPackageQueryCompletion,
+  BrowserPackageQueryFailure,
+  BrowserPackageQueryRow,
+} from "./inspect-web-engine.d.ts";
+import type {
+  PackageQueryDataSource,
+  QueryFacetTerm,
+  QueryResultRow,
+  TerminalQueryCompletion,
+} from "./package-query.ts";
+
+export interface BrowserPackageQueryEngine {
+  cancel(): void;
+  run(
+    prefix: string,
+    facetIdsJson: string,
+    maximumCandidates: number,
+    maximumMatches: number,
+    includePrerelease: boolean,
+    eventSink: unknown,
+  ): Promise<BrowserPackageQueryEvent>;
+}
+
+export function packageQueryFacets(
+  catalog: BrowserPackageQueryFacetCatalog,
+): QueryFacetTerm[] {
+  return catalog.facets.map(toQueryFacet);
+}
+
+function toQueryFacet(
+  descriptor: BrowserPackageQueryFacetDescriptor,
+): QueryFacetTerm {
+  if (descriptor.tier !== "Nuspec") {
+    throw new Error(
+      `Unsupported package-query facet tier '${String(descriptor.tier)}'.`);
+  }
+  return {
+    key: descriptor.id,
+    label: descriptor.label,
+    summary: descriptor.summary,
+    weight: descriptor.weight,
+    tier: "nuspec",
+    selectionGroupId: descriptor.selectionGroupId,
+  };
+}
+
+export function createBrowserPackageQueryDataSource(
+  engine: BrowserPackageQueryEngine,
+): PackageQueryDataSource {
+  return {
+    async run(request, onPage, onFailure, abortSignal) {
+      if (abortSignal.aborted) return { kind: "cancelled" };
+
+      let completion: TerminalQueryCompletion | null = null;
+      const eventSink: Record<string, unknown> = {};
+      Object.defineProperty(eventSink, "event", {
+        set(value: unknown) {
+          if (typeof value !== "string") {
+            throw new TypeError(
+              "The Browser package-query event payload was not JSON text.");
+          }
+          dispatchEvent(
+            parseBrowserEvent(value),
+            onPage,
+            onFailure,
+            terminal => { completion = terminal; });
+        },
+      });
+
+      const cancel = () => engine.cancel();
+      abortSignal.addEventListener("abort", cancel, { once: true });
+      try {
+        const finalEvent = await engine.run(
+          request.scopeQuery,
+          JSON.stringify(request.facets.map(facet => facet.key)),
+          request.requestedLimit,
+          request.requestedMatchLimit,
+          false,
+          eventSink);
+        if (abortSignal.aborted) return { kind: "cancelled" };
+        if (!completion) {
+          dispatchEvent(
+            finalEvent,
+            onPage,
+            onFailure,
+            terminal => { completion = terminal; });
+        }
+        return completion
+          ?? {
+            kind: "failed",
+            reason:
+              "The Browser package-query stream ended without a completion event.",
+          };
+      } catch (error) {
+        if (abortSignal.aborted) return { kind: "cancelled" };
+        throw error;
+      } finally {
+        abortSignal.removeEventListener("abort", cancel);
+      }
+    },
+  };
+}
+
+function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
+  const parsed: unknown = JSON.parse(json);
+  const event = objectValue(parsed, "package-query event");
+  switch (event.kind) {
+    case "Match":
+      return {
+        kind: "Match",
+        row: parseRow(event.row),
+        failure: null,
+        completion: null,
+      };
+    case "Failure":
+      return {
+        kind: "Failure",
+        row: null,
+        failure: parseFailure(event.failure),
+        completion: null,
+      };
+    case "Completed":
+      return {
+        kind: "Completed",
+        row: null,
+        failure: null,
+        completion: parseCompletion(event.completion),
+      };
+    default:
+      throw new TypeError(
+        `Unknown Browser package-query event '${String(event.kind)}'.`);
+  }
+}
+
+function objectValue(
+  value: unknown,
+  description: string,
+): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError(`The Browser ${description} was not an object.`);
+  }
+  return Object.fromEntries(Object.entries(value));
+}
+
+function stringValue(value: unknown, description: string): string {
+  if (typeof value !== "string") {
+    throw new TypeError(`The Browser ${description} was not text.`);
+  }
+  return value;
+}
+
+function nullableStringValue(
+  value: unknown,
+  description: string,
+): string | null {
+  return value === null ? null : stringValue(value, description);
+}
+
+function numberValue(value: unknown, description: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError(`The Browser ${description} was not a finite number.`);
+  }
+  return value;
+}
+
+function booleanValue(value: unknown, description: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new TypeError(`The Browser ${description} was not a boolean.`);
+  }
+  return value;
+}
+
+function parseRow(value: unknown): BrowserPackageQueryRow {
+  const row = objectValue(value, "package-query row");
+  if (!Array.isArray(row.evidence)) {
+    throw new TypeError(
+      "The Browser package-query row evidence was not an array.");
+  }
+  return {
+    packageId: stringValue(row.packageId, "package-query package ID"),
+    version: stringValue(row.version, "package-query version"),
+    tier: facetTierValue(row.tier),
+    evidence: row.evidence.map(item => {
+      const evidence = objectValue(item, "package-query evidence");
+      return {
+        id: stringValue(evidence.id, "package-query evidence ID"),
+        text: stringValue(evidence.text, "package-query evidence text"),
+      };
+    }),
+    totalDownloads: numberValue(
+      row.totalDownloads,
+      "package-query download count"),
+    verified: booleanValue(row.verified, "package-query verification flag"),
+    producer: stringValue(row.producer, "package-query producer"),
+  };
+}
+
+function parseFailure(value: unknown): BrowserPackageQueryFailure {
+  const failure = objectValue(value, "package-query failure");
+  return {
+    packageId: nullableStringValue(
+      failure.packageId,
+      "package-query failure package ID"),
+    version: nullableStringValue(
+      failure.version,
+      "package-query failure version"),
+    producer: stringValue(failure.producer, "package-query failure producer"),
+    kind: failureKindValue(failure.kind),
+    message: stringValue(failure.message, "package-query failure message"),
+  };
+}
+
+function parseCompletion(value: unknown): BrowserPackageQueryCompletion {
+  const completion = objectValue(value, "package-query completion");
+  return {
+    prefix: stringValue(completion.prefix, "package-query completion prefix"),
+    producer: stringValue(
+      completion.producer,
+      "package-query completion producer"),
+    candidateLimit: numberValue(
+      completion.candidateLimit,
+      "package-query candidate limit"),
+    matchLimit: numberValue(
+      completion.matchLimit,
+      "package-query match limit"),
+    candidates: numberValue(
+      completion.candidates,
+      "package-query candidate count"),
+    matches: numberValue(completion.matches, "package-query match count"),
+    failures: numberValue(completion.failures, "package-query failure count"),
+    kind: completionKindValue(completion.kind),
+  };
+}
+
+function facetTierValue(
+  value: unknown,
+): BrowserPackageQueryRow["tier"] {
+  if (value === "Nuspec") return value;
+  throw new TypeError(
+    `Unsupported package-query row tier '${String(value)}'.`);
+}
+
+function failureKindValue(
+  value: unknown,
+): BrowserPackageQueryFailure["kind"] {
+  switch (value) {
+    case "Search":
+    case "SearchContract":
+    case "ManifestAcquisition":
+    case "ManifestContract":
+    case "InvalidManifest":
+      return value;
+    default:
+      throw new TypeError(
+        `Unknown package-query failure kind '${String(value)}'.`);
+  }
+}
+
+function completionKindValue(
+  value: unknown,
+): BrowserPackageQueryCompletion["kind"] {
+  switch (value) {
+    case "Exhausted":
+    case "MatchLimitReached":
+    case "CandidateLimitReached":
+    case "SourcePageLimitReached":
+    case "ClientPageLimitReached":
+    case "Failed":
+      return value;
+    default:
+      throw new TypeError(
+        `Unknown package-query completion '${String(value)}'.`);
+  }
+}
+
+function dispatchEvent(
+  queryEvent: BrowserPackageQueryEvent,
+  onPage: (rows: readonly QueryResultRow[]) => void,
+  onFailure: (failure: string) => void,
+  onCompleted: (completion: TerminalQueryCompletion) => void,
+): void {
+  switch (queryEvent.kind) {
+    case "Match":
+      if (!queryEvent.row) {
+        throw new TypeError("A package-query match event contained no row.");
+      }
+      onPage([toQueryRow(queryEvent.row)]);
+      return;
+    case "Failure":
+      if (!queryEvent.failure) {
+        throw new TypeError(
+          "A package-query failure event contained no failure.");
+      }
+      onFailure(formatFailure(queryEvent.failure));
+      return;
+    case "Completed":
+      if (!queryEvent.completion) {
+        throw new TypeError(
+          "A package-query completion event contained no summary.");
+      }
+      onCompleted(toTerminalCompletion(queryEvent.completion));
+      return;
+    default:
+      throw new TypeError(
+        `Unknown Browser package-query event '${String(queryEvent.kind)}'.`);
+  }
+}
+
+function toQueryRow(
+  row: NonNullable<BrowserPackageQueryEvent["row"]>,
+): QueryResultRow {
+  if (row.tier !== "Nuspec") {
+    throw new TypeError(
+      `Unsupported package-query row tier '${String(row.tier)}'.`);
+  }
+  const evidence = row.evidence.map(item => item.text);
+  if (!evidence.length) {
+    throw new TypeError("A package-query row contained no evidence.");
+  }
+  return {
+    packageId: row.packageId,
+    version: row.version,
+    tier: "nuspec",
+    evidence: [evidence[0]!, ...evidence.slice(1)],
+    totalDownloads: row.totalDownloads,
+    producer: row.producer,
+  };
+}
+
+function formatFailure(failure: BrowserPackageQueryFailure): string {
+  const coordinate = failure.packageId
+    ? `${failure.packageId}${failure.version ? `@${failure.version}` : ""}`
+    : failure.producer;
+  return `${coordinate}: ${failure.message}`;
+}
+
+function toTerminalCompletion(
+  completion: NonNullable<BrowserPackageQueryEvent["completion"]>,
+): TerminalQueryCompletion {
+  switch (completion.kind) {
+    case "Exhausted":
+      return { kind: "exhausted" };
+    case "MatchLimitReached":
+      return {
+        kind: "bounded",
+        reason: `first ${completion.matchLimit.toLocaleString()} matches`,
+      };
+    case "CandidateLimitReached":
+      return {
+        kind: "bounded",
+        reason:
+          `first ${completion.candidateLimit.toLocaleString()} candidates`,
+      };
+    case "SourcePageLimitReached":
+      return {
+        kind: "bounded",
+        reason: "the source page limit",
+      };
+    case "ClientPageLimitReached":
+      return {
+        kind: "bounded",
+        reason: "the client page limit",
+      };
+    case "Failed":
+      return {
+        kind: "failed",
+        reason: "The package source failed before returning a usable profile.",
+      };
+    default:
+      throw new TypeError(
+        `Unknown package-query completion '${String(completion.kind)}'.`);
+  }
+}
