@@ -61,24 +61,36 @@ internal sealed class MatchDiscoveryNames
     FieldLayout = FieldLayout.Table)]
 public class MatchDiscoveryView
 {
-    [MarkoutIgnore] public string Title { get; set; } = "";
-    [MarkoutIgnore] [MarkoutSkipNull] public string? Description { get; set; }
+    // Every string column is contained on the way in. Seed, Scope, Title, and
+    // CandidateAssembly carry inspected-assembly names and paths; the rest are
+    // tool-composed, and containing them too keeps the rule uniform rather than
+    // asking each new column to justify an exemption.
+    [MarkoutIgnore]
+    public string Title { get => field; set => field = Contain(value); } = "";
 
-    public string Seed { get; set; } = "";
+    [MarkoutIgnore]
+    [MarkoutSkipNull]
+    public string? Description { get => field; set => field = ContainOptional(value); }
 
-    public string Scope { get; set; } = "";
+    public string Seed { get => field; set => field = Contain(value); } = "";
 
-    [MarkoutSkipNull] public string? CandidateAssembly { get; set; }
+    public string Scope { get => field; set => field = Contain(value); } = "";
 
-    public string Disposition { get; set; } = "";
+    [MarkoutSkipNull]
+    public string? CandidateAssembly { get => field; set => field = ContainOptional(value); }
 
-    [MarkoutSkipNull] public string? SeedBody { get; set; }
+    public string Disposition { get => field; set => field = Contain(value); } = "";
 
-    public string Limits { get; set; } = "";
+    [MarkoutSkipNull]
+    public string? SeedBody { get => field; set => field = ContainOptional(value); }
 
-    [MarkoutSkipNull] public string? Receipt { get; set; }
+    public string Limits { get => field; set => field = Contain(value); } = "";
 
-    [MarkoutSkipNull] public string? Showing { get; set; }
+    [MarkoutSkipNull]
+    public string? Receipt { get => field; set => field = ContainOptional(value); }
+
+    [MarkoutSkipNull]
+    public string? Showing { get => field; set => field = ContainOptional(value); }
 
     [MarkoutSection(Name = "Blockers")]
     [MarkoutSkipNull]
@@ -87,11 +99,18 @@ public class MatchDiscoveryView
     [MarkoutSection(Name = "Ranked Candidates")]
     [MarkoutSkipNull]
     public List<MatchDiscoveryCandidateRow>? Candidates { get; set; }
+
+    private static string Contain(string value) => CSharpIdentifier.ContainRenderedText(value);
+
+    private static string? ContainOptional(string? value) =>
+        value is null ? null : CSharpIdentifier.ContainRenderedText(value);
 }
 
 [MarkoutSerializable]
 public record MatchDiscoveryBlockerRow(string Kind, string Detail)
 {
+    public string Kind { get; init; } = CSharpIdentifier.ContainRenderedText(Kind);
+
     /// <summary>Untrusted producer detail is contained here. See <see cref="Detail"/>.</summary>
     public string Detail { get; init; } = CSharpIdentifier.ContainRenderedText(Detail);
 }
@@ -101,16 +120,30 @@ public record MatchDiscoveryBlockerRow(string Kind, string Detail)
 /// this projection performs no arithmetic on them.
 /// </summary>
 [MarkoutSerializable]
-public record MatchDiscoveryCandidateRow(
-    int Rank,
-    string Member,
-    string Token,
-    int Score,
-    int Operations,
-    int Position,
-    int Blocks,
-    int Edges,
-    int Locals);
+// Declared as explicit properties rather than positional parameters because
+// containing a positional parameter requires redeclaring it in the body, which
+// moves that column to the end of the rendered table.
+public record MatchDiscoveryCandidateRow
+{
+    public int Rank { get; init; }
+
+    /// <summary>Projected from inspected metadata, so it is contained here.</summary>
+    public string Member { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public string Token { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public int Score { get; init; }
+
+    public int Operations { get; init; }
+
+    public int Position { get; init; }
+
+    public int Blocks { get; init; }
+
+    public int Edges { get; init; }
+
+    public int Locals { get; init; }
+}
 
 /// <summary>
 /// Complete structured evidence for one seeded retrieval. Every query-returned candidate, outcome,
@@ -288,16 +321,18 @@ internal static class MatchDiscoveryFormatter
                 ? candidates.Take(top)
                 : candidates;
             view.Candidates = shown
-                .Select(candidate => new MatchDiscoveryCandidateRow(
-                    candidate.Rank,
-                    names.Display(candidate.Method.Token),
-                    $"0x{candidate.Method.Token:X8}",
-                    candidate.Similarity.Score,
-                    candidate.Similarity.OperationScore,
-                    candidate.Similarity.PositionScore,
-                    candidate.Similarity.BlockScore,
-                    candidate.Similarity.EdgeScore,
-                    candidate.Similarity.LocalScore))
+                .Select(candidate => new MatchDiscoveryCandidateRow
+                {
+                    Rank = candidate.Rank,
+                    Member = names.Display(candidate.Method.Token),
+                    Token = $"0x{candidate.Method.Token:X8}",
+                    Score = candidate.Similarity.Score,
+                    Operations = candidate.Similarity.OperationScore,
+                    Position = candidate.Similarity.PositionScore,
+                    Blocks = candidate.Similarity.BlockScore,
+                    Edges = candidate.Similarity.EdgeScore,
+                    Locals = candidate.Similarity.LocalScore,
+                })
                 .ToList();
 
             if (request.Top is int limit && candidates.Length > limit)
