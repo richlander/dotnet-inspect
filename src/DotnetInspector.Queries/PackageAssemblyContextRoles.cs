@@ -406,7 +406,10 @@ public sealed class PackageAssemblyContextRoles : IDisposable
                         AssemblyBindingFailureKind.InvalidPolicyResult));
             }
             if (request.Scope == AssemblyResolutionScope.Platform)
-                return AssemblyBindingSelection.NotFound();
+            {
+                return AssemblyBindingSelection.NotFound(
+                    AssemblyBindingMissDisposition.NoNameOwner);
+            }
 
             ImmutableArray<ResolvedAssemblyReference> matches =
             [
@@ -416,7 +419,14 @@ public sealed class PackageAssemblyContextRoles : IDisposable
             ];
             return matches.Length switch
             {
-                0 => AssemblyBindingSelection.NotFound(),
+                0 => AssemblyBindingSelection.NotFound(
+                    assemblies.Any(assembly =>
+                        string.Equals(
+                            assembly.Identity.Name,
+                            reference.Identity.Name,
+                            StringComparison.OrdinalIgnoreCase))
+                        ? AssemblyBindingMissDisposition.NameOwnedNoMatch
+                        : AssemblyBindingMissDisposition.NoNameOwner),
                 1 => AssemblyBindingSelection.Found(matches[0]),
                 _ => AssemblyBindingSelection.Multiple(matches),
             };

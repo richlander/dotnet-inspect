@@ -620,7 +620,7 @@ public class TypeResolutionContextTests
     }
 
     [Fact]
-    public void UnresolvedBindingKey_PreservesEveryBindingCoordinate()
+    public void UnresolvedBindingKey_PreservesEveryApplicableBindingCoordinate()
     {
         byte[] firstOwnerImage =
             BuildAssembly("FirstOwner", definesType: false);
@@ -699,10 +699,6 @@ public class TypeResolutionContextTests
                 target,
                 firstOrigin,
                 AssemblyResolutionScope.Platform,
-                TypeName()),
-            TypeResolutionRequest.FromCoreLibrary(
-                firstOwner,
-                AssemblyResolutionScope.Any,
                 TypeName()),
         ];
         TypeResolutionRequest[] requests =
@@ -1815,6 +1811,153 @@ public class TypeResolutionContextTests
         Assert.Single(policy.Requests);
     }
 
+    [Theory]
+    [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
+    [InlineData(AssemblyBindingMissDisposition.NoNameOwner)]
+    [InlineData(AssemblyBindingMissDisposition.NameOwnedNoMatch)]
+    public void AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse(
+        AssemblyBindingMissDisposition disposition)
+    {
+        ResolvedAssemblyReference owner =
+            Descriptor(BuildAssembly("Owner", definesType: false));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Target")),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.NotFound(disposition));
+        using var catalog = new TypeResolutionCatalog();
+
+        using TypeResolutionContext first = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+        using TypeResolutionContext second = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        Assert.Equal(
+            disposition,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                first.Bind(binding)).Disposition);
+        Assert.Equal(
+            disposition,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                second.Bind(binding)).Disposition);
+        Assert.Single(policy.Requests);
+    }
+
+    [Fact]
+    public void AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition()
+    {
+        ResolvedAssemblyReference owner =
+            Descriptor(BuildAssembly("Owner", definesType: false));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(Identity("Target")),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new MutableMissPolicy(
+            AssemblyBindingMissDisposition.NoNameOwner);
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext first = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                first.Bind(binding)).Disposition);
+
+        policy.Replace(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch);
+        using TypeResolutionContext second = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                first.Bind(binding)).Disposition);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                second.Bind(binding)).Disposition);
+        Assert.Equal(2, policy.CallCount);
+    }
+
+    [Fact]
+    public void AssemblyBindingMissDisposition_OriginScopesRemainDistinct()
+    {
+        ResolvedAssemblyReference owner =
+            Descriptor(BuildAssembly("Owner", definesType: false));
+        AssemblyBindingTarget target =
+            AssemblyBindingTarget.Reference(Identity("Target"));
+        var global = new AssemblyBindingRequest(
+            target,
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var requesting = new AssemblyBindingRequest(
+            target,
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            request => AssemblyBindingSelection.NotFound(
+                request.Origin is AssemblyBindingOrigin.GlobalOrigin
+                    ? AssemblyBindingMissDisposition.NoNameOwner
+                    : AssemblyBindingMissDisposition.NameOwnedNoMatch));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [global, requesting],
+            requests: []);
+
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                context.Bind(global)).Disposition);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NameOwnedNoMatch,
+            Assert.IsType<AssemblyBindingOutcome.Missing>(
+                context.Bind(requesting)).Disposition);
+        Assert.Equal(2, policy.Requests.Count);
+    }
+
+    [Fact]
+    public void IntrinsicBindingMiss_IsRejectedBeforeFreezing()
+    {
+        ResolvedAssemblyReference owner =
+            Descriptor(BuildAssembly("Owner", definesType: false));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Platform);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.NotFound(
+                AssemblyBindingMissDisposition.NoNameOwner));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context = catalog.CreateContext(
+            policy,
+            roots: [owner],
+            bindingRequests: [binding],
+            requests: []);
+
+        var rejected = Assert.IsType<AssemblyBindingOutcome.Rejected>(
+            context.Bind(binding));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.InvalidPolicyResult,
+            rejected.Failure.Kind);
+        Assert.Single(policy.Requests);
+    }
+
     [Fact]
     public void BindingFailure_PreservesShadowsWithoutOpeningThem()
     {
@@ -2847,6 +2990,30 @@ public class TypeResolutionContextTests
             CallCount++;
             Version = new AssemblyBindingPolicyVersion();
             return AssemblyBindingSelection.NotFound();
+        }
+    }
+
+    sealed class MutableMissPolicy(
+        AssemblyBindingMissDisposition disposition) : IAssemblyBindingPolicy
+    {
+        AssemblyBindingMissDisposition _disposition = disposition;
+
+        public AssemblyBindingPolicyVersion Version { get; private set; } =
+            new();
+        public int CallCount { get; private set; }
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            CallCount++;
+            return AssemblyBindingSelection.NotFound(_disposition);
+        }
+
+        internal void Replace(
+            AssemblyBindingMissDisposition replacement)
+        {
+            _disposition = replacement;
+            Version = new AssemblyBindingPolicyVersion();
         }
     }
 }

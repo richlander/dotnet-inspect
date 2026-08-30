@@ -20,7 +20,8 @@ public sealed class NoResolverAssemblyBindingPolicy : IAssemblyBindingPolicy
         return request.Target switch
         {
             AssemblyBindingTarget.AssemblyReference =>
-                AssemblyBindingSelection.NotFound(),
+                AssemblyBindingSelection.NotFound(
+                    AssemblyBindingMissDisposition.NoNameOwner),
             AssemblyBindingTarget.IntrinsicCoreLibrary =>
                 AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(

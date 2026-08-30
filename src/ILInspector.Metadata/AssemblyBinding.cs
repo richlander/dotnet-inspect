@@ -13,6 +13,30 @@ public enum AssemblyBindingFailureKind
 }
 
 /// <summary>
+/// States whether a missing assembly-reference answer permits another policy
+/// tier to be evaluated.
+/// </summary>
+public enum AssemblyBindingMissDisposition
+{
+    /// <summary>
+    /// Legacy or otherwise unattested miss. Composition must treat it as
+    /// terminal.
+    /// </summary>
+    Undifferentiated,
+
+    /// <summary>
+    /// The policy attests that its complete eligible inventory has no owner
+    /// for the requested simple name.
+    /// </summary>
+    NoNameOwner,
+
+    /// <summary>
+    /// The policy owns the requested simple name but found no identity match.
+    /// </summary>
+    NameOwnedNoMatch,
+}
+
+/// <summary>
 /// Structured policy diagnostic carried by unavailable or rejected binding
 /// selections. It describes policy or acquisition state, not type lookup.
 /// </summary>
@@ -203,7 +227,10 @@ public abstract class AssemblyBindingSelection
     }
 
     /// <summary>Reports that policy found no candidate.</summary>
-    public static AssemblyBindingSelection NotFound() => new Missing();
+    public static AssemblyBindingSelection NotFound(
+        AssemblyBindingMissDisposition disposition =
+            AssemblyBindingMissDisposition.Undifferentiated) =>
+        new Missing(disposition);
 
     /// <summary>
     /// Reports that policy understood the request but could not select a
@@ -242,6 +269,26 @@ public abstract class AssemblyBindingSelection
     }
 
     /// <summary>
+    /// Validates a policy answer against the original target before a wrapper
+    /// or Metadata adapter interprets it.
+    /// </summary>
+    public static AssemblyBindingSelection ValidateForRequest(
+        AssemblyBindingRequest request,
+        AssemblyBindingSelection? selection)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return selection is null
+            || selection is Missing
+            && request.Target
+                is not AssemblyBindingTarget.AssemblyReference
+            ? Invalid(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidPolicyResult))
+            : selection;
+    }
+
+    /// <summary>
     /// A policy selection containing one descriptor and inactive shadow
     /// evidence.
     /// </summary>
@@ -265,9 +312,15 @@ public abstract class AssemblyBindingSelection
     /// <summary>A policy selection with no matching descriptor.</summary>
     public sealed class Missing : AssemblyBindingSelection
     {
-        internal Missing()
+        internal Missing(AssemblyBindingMissDisposition disposition)
         {
+            if (!Enum.IsDefined(disposition))
+                throw new ArgumentOutOfRangeException(nameof(disposition));
+
+            Disposition = disposition;
         }
+
+        public AssemblyBindingMissDisposition Disposition { get; }
     }
 
     /// <summary>
@@ -354,11 +407,14 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
     {
         try
         {
-            return request.Target switch
+            AssemblyBindingSelection selection = request.Target switch
             {
                 AssemblyBindingTarget.AssemblyReference reference =>
-                    _bindingPolicy?.Select(request)
-                    ?? SelectReference(reference.Identity, request.Scope),
+                    _bindingPolicy is null
+                        ? SelectReference(
+                            reference.Identity,
+                            request.Scope)
+                        : _bindingPolicy.Select(request),
                 AssemblyBindingTarget.IntrinsicCoreLibrary =>
                     AssemblyBindingSelection.CannotSelect(
                         new AssemblyBindingFailure(
@@ -367,6 +423,9 @@ public sealed class AssemblyReferenceBindingPolicy : IAssemblyBindingPolicy
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.InvalidPolicyResult)),
             };
+            return AssemblyBindingSelection.ValidateForRequest(
+                request,
+                selection);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -459,9 +518,15 @@ public abstract class AssemblyBindingOutcome
     /// <summary>The policy found no candidate.</summary>
     public sealed class Missing : AssemblyBindingOutcome
     {
-        internal Missing()
+        internal Missing(AssemblyBindingMissDisposition disposition)
         {
+            if (!Enum.IsDefined(disposition))
+                throw new ArgumentOutOfRangeException(nameof(disposition));
+
+            Disposition = disposition;
         }
+
+        public AssemblyBindingMissDisposition Disposition { get; }
     }
 
     /// <summary>

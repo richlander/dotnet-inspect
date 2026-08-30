@@ -287,7 +287,9 @@ public sealed partial class AssemblyDependencyResolver :
                 {
                     return new AssemblyResolutionAttempt(
                         Assembly: null,
-                        candidateFailure);
+                        candidateFailure,
+                        MissDisposition:
+                            AssemblyBindingMissDisposition.NameOwnedNoMatch);
                 }
             }
             activeTier = tier;
@@ -322,7 +324,9 @@ public sealed partial class AssemblyDependencyResolver :
         {
             return new AssemblyResolutionAttempt(
                 Assembly: null,
-                candidateFailure);
+                candidateFailure,
+                MissDisposition:
+                    AssemblyBindingMissDisposition.NameOwnedNoMatch);
         }
 
         // The target may reference an older platform contract than the running
@@ -335,8 +339,10 @@ public sealed partial class AssemblyDependencyResolver :
             || scope == AssemblyResolutionScope.Any
                 && _options.IncludeInstalledPlatformFallback
                 && activeTier is null;
-        if (useInstalledPlatformFallback
-            && PlatformResolver.IsPlatformCandidate(identity.Name))
+        bool installedPlatformOwnsName =
+            useInstalledPlatformFallback
+            && PlatformResolver.IsPlatformCandidate(identity.Name);
+        if (installedPlatformOwnsName)
         {
             var (path, framework, _, _) =
                 _options.PreferImplementationAssemblies
@@ -375,7 +381,11 @@ public sealed partial class AssemblyDependencyResolver :
 
         return new AssemblyResolutionAttempt(
             Assembly: null,
-            candidateFailure);
+            candidateFailure,
+            MissDisposition: activeTier is not null
+                || installedPlatformOwnsName
+                    ? AssemblyBindingMissDisposition.NameOwnedNoMatch
+                    : AssemblyBindingMissDisposition.NoNameOwner);
     }
 
     AssemblyResolutionAttempt? ResolveDesignatedOverlay(
@@ -605,7 +615,9 @@ public sealed partial class AssemblyDependencyResolver :
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
                     candidateFailure))
-            : AssemblyBindingSelection.NotFound();
+            : AssemblyBindingSelection.NotFound(
+                attempt.MissDisposition
+                    ?? AssemblyBindingMissDisposition.Undifferentiated);
     }
 
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
@@ -865,7 +877,8 @@ public sealed partial class AssemblyDependencyResolver :
         ResolvedAssemblyReference? Assembly,
         CandidateOpenFailureKind? CandidateFailure,
         ImmutableArray<ResolvedAssemblyReference> ShadowedAssemblies = default,
-        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default);
+        ImmutableArray<ResolvedAssemblyReference> AmbiguousAssemblies = default,
+        AssemblyBindingMissDisposition? MissDisposition = null);
 
     readonly record struct AssemblyDescriptorKey(
         string Path,

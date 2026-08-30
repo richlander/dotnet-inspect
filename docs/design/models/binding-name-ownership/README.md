@@ -5,7 +5,7 @@ This TLA+ model is the executable interaction companion to
 It checks how one binding policy composes two already-issued tier results and
 then freezes the selected result for Metadata-owned reuse.
 
-The model answers four focused questions:
+The model answers six focused questions:
 
 - Can any result other than `NoNameOwner` invoke the next tier?
 - Does `NameOwnedNoMatch` remain authoritative?
@@ -48,9 +48,28 @@ precedence; complete eligible candidate domains; or workspace lifecycle.
 Atomic association between an answer and its governing policy version belongs
 to #5213 and is outside this model. The #5214 composition handoff may consume
 `NoNameOwner`, but its candidate-domain semantics are also outside this model.
-TLC results establish properties of this bounded state machine, not of the
-shipped implementation. Formal model-to-implementation correspondence is
-unverified.
+TLC results establish properties of this bounded state machine. The following
+Release tests enforce the corresponding product behavior:
+
+| Model mutation | Product correspondence gate |
+| --- | --- |
+| Owned miss falls through | `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner` |
+| Legacy miss falls through | `AssemblyBindingMissDisposition_UndifferentiatedLegacyMissFailsClosed` |
+| Target-invalid miss is hidden | `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition` and `IntrinsicBindingMiss_IsRejectedBeforeFreezing` |
+| Composite reports no owner before exhaustion | `AssemblyBindingMissDisposition_CompleteExhaustionRequired` |
+| Request-eligible tier is omitted | **Unverified:** #5216 must supply workspace-owned completeness evidence independent of the configured chain. |
+| Frozen disposition is collapsed | `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` |
+
+`ValidateForRequest_PreservesNonMissingSelectionKinds` is the close negative
+gate: target validation leaves selected, ambiguous, unavailable, rejected, and
+valid assembly-reference miss answers unchanged. The concrete
+`AssemblyDependencyResolver` ownership attestations are covered by
+`Select_CompleteInventoryWithoutNameOwnerReportsNoNameOwner` and
+`Select_ReadableMismatchingSiblingShadowsInstalledPlatformFallback`.
+`AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition`
+proves that a new observed policy version refreshes the frozen disposition;
+issue #5213 still owns composite child-version propagation and atomic
+answer/version association.
 
 ## Checked configurations
 

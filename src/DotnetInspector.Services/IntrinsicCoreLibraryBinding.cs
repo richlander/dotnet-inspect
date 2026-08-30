@@ -37,7 +37,16 @@ static class IntrinsicCoreLibraryBinding
                 in CoreLibraryReferences(reader))
             {
                 AssemblyBindingSelection selection =
-                    selectReference(facade);
+                    selectReference(facade)
+                    ?? AssemblyBindingSelection.Invalid(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.InvalidPolicyResult));
+                if (selection is AssemblyBindingSelection.Missing)
+                {
+                    return AssemblyBindingSelection.Invalid(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.InvalidPolicyResult));
+                }
                 if (selection is AssemblyBindingSelection.Selected
                     or AssemblyBindingSelection.Ambiguous)
                 {

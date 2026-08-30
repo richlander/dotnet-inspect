@@ -572,7 +572,9 @@ public sealed class CallerScopeReachabilityPlan
             if (request.Target
                 is not AssemblyBindingTarget.AssemblyReference reference)
             {
-                return _fallback.Select(request);
+                return AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    _fallback.Select(request));
             }
 
             if (_target.Identity == reference.Identity)
@@ -586,7 +588,9 @@ public sealed class CallerScopeReachabilityPlan
                 // Keep a skewed caller as indeterminate unless the supplied
                 // policy explicitly rolls its reference to the selected target.
                 AssemblyBindingSelection fallback =
-                    _fallback.Select(request);
+                    AssemblyBindingSelection.ValidateForRequest(
+                        request,
+                        _fallback.Select(request));
                 if (fallback
                         is AssemblyBindingSelection.Selected selected
                     && selected.Assembly.Identity == _target.Identity)
@@ -604,7 +608,9 @@ public sealed class CallerScopeReachabilityPlan
                 .ToImmutableArray();
             return matches.Length switch
             {
-                0 => _fallback.Select(request),
+                0 => AssemblyBindingSelection.ValidateForRequest(
+                    request,
+                    _fallback.Select(request)),
                 1 => AssemblyBindingSelection.Found(matches[0]),
                 _ => AssemblyBindingSelection.Multiple(matches),
             };

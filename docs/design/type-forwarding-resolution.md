@@ -1000,14 +1000,10 @@ public abstract class AssemblyBindingSelection
         ResolvedAssemblyReference assembly) =>
         new Selected(assembly);
 
-    public static AssemblyBindingSelection NotFound() =>
-        new Missing(AssemblyBindingMissDisposition.Undifferentiated);
-
-    public static AssemblyBindingSelection NameNotOwned() =>
-        new Missing(AssemblyBindingMissDisposition.NoNameOwner);
-
-    public static AssemblyBindingSelection NameOwnedButNoMatch() =>
-        new Missing(AssemblyBindingMissDisposition.NameOwnedNoMatch);
+    public static AssemblyBindingSelection NotFound(
+        AssemblyBindingMissDisposition disposition =
+            AssemblyBindingMissDisposition.Undifferentiated) =>
+        new Missing(disposition);
 
     public static AssemblyBindingSelection CannotSelect(
         AssemblyBindingFailure failure) =>
@@ -3681,7 +3677,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
   private-protected abstract discriminators close the synthesized record copy
   constructor path.
 - An external fake `IAssemblyBindingPolicy` can return every public descriptor
-  selection through factories but cannot construct catalog candidates.
+  selection through the public factory methods but cannot construct catalog
+  candidates.
 - An external fake policy receives and distinguishes explicit reference and
   intrinsic-core-library binding targets; no core-library identity is
   synthesized.
@@ -3691,18 +3688,22 @@ Claim: direct callers and transitive call graphs share one definition identity.
   factories.
 - `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition`
   returns each public missing result from a first tier for an
-  intrinsic-core-library request while a second tier could select. Every
-  wrapper and composite returns `Rejected(InvalidPolicyResult)` without
-  invoking that second tier, and Metadata applies the same rule to a direct
-  final result.
-- `AssemblyBindingMissDisposition_OnlyNoNameOwnerContinues` derives every
-  two-tier result pair from one declaration and proves that only
-  `NoNameOwner` invokes the next tier; selected, ambiguous, unavailable,
-  rejected, `NameOwnedNoMatch`, and `Undifferentiated` remain terminal.
+  intrinsic-core-library request while a second facade tier could select. The
+  intrinsic composition returns `Rejected(InvalidPolicyResult)` without
+  invoking that second tier.
+- `ValidateForRequest_RejectsMissForIntrinsicTarget` proves the shared wrapper
+  validation rejects a target-invalid miss, and
+  `IntrinsicBindingMiss_IsRejectedBeforeFreezing` proves Metadata applies the
+  same rule to a direct final result.
+- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`
+  proves for a requesting-assembly origin that only `NoNameOwner` invokes the
+  concrete designated tier, while `NameOwnedNoMatch` and `Undifferentiated`
+  remain terminal.
 - `AssemblyBindingMissDisposition_CompleteExhaustionRequired` proves a
-  composite cannot issue `NoNameOwner` when its configured chain omits an
-  independently owner-attested request-eligible tier or while any tier in the
-  complete chain remains unevaluated.
+  composite cannot issue `NoNameOwner` while any tier in its concrete fixed
+  chain remains unevaluated. Rejecting a configured chain that omits an
+  independently owner-attested request-eligible tier remains unverified until
+  #5216 supplies that workspace-owned completeness evidence.
 - `AssemblyBindingMissDisposition_AllNoOwnerRemainsNoOwner` proves a complete,
   exhausted policy chain containing only `NoNameOwner` results retains that
   disposition.
@@ -3711,13 +3712,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
   reach a lower tier or become owner-attested evidence.
 - `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` proves all
   three dispositions remain distinct through `AssemblyBindingOutcome.Missing`,
-  structural `AssemblyBindingSnapshot` comparison, frozen recipe dependencies,
-  and unchanged-version cache reuse.
+  descriptor-to-outcome interning, and unchanged-version catalog reuse.
 - `AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition`
-  proves a changed observed policy version refreshes a frozen miss and recipe
-  dependency rather than reusing the prior disposition. Same-version answer
-  stability remains a producer obligation; #5213 owns atomic
-  answer-to-version observation.
+  proves a changed directly observed policy version refreshes a frozen miss
+  rather than reusing the prior disposition. Same-version answer stability
+  remains a producer obligation. Composite child-version propagation and
+  atomic answer-to-version observation remain unverified under #5213.
 - `NoResolverAssemblyBindingPolicy_ReportsNoNameOwner` proves its complete
   empty assembly-reference inventory issues `NoNameOwner`, while its
   intrinsic-core-library behavior remains the existing typed failure.
@@ -3729,11 +3729,8 @@ Claim: direct callers and transitive call graphs share one definition identity.
   name is absent and `NameOwnedNoMatch` when its owner-issued name domain
   contains the name but no identity candidate is selected.
 - `AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition` covers
-  package, sibling, project, and platform close negatives without deriving
-  ownership from an empty final identity match.
-- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`
-  covers both global and requesting-assembly origins and proves
-  `NameOwnedNoMatch` and `Undifferentiated` remain authoritative.
+  a readable same-name sibling that prevents installed-platform fallback
+  without deriving ownership from an empty final identity match.
 - `AssemblyBindingMissDisposition_OriginScopesRemainDistinct` proves global
   and requesting-assembly requests can carry different owner-issued
   dispositions and retain separate frozen cache entries.
