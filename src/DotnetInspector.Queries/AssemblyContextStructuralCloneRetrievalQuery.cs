@@ -288,13 +288,15 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var seedImage = new PEReader(seedSnapshot.Content);
+        ValidatedImage validatedSeed;
         MetadataReader seedReader;
         MethodDefinitionHandle seed;
         try
         {
-            seedReader = seedImage.GetMetadataReader();
+            validatedSeed = ValidatedImage.Create(seedImage);
+            seedReader = validatedSeed.Reader;
             SeedResolution resolution =
-                ResolveSeed(seedReader, input.Seed);
+                ResolveSeed(validatedSeed, input.Seed);
             if (resolution.Failure is { } failure)
             {
                 return new AssemblyContextStructuralCloneRetrievalResult
@@ -322,7 +324,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             try
             {
                 population =
-                    ResolvePopulation(seedReader, input.Population);
+                    ResolvePopulation(validatedSeed, input.Population);
             }
             catch (Exception ex) when (IsMalformedMetadata(ex))
             {
@@ -407,11 +409,9 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         ImmutableArray<MethodDefinitionHandle> methods;
         try
         {
-            MetadataReader candidateReader =
-                candidateImage.GetMetadataReader();
             PopulationResolution population =
                 ResolvePopulation(
-                    candidateReader,
+                    ValidatedImage.Create(candidateImage),
                     input.Population);
             if (population.Failure is { } failure)
             {
@@ -450,14 +450,14 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     }
 
     static SeedResolution ResolveSeed(
-        MetadataReader reader,
+        ValidatedImage image,
         StructuralCloneQuerySeed seed)
         => seed switch
         {
             StructuralCloneQuerySeed.MethodDefinitionToken token =>
-                ResolveSeedToken(reader, token.MetadataToken),
+                ResolveSeedToken(image.Reader, token.MetadataToken),
             StructuralCloneQuerySeed.Member member =>
-                ResolveSeedMember(reader, member),
+                ResolveSeedMember(image.Reader, member),
             _ => throw new InvalidOperationException(
                 $"Unknown structural-clone seed '{seed.GetType().Name}'."),
         };
@@ -504,9 +504,6 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         TypeDefinition definition =
             reader.GetTypeDefinition(type.Handle);
         var attributeBudget = new AttributeInspectionBudget();
-        int seedMethodRows =
-            reader.GetTableRowCount(TableIndex.MethodDef);
-        var projected = new HashSet<MethodDefinitionHandle>();
         bool isExtensionContainer =
             definition.Attributes.HasFlag(TypeAttributes.Abstract)
             && definition.Attributes.HasFlag(TypeAttributes.Sealed)
@@ -525,11 +522,6 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
                     "The exact seed member lookup exceeds the MethodDef "
                         + "row budget.");
             }
-
-            ValidateProjectedMethod(
-                methodHandle,
-                seedMethodRows,
-                projected);
 
             MethodDefinition method =
                 reader.GetMethodDefinition(methodHandle);
@@ -607,14 +599,15 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     }
 
     static PopulationResolution ResolvePopulation(
-        MetadataReader reader,
+        ValidatedImage image,
         StructuralCloneQueryPopulation population)
     {
+        MetadataReader reader = image.Reader;
         if (population
             is StructuralCloneQueryPopulation.WholeAssembly)
         {
             return PopulationResolution.Resolved(
-                ValidatedMethods(reader, reader.MethodDefinitions));
+                reader.MethodDefinitions.ToImmutableArray());
         }
 
         if (population
@@ -634,7 +627,9 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         }
 
         return PopulationResolution.Resolved(
-            ValidatedMethods(reader, type.Handle));
+            reader.GetTypeDefinition(type.Handle)
+                .GetMethods()
+                .ToImmutableArray());
     }
 
     static TypeResolution ResolveType(
@@ -784,35 +779,71 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         };
     }
 
-    static ImmutableArray<MethodDefinitionHandle> ValidatedMethods(
-        MetadataReader reader,
-        TypeDefinitionHandle type) =>
-        ValidatedMethods(
-            reader,
-            reader.GetTypeDefinition(type).GetMethods());
+    /// <summary>
+    /// A metadata reader whose TypeDef method ranges are known to
+    /// partition the MethodDef table.
+    /// </summary>
+    /// <remarks>
+    /// Seed and population resolution accept only this type, so the
+    /// projection guarantee is established once at image entry rather
+    /// than re-derived at each projection site. Three review rounds
+    /// found holes of exactly that second shape.
+    /// </remarks>
+    readonly struct ValidatedImage
+    {
+        ValidatedImage(MetadataReader reader) => Reader = reader;
+
+        public MetadataReader Reader { get; }
+
+        public static ValidatedImage Create(PEReader image)
+        {
+            MetadataReader reader = image.GetMetadataReader();
+            ValidateMethodOwnership(reader);
+            return new ValidatedImage(reader);
+        }
+    }
 
     /// <summary>
-    /// Copies a projected method list, rejecting rows that fall outside
-    /// the MethodDef table or that repeat. An unoptimized image projects
-    /// this list through MethodPtr, so both shapes are reachable from
-    /// malformed metadata and must fail before Analysis sees them.
+    /// Verifies that the image's TypeDef method ranges partition the
+    /// MethodDef table exactly once.
     /// </summary>
-    static ImmutableArray<MethodDefinitionHandle> ValidatedMethods(
-        MetadataReader reader,
-        IEnumerable<MethodDefinitionHandle> projection)
+    /// <remarks>
+    /// <para>
+    /// Per-projection checks alone are not sufficient. A corrupt
+    /// <c>MethodList</c> start yields an empty range rather than an
+    /// error, which would turn a malformed image into a success-shaped
+    /// empty population, and a corrupt <c>MethodPtr</c> table can alias
+    /// one MethodDef row into two different types without repeating
+    /// within either type's own projection.
+    /// </para>
+    /// <para>
+    /// SRM exposes no raw <c>MethodList</c> column, so the partition is
+    /// checked by construction: every projected row must be in range and
+    /// claimed exactly once, and the claimed rows must cover the table.
+    /// This holds for optimized and unoptimized images alike, because a
+    /// valid <c>MethodPtr</c> table is itself a permutation of the
+    /// MethodDef rows.
+    /// </para>
+    /// </remarks>
+    static void ValidateMethodOwnership(MetadataReader reader)
     {
-        int methodRows =
-            reader.GetTableRowCount(TableIndex.MethodDef);
-        var methods =
-            ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
-        var projected = new HashSet<MethodDefinitionHandle>();
-        foreach (MethodDefinitionHandle method in projection)
+        int methodRows = reader.GetTableRowCount(TableIndex.MethodDef);
+        var owned = new HashSet<MethodDefinitionHandle>();
+        foreach (TypeDefinitionHandle type in reader.TypeDefinitions)
         {
-            ValidateProjectedMethod(method, methodRows, projected);
-            methods.Add(method);
+            foreach (MethodDefinitionHandle method
+                in reader.GetTypeDefinition(type).GetMethods())
+            {
+                ValidateProjectedMethod(method, methodRows, owned);
+            }
         }
 
-        return methods.ToImmutable();
+        if (owned.Count != methodRows)
+        {
+            throw new BadImageFormatException(
+                "The TypeDef method ranges do not cover the MethodDef "
+                    + "table exactly once.");
+        }
     }
 
     /// <summary>

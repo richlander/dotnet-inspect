@@ -297,20 +297,25 @@ conclusions. Query-owned exact selection uses Metadata safety ceilings for
 cumulative name, member-anchor, method-row, decode-failure, and attribute work;
 selection-budget exhaustion, rejected attribute-constructor type metadata,
 undecodable candidate type names beyond the decode-failure ceiling, and a
-projected MethodDef handle that repeats a row or falls outside the MethodDef
-table are typed pre-retrieval metadata failures. Queries validates every
-MethodDef handle it projects, on the type-scoped, whole-assembly, and
-member-seed paths, so Analysis's own argument guards stay a backstop for
-programming errors rather than a reporting path for malformed input. The
+TypeDef method range set that does not cover the MethodDef table exactly once
+are typed pre-retrieval metadata failures. Queries establishes that ownership
+invariant once per image, before any seed or population is resolved, so
+Analysis's own argument guards stay a backstop for programming errors rather
+than a reporting path for malformed input. Enforcing ownership once is what
+makes the guarantee independent of which projection path a caller takes; the
+pass costs 1.6 ms on `System.Private.CoreLib` (2,630 types, 38,508 methods).
+The
 `Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget`,
 `Execute_RejectedTypeSpecificationAttributeIsVisible`,
 `Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection`,
 `Execute_DuplicateProjectedMethodRowIsAVisibleRejection`,
 `Execute_WholeAssemblyDuplicateProjectionIsAVisibleRejection`,
 `Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection`,
-`Execute_OutOfRangeMethodProjectionIsAVisibleRejection`, and
-`Execute_DuplicateProjectionSeedMemberIsAMetadataRejection` gates cover those
-boundaries.
+`Execute_OutOfRangeMethodProjectionIsAVisibleRejection`,
+`Execute_DuplicateProjectionSeedMemberIsAMetadataRejection`,
+`Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection`, and
+`Execute_MalformedMethodRangeIsAVisibleRejection` gates cover those
+boundaries. Removing the ownership check fails all seven.
 
 ## Correspondence and automorphisms
 

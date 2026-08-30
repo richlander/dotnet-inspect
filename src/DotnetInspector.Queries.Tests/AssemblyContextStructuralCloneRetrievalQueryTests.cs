@@ -1037,8 +1037,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Equal(
             StructuralCloneQueryFailureKind.MetadataInspectionFailed,
             failed.Failure.Kind);
+        // A same-image query validates the one shared image under the
+        // seed role; the cross-image case gates candidate attribution.
         Assert.Equal(
-            StructuralCloneQueryParticipantRole.Candidate,
+            StructuralCloneQueryParticipantRole.Seed,
             failed.Failure.Role);
     }
 
@@ -1074,8 +1076,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Equal(
             StructuralCloneQueryFailureKind.MetadataInspectionFailed,
             failed.Failure.Kind);
+        // A same-image query validates the one shared image under the
+        // seed role; the cross-image case gates candidate attribution.
         Assert.Equal(
-            StructuralCloneQueryParticipantRole.Candidate,
+            StructuralCloneQueryParticipantRole.Seed,
             failed.Failure.Role);
     }
 
@@ -1111,8 +1115,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Equal(
             StructuralCloneQueryFailureKind.MetadataInspectionFailed,
             failed.Failure.Kind);
+        // A same-image query validates the one shared image under the
+        // seed role; the cross-image case gates candidate attribution.
         Assert.Equal(
-            StructuralCloneQueryParticipantRole.Candidate,
+            StructuralCloneQueryParticipantRole.Seed,
             failed.Failure.Role);
     }
 
@@ -1201,6 +1207,78 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         Assert.Equal(
             StructuralCloneQueryParticipantRole.Candidate,
             failed.Failure.Role);
+    }
+
+    [Fact]
+    public void Execute_MalformedMethodRangeIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildMalformedMethodListAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // Without the whole-image ownership check this returns Available
+        // with an empty population: corrupt metadata shaped as success.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+    }
+
+    [Fact]
+    public void Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildAliasedMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // Each type projects MethodDef row 1 once, so a per-projection
+        // duplicate set cannot see the alias.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
     }
 
     [Fact]
@@ -1796,9 +1874,26 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         byte[] image,
         int malformedTypes)
     {
-        const int typeDefRowSize = 4 + 2 + 2 + 2 + 2 + 2;
+        int typeDefs = LocateTypeDefinitionTable(image);
+        for (int i = 0; i < malformedTypes; i++)
+        {
+            BitConverter
+                .GetBytes(OutOfRangeIndex)
+                .CopyTo(image, typeDefs + ((1 + i) * TypeDefRowSize) + 4);
+        }
+    }
+
+    const int TypeDefRowSize = 4 + 2 + 2 + 2 + 2 + 2;
+    const int TypeDefMethodListOffset = 4 + 2 + 2 + 2 + 2;
+    const ushort OutOfRangeIndex = 0xFFF0;
+
+    /// <summary>
+    /// Returns the offset of the first TypeDef row in a fixture image
+    /// whose heap and table indexes are all two bytes wide.
+    /// </summary>
+    static int LocateTypeDefinitionTable(byte[] image)
+    {
         const int moduleRowSize = 2 + 2 + 2 + 2 + 2;
-        const ushort outOfRangeStringOffset = 0xFFF0;
 
         using var peReader = new PEReader(
             ImmutableCollectionsMarshal.AsImmutableArray(image));
@@ -1853,14 +1948,90 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         // Only Module and TypeRef can precede TypeDef, and this fixture
         // never emits a TypeRef row.
         Assert.False(rows.ContainsKey((int)TableIndex.TypeRef));
-        int typeDefs = rowCounts
+        return rowCounts
             + (rows[(int)TableIndex.Module] * moduleRowSize);
-        for (int i = 0; i < malformedTypes; i++)
+    }
+
+    /// <summary>
+    /// Builds an assembly where <c>N.Fixture</c> and the TypeDef that
+    /// follows it both start far past the MethodDef table. Because the
+    /// two starts are equal, SRM reports <c>N.Fixture</c>'s range as
+    /// empty rather than failing, so the type silently projects no
+    /// methods and nothing about the read itself looks wrong.
+    /// </summary>
+    static byte[] BuildMalformedMethodListAssembly()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "MalformedMethodList",
+            new Guid("5C4D3E2F-1A0B-4C9D-8E7F-6A5B4C3D2E1F"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Fixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Tail"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddSyntheticMethod(metadata, encoder, "Seed");
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] bytes = image.ToArray();
+        int typeDefs = LocateTypeDefinitionTable(bytes);
+        foreach (int row in new[] { 1, 2 })
         {
             BitConverter
-                .GetBytes(outOfRangeStringOffset)
-                .CopyTo(image, typeDefs + ((1 + i) * typeDefRowSize) + 4);
+                .GetBytes(OutOfRangeIndex)
+                .CopyTo(
+                    bytes,
+                    typeDefs
+                        + (row * TypeDefRowSize)
+                        + TypeDefMethodListOffset);
         }
+
+        return bytes;
+    }
+
+    /// <summary>
+    /// Builds the duplicate MethodPtr image, then splits the two pointer
+    /// rows across the two TypeDefs so each type projects MethodDef row 1
+    /// exactly once. No single projection repeats, so only a whole-image
+    /// ownership check can see the alias.
+    /// </summary>
+    static byte[] BuildAliasedMethodPtrAssembly()
+    {
+        byte[] bytes = BuildMethodPtrAssembly(1, 1);
+        BitConverter
+            .GetBytes((ushort)2)
+            .CopyTo(
+                bytes,
+                LocateTypeDefinitionTable(bytes)
+                    + TypeDefRowSize
+                    + TypeDefMethodListOffset);
+        return bytes;
     }
 
     static byte[] BuildDuplicateMethodPtrAssembly() =>
