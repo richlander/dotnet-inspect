@@ -391,6 +391,180 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+
+#### Workspace close and group release authority
+
+`InspectionWorkspace` owns whether new assembly-context group construction may
+begin, whether a completed group may enter the workspace registry, and when
+workspace close is complete. It does not follow from that ownership that the
+workspace directly disposes every group. A group has exactly one terminal
+release completion, selected before construction begins:
+
+| Registration kind | Terminal release authority | Workspace close behavior |
+| --- | --- | --- |
+| Direct | Workspace-owned release completion | Request release and await the group's quiescent terminal result |
+| Coordinated | Adjacent owner-issued release completion | Close workspace participation and await that same completion; never call `AssemblyContextGroup.Dispose()` independently |
+
+The coordinated form is the handoff used by package-role completion. The
+package-role owner supplies its keyed release-completion cell and owns the
+cleanup record it produces. Exact-request admission owns its request leases,
+cache closure, and the decision that authorizes package-role release. The
+workspace consumes only a narrow participation handle: it can close workspace
+admission, route a late group into cleanup, and await the owner-issued terminal
+completion. It does not inspect lease counts, reconstruct package-role group
+ids, or reinterpret the cleanup result.
+
+Group construction begins by atomically registering one opaque
+`WorkspaceGroupAdmission` while the workspace is open. The admission records
+the release kind and exact release completion before any potentially awaited
+construction work. It is single-use and belongs to one workspace. Completion
+has two outcomes:
+
+- while the workspace remains open, the exact constructed group and release
+  completion publish as one registry entry; or
+- after close begins, the group never publishes or becomes available to a new
+  query. It transfers directly into the recorded release path, and workspace
+  close awaits that cleanup.
+
+Failure or cancellation before a group exists completes the admission without
+inventing a group cleanup result. Its primary outcome remains owned by the
+constructing operation. If a group was returned, however, cleanup is a
+workspace obligation even when the operation ignored cancellation. A caller
+cannot abandon the admission ticket and leave an unregistered group outside
+both the registry and cleanup.
+
+Workspace close is one monotonic `Open` -> `Closing` -> `Closed` transition.
+The first `CloseAsync` call closes new admission under the workspace gate,
+captures every published registration and in-flight admission, and creates one
+shared completion. Later close calls return the same eventual
+`InspectionWorkspaceCloseReport`; close accepts no cancellation token after it
+starts. Direct registrations request their workspace-owned release.
+Coordinated registrations receive the workspace-close signal through their
+owner-issued participation handle and retain existing lease-holder access until
+that owner authorizes terminal release. Both forms close new group access
+before releasing resources, and actual release remains subject to the existing
+`AssemblyContextGroup` callback and owned-resource quiescence contract.
+
+The adjacent owner may authorize coordinated release before workspace close,
+such as when an explicit package-role session closes first. That transition
+atomically removes the registration from active workspace use, prevents new
+lease or query admission through it, and retains its historical registration
+and terminal completion for the eventual workspace report. A later workspace
+close observes the same completion; it neither reactivates nor releases the
+group again.
+
+Close awaits every admission that was in flight when closure began, every
+late-result cleanup path, and every group release completion. One failed group
+does not prevent another release from being requested or observed. The final
+report retains one workspace registration identity and exact terminal release
+result for every group that reached workspace ownership, in registration
+order. That historical domain is immutable: owner-first release cannot remove
+an entry, while failed or canceled construction that produced no group never
+enters the domain and cannot acquire cleanup data. A coordinated entry retains
+the adjacent owner's typed cleanup result; the workspace does not flatten it
+into exception text or a second cleanup taxonomy. Expected cleanup failures are
+data in the report. The report becomes available only after all entries are
+terminal and is the same immutable instance returned by every close call.
+
+Workspace construction selects its lifetime mode before any group admission.
+The existing public construction path creates a synchronous-compatibility
+workspace. It continues to accept the current synchronous direct and
+package-role construction APIs. A coordinated registration in that mode must
+provide a synchronous request-release adapter over the same owner-issued
+completion retained by the package-role session; workspace disposal requests
+that path exactly once and never independently disposes the group.
+
+The synchronous compatibility path preserves the existing `IDisposable`
+boundary, not the target complete-report contract. `Dispose()` closes new
+workspace access and requests every direct or coordinated release before
+returning, but it does not block for quiescent completion or return the eventual
+report. Deferred release continues only through the already-owned group
+callback and release-completion state machine; the adapter starts no task or
+background work. Expected synchronous request failures retain the current
+throwing compatibility behavior. New retained or shared hosts instead use an
+explicit asynchronous construction path whose close is awaitable and reports
+every terminal result.
+
+`DisposeAsync` awaits the same close completion and exposes its report through
+the workspace rather than throwing expected cleanup failures that could replace
+a primary exception from an `await using` body. Callers that need to branch on
+cleanup use `CloseAsync` and inspect its returned report.
+
+Lifetime-mode enforcement is fail-before-mutation. A
+synchronous-compatibility workspace rejects construction that requires an
+awaited admission or lacks a synchronous request-release adapter before that
+construction begins. Calling synchronous `Dispose()` on an asynchronous
+workspace throws `InvalidOperationException` before changing workspace state
+and directs the caller to asynchronous close. The validity of `Dispose()`
+therefore never depends on a race with later registration. Synchronous
+disposal never blocks a thread on a task, starts fire-and-forget cleanup, or
+leaves a half-closed workspace after rejecting the path. Its accepted
+compatibility path records a durable release request before returning; it does
+not launch an unobserved task or transfer progress to a background thread.
+
+The state transitions are short synchronous updates under the workspace gate.
+No gate is held across user or owner callbacks, group release, or an `await`.
+Progress resumes through ordinary task continuations and requires neither
+`Task.Run` nor a background thread, preserving the single-threaded
+Browser/Wasm execution target.
+
+[`InspectionWorkspaceClose.tla`](models/inspection-workspace-close/InspectionWorkspaceClose.tla)
+models this workspace-level interaction. It covers direct and coordinated
+release ownership, close racing construction, lease-draining authorization,
+group quiescence, complete failure reporting, and eventual asynchronous close.
+It treats package admission and `AssemblyContextGroup` release as adjacent
+abstract completions; their internal contracts remain owned by
+`docs/design/inspection-layers.md` and
+[`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla).
+The model checks the target design, not current implementation conformance.
+
+The current implementation is narrower. `InspectionWorkspace` is synchronous
+`IDisposable`, stores raw groups in one list, and directly disposes every
+registered group. `PackageAssemblyContextRoles` independently disposes the
+same role groups. Group creation checks workspace state before and after
+construction, but a group completed after disposal is immediately disposed and
+cannot join an awaited cleanup result. There is no admission ticket, shared
+release completion, asynchronous workspace report, or coordinated-release
+exclusion. The existing group-internal callback quiescence remains valid; this
+gap is the workspace-level composition above it.
+
+The target is unverified until Release gates prove:
+
+- `WorkspaceClose_RejectsAdmissionAndRoutesLateGroupToRelease` closes admission
+  atomically and prevents a construction result from publishing after close;
+- `WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce` proves that
+  direct and coordinated paths converge on one terminal authority without
+  independent workspace disposal of a coordinated group;
+- `WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease`
+  proves a lease holder can start and finish group work after workspace close
+  begins and that release remains unavailable until the lease returns;
+- `WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport`
+  proves explicit adjacent-owner close can remove a coordinated group from
+  active workspace use before workspace close while preserving its historical
+  registration and terminal result;
+- `WorkspaceClose_NoGroupFailureSettlesAdmissionWithoutCleanupEntry` proves
+  failed or canceled construction after admission cannot strand close and does
+  not invent a group cleanup record;
+- `WorkspaceClose_AwaitsAllGroupCompletionsAndReportsEveryFailure` proves
+  callback/group quiescence, attempt-all cleanup, stable ordering, and complete
+  typed failure retention;
+- `WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance` proves
+  repeated and concurrent close calls join one completion and receive the same
+  immutable report object;
+- `WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority` proves the
+  synchronous package-role adapter requests the same owner-issued completion,
+  never independently disposes the group, and preserves fail-before-mutation
+  rejection for asynchronous-only construction; and
+- `WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking` proves
+  the supported single-threaded host path reaches terminal close without a
+  blocking wait or background-thread requirement.
+
+This contract does not define package admission keys, cache policy, package
+selection, role planning, participant projection, package cleanup-record shape,
+artifact acquisition lifetime, query-specific participant release policy, or
+the implementation of
+[#4960](https://github.com/richlander/dotnet-inspect/issues/4960).
+
 `WorkspaceContextLoader` now realizes package, platform, and embedded
 coordinates without requiring a filesystem. A platform coordinate maps the
 `runtime` or `aspnetcore` family to its product-owned implementation-pack

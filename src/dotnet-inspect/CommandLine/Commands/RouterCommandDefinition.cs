@@ -103,7 +103,12 @@ public static class RouterCommandDefinition
             // Invoked through the audit choke point, not ParseResult.InvokeAsync: the router
             // captures projection flags as raw tokens, so the outer invocation records nothing
             // and only this rewritten parse can tell whether a projection was honored.
-            return await CommandLineBuilder.InvokeAsync(rootCommand.Parse(rewritten));
+            rewritten = CommandLineBuilder.PreprocessArgs(
+                rewritten,
+                rootCommand);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                rootCommand.Parse(rewritten),
+                rewritten);
         });
 
         return routerCommand;
