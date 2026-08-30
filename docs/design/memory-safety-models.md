@@ -1,0 +1,382 @@
+# Memory-safety models and evidence
+
+## Status and ownership
+
+This document owns the product vocabulary for the legacy and updated C#
+memory-safety models and the rules for composing project, metadata, signature,
+method-body, and provenance evidence.
+
+It does not take implementation ownership from the participating subsystems:
+
+- Metadata owns facts decoded from ECMA-335 metadata.
+- Analysis owns method-signature and IL-body evidence.
+- Decompiler owns source reconstruction and safety-context rendering.
+- Project inspection owns facts declared by or evaluated from project inputs.
+- A provenance service, when available, owns correspondence between a project
+  and a binary.
+
+The composition rules here do not authorize one implementation change to sweep
+all of those owners. Each gap must be addressed through its owning subsystem.
+
+## Terms
+
+| Term | Meaning |
+| --- | --- |
+| Rules model | The language rules under which a module was compiled. |
+| Propagates unsafe | Using the member requires the caller to establish an `unsafe` context. Roslyn calls this *requires-unsafe* or caller-unsafe. |
+| Unsafe user | A member with positive evidence that an unsafe context was established for its declaration or implementation. Publishing a caller contract alone is not use. |
+| Safe boundary | Under the updated model, a member that uses an `unsafe` context internally but does not propagate that requirement to its caller. |
+| Unsafe permission | Whether the build permits unsafe syntax and related constructs. In an SDK project this is controlled by `AllowUnsafeBlocks`. |
+| Project policy | The memory-safety rules and unsafe permission requested by project inputs for a particular build. |
+| Binary fact | Evidence present in the inspected module's metadata, signatures, or IL. |
+
+Propagation, use, and permission are independent dimensions. A module can use
+the updated model without containing unsafe code. A member can propagate unsafe
+without having an IL body. A safe-boundary method can use unsafe operations
+without propagating unsafe.
+
+## Version vocabulary
+
+This product uses **v1** and **v2** as model names:
+
+- **v1** is the legacy model represented in current binaries by an absent
+  `MemorySafetyRulesAttribute`.
+- **v2** is the currently implemented updated model represented by
+  `[module: MemorySafetyRulesAttribute(2)]`.
+
+The names do not imply that `[module: MemorySafetyRulesAttribute(1)]` is a
+valid legacy marker. Current Roslyn treats every explicit version other than
+`2` as unsupported. In particular, an explicit version `1` is unsupported
+rather than equivalent to an absent attribute.
+
+The accepted SDK design may use `<MemorySafetyRules>1</MemorySafetyRules>` as
+a future project-side request for legacy compilation. That configuration value
+must result in an unmarked legacy binary; it does not make attribute version
+`1` valid.
+
+Consumers must preserve the distinction between these states:
+
+| State | Meaning |
+| --- | --- |
+| Legacy, unmarked | The module has no `MemorySafetyRulesAttribute`; apply v1 compatibility rules. |
+| Updated v2 | The module has one valid module attribute with version `2`; apply v2 rules. |
+| Unsupported version | The module attribute contains another integer; report the integer without applying v1 or v2 semantics. |
+| Malformed marker | The attribute cannot be decoded according to its expected constructor shape. |
+| Conflicting markers | More than one candidate marker prevents a unique module judgment. |
+
+The raw integer and the recognized model are separate facts. Reporting an
+actual version must not silently turn every value greater than or equal to `2`
+into a supported updated model. Future compiler versions may define additional
+values; support begins when the corresponding contract is adopted, not merely
+when a larger integer appears.
+
+`MemorySafetyRulesAttribute` is a module attribute. An assembly-level or
+member-level lookalike is not evidence of the module's rules model.
+
+### Shared binary-model handoff
+
+Metadata owns one normalized rules-model fact per inspected module. That fact
+must preserve both recognition state and the raw integer when one was decoded.
+Analysis and Decompiler should consume the Metadata-owned fact rather than
+independently testing for an attribute name, and the CLI should render that
+same fact rather than reinterpret the integer.
+
+This shared handoff prevents caller-contract analysis, source reconstruction,
+and user-visible Signals from assigning different meanings to the same module.
+Project policy remains a separate source-evidence type and must not be folded
+into the binary fact.
+
+## The two models
+
+### V1: legacy and compatibility rules
+
+In the legacy model:
+
+- a pointer or function-pointer type in a callable member's parameter or return
+  signature makes the member propagate unsafe;
+- the `unsafe` modifier on a type or member establishes a lexical unsafe
+  context for declarations and bodies within its scope;
+- metadata does not preserve that source modifier by itself;
+- a pointerless member declared `unsafe` may leave no recoverable binary
+  evidence when its body also leaves no relevant signature, local, call, or
+  opcode evidence; and
+- the module normally has no `MemorySafetyRulesAttribute`.
+
+When a consumer reads an unmarked module, pointer-bearing signatures are the
+compatibility rule for deciding which members propagate unsafe. A
+`RequiresUnsafeAttribute` lookalike in an unmarked module does not opt that
+module into v2 semantics.
+
+### V2: updated rules
+
+In the updated model:
+
+- `unsafe` on a member publishes a caller contract represented in metadata by
+  `RequiresUnsafeAttribute`;
+- the member modifier does not itself establish an unsafe context for the
+  member body;
+- a pointer-bearing signature does not propagate unsafe unless the member has
+  the v2 caller contract;
+- an inner `unsafe` block or expression establishes the body context needed for
+  operations that require it; and
+- the module publishes its rules version with
+  `[module: MemorySafetyRulesAttribute(2)]`.
+
+A v2 member with positive body-unsafety evidence and no
+`RequiresUnsafeAttribute` is a safe boundary: it accepts the audit obligation
+inside its implementation instead of imposing it on callers. A v2 member with
+`RequiresUnsafeAttribute` is a propagator whether or not its body contains
+unsafe operations.
+
+### Comparison
+
+| Question | V1: legacy | V2: updated |
+| --- | --- | --- |
+| Binary model marker | Attribute absent | Module attribute version `2` |
+| What propagates unsafe? | Pointer or function-pointer parameter or return types | `RequiresUnsafeAttribute` |
+| Meaning of member `unsafe` | Establishes a lexical unsafe context | Publishes a caller contract |
+| Meaning of a pointer-bearing signature | Compatibility propagator | Not a propagator by itself |
+| How a body establishes unsafe context | Enclosing type/member context or inner unsafe context | Inner unsafe block or expression |
+| Safe-boundary method | Not distinguishable as a separate caller contract | Body uses unsafe context, but member does not propagate |
+
+## Mixed-model consumption
+
+The callee's module controls interpretation of the callee's member:
+
+1. For an unmarked callee module, use pointer-bearing signatures as the v1
+   compatibility heuristic.
+2. For a recognized v2 callee module, use `RequiresUnsafeAttribute` as the
+   propagation contract. Do not promote an unmarked pointer-bearing member to
+   a propagator.
+3. For an unsupported or malformed model marker, report that the propagation
+   judgment is unavailable instead of falling back silently.
+
+The caller's project policy determines which source operations it may express,
+but it does not rewrite the callee's published contract.
+
+## Project policy
+
+### Current .NET 11 preview activation
+
+The current .NET 11 preview mechanism is the raw compiler feature:
+
+```xml
+<PropertyGroup>
+  <LangVersion>preview</LangVersion>
+  <Features>$(Features);updated-memory-safety-rules</Features>
+</PropertyGroup>
+```
+
+`Features` is a generic compiler escape hatch. The Roslyn implementation calls
+this a temporary opt-in mechanism.
+
+`EnablePreviewFeatures` is insufficient by itself. It can select preview
+language behavior in applicable SDK configurations, but it does not append the
+`updated-memory-safety-rules` compiler feature.
+
+The accepted SDK direction proposes a dedicated numeric property:
+
+```xml
+<MemorySafetyRules>2</MemorySafetyRules>
+```
+
+That property is not yet the supported .NET 11 activation mechanism. A project
+reader must not interpret the presence of an otherwise unevaluated
+`MemorySafetyRules` property as proof that the compiler received or honored it.
+
+This repository has a fixture-only `Directory.Build.targets` alias that maps
+text values such as `updated` to the raw compiler feature. That alias is test
+infrastructure, not SDK behavior or user-facing configuration guidance.
+
+### Unsafe permission is independent
+
+`AllowUnsafeBlocks` controls whether the compiler permits unsafe source. It
+does not select a memory-safety model and does not cause
+`MemorySafetyRulesAttribute` to be emitted.
+There is no corresponding current C# SDK property named `EnableUnsafe`;
+`AllowUnsafeBlocks` is the established permission switch.
+
+The strongest default policy is updated enforcement with unsafe syntax
+disabled:
+
+```xml
+<PropertyGroup>
+  <LangVersion>preview</LangVersion>
+  <Features>$(Features);updated-memory-safety-rules</Features>
+  <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+</PropertyGroup>
+```
+
+`AllowUnsafeBlocks` may also be absent because `false` is the default. A module
+compiled with this policy is still v2 even when it contains no unsafe members
+or operations. The module marker records the rules used for compilation, not
+the presence of unsafe code.
+
+Conditional properties, imported props and targets, command-line overrides,
+target frameworks, and configurations can change the effective policy.
+Reading literal XML establishes declared source evidence; claiming the policy
+of a particular build may require evaluated project evidence.
+
+## Evidence planes and provenance
+
+Complete policy assessment requires project and binary evidence, but those
+observations remain independent:
+
+| Evidence plane | Answers | Does not answer |
+| --- | --- | --- |
+| Project declaration or evaluation | Which rules and unsafe permission the build requested | Which model an arbitrary binary actually publishes |
+| Module metadata | The binary's raw rules marker and recognized model | Whether unsafe source was permitted |
+| Member metadata and signatures | Which members publish or imply caller contracts for that module model | Which bodies actually use unsafe operations |
+| Method-body analysis | Candidate declaration, local, call, and IL-operation evidence for model-aware interpretation | The original lexical source form in every case |
+| Provenance | Whether a project/build corresponds to a binary | The safety meaning of either artifact |
+
+A report may place project and binary observations side by side without proving
+that one produced the other. It must label their correspondence as
+**unverified** unless a provenance owner supplies affirmative evidence.
+Matching names, paths, target frameworks, versions, or timestamps is not a
+substitute for typed provenance.
+
+## Product answer map
+
+| User question | Required evidence | Current product answer |
+| --- | --- | --- |
+| Which model did this binary publish? | Module `MemorySafetyRulesAttribute` constructor integer and recognition rules | Metadata decodes an `int?`; Library Signals displays it. Current scope and unsupported-version handling are incomplete. |
+| Did this project request updated enforcement? | Declared or evaluated `LangVersion`, `Features`, and future supported model property | Not currently answered. The `project` command reads `project.assets.json`, not these project properties. |
+| Was unsafe source permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
+| Which members propagate unsafe? | Version-aware composition of the module model with pointer signatures or `RequiresUnsafeAttribute` | Analysis exposes `CallerUnsafeMode`, but its current computation does not yet implement the model split faithfully. |
+| Which methods use unsafe facilities? | Version-aware declaration, local, call, and IL-operation evidence | `MethodSafetyAnalysis` produces related evidence categories, but their interpretation is not yet fully version-aware. |
+| Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive body-unsafety evidence | Not currently exposed as a composed query. |
+| How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
+| Is the project configured for the strongest default? | Updated project policy, unsafe permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
+| Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
+
+## Current implementation coverage and gaps
+
+### Metadata and Library Signals
+
+`AssemblyDetailScanner` currently:
+
+- decodes the integer constructor argument into
+  `AssemblyAuditMetadata.MemorySafetyRulesVersion`; and
+- counts `RequiresUnsafeAttribute` occurrences.
+
+`AuditSignalBuilder` presents those facts as the **Memory safety model** and
+**RequiresUnsafe members** signals. This is the existing user-visible answer
+for the binary marker.
+
+The following gaps remain with Metadata and presentation:
+
+- marker discovery is not restricted to exactly one module-level attribute;
+- malformed, duplicate, and absent markers collapse into insufficiently
+  distinct states; and
+- Signals currently labels every integer greater than or equal to `2` as
+  updated, although current Roslyn recognizes exactly version `2`.
+
+### Analysis
+
+`LibraryBodyPrimaryMetadataResolver` owns the current module judgment and
+creates method identities with `CallerUnsafeMode`.
+`MethodSafetyAnalysis` separately records unsafe API, signature, local, call,
+and opcode evidence.
+
+The following gaps remain with Analysis:
+
+- the module judgment tests attribute presence rather than decoding and
+  recognizing the integer version;
+- it accepts an assembly-level marker as a fallback;
+- `ComputeCallerUnsafeMode` combines pointer signatures and
+  `RequiresUnsafeAttribute` before testing the model, so a pointer-bearing v2
+  member without `RequiresUnsafeAttribute` is incorrectly classified as an
+  explicit propagator;
+- declaration and local evidence currently treats pointer types as unsafe
+  independently of the active model, although v2 does not make a pointer type
+  unsafe by itself; and
+- no query composes model, propagation, and body evidence into a safe-boundary
+  classification.
+
+### Decompiler
+
+The Decompiler uses the presence of a module marker to choose updated-rule
+rendering, or can simulate updated rules explicitly. Its rendering contract is
+owned by [Memory-safety rendering modes](memory-safety-modes.md).
+
+The remaining version gap is that marker presence is treated as updated
+without decoding and recognizing the integer.
+
+### Project inspection
+
+The `project` command currently locates and parses `project.assets.json` for
+restored package information. It does not read or evaluate
+`AllowUnsafeBlocks`, `LangVersion`, `Features`, or a future supported
+`MemorySafetyRules` property.
+
+Adding those facts requires a focused project-inspection design. This document
+defines how such evidence composes with binary evidence, not how MSBuild
+evaluation is hosted.
+
+## Staged adoption
+
+Implementation should proceed through focused owner changes:
+
+1. Metadata introduces the normalized per-module rules state and exact marker
+   validation.
+2. Library Signals renders that state without independently interpreting raw
+   version numbers.
+3. Analysis consumes the shared state and applies pointer compatibility only
+   to legacy modules.
+4. Decompiler consumes the shared state for conservative replay while keeping
+   its explicit simulation mode.
+5. Project inspection acquires declared or evaluated rule and permission
+   facts through its own design.
+6. A composition query joins project policy, binary contracts, body evidence,
+   and optional provenance to answer policy and safe-boundary questions.
+
+Each stage must leave unsupported, malformed, and unavailable evidence visible
+rather than producing a legacy- or safety-shaped default.
+
+## Demo
+
+The existing binary signal can demonstrate a v2 module that contains no unsafe
+surface:
+
+```text
+$ dnx dotnet-inspect -y -- library MemorySafetyV2.dll -S Signals
+
+| Area          | Signal                   | Value        |
+| ------------- | ------------------------ | ------------ |
+| Memory safety | Memory safety model      | Updated (v2) |
+| Memory safety | RequiresUnsafe members   | 0            |
+| Memory safety | Unsafe public signatures | 0            |
+```
+
+For a project built with the strongest default policy, the intended composed
+report would keep every observation and its limitation visible:
+
+| Observation | Value | Evidence |
+| --- | --- | --- |
+| Requested rules | Updated preview rules | Project `LangVersion` and `Features` |
+| Unsafe source permission | Disabled | Project `AllowUnsafeBlocks` absent or `false` |
+| Published binary model | Updated v2 | Module `MemorySafetyRulesAttribute(2)` |
+| Propagating members | 0 | Version-aware member metadata |
+| Unsafe users | 0 | Version-aware declaration and method-body analysis |
+| Project-to-binary correspondence | Unverified | No provenance evidence supplied |
+
+The last row is not a failure of the safety evidence. It is the correct
+boundary on the claim: the project describes one intended build policy, while
+the binary independently demonstrates one compiled artifact.
+
+## External contracts
+
+The model follows the implemented compiler and runtime contracts:
+
+- [C# unsafe evolution proposal](https://github.com/dotnet/csharplang/blob/f445f642755a28631b7e37db01f6373c437159c3/proposals/unsafe-evolution.md)
+- [SDK memory-safety enforcement design](https://github.com/dotnet/designs/blob/8f17cc55212fe45f563741aa7137d432d82482d5/accepted/2025/memory-safety/sdk-memory-safety-enforcement.md)
+- [Roslyn memory-safety version handling](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEModuleSymbol.cs)
+- [Roslyn caller-unsafe interpretation](https://github.com/dotnet/roslyn/blob/e79586494f629704a0fd18b7afb840144fd5e673/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PEMethodSymbol.cs)
+- [Runtime `MemorySafetyRulesAttribute`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/MemorySafetyRulesAttribute.cs)
+- [Runtime `RequiresUnsafeAttribute`](https://github.com/dotnet/runtime/blob/aa036afce592ad80e938a35bd376222fb232cba9/src/libraries/System.Private.CoreLib/src/System/Diagnostics/CodeAnalysis/RequiresUnsafeAttribute.cs)
+
+At the cited snapshot, one paragraph in the language proposal anticipates a
+different future version value. Roslyn's implementation and tests emit and
+recognize `2`; the product contract follows emitted compiler behavior while
+preserving the raw integer for future versions.

@@ -5,6 +5,8 @@ constructs in light of .NET's updated memory-safety rules (the redefined `unsafe
 context, the `MemorySafetyRulesAttribute`, and the per-member `RequiresUnsafeAttribute`).
 See [decompiler.md](../decompiler.md) — "Unsafe contexts under the updated
 memory-safety rules" — for the mechanics this note frames.
+For the legacy and updated rule models that supply this binary evidence, see
+[Memory-safety models and evidence](memory-safety-models.md).
 
 ## The two takes
 

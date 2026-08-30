@@ -198,6 +198,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
+- [Memory-safety models and evidence](design/memory-safety-models.md):
+  v1/v2 vocabulary and composition of project policy, binary contracts,
+  implementation evidence, and provenance.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
