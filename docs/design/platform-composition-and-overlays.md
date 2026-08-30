@@ -41,16 +41,19 @@ not yet satisfy this contract.
 ### Boundary
 
 `InstalledPlatformRealization` consumes one owner-issued
-`InstalledDotnetHiveIdentity`, one exact case-sensitive shared-framework
-family, one canonical package-neutral `InstalledPlatformVersion`, and the
-`SharedFrameworkImplementation` layout kind.
+`InstalledDotnetHiveIdentity`, one exact case-sensitive
+`InstalledPlatformFamily`, one canonical package-neutral
+`InstalledPlatformVersion`, and the `SharedFrameworkImplementation` layout
+kind.
 
-The family is a portable, non-path-bearing value: a non-empty ASCII string
-that begins and ends with a letter or decimal digit, otherwise contains only
-letters, digits, `.`, `_`, or `-`, and whose first dot-delimited component is
-not case-insensitively `CON`, `PRN`, `AUX`, `NUL`, `COM1` through `COM9`, or
-`LPT1` through `LPT9`. No path API constructs or normalizes this value before
-request validation succeeds.
+`InstalledPlatformFamily` is a portable, non-path-bearing value of at most 236
+ASCII bytes. It begins and ends with a letter or decimal digit, otherwise
+contains only letters, digits, `.`, `_`, or `-`, and its first dot-delimited
+component is not case-insensitively `CON`, `PRN`, `AUX`, `NUL`, `COM1` through
+`COM9`, or `LPT1` through `LPT9`. The ceiling keeps
+`<family>.runtimeconfig.json` within the portable 255-byte component limit. No
+path API constructs or normalizes this value before request validation
+succeeds.
 
 The optional desktop adapter mints the hive identity from one host-selected
 dotnet root. Discovery and selection precede this contract; realization never
@@ -98,6 +101,12 @@ directory. Manifest bytes are bounded before parsing; `HardenedJson` owns
 malformed-JSON and duplicate-property policy. A runtime-configuration probe,
 open, or read failure other than definitive not-found is a typed failure, not
 an empty dependency set.
+
+Every framework name declared by a runtime configuration must construct the
+same `InstalledPlatformFamily` value before dependency path normalization or
+lookup. Invalid declared family text rejects the manifest. A valid root or
+dependency family matches one frozen family-directory entry ordinally and
+case-sensitively rather than inheriting host filesystem case folding.
 
 Each participating dependency-manifest path is a logical asset coordinate. It
 must be relative, use `/` separators, contain no empty, `.` or `..` segment,
@@ -215,7 +224,7 @@ contract.
 | `Unavailable` | No `shared/` root; absent root family or exact root version; absent dependency family or compatible version |
 | `Rejected(InvalidRequest)` | Invalid family, version, or layout; non-positive limit; request limit exceeding the adapter capability |
 | `Rejected(InvalidAdapterCapability)` | Missing, non-positive, or unbounded adapter member or byte maximum |
-| `Rejected(InvalidManifest)` | Missing dependency manifest; malformed, duplicate-bearing, or unsupported present runtime configuration or dependency manifest |
+| `Rejected(InvalidManifest)` | Missing dependency manifest; invalid dependency family; malformed, duplicate-bearing, or unsupported present runtime configuration or dependency manifest |
 | `Rejected(InvalidFrameworkGraph)` | Duplicate reference, cycle, incompatible requirements, or equal-precedence candidate/reference ambiguity |
 | `Rejected(InvalidMember)` | Unsupported logical asset path; escaping, invalid, repeated, or colliding projected member coordinate; missing asset; unsupported or malformed assembly; duplicate assembly identity |
 | `Rejected(BudgetExceeded)` | Reached-family inventory, name, framework, resolution-work, manifest, member, or byte limit exceeded |
@@ -274,6 +283,9 @@ from the declared failure set.
 The invalid-capability and invalid-request early-rejection gates exercise the
 complete realization entry point and independently observe adapter invocation,
 path normalization, and filesystem work for every declared reason.
+The invalid-dependency-family gate starts from an acquired root manifest and
+independently observes dependency path normalization and dependency-family
+filesystem work.
 `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle` covers
 only the deterministic domain shared with hostfxr; product-defined ambiguity
 rules are owned by their rejection gates.
@@ -285,8 +297,8 @@ rules are owned by their rejection gates.
 | Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_RejectsEqualPrecedenceReferenceAmbiguity`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
 | Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
 | Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_LegacyCoreMembershipMatchesIndependentOracle`, `InstalledPlatformRealization_LegacyRuntimeAssetProjectsToInstalledLeaf`, `InstalledPlatformRealization_ProjectedMemberCoordinateCollisionRejectsAtomically`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
-| No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout` |
-| Declared rejection behavior | `InstalledPlatformRealization_InvalidRequestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidAdapterCapabilityCasesRejectAtomically`, `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
+| No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout`, `InstalledPlatformRealization_FrameworkFamilyLookupIsOrdinal` |
+| Declared rejection behavior | `InstalledPlatformRealization_InvalidRequestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidAdapterCapabilityCasesRejectAtomically`, `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidDependencyFamilyRejectsBeforePathOrIo`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
 | Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_GenerationIsFreshAndProofLeaseBound`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
 | Adapter capability bounds | `InstalledPlatformAdapterCapabilities_DeclareFinitePositiveBounds`, `InstalledPlatformRealization_RequestLimitsOnlyNarrowCapability`, `InstalledPlatformRealization_InvalidAdapterCapabilityCasesRejectBeforeAdapterPathOrIo`, `InstalledPlatformRealization_InvalidRequestCasesRejectBeforeAdapterPathOrIo` |
 | Platform and dependency boundaries | `InstalledPlatformComposition_UsesDesktopAdaptersAndRejectsBrowserBeforeIo`, `BrowserPlatformComposition_DoesNotReferenceInstalledDesktopAdapter`, `InstalledPlatformAdapter_NativeAotPublishAndRun`, `InstalledPlatformAdapterClosure_ExcludesPackageAndNuGetImplementations`, `InstalledPlatformAdapterClosure_ExcludesInspectedAssemblyLoading`, `InstalledPlatformAdapter_ExcludesHostFxrInterop` |
