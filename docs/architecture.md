@@ -128,7 +128,7 @@ and query workspaces while migration continues.
 | `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), focused Metadata designs |
 | `SourceLinkFetch` | Map grammar | SourceLink map matching and provenance grammar. | [PDB acquisition](pdb-acquisition.md) |
 | `ILInspector.SourceLink` | Source composer | SourceLink extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
-| `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md), [structured declaration provenance](design/csharp-structured-declaration-provenance.md) |
+| `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md), [declaration result and receipt protocol](design/csharp-structured-declaration-provenance.md) |
 
 Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
 CSharpText owns textual grammar, while ILInspector.CSharp owns spelling that

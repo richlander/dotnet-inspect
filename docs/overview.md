@@ -56,9 +56,10 @@ substrates, and inspection producers that will extend that space.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
 - `src/ILInspector.CSharp/` is the lightweight model-bound C# spelling and
   type-view layer over Metadata shapes.
-  [Structured declaration provenance](design/csharp-structured-declaration-provenance.md)
-  owns `CSharpFormatter`'s declaration-slot classification, representability,
-  evidence-preserving fallback/degradation, and failure contract.
+  [The declaration result and receipt protocol](design/csharp-structured-declaration-provenance.md)
+  owns the shared representability result, contained and compatibility text
+  currencies, occurrence receipts, and adoption contract. Type- and
+  member-form adoption remain separately owned by #5181 and #5183.
   `CSharpTypePrinter` composes
   exact typed requests, including skeleton, full, stub, mixed-accessor,
   primary-constructor, and nested-type shapes, without taking a Decompiler or
@@ -164,9 +165,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   call-specific mapping from current topology, signals, loop state, and
   physical occurrences into the inspection-graph descriptor model.
 - [Type, member, and API representation](design/type-member-api-representation.md): authoritative currency map for lookup, shape, identity, correspondence, location, selectors, and display.
-- [C# structured declaration provenance](design/csharp-structured-declaration-provenance.md):
-  CSharp-owned slot classification, representability, evidence-preserving
-  fallback/degradation, and failure contract for model-bound declarations.
+- [C# declaration result and receipt protocol](design/csharp-structured-declaration-provenance.md):
+  CSharp-owned four-arm representability result, contained and compatibility
+  text currencies, occurrence receipts, diagnostic containment, and adoption
+  contract.
 - [State-machine relationship index](design/state-machine-relationship-index.md):
   Metadata-owned kickoff, state-machine type, implementation-method, and typed
   structural-failure relationships shared by higher layers.

@@ -92,11 +92,14 @@ binding is unverified pending
 | Current `CSharpFormattedDeclaration` and formatter string results | One model-bound declaration request | Current C# display text, namespace imports, and available diagnostics | Metadata identity, slot provenance, structured-versus-compatibility fidelity, or body correspondence |
 | Target `CSharpDeclarationResult`, `CSharpDeclarationReceipt`, `CSharpDeclarationText`, and `CSharpCompatibilityText` | One declaration plan | The required `Representable`, `FallbackRequired`, `Degraded`, or `Unavailable` outcome; representable declarations carry final text, exact namespace requirements, and typed occurrence receipts, while fallback preserves contained facts before optional compatibility text | Metadata extraction, identity, API serialization, call-graph correspondence, or proof that the declaration compiles |
 
-The target currencies and their slot inventory are owned by
-[C# structured declaration provenance](csharp-structured-declaration-provenance.md).
+The target currencies and their shared result/receipt protocol are owned by
+[C# declaration result and receipt protocol](csharp-structured-declaration-provenance.md).
 They preserve the rule that a display string is an output, never a source from
 which identity or provenance is reconstructed. Their properties are unverified
-until that document's named gates exist.
+until that document's named gates exist. Type-form adoption is tracked by
+#5181, member-form adoption by #5183, and complete source-unit aggregation by
+#5142; those owners define their form-specific plans rather than extending the
+shared protocol into an implementation inventory.
 
 #### `ILInspector.Metadata`
 
