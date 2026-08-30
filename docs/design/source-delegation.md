@@ -220,11 +220,13 @@ The caller forms an ordered, immutable list of delegation candidates in
 preference order. Each candidate contains:
 
 1. one immutable, already-authorized source input;
-2. one caller-defined execution group with its complete ordered member list;
-3. the delegated operation prefix for every member — the caller's proven
-   safe prefix as typed, owner-issued operation content, which the pattern
-   transports without interpretation and the source must execute exactly;
-   empty for an acquisition-only row handoff;
+2. one caller-defined execution group whose type carries its complete ordered
+   member list, with each owner-issued member identity appearing exactly once;
+3. one delegated operation-prefix entry derived for every execution-group
+   member in that same order — the caller's proven safe prefix as typed,
+   owner-issued operation content, which the pattern transports without
+   interpretation and the source must execute exactly; empty for an
+   acquisition-only row handoff;
 4. the required source capability;
 5. one completion-requirement identity; and
 6. exactly one result shape:
@@ -258,25 +260,27 @@ caller uses a row handoff or the reference path instead, so the operation and
 Count execute under their owner-defined observation and failure contract.
 
 The caller owns constructing these partitions and proving them against its
-reference plan; the source receives the candidate — including the delegated
-prefix it must execute exactly — and never the residual. The proof is the
-caller's adoption gate
+reference plan. Candidate construction derives prefix entries from the
+execution group's unique ordered member collection rather than accepting a
+parallel identity list. The source receives the candidate — including the
+delegated prefix it must execute exactly — and never the residual. The proof is
+the caller's adoption gate
 ([`SourceDelegationPartitionMatchesReference`](#required-gates)), applied
 before a candidate is ever presented to planning; the prefix transported in
 the candidate is exactly the proven prefix.
 
 ## Effect protocol
 
-1. **Planning is pure.** Planning validates no more than immutable capability
-   declarations and performs no network, filesystem, source-result cache,
-   provider, pagination, row-callback, comparer, or source-content work. It
-   visits candidates in declaration order and either selects the first
-   candidate whose complete capability, delegated operation prefix, member
-   shape, completion requirement, input, and result shape the source supports,
-   or declines all candidates. Planning does not publish an accepted-plan
-   handle. A decline is a capability result, not a source failure, and the
-   caller may then use any later strategy, including its complete reference
-   path.
+1. **Planning is pure.** Planning inspects immutable candidate structure and
+   immutable capability declarations, and performs no network, filesystem,
+   source-result cache, provider, pagination, row-callback, comparer, or
+   source-content work. It visits candidates in declaration order and either
+   selects the first candidate whose complete capability, delegated operation
+   prefix, member shape, completion requirement, input, and result shape the
+   source supports, or declines all candidates. Planning does not publish an
+   accepted-plan handle. A decline is a capability result, not a source
+   failure, and the caller may then use any later strategy, including its
+   complete reference path.
 2. **Acceptance is the commitment point.** Acceptance binds the exact
    candidate, and the contract exposes no free-standing accepted-plan value:
    acceptance and execution form one public operation, the accepted binding
@@ -359,16 +363,21 @@ candidate — and one source-owned evidence basis:
   the caller's completion requirement; or
 - **incomplete stop** — a provider, page, work, time, memory, or acquisition
   bound, or cancellation, stopped execution without satisfying the
-  requirement.
+  requirement; or
+- **unavailable source outcome** — an expected source failure or absent member
+  or candidate domain prevented a usable or exact result. The accompanying
+  owner-issued disposition carries the precise cause.
 
 The first two satisfy a requirement only when that requirement accepts the
-exact basis. An incomplete stop never does. Evidence referenced by a member
-entry is member-scoped by default; a member may reference one
-candidate-scoped value only when that basis establishes the member's own
-disposition, usability, or exactness claim. One candidate-scoped value may
-prove the same candidate-wide failure for every member, but exhaustion of one
-member proves nothing about another, and a group aggregate that cannot
-establish individual member values is insufficient for exact Count.
+exact basis. An incomplete stop or unavailable source outcome never does.
+Logical exhaustion means that the candidate's named domain exists and was
+proven exhausted; absence is not exhaustion. Evidence referenced by a member
+entry is member-scoped by default; a member may reference one candidate-scoped
+value only when that basis establishes the member's own disposition, usability,
+or exactness claim. One candidate-scoped value may prove the same
+candidate-wide failure for every member, but exhaustion of one member proves
+nothing about another, and a group aggregate that cannot establish individual
+member values is insufficient for exact Count.
 
 Evidence is never inferred from row or Count values. Returning exactly the
 requested number, returning fewer rows than a page size, receiving an empty
@@ -450,15 +459,15 @@ Byzantine provider behavior is not a claim of this pattern.
 ## By construction, not by gate
 
 The prior draft policed the following at runtime with identity tokens,
-validation rules, and dedicated gates. Under this contract each is structural:
-the API shape makes the violation inexpressible, and a defect in that shape
-is an ordinary bug in cooperating code, found by ordinary tests.
+validation rules, and rejection paths. Under this contract each is structural
+in the product runtime. Safety-relevant claims about that shape are proven by
+the named Release gates below rather than by runtime identity policing.
 
 | Guarantee | Structural encoding |
 | --- | --- |
 | A result answers exactly one accepted plan | The result type is constructed from, and refers to, the accepted plan. |
-| Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. |
-| Member maps are complete, ordered, and duplicate-free | Results are built from the accepted plan's member list. |
+| Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. `SourceDelegationAcceptanceExecutesOnce` proves the implementation invokes and publishes once. |
+| Member maps are complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection; `SourceDelegationPartitionMatchesReference` proves exact member-domain binding. |
 | Evidence reaches the caller only inside a member entry | Evidence is carried by the entries it accompanies rather than as free-standing values; whether a referenced basis and scope establish each entry's claim remains the semantic check owned by `SourceDelegationCompletionEvidenceBasisIsAccepted`. |
 | The residual is caller-owned | The residual is a caller-held continuation; the candidate the source sees does not contain it. |
 | The source cannot rewrite the plan | No result branch carries operations, cursors, or plan fragments. |
@@ -499,16 +508,17 @@ shape, not checks.
 
 | Gate | Contract |
 | --- | --- |
-| `SourceDelegationPlanningIsPure` | Planning inspects only immutable capability declarations and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
+| `SourceDelegationPlanningIsPure` | Planning inspects only immutable candidate structure and immutable capability declarations, and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
 | `SourceDelegationDeclineAllowsReferenceFallback` | A pure all-candidates decline permits the caller's retained reference strategy and is never reported as a source failure. |
-| `SourceDelegationAcceptedFailureNeverFallsBack` | After acceptance, a capability miss, incomplete stop, member- or candidate-scoped failure, exception, or defective result never tries a later candidate, reference execution, or the row-handoff residual; only a validated `RowHandoff` enters its retained residual. |
+| `SourceDelegationAcceptanceExecutesOnce` | One public invocation that accepts a candidate invokes source execution at most once, publishes at most one outcome, and exposes no accepted-plan handle that permits replay. |
+| `SourceDelegationAcceptedFailureNeverFallsBack` | After acceptance, no result or failure tries a later candidate or the reference path. Only Rows-usable entries from a validated `RowHandoff` enter its retained residual, including entries carrying accepted incomplete-stop evidence; `Unavailable` entries do not enter, and `NotSatisfied`, exceptions, and defective results enter no residual. |
 | `SourceDelegationOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete outcome, and published row values retain no deferred source enumeration, acquisition, or source failure. |
-| `SourceDelegationPartitionMatchesReference` | The caller's adoption gate proves every row-handoff candidate delegates one contiguous reference-order prefix (possibly empty) and retains the exact disjoint suffix in its residual, with complete coverage and no duplicated operation for every member; it rejects a non-prefix partition before presenting the candidate, and the delegated prefix transported in the candidate is exactly the proven prefix. Every exact-Count candidate covers the complete resolved plan. |
+| `SourceDelegationPartitionMatchesReference` | The caller's adoption gate proves that candidate construction binds exactly the execution group's complete ordered member-identity sequence with no missing, extra, or duplicate member, and that every row-handoff member delegates one contiguous reference-order prefix (possibly empty) while retaining the exact disjoint suffix in its residual, with complete coverage and no duplicated operation; it rejects a malformed or non-prefix partition before planning, and the delegated prefix transported in the candidate is exactly the proven prefix. Every exact-Count candidate covers the complete resolved plan. |
 | `SourceClosedDeclarationsMatchOwnerContracts` | Each operation owner's gate proves its source-closed declaration against its reference failure and invocation contract; an operation is delegable only under its owner's current declaration. |
 | `OwnerObservationsRemainReferenceBarriers` | An operation not declared source-closed never enters delegated work; retained in the residual or reference path, it preserves exact invocation, failure identity, scope, all-or-failure behavior, and precedence. |
 | `SourceDelegationExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate, contains one non-negative exact value and accepted completion evidence per member, carries no rows, and publishes no partial map or invented total. |
 | `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns one disposition-and-evidence entry per member with no row or Count payload; the broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
-| `SourceDelegationCompletionEvidenceBasisIsAccepted` | A result satisfies its completion requirement only through an evidence basis that requirement accepts; a member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, and exact Count requires proof of every member value. |
+| `SourceDelegationCompletionEvidenceBasisIsAccepted` | A result satisfies its completion requirement only through logical exhaustion or a requirement-witness basis that the requirement accepts; incomplete-stop and unavailable-outcome evidence never satisfy it. A member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, absence is not exhaustion, and exact Count requires proof of every member value. |
 | `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete-stop evidence even when their numeric value equals a requested semantic bound or returned row count. |
 | `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff candidate may return Rows-usable values with incomplete-stop evidence, while the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
 | `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after its retained residual, matches the complete section-row reference result for surviving values, order, member identity, unavailable-member composition, source evidence, owner-observable invocation, and terminal failure. Fixtures exercise a typed strict-window residual failure, an exact sentinel callback/comparer/resolver exception, and a case where both are reachable with reference precedence preserved; none publishes partial rows. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
