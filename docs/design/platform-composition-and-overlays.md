@@ -73,13 +73,17 @@ The selected framework's manifests are authoritative:
   dependencies; only a definitive not-found result establishes a
   dependency-free leaf;
 - `<family>.deps.json` is required and defines the exact managed members under
-  the target named by `runtimeTarget.name`.
+  the target named by `runtimeTarget.name`: every `runtime` asset plus the
+  historical `native` asset whose projected leaf is exactly
+  `System.Private.CoreLib.dll`.
 
 Directory contents are not membership. Extra DLLs, native assets, resource
 satellites, unrelated runtime targets, servicing or shared stores, application
-probing, and hostpolicy arbitration do not enter this closure. A missing
-manifest-declared member fails the realization. This is a manifest-defined
-installed implementation closure, not launch-time effective TPA.
+probing, and hostpolicy arbitration do not enter this closure. The historical
+CoreLib declaration is a managed-member candidate, not permission to admit any
+other `native` asset. A missing manifest-declared member fails the realization.
+This is a manifest-defined installed implementation closure, not launch-time
+effective TPA.
 
 Manifest coordinates remain contained beneath the selected framework
 directory. Manifest bytes are bounded before parsing; `HardenedJson` owns
@@ -87,11 +91,11 @@ malformed-JSON and duplicate-property policy. A runtime-configuration probe,
 open, or read failure other than definitive not-found is a typed failure, not
 an empty dependency set.
 
-Each dependency-manifest runtime path is a logical asset coordinate. It must be
-relative, use `/` separators, contain no empty, `.` or `..` segment, and end in
-one valid file name. The installed member coordinate is that final segment
-directly beneath the selected framework/version directory. Thus a modern
-`System.Runtime.dll` and a legacy
+Each participating dependency-manifest path is a logical asset coordinate. It
+must be relative, use `/` separators, contain no empty, `.` or `..` segment,
+and end in one valid file name. The installed member coordinate is that final
+segment directly beneath the selected framework/version directory. Thus a
+modern `System.Runtime.dll` and a legacy
 `runtimes/linux-x64/lib/netcoreapp2.1/System.Runtime.dll` both select the
 installed top-level `System.Runtime.dll`. Unsupported logical forms or two
 logical assets that project to one installed coordinate reject before member
@@ -250,6 +254,8 @@ The required Release evidence is:
 
 Rejection gates derive their expected reason sets from the declarations so
 both missing and stale cases fail.
+The runtimeconfig-access gate likewise derives its probe, open, and read stages
+from the declared failure set.
 `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle` covers
 only the deterministic domain shared with hostfxr; product-defined ambiguity
 rules are owned by their rejection gates.
@@ -257,10 +263,10 @@ rules are owned by their rejection gates.
 | Claim | Named gate |
 | --- | --- |
 | Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure`, `InstalledPlatformRealization_CoreMembershipMatchesIndependentOracle` |
-| Dependency-free leaf compatibility | `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf`, `InstalledPlatformRealization_RuntimeConfigReadFailureDoesNotBecomeLeaf` |
+| Dependency-free leaf compatibility | `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf`, `InstalledPlatformRealization_RuntimeConfigAccessFailuresDoNotBecomeLeaf` |
 | Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_RejectsEqualPrecedenceReferenceAmbiguity`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
 | Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
-| Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_LegacyRuntimeAssetProjectsToInstalledLeaf`, `InstalledPlatformRealization_ProjectedMemberCoordinateCollisionRejectsAtomically`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
+| Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_LegacyCoreMembershipMatchesIndependentOracle`, `InstalledPlatformRealization_LegacyRuntimeAssetProjectsToInstalledLeaf`, `InstalledPlatformRealization_ProjectedMemberCoordinateCollisionRejectsAtomically`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
 | No ambient or fallback authority | `InstalledPlatformRealization_IgnoresAmbientRollForwardOverrides`, `InstalledPlatformRealization_NeverFallsBackOutsideSelectedHiveOrLayout` |
 | Declared rejection behavior | `InstalledPlatformRealization_InvalidManifestCasesRejectAtomically`, `InstalledPlatformRealization_InvalidFrameworkGraphCasesRejectAtomically`, `InstalledPlatformRealization_InvalidMemberCasesRejectAtomically`, `InstalledPlatformRealization_NonSuccessReturnsNoProofOrLiveLease` |
 | Atomic identity and frozen-member handoff | `InstalledPlatformRealization_DuplicateAssemblyIdentityRejectsAtomically`, `InstalledPlatformRealization_MissingOrInvalidDependencyNeverShortensClosure`, `InstalledPlatformRealization_ProofBindsHiveGraphManifestsAndMemberContent`, `InstalledPlatformRealization_GenerationIsFreshAndProofLeaseBound`, `InstalledPlatformRealization_MemberLeaseReturnsExactFrozenSnapshot`, `InstalledPlatformRealization_SourceMutationDoesNotChangeRetainedMember`, `InstalledPlatformRealization_ProofExposesNoRawContentRoute` |
