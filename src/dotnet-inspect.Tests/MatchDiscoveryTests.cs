@@ -10,6 +10,7 @@ using DotnetInspector.Options;
 using System.CommandLine;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
+using CSharpText;
 
 namespace DotnetInspector.Tests;
 
@@ -788,6 +789,177 @@ public sealed class MatchDiscoveryTests
         string[] members = Candidates(document).Select(candidate => candidate.Member).ToArray();
         Assert.NotEmpty(members);
         Assert.All(members, member => Assert.StartsWith("System.String.", member));
+    }
+
+    // ---- Round 3 review findings ----
+
+    /// <summary>
+    /// Spells the library the way the README does — relative to the working directory — and
+    /// requires it to name the same image as the seed's absolute origin. A raw path comparison
+    /// reported one file as two images, which stopped retrieval from suppressing the seed and
+    /// ranked the seed as its own best candidate.
+    /// </summary>
+    [Fact]
+    public async Task Similar_RelativeLibraryPath_StillSuppressesTheSeed()
+    {
+        string relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), TestAssembly);
+        Assert.False(Path.IsPathRooted(relative));
+
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyPath = relative,
+            AssemblyWide = true,
+            JsonOutput = true,
+        };
+
+        var (exitCode, output, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        JsonElement document = Parse(output);
+        Assert.False(document.TryGetProperty("candidate_assembly", out _));
+
+        int seedToken = document.GetProperty("seed_outcome").GetProperty("token").GetString()
+            is string token
+            ? Convert.ToInt32(token, 16)
+            : throw new InvalidOperationException("seed token missing");
+
+        Assert.DoesNotContain(
+            document.GetProperty("candidates").EnumerateArray(),
+            candidate => Convert.ToInt32(candidate.GetProperty("token").GetString()!, 16) == seedToken);
+    }
+
+    /// <summary>
+    /// Every ranked row prints a token so the row is addressable by pairwise <c>match</c>. A token
+    /// that the projection cannot name falls back to the caller's own library spelling, so a
+    /// relative spelling made the seed and the candidate look like different assemblies and the
+    /// documented transition failed for exactly the rows that need it.
+    /// </summary>
+    [Fact]
+    public async Task Pairwise_RelativeLibraryPath_AcceptsARankedToken()
+    {
+        string relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), TestAssembly);
+
+        MatchOptions discovery = Seeded(SampleSeed) with
+        {
+            AssemblyPath = relative,
+            AssemblyWide = true,
+            MaximumResults = 500,
+            JsonOutput = true,
+        };
+
+        var (discoveryExit, discoveryOutput, _) = await RunAsync(discovery);
+        Assert.Equal(0, discoveryExit);
+
+        // Deliberately a row the API projection cannot name. A named row carries the surface's own
+        // absolute path on both sides and would pass even with the origin left uncanonicalized;
+        // only a token absent from the projection falls back to the caller's relative spelling,
+        // and those are exactly the rows whose sole address is the printed token.
+        string rankedToken = Parse(discoveryOutput)
+            .GetProperty("candidates").EnumerateArray()
+            .First(candidate => candidate.GetProperty("member").GetString()!.StartsWith(
+                "MethodDef ", StringComparison.Ordinal))
+            .GetProperty("token").GetString()!;
+
+        var (exitCode, output, error) = await RunAsync(new MatchOptions
+        {
+            LeftSelector = SampleSeed,
+            RightSelector = rankedToken,
+            AssemblyPath = relative,
+            IncludeAll = true,
+        });
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("Relation", output);
+    }
+
+    /// <summary>
+    /// <c>...</c> is a legal directory name, and pairwise <c>match</c> treats it as one. Discovery
+    /// must not silently reinterpret the caller's path as a range and inspect two different
+    /// operands. A separator sits in a dot run of exactly two or four; every other run is path text.
+    /// </summary>
+    [Theory]
+    [InlineData(".../foo.dll")]
+    [InlineData("a/.../foo.dll")]
+    [InlineData("...../foo.dll")]
+    public void FindRangeSeparator_DotRunThatCannotSeparate_IsAPath(string value)
+        => Assert.Equal(-1, MatchDiscovery.FindRangeSeparator(value));
+
+    [Theory]
+    [InlineData("old/Foo.dll..new/Foo.dll", 11)]
+    [InlineData("old/Foo.dll..../new/Foo.dll", 11)]
+    public void FindRangeSeparator_SeparatorRun_SplitsTheOperands(string value, int expected)
+        => Assert.Equal(expected, MatchDiscovery.FindRangeSeparator(value));
+
+    /// <summary>
+    /// JSON escaping is not containment: a parser restores the original control character, so a
+    /// bidi override in inspected metadata would reach a JSON consumer intact. The document records
+    /// contain their own metadata-derived strings, because <c>MarkoutRowContainmentTests</c> covers
+    /// Markout views and a JSON document is not one.
+    /// </summary>
+    [Fact]
+    public async Task Similar_Json_ContainsEveryMetadataDerivedString()
+    {
+        MatchOptions options = Seeded(SampleSeed) with { JsonOutput = true };
+
+        var (exitCode, output, _) = await RunAsync(options);
+        Assert.Equal(0, exitCode);
+
+        JsonElement document = Parse(output);
+        string[] contained =
+        [
+            document.GetProperty("seed").GetString()!,
+            document.GetProperty("scope").GetString()!,
+            document.GetProperty("seed_outcome").GetProperty("member").GetString()!,
+            .. document.GetProperty("candidates").EnumerateArray()
+                .Select(candidate => candidate.GetProperty("member").GetString()!),
+            .. document.GetProperty("method_outcomes").EnumerateArray()
+                .Select(outcome => outcome.GetProperty("member").GetString()!),
+        ];
+
+        Assert.NotEmpty(contained);
+        foreach (string value in contained)
+            Assert.Equal(CSharpIdentifier.ContainRenderedText(value), value);
+    }
+
+    /// <summary>
+    /// The containment above has to survive a hostile name rather than only a well-behaved one, so
+    /// this drives the same records directly with a rendering hazard the fixtures cannot carry.
+    /// </summary>
+    [Fact]
+    public void MatchDiscoveryDocuments_ContainRenderingHazards()
+    {
+        const string Hostile = "Evil\u202EName";
+
+        var document = new MatchDiscoveryDocument
+        {
+            Seed = Hostile,
+            Scope = Hostile,
+            CandidateAssembly = Hostile,
+            Disposition = "Completed",
+            Disclosure = "",
+            Limits = new MatchDiscoveryLimitsDocument(1, 1, null),
+        };
+
+        Assert.DoesNotContain('\u202E', document.Seed);
+        Assert.DoesNotContain('\u202E', document.Scope);
+        Assert.DoesNotContain('\u202E', document.CandidateAssembly!);
+
+        var seed = new MatchDiscoverySeedDocument
+        {
+            Member = Hostile,
+            Token = Hostile,
+            Disposition = "Completed",
+        };
+
+        Assert.DoesNotContain('\u202E', seed.Member);
+        Assert.DoesNotContain('\u202E', seed.Token);
+
+        var blocker = new MatchDiscoveryBlockerDocument { Kind = Hostile, Detail = Hostile };
+
+        Assert.DoesNotContain('\u202E', blocker.Kind);
+        Assert.DoesNotContain('\u202E', blocker.Detail);
     }
 }
 

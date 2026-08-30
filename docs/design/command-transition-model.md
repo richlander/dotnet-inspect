@@ -459,10 +459,28 @@ Range spelling has to coexist with relative paths, because `..` is both the
 range separator and a parent directory segment. A `..` that is a bounded parent
 segment is part of a path; a range requires a single `..` that splits the value
 into two non-empty library paths whose own `..` occurrences are all parent
-segments. `old/Foo.dll..new/Foo.dll` is a range, `../lib/Foo.dll` is a path, and
-`left.dll../../right.dll` is a range whose right operand is parent-relative.
-Discovery-only options are rejected outright on the pairwise path rather than
-being silently accepted and ignored.
+segments. A separator also has to sit in a dot run of exactly two or four — two
+for a bare separator, four when the right operand opens with its own parent
+segment — because `...` is a legal file name that pairwise `match` accepts as a
+path, and discovery must not silently reinterpret one path as two operands.
+`old/Foo.dll..new/Foo.dll` is a range, `../lib/Foo.dll` and `.../Foo.dll` are
+paths, and `old/Foo.dll..../new/Foo.dll` is a range whose right operand is
+parent-relative. Discovery-only options are rejected outright on the pairwise
+path rather than being silently accepted and ignored.
+
+A selector's origin is a physical-file identity, so it is canonicalized before
+any comparison. It arrives by three routes — a forwarded type's defining image,
+a resolved type's extraction path, and, for a token the projection cannot name,
+the caller's own `--library` spelling — and `./Foo.dll` and its absolute path are
+one file. Comparing raw spellings reports one image as two, which both stops
+retrieval from suppressing its own seed and rejects a pairwise pair that the
+discovery output just told the caller to run.
+
+Containment is a property of the structured document, not of its callers. The
+Markout row gate covers views, and a JSON document is not one, so the document
+records contain their own metadata-derived strings. JSON escaping is not
+containment: a parser restores the original control character, so an escaped
+bidi override would reach a JSON consumer intact.
 
 ## Timeline and bisect consequences
 

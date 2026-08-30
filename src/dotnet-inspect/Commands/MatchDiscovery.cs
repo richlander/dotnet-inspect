@@ -149,15 +149,22 @@ internal static class MatchDiscovery
 
         // The population's defining image, not the image the caller named: a facade resolves a
         // forwarded type without defining it, and retrieval reads TypeDefs.
+        // Both sides are canonicalized before comparison: the seed origin is already canonical,
+        // and the caller's own --library spelling may be relative. A raw comparison reports one
+        // file as two images, which stops the retrieval from suppressing the seed and ranks the
+        // seed as its own best candidate.
         string seedImage = resolvedSeed.OriginAssemblyPath!;
-        string candidateImage = populationImage ?? candidate.ApiDllPath;
+        string callerImage = MatchCommand.CanonicalImagePath(candidate.ApiDllPath);
+        string candidateImage = populationImage is null
+            ? callerImage
+            : MatchCommand.CanonicalImagePath(populationImage);
         bool sameImage = string.Equals(seedImage, candidateImage, StringComparison.Ordinal);
 
         // Names are projected from the surface of the image the tokens come from. When the
         // population lives in a forwarded-to assembly, the caller's surface describes the facade,
         // so extract the defining image's surface instead of mislabelling its tokens.
         LoadedSide? populationSide = null;
-        if (!string.Equals(candidateImage, candidate.ApiDllPath, StringComparison.Ordinal))
+        if (!string.Equals(candidateImage, callerImage, StringComparison.Ordinal))
         {
             (populationSide, int? populationError) =
                 await LoadSideAsync(options with { PackagePath = null }, candidateImage);
@@ -413,24 +420,26 @@ internal static class MatchDiscovery
     /// segment is always bounded by directory separators or by the ends of the argument
     /// (<c>../a.dll</c>, <c>a/../b.dll</c>, <c>a/..</c>); a range separator never is, because a
     /// range joins two file names. Splitting on the first <c>..</c> instead rejects
-    /// <c>--library ../a.dll</c>, which pairwise <c>match</c> accepts.
+    /// <c>--library ../a.dll</c>, which pairwise <c>match</c> accepts. A separator also has to sit
+    /// in a dot run of exactly two or four, so a legal <c>...</c> file name stays a path.
     /// Returns -1 when the argument carries no range, and -2 when no single <c>..</c> separates
     /// two well-formed paths, which is ambiguous rather than a silent left-most win.
     /// </remarks>
     internal static int FindRangeSeparator(string value)
     {
-        // A spelling whose every `..` is a bounded parent segment carries no range at all.
-        bool sawUnbounded = false;
+        // A spelling whose every `..` is a bounded parent segment, or sits inside a dot run that
+        // cannot be a separator, carries no range at all.
+        bool sawSeparator = false;
         for (int index = 0; index + 1 < value.Length; index++)
         {
-            if (IsDoubleDot(value, index) && !IsParentSegment(value, index))
+            if (IsSeparatorRun(value, index) && !IsParentSegment(value, index))
             {
-                sawUnbounded = true;
+                sawSeparator = true;
                 break;
             }
         }
 
-        if (!sawUnbounded)
+        if (!sawSeparator)
             return -1;
 
         // Something must separate the two operands. The separator is the leftmost `..` that
@@ -440,7 +449,7 @@ internal static class MatchDiscovery
         // parent segment so the two spellings run together as a single run of dots.
         for (int index = 0; index + 1 < value.Length; index++)
         {
-            if (!IsDoubleDot(value, index))
+            if (!IsSeparatorRun(value, index))
                 continue;
 
             if (index == 0 || index + 2 == value.Length)
@@ -456,8 +465,32 @@ internal static class MatchDiscovery
         return -2;
     }
 
-    static bool IsDoubleDot(string value, int index)
-        => value[index] == '.' && value[index + 1] == '.';
+    /// <summary>
+    /// True when a maximal run of dots starts at <paramref name="index"/> and is long enough to be
+    /// a separator, but not so long that splitting it would strand a dot against an operand.
+    /// </summary>
+    /// <remarks>
+    /// A range is <c>left..right</c>, and <c>right</c> may open with its own parent segment, so the
+    /// run is either <c>..</c> or the four dots of <c>a.dll..../b.dll</c>. Every other run length is
+    /// path text: <c>...</c> is a legal file name on macOS and Linux, and pairwise <c>match</c>
+    /// accepts it as one, so discovery must not silently reinterpret it as a range and split the
+    /// caller's path into two different operands.
+    /// </remarks>
+    static bool IsSeparatorRun(string value, int index)
+    {
+        if (value[index] != '.' || value[index + 1] != '.')
+            return false;
+
+        if (index > 0 && value[index - 1] == '.')
+            return false;
+
+        int end = index;
+        while (end < value.Length && value[end] == '.')
+            end++;
+
+        int length = end - index;
+        return length is 2 or 4;
+    }
 
     /// <summary>
     /// True when the <c>..</c> at <paramref name="index"/> is a parent-directory segment, which is

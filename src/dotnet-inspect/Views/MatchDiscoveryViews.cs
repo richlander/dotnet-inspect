@@ -170,45 +170,86 @@ public record MatchDiscoveryCandidateRow
 /// blocker, limit, and receipt is retained here regardless of <c>--top</c>, which bounds only the
 /// rendered text rows.
 /// </summary>
-public sealed record MatchDiscoveryDocument(
-    string Seed,
-    string Scope,
-    string? CandidateAssembly,
-    string Disposition,
-    string Disclosure,
-    MatchDiscoveryLimitsDocument Limits,
-    MatchDiscoverySeedDocument? SeedOutcome,
-    MatchDiscoveryReceiptDocument? Receipt,
-    ImmutableArray<MatchDiscoveryBlockerDocument> Blockers,
-    ImmutableArray<MatchDiscoveryCandidateDocument> Candidates,
-    ImmutableArray<MatchDiscoveryMethodOutcomeDocument> MethodOutcomes,
-    MatchDiscoveryFailureDocument? Failure);
+public sealed record MatchDiscoveryDocument
+{
+    /// <summary>
+    /// The seed, scope, and candidate-assembly spellings are metadata- or path-derived, so the
+    /// document contains them itself. Containing at the construction site instead would make the
+    /// guarantee a per-caller discipline, and <c>MarkoutRowContainmentTests</c> cannot enforce it
+    /// here: that gate covers Markout views, and a JSON document is not one. JSON escaping is not
+    /// containment — a parser restores the original control character.
+    /// </summary>
+    public required string Seed { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Scope { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public string? CandidateAssembly
+    {
+        get => field;
+        init => field = value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+    }
+
+    public required string Disposition { get; init; }
+
+    public required string Disclosure { get; init; }
+
+    public required MatchDiscoveryLimitsDocument Limits { get; init; }
+
+    public MatchDiscoverySeedDocument? SeedOutcome { get; init; }
+
+    public MatchDiscoveryReceiptDocument? Receipt { get; init; }
+
+    public ImmutableArray<MatchDiscoveryBlockerDocument> Blockers { get; init; } = [];
+
+    public ImmutableArray<MatchDiscoveryCandidateDocument> Candidates { get; init; } = [];
+
+    public ImmutableArray<MatchDiscoveryMethodOutcomeDocument> MethodOutcomes { get; init; } = [];
+
+    public MatchDiscoveryFailureDocument? Failure { get; init; }
+}
 
 /// <summary>
 /// One candidate method's retrieval outcome, including the methods that produced no candidate.
 /// The receipt counts them in aggregate; this is what says which method each count refers to.
 /// </summary>
-public sealed record MatchDiscoveryMethodOutcomeDocument(
-    string Member,
-    string Token,
-    string Disposition,
-    ImmutableArray<MatchDiscoveryBlockerDocument> Blockers,
-    int BodyBytes,
-    int Instructions,
-    int Blocks,
-    int Edges,
-    int Locals);
+public sealed record MatchDiscoveryMethodOutcomeDocument
+{
+    /// <summary>Projected from inspected metadata, so it is contained here.</summary>
+    public required string Member { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Token { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Disposition { get; init; }
+
+    public ImmutableArray<MatchDiscoveryBlockerDocument> Blockers { get; init; } = [];
+
+    public int BodyBytes { get; init; }
+
+    public int Instructions { get; init; }
+
+    public int Blocks { get; init; }
+
+    public int Edges { get; init; }
+
+    public int Locals { get; init; }
+}
 
 public sealed record MatchDiscoveryLimitsDocument(
     int MaximumMethods,
     int MaximumResults,
     int? TextRows);
 
-public sealed record MatchDiscoverySeedDocument(
-    string Member,
-    string Token,
-    string Disposition,
-    ImmutableArray<MatchDiscoveryBlockerDocument> Blockers);
+public sealed record MatchDiscoverySeedDocument
+{
+    /// <summary>Projected from inspected metadata, so it is contained here.</summary>
+    public required string Member { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Token { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Disposition { get; init; }
+
+    public ImmutableArray<MatchDiscoveryBlockerDocument> Blockers { get; init; } = [];
+}
 
 public sealed record MatchDiscoveryReceiptDocument(
     int InputMethods,
@@ -222,13 +263,25 @@ public sealed record MatchDiscoveryReceiptDocument(
     int ReturnedCandidates,
     int BodyProductions);
 
-public sealed record MatchDiscoveryBlockerDocument(string Kind, string Detail);
+public sealed record MatchDiscoveryBlockerDocument
+{
+    /// <summary>Projected from inspected metadata, so it is contained here.</summary>
+    public required string Kind { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
 
-public sealed record MatchDiscoveryCandidateDocument(
-    int Rank,
-    string Member,
-    string Token,
-    MatchDiscoverySimilarityDocument Similarity);
+    public required string Detail { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+}
+
+public sealed record MatchDiscoveryCandidateDocument
+{
+    public int Rank { get; init; }
+
+    /// <summary>Projected from inspected metadata, so it is contained here.</summary>
+    public required string Member { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required string Token { get => field; init => field = CSharpIdentifier.ContainRenderedText(value); } = "";
+
+    public required MatchDiscoverySimilarityDocument Similarity { get; init; }
+}
 
 /// <summary>
 /// Analysis-issued similarity evidence, reproduced verbatim. Scores range from zero through
@@ -338,19 +391,16 @@ internal static class MatchDiscoveryFormatter
                 failure.Detail),
         ];
 
-        var document = new MatchDiscoveryDocument(
-            request.Seed,
-            request.Scope,
-            request.CandidateAssembly,
-            disposition,
-            Disclosure,
-            LimitsOf(request),
-            SeedOutcome: null,
-            Receipt: null,
-            Blockers: [],
-            Candidates: [],
-            MethodOutcomes: [],
-            Failure: failure);
+        var document = new MatchDiscoveryDocument
+        {
+            Seed = request.Seed,
+            Scope = request.Scope,
+            CandidateAssembly = request.CandidateAssembly,
+            Disposition = disposition,
+            Disclosure = Disclosure,
+            Limits = LimitsOf(request),
+            Failure = failure,
+        };
         return (view, document);
     }
 
@@ -404,23 +454,24 @@ internal static class MatchDiscoveryFormatter
                 view.Showing = $"{limit} of {candidates.Length} ranked candidates";
         }
 
-        var document = new MatchDiscoveryDocument(
-            request.Seed,
-            request.Scope,
-            request.CandidateAssembly,
-            retrieval.Disposition.ToString(),
-            Disclosure,
-            LimitsOf(request),
-            new MatchDiscoverySeedDocument(
+        var document = new MatchDiscoveryDocument
+        {
+            Seed = request.Seed,
+            Scope = request.Scope,
+            CandidateAssembly = request.CandidateAssembly,
+            Disposition = retrieval.Disposition.ToString(),
+            Disclosure = Disclosure,
+            Limits = LimitsOf(request),
+            SeedOutcome = new MatchDiscoverySeedDocument
+            {
                 // The seed's own resolved display, never a lookup in the candidate name map: the
                 // seed can live in a different image, where its token names another member.
-                request.Seed,
-                $"0x{retrieval.Seed.Method.Token:X8}",
-                retrieval.Seed.Disposition.ToString(),
-                [.. retrieval.Seed.Blockers.Select(
-                    blocker => new MatchDiscoveryBlockerDocument(
-                        blocker.Kind.ToString(), blocker.Detail))]),
-            new MatchDiscoveryReceiptDocument(
+                Member = request.Seed,
+                Token = $"0x{retrieval.Seed.Method.Token:X8}",
+                Disposition = retrieval.Seed.Disposition.ToString(),
+                Blockers = [.. retrieval.Seed.Blockers.Select(Blocker)],
+            },
+            Receipt = new MatchDiscoveryReceiptDocument(
                 receipt.InputMethods,
                 receipt.ProcessedMethods,
                 receipt.SuppressedCandidates,
@@ -431,28 +482,31 @@ internal static class MatchDiscoveryFormatter
                 receipt.RankedCandidates,
                 receipt.ReturnedCandidates,
                 receipt.BodyProductions),
-            [.. retrieval.Blockers.Select(
-                blocker => new MatchDiscoveryBlockerDocument(
-                    blocker.Kind.ToString(), blocker.Detail))],
-            [.. candidates.Select(candidate => new MatchDiscoveryCandidateDocument(
-                candidate.Rank,
-                names.Display(candidate.Method),
-                $"0x{candidate.Method.Token:X8}",
-                Similarity(candidate.Similarity)))],
+            Blockers = [.. retrieval.Blockers.Select(Blocker)],
+            Candidates = [.. candidates.Select(candidate => new MatchDiscoveryCandidateDocument
+            {
+                Rank = candidate.Rank,
+                Member = names.Display(candidate.Method),
+                Token = $"0x{candidate.Method.Token:X8}",
+                Similarity = Similarity(candidate.Similarity),
+            })],
             // Never bounded by --top: this is the per-method evidence behind the receipt counts.
-            [.. retrieval.Methods.Select(outcome => new MatchDiscoveryMethodOutcomeDocument(
-                names.Display(outcome.Method),
-                $"0x{outcome.Method.Token:X8}",
-                outcome.Disposition.ToString(),
-                [.. outcome.Blockers.Select(
-                    blocker => new MatchDiscoveryBlockerDocument(
-                        blocker.Kind.ToString(), blocker.Detail))],
-                outcome.Receipt.BodyBytes,
-                outcome.Receipt.Instructions,
-                outcome.Receipt.Blocks,
-                outcome.Receipt.Edges,
-                outcome.Receipt.Locals))],
-            Failure: null);
+            MethodOutcomes =
+            [
+                .. retrieval.Methods.Select(outcome => new MatchDiscoveryMethodOutcomeDocument
+                {
+                    Member = names.Display(outcome.Method),
+                    Token = $"0x{outcome.Method.Token:X8}",
+                    Disposition = outcome.Disposition.ToString(),
+                    Blockers = [.. outcome.Blockers.Select(Blocker)],
+                    BodyBytes = outcome.Receipt.BodyBytes,
+                    Instructions = outcome.Receipt.Instructions,
+                    Blocks = outcome.Receipt.Blocks,
+                    Edges = outcome.Receipt.Edges,
+                    Locals = outcome.Receipt.Locals,
+                }),
+            ],
+        };
 
         return (view, document);
     }
@@ -478,6 +532,12 @@ internal static class MatchDiscoveryFormatter
             request.Limits.MaximumMethods,
             request.Limits.MaximumResults,
             request.Top);
+
+    static MatchDiscoveryBlockerDocument Blocker(StructuralCloneBlocker blocker)
+        => new() { Kind = blocker.Kind.ToString(), Detail = blocker.Detail };
+
+    static MatchDiscoveryBlockerDocument Blocker(StructuralCloneRetrievalBlocker blocker)
+        => new() { Kind = blocker.Kind.ToString(), Detail = blocker.Detail };
 
     static MatchDiscoverySimilarityDocument Similarity(StructuralCloneSimilarityEvidence evidence)
         => new(

@@ -179,6 +179,17 @@ public static class MatchCommand
     internal readonly record struct ResolvedSelector(int? Token, string? Display, string? OriginAssemblyPath, string? Error);
 
     /// <summary>
+    /// Canonicalizes an image path so two spellings of one file compare equal. A selector's origin
+    /// is a physical-file identity, but it arrives by three routes: a forwarded type carries the
+    /// defining image's recorded path, a resolved type carries the extraction path, and a token
+    /// absent from the projection falls back to the caller's own spelling. <c>./Foo.dll</c> and its
+    /// absolute path name one file, so comparing raw spellings reports one image as two — which
+    /// rejects a valid pairwise pair and stops discovery from suppressing its own seed. Lexical
+    /// only; it deliberately does not resolve symlinks.
+    /// </summary>
+    internal static string CanonicalImagePath(string path) => Path.GetFullPath(path);
+
+    /// <summary>
     /// Resolves a <c>Type.Member</c> selector to the unique <see cref="ApiMember.MetadataToken"/>
     /// it names. Reuses <see cref="ApiTypeLookupService"/>'s type-vs-member boundary detection
     /// rather than re-splitting the string, since that boundary is not knowable syntactically.
@@ -199,7 +210,7 @@ public static class MatchCommand
                 tokenType is null
                     ? $"MethodDef 0x{methodToken:X8}"
                     : $"{tokenType.FullName} MethodDef 0x{methodToken:X8}",
-                tokenType?.SourceAssemblyPath ?? apiDllPath,
+                CanonicalImagePath(tokenType?.SourceAssemblyPath ?? apiDllPath),
                 null);
         }
 
@@ -267,7 +278,7 @@ public static class MatchCommand
         // apiType.SourceAssemblyPath for a type resolved through a type forwarder, otherwise the
         // extraction dll (apiDllPath). Comparing a forwarded type's token against apiDllPath would
         // silently reinterpret an unrelated MethodDef row in the wrong image.
-        var originAssemblyPath = apiType.SourceAssemblyPath ?? apiDllPath;
+        var originAssemblyPath = CanonicalImagePath(apiType.SourceAssemblyPath ?? apiDllPath);
         return new ResolvedSelector(MethodToken(candidates[0]), $"{apiType.FullName}.{memberName}", originAssemblyPath, null);
     }
 
