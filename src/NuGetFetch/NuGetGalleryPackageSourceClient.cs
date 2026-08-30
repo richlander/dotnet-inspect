@@ -667,9 +667,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         operation.ThrowIfExpired();
 
         Exception[] failures = requests
-            .Where(request => request.Exception is not null)
-            .SelectMany(request =>
-                request.Exception!.Flatten().InnerExceptions)
+            .SelectMany(RegistrationFailures)
             .ToArray();
         Exception? timeout = failures
             .FirstOrDefault(exception =>
@@ -680,6 +678,29 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             exception => exception is TimeoutException);
         if (timeout is not null)
             ExceptionDispatchInfo.Capture(timeout).Throw();
+    }
+
+    private static IEnumerable<Exception> RegistrationFailures(
+        Task<MemoryStream?> request)
+    {
+        if (request.Exception is not null)
+            return request.Exception.Flatten().InnerExceptions;
+
+        if (!request.IsCanceled)
+            return [];
+
+        try
+        {
+            _ = request.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException exception)
+        {
+            return exception.InnerException is TimeoutException timeout
+                ? [timeout]
+                : [];
+        }
+
+        return [];
     }
 
     public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(

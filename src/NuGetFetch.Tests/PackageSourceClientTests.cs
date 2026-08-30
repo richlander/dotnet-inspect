@@ -3189,6 +3189,30 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryConcurrentTransportFaultCannotHideCanceledTransportTimeout()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromSeconds(5),
+        };
+        var handler = new FaultAndTimeoutRegistrationHandler(
+            canceledTransportTimeout: true);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler, options);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Null(failure.Timeout);
+        Assert.True(handler.FastTransportRequests > 0);
+        Assert.True(handler.StallingRequests > 0);
+    }
+
+    [Fact]
     public async Task GalleryLateProtocolFailureCannotBecomePartial()
     {
         var options = new NuGetFetchOptions
@@ -6354,7 +6378,8 @@ public sealed class PackageSourceClientTests
     }
 
     private sealed class FaultAndTimeoutRegistrationHandler(
-        bool transportTimeout = false)
+        bool transportTimeout = false,
+        bool canceledTransportTimeout = false)
         : HttpMessageHandler
     {
         public int FastTransportRequests;
@@ -6398,6 +6423,15 @@ public sealed class PackageSourceClientTests
             }
 
             Interlocked.Increment(ref StallingRequests);
+            if (canceledTransportTimeout)
+            {
+                throw new TaskCanceledException(
+                    "Simulated canceled registration transport timeout.",
+                    new TimeoutException(
+                        "Simulated registration transport timeout."),
+                    CancellationToken.None);
+            }
+
             if (transportTimeout)
             {
                 throw new TimeoutException(

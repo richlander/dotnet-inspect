@@ -1449,8 +1449,10 @@ The implementation gates are:
 `PackageSourceClientTests.GalleryConcurrentTransportFaultCannotHideTimeout`
 gates deadline precedence across concurrent Gallery page requests.
 `GalleryConcurrentTransportFaultCannotHideTransportTimeout` and
-`GalleryLateProtocolFailureCannotBecomePartial` gate the lower-precedence
-transport-timeout and protocol-failure cases.
+`GalleryConcurrentTransportFaultCannotHideCanceledTransportTimeout` gate
+faulted and canceled transport-timeout tasks respectively.
+`GalleryLateProtocolFailureCannotBecomePartial` gates the lower-precedence
+protocol-failure case.
 `GalleryLateMetadataProtocolFailurePreservesBodyDeadline`,
 `GalleryLateInvalidDataPreservesRequestDeadline`, and
 `GalleryLateStreamingTimeoutPreservesDeadline` gate the same precedence at the
