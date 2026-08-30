@@ -538,6 +538,8 @@ public sealed class LayeringTests
         Assert.Contains(
             "LocalArtifactSource.AcquireFileAsync(",
             probe);
+        Assert.Contains("\"local.file.missing\"", probe);
+        Assert.Contains("\"local.file.unsupported-entry\"", probe);
         Assert.Contains(
             "<PublishAot>true</PublishAot>",
             nativeProject);

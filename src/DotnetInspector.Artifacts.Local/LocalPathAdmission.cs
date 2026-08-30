@@ -178,6 +178,9 @@ internal static partial class LocalPathAdmission
     private const int UnixRegularFile = 0x8000;
     private const int UnixErrorNoEntry = 2;
     private const int UnixErrorNotDirectory = 20;
+    private const int BrowserErrorNoEntry = 44;
+    private const int BrowserErrorNotDirectory = 54;
+    private const int BrowserErrorSymbolicLinkLoop = 32;
 
     private const uint WindowsFileTypeDisk = 0x0001;
     private const uint WindowsOpenExisting = 3;
@@ -523,7 +526,7 @@ internal static partial class LocalPathAdmission
             if (UnixStat(canonicalPath, out UnixFileStatus information) != 0)
             {
                 int error = Marshal.GetLastPInvokeError();
-                if (error is UnixErrorNoEntry or UnixErrorNotDirectory)
+                if (IsUnixMissing(error))
                 {
                     return LocalPathClassification.Unavailable(
                         requestedPath,
@@ -806,8 +809,15 @@ internal static partial class LocalPathAdmission
     private static bool IsMissing(Exception exception) =>
         exception is FileNotFoundException or DirectoryNotFoundException;
 
+    private static bool IsUnixMissing(int error) =>
+        error is UnixErrorNoEntry or UnixErrorNotDirectory
+        || OperatingSystem.IsBrowser()
+        && error is BrowserErrorNoEntry or BrowserErrorNotDirectory;
+
     private static bool IsUnixSymbolicLinkLoop(int error) =>
         error == 40
+        || OperatingSystem.IsBrowser()
+        && error == BrowserErrorSymbolicLinkLoop
         || (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD())
         && error == 62;
 

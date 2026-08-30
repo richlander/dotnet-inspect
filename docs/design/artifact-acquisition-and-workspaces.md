@@ -1121,9 +1121,12 @@ contract needs stable device/inode identity and intentionally restricts the
 hosts on which it deduplicates physical files. Local-path admission consumes
 only the normalized mode field and does not mint physical identity. The
 portable gate must run the actual `Stat` and `FStat` imports under 32-bit
-Browser/Wasm as well as NativeAOT. If that gate fails on a supported target, the
-platform design reopens; returning classification-unsupported is an operational
-failure mode, not approval to ship an unsupported-platform degradation.
+Browser/Wasm as well as NativeAOT. It must also preserve unavailable outcomes
+for missing and not-directory errors and rejected outcomes for symbolic-link
+loops under each platform's normalized error values. If that gate fails on a
+supported target, the platform design reopens; returning
+classification-unsupported is an operational failure mode, not approval to ship
+an unsupported-platform degradation.
 
 The implementation is complete when focused gates prove:
 
@@ -1139,7 +1142,8 @@ The implementation is complete when focused gates prove:
   cannot reopen the coordinate;
 - unavailable, rejected, failed, and cancellation results remain distinct; and
 - the normalized `Stat` and `FStat` classifier compiles and runs under both
-  NativeAOT and Browser/Wasm, while Windows gates cover disk files,
+  NativeAOT and Browser/Wasm, preserving missing, not-directory, and link-loop
+  outcomes, while Windows gates cover disk files,
   drive-root directories, regular files directly beneath a drive root,
   traversable links, reserved device names, named-pipe coordinates, allowed
   data-bearing reparse tags, every supported special-tag family, and an unknown
@@ -1921,7 +1925,9 @@ or bytes across artifacts or generations.
 path-admission outcomes, expected kinds, link handling, pre-open rejection of
 stable non-regular entries, once-opened generation identity, mutation and
 deletion resistance, and cancellation remaining cancellation. The executable
-NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports.
+NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports
+and the platform-specific missing, not-directory, and link-loop outcome
+mappings.
 The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
 they require bounded deterministic top-level selection, source-neutral
 exclusions, atomic empty and failure outcomes, directory provenance, immutable
