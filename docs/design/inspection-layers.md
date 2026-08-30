@@ -1418,6 +1418,12 @@ canaries:
   prerequisite and composes missing registration surfaces over the same
   immutable participant snapshots. The entire `@Integrations` section family
   is query-owned; the CLI retains only command hosting and projection.
+- Metadata-owned `IntegrationConceptCatalog` descriptors now flow through
+  scanner and opportunity evidence, while `IntegrationAnalysisCatalog` binds
+  those exact descriptors to the generic Census request planner, group query
+  prerequisites, and Integration graph relationships. Existing labels remain
+  compatibility presentation; L1 composition no longer uses them as concept
+  identity.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
   Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Top Leverage`,

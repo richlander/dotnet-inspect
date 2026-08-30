@@ -5260,6 +5260,10 @@ public class SectionPipelineTests
     {
         LibrarySectionCatalog catalog = LibrarySections.CreateCatalog();
         SectionPipeline<LibraryInspection> pipeline = catalog.Pipeline;
+        Assert.Equal(
+            IntegrationConceptCatalog.Concepts,
+            LibraryIntegrationCatalog.All.Select(
+                descriptor => descriptor.Concept));
         Assert.Contains(
             AssemblyContextIntegrationsQuery.Definition,
             catalog.GroupQueryCatalog.RegisteredQueries);
