@@ -1,5 +1,33 @@
 namespace ILInspector.Decompiler.Pipeline;
 
+[Flags]
+public enum SlotMaterializationVeto
+{
+    None = 0,
+    NestedScope = 1 << 0,
+    MissingStore = 1 << 1,
+    MissingLoad = 1 << 2,
+    UnderivableTypeTestimony = 1 << 3,
+    ConflictingTypeTestimony = 1 << 4,
+    NestedSlotNumberCollision = 1 << 5,
+    OutsideCoercionDomain = 1 << 6,
+    UnrenderableStoreType = 1 << 7,
+    MultiStoreSingleLoadFold = 1 << 8,
+    CrossBlockStoreFold = 1 << 9,
+    ConditionalSingleLoadFold = 1 << 10,
+    ElementStoreIdentityRecovery = 1 << 11,
+    IncompleteCopyComponent = 1 << 12,
+}
+
+public readonly record struct SlotMaterializationDecision(
+    IrNode Scope,
+    int Slot,
+    TypeRef? Type,
+    SlotMaterializationVeto Vetoes)
+{
+    public bool WillMaterialize => Vetoes == SlotMaterializationVeto.None;
+}
+
 /// <summary>
 /// Materializes decided synthetic stack slots as typed locals
 /// (value-typed-emission.md, slice 5b-2; the #2209 trajectory commitment).
@@ -25,155 +53,163 @@ public sealed class SlotMaterializationPass : IIrPass
 {
     public string Name => "slot-materialization";
 
+    public static IReadOnlyList<SlotMaterializationDecision> Analyze(IrFunction function)
+        => BuildPlan(function).Decisions;
+
     public void Run(IrFunction function, PassContext context)
     {
-        // Function-scope only this increment: nested Lambda/LocalFunction
-        // bodies carry their own locals tables; their slots stay residual.
-        var slotTypes = CoercionSinks.TestifiedSlotTypes(function.Body, function.Signature.ReturnType, function.TypeShapes);
-        if (slotTypes.Count == 0)
-            return;
+        var plan = BuildPlan(function);
+        var decided = plan.Candidates.Where(static candidate => candidate.Vetoes == SlotMaterializationVeto.None).ToList();
 
-        var stores = new Dictionary<int, List<StoreStackSlot>>();
-        var loads = new Dictionary<int, List<LoadStackSlot>>();
-        var nestedSlots = new HashSet<int>();
-        foreach (var node in CoercionSinks.ScopeNodes(function.Body))
+        // Replace every load before moving store values so nested slot loads
+        // have already become locals. Reparent each value instead of cloning
+        // it: nested function objects are slot-web scope identities shared
+        // with the analysis decision.
+        var indices = new Dictionary<int, int>();
+        foreach (var candidate in decided)
+            indices[candidate.Slot] = function.AddLocal(candidate.Type!, $"S_{candidate.Slot}");
+        foreach (var candidate in decided)
         {
-            switch (node)
+            foreach (var load in candidate.Loads)
             {
-                case StoreStackSlot store:
-                    (stores.TryGetValue(store.Slot, out var ss) ? ss : stores[store.Slot] = []).Add(store);
-                    break;
-                case LoadStackSlot load:
-                    (loads.TryGetValue(load.Slot, out var ls) ? ls : loads[load.Slot] = []).Add(load);
-                    break;
-                case Lambda or LocalFunctionStatement:
-                    foreach (var inner in node.Descendants)
-                    {
-                        if (inner is StoreStackSlot innerStore)
-                            nestedSlots.Add(innerStore.Slot);
-                        else if (inner is LoadStackSlot innerLoad)
-                            nestedSlots.Add(innerLoad.Slot);
-                    }
-                    break;
+                context.Stepper.StepOver($"materialize slot {candidate.Slot} load as local {indices[candidate.Slot]}", load);
+                load.ReplaceWith(new LoadLocal(indices[candidate.Slot], candidate.Type!));
             }
         }
-
-        var decided = new List<(int Slot, TypeRef Type, List<StoreStackSlot> Stores, List<LoadStackSlot> Loads)>();
-        foreach (var (slot, slotType) in slotTypes)
+        foreach (var candidate in decided)
         {
-            // Slot numbering restarts at 0 inside each nested body, and a
-            // raised lambda prints through a fresh inner printer with no view
-            // of the outer locals table — a residual inner `S_0` next to a
-            // materialized outer `S_0` is CS0136 (review: HIGH). A slot whose
-            // number also appears in any nested body stays on the unifier
-            // until nested scopes materialize too.
-            if (nestedSlots.Contains(slot))
+            foreach (var store in candidate.Stores)
+            {
+                context.Stepper.StepOver($"materialize slot {candidate.Slot} store as local {indices[candidate.Slot]}", store);
+                var value = (IrExpression)store.DetachChildren()[0];
+                store.ReplaceWith(new StoreLocal(
+                    indices[candidate.Slot],
+                    candidate.Type!,
+                    value));
+            }
+        }
+    }
+
+    static MaterializationPlan BuildPlan(IrFunction function)
+    {
+        var stores = new Dictionary<int, List<StoreStackSlot>>();
+        var loads = new Dictionary<int, List<LoadStackSlot>>();
+        foreach (var node in CoercionSinks.ScopeNodes(function.Body))
+        {
+            if (node is StoreStackSlot store)
+                (stores.TryGetValue(store.Slot, out var ss) ? ss : stores[store.Slot] = []).Add(store);
+            else if (node is LoadStackSlot load)
+                (loads.TryGetValue(load.Slot, out var ls) ? ls : loads[load.Slot] = []).Add(load);
+        }
+
+        var nestedSlots = new HashSet<int>();
+        var nestedDecisions = new List<SlotMaterializationDecision>();
+        // #2356 made nested generated names collision-free, but recursively
+        // materializing each nested body's own locals table is a separate
+        // behavior slice. Attribute those webs here instead of hiding them
+        // behind the function-scope dictionaries.
+        foreach (var nested in function.Descendants.Where(static node => node is Lambda or LocalFunctionStatement))
+        {
+            var slots = new HashSet<int>();
+            foreach (var node in CoercionSinks.ScopeNodes(nested))
+            {
+                if (node is StoreStackSlot store)
+                    slots.Add(store.Slot);
+                else if (node is LoadStackSlot load)
+                    slots.Add(load.Slot);
+            }
+            nestedSlots.UnionWith(slots);
+            nestedDecisions.AddRange(slots
+                .Order()
+                .Select(slot => new SlotMaterializationDecision(
+                    nested, slot, Type: null, SlotMaterializationVeto.NestedScope)));
+        }
+
+        var testimony = CoercionSinks.AnalyzeSlotTypeTestimony(
+            function.Body,
+            function.Signature.ReturnType,
+            function.TypeShapes);
+        // Materializable slots retain the prior first-testimony order so
+        // AddLocal preserves existing local indices and declaration order.
+        var candidates = testimony.Keys
+            .Concat(stores.Keys)
+            .Concat(loads.Keys)
+            .Distinct()
+            .Select(slot => Candidate(
+                function,
+                slot,
+                stores.GetValueOrDefault(slot) ?? [],
+                loads.GetValueOrDefault(slot) ?? []))
+            .ToList();
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Stores.Count == 0)
+                candidate.Vetoes |= SlotMaterializationVeto.MissingStore;
+            if (candidate.Loads.Count == 0)
+                candidate.Vetoes |= SlotMaterializationVeto.MissingLoad;
+
+            if (testimony.TryGetValue(candidate.Slot, out var slotTestimony))
+            {
+                candidate.Type = slotTestimony.Type;
+                candidate.Vetoes |= slotTestimony.Status switch
+                {
+                    CoercionSinks.SlotTypeTestimonyStatus.Underivable
+                        => SlotMaterializationVeto.UnderivableTypeTestimony,
+                    CoercionSinks.SlotTypeTestimonyStatus.Conflicting
+                        => SlotMaterializationVeto.ConflictingTypeTestimony,
+                    _ => SlotMaterializationVeto.None,
+                };
+            }
+            else if (candidate.Loads.Count > 0)
+            {
+                throw new InvalidOperationException($"Slot {candidate.Slot} loads had no testimony decision.");
+            }
+
+            if (nestedSlots.Contains(candidate.Slot))
+                candidate.Vetoes |= SlotMaterializationVeto.NestedSlotNumberCollision;
+
+            if (candidate.Stores.Count > 1 && candidate.Loads.Count == 1)
+                candidate.Vetoes |= SlotMaterializationVeto.MultiStoreSingleLoadFold;
+            if (candidate.Stores.Count > 1
+                && candidate.Stores.Select(static store => store.Parent).Distinct().Count() > 1)
+                candidate.Vetoes |= SlotMaterializationVeto.CrossBlockStoreFold;
+            if (candidate.Loads.Count == 1 && candidate.Stores is [{ Value: Conditional }])
+                candidate.Vetoes |= SlotMaterializationVeto.ConditionalSingleLoadFold;
+
+            if (candidate.Type is not { } slotType)
                 continue;
-            // The lane's declared domain only (integer/bool/char/resolved
-            // enum): ref, generic-param, and reference slots were never
-            // instance 2's scope — the first corpus run materialized them and
-            // bought 2,531 methods of prologue-declaration churn
-            // (`= ref Unsafe.NullRef<…>()` initializers). They stay on the
-            // unifier as residual.
+
             if (!CoercionDomain.InDomain(slotType, function.TypeShapes))
-                continue;
-            var slotStores = stores.GetValueOrDefault(slot);
-            var slotLoads = loads.GetValueOrDefault(slot);
-            if (slotStores is null || slotLoads is null)
-                continue;
-            // Every store must be at the decided type or renderably coercible
-            // to it — the pass runs BEFORE coercion insertion (so the minted
-            // LoadLocals get coerced at their sinks like any local; the
-            // assertion diff caught the after-ordering leaving them bare), so
-            // "will be wrapped" is the guard, not "was wrapped". A store
-            // outside the renderable domain — the PrinterOwned residual —
-            // keeps the whole slot on the unifier: materializing half a slot
-            // recreates the severed-range class the 5b reviews taught.
-            if (!slotStores.All(store => store.Value.ResultType?.Equals(slotType) == true
-                    || CoercionRendering.CanSpellSlotCoercion(
+                candidate.Vetoes |= SlotMaterializationVeto.OutsideCoercionDomain;
+            if (candidate.Stores.Any(store => store.Value.ResultType?.Equals(slotType) != true
+                    && !CoercionRendering.CanSpellSlotCoercion(
                         store.Value.ResultType, slotType, function.TypeShapes, function.EnumUnderlyingTypes)))
-                continue;
-            // A multi-store slot with a single read stays deferred: the printer
-            // folds that shape inline at the consumer (`Use(c ? a : b)`), and a
-            // materialized local renders it as a branchy statement-level
-            // assignment instead — the de-inlining regression the 5b-2 Opus
-            // review quantified (+8/+12-line methods). The shape materializes
-            // when the diamond folds to one store (SlotStoreDiamondPass) or
-            // when a later increment migrates the printer's consumer fold.
-            if (slotStores.Count > 1 && slotLoads.Count == 1)
-                continue;
-            // Stores spanning multiple blocks are the printer's goto-region
-            // ternary fold: in unstructured regions the structuring passes
-            // decline, and the printer folds each StoreStackSlot arm pair into
-            // `S_0 = c ? a : b;` per site — folds a StoreLocal pair does not
-            // get (Number::TryParseNumber grew +50 lines). Same-block
-            // sequential reuse (a re-stored decided slot) materializes fine.
-            if (slotStores.Count > 1 && slotStores.Select(store => store.Parent).Distinct().Count() > 1)
-                continue;
-            // A single-load slot whose one store is a folded conditional is the
-            // printer's inline consumer fold from the other side: it renders
-            // `Use(c ? a : b)` with no statement at all; a materialized local
-            // forces the standalone `T S_n = c ? a : b;` line back in.
-            if (slotLoads.Count == 1 && slotStores is [{ Value: Conditional }])
-                continue;
-            // A slot loaded into an array-element store whose semantic element
-            // type disagrees with the testified type stays deferred: the
-            // printer RE-TYPES such slots (the #1751 char identity recovery —
-            // `chars[i] = intSlot` becomes `char S_2 = '+' : '-'`, because
-            // char's storage width is never its semantic type), and a
-            // materialized int local forecloses that. Coerce is the wrong tool
-            // here — the recovery changes the slot's type, not the value's
-            // spelling (round-2 review: CharElementStorePrinterTests).
-            if (slotLoads.Any(load => load.Parent is StoreElement element
+                candidate.Vetoes |= SlotMaterializationVeto.UnrenderableStoreType;
+            if (candidate.Loads.Any(load => load.Parent is StoreElement element
                     && ReferenceEquals(element.Value, load)
                     && CoercionSinks.StoreElementTarget(element, function.TypeShapes) is { } elementTarget
                     && !elementTarget.Equals(slotType)))
-                continue;
-            decided.Add((slot, slotType, slotStores, slotLoads));
+                candidate.Vetoes |= SlotMaterializationVeto.ElementStoreIdentityRecovery;
         }
 
-        // A direct slot copy couples the source and destination identities.
-        // Rewriting only one end defeated the printer's copy folding in 5b-2.
-        // Retire a whole connected component only when every member already
-        // cleared the independent type, scope, and rendering gates above.
-        var decidedSlots = CompleteCopyComponents(
-            stores,
-            decided.Select(candidate => candidate.Slot));
-        decided.RemoveAll(candidate => !decidedSlots.Contains(candidate.Slot));
+        MarkIncompleteCopyComponents(stores, candidates);
+        return new MaterializationPlan(
+            candidates,
+            [.. candidates.Select(static candidate => candidate.Decision), .. nestedDecisions]);
 
-        // Two-phase rewrite (review: CRITICAL clone-orphaning): replace ALL
-        // loads across ALL decided slots first — in-place subtree mutation
-        // keeps the collected store references valid — THEN rewrite stores.
-        // A store's Clone() thereby copies already-materialized LoadLocals;
-        // cloning one slot's store before another slot's nested load was
-        // processed injected a fresh LoadStackSlot into the live tree while
-        // the pass replaced the original inside the discarded subtree,
-        // orphaning the live one forever.
-        var indices = new Dictionary<int, int>();
-        foreach (var (slot, slotType, _, _) in decided)
-            indices[slot] = function.AddLocal(slotType, $"S_{slot}");
-        foreach (var (slot, slotType, _, slotLoads) in decided)
-        {
-            foreach (var load in slotLoads)
-            {
-                context.Stepper.StepOver($"materialize slot {slot} load as local {indices[slot]}", load);
-                load.ReplaceWith(new LoadLocal(indices[slot], slotType));
-            }
-        }
-        foreach (var (slot, slotType, slotStores, _) in decided)
-        {
-            foreach (var store in slotStores)
-            {
-                context.Stepper.StepOver($"materialize slot {slot} store as local {indices[slot]}", store);
-                store.ReplaceWith(new StoreLocal(indices[slot], slotType, (IrExpression)store.Value.Clone()));
-            }
-        }
+        static MaterializationCandidate Candidate(
+            IrNode scope,
+            int slot,
+            List<StoreStackSlot> slotStores,
+            List<LoadStackSlot> slotLoads)
+            => new(scope, slot, slotStores, slotLoads);
 
-        static HashSet<int> CompleteCopyComponents(
+        static void MarkIncompleteCopyComponents(
             IReadOnlyDictionary<int, List<StoreStackSlot>> stores,
-            IEnumerable<int> individuallyDecidedSlots)
+            IReadOnlyList<MaterializationCandidate> candidates)
         {
-            var decided = individuallyDecidedSlots.ToHashSet();
+            var bySlot = candidates.ToDictionary(static candidate => candidate.Slot);
             var graph = new Dictionary<int, HashSet<int>>();
 
             HashSet<int> Neighbors(int slot)
@@ -212,11 +248,31 @@ public sealed class SlotMaterializationPass : IIrPass
                     }
                 }
 
-                if (!component.All(decided.Contains))
-                    decided.ExceptWith(component);
+                if (component.Any(slot => bySlot[slot].Vetoes != SlotMaterializationVeto.None))
+                {
+                    foreach (int slot in component)
+                        bySlot[slot].Vetoes |= SlotMaterializationVeto.IncompleteCopyComponent;
+                }
             }
-
-            return decided;
         }
+    }
+
+    sealed record MaterializationPlan(
+        IReadOnlyList<MaterializationCandidate> Candidates,
+        IReadOnlyList<SlotMaterializationDecision> Decisions);
+
+    sealed class MaterializationCandidate(
+        IrNode scope,
+        int slot,
+        List<StoreStackSlot> stores,
+        List<LoadStackSlot> loads)
+    {
+        public IrNode Scope { get; } = scope;
+        public int Slot { get; } = slot;
+        public TypeRef? Type { get; set; }
+        public List<StoreStackSlot> Stores { get; } = stores;
+        public List<LoadStackSlot> Loads { get; } = loads;
+        public SlotMaterializationVeto Vetoes { get; set; }
+        public SlotMaterializationDecision Decision => new(Scope, Slot, Type, Vetoes);
     }
 }

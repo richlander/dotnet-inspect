@@ -1471,8 +1471,14 @@ lane for #2386/#2209. It runs each method to the late slots-only
 `StoreStackSlot`/`LoadStackSlot` counts before and after that pass, and
 classifies the remaining stack-slot webs by deferral class (`multi-use`,
 `multi-def/merged`, `cross-block`, `effect/order-interleaved`, `nested-scope`,
-and store/load-only residuals). This is C2 entry evidence, not a correctness
-gate; use `--corpus-method-cap N` for a quick bounded read.
+and store/load-only residuals). It then reports the product-owned
+`SlotMaterializationPass` decision for every post-F2 web and an overlapping
+veto histogram covering testimony, scope, rendering, fold, identity-recovery,
+and direct-copy-component gates. An exact-combination histogram shows which
+vetoes co-occur without double-counting slot webs. The census fails if those
+scope-and-slot identities do not equal the web sets that materialization
+removes or retains. This is C2 entry evidence, not a correctness gate; use
+`--corpus-method-cap N` for a quick bounded read.
 
 **Slot unifier census** (`--slot-unifier-census`): the C2/#2209 burn-down view
 from the printer's own stack-slot unifier path. It runs the full product
