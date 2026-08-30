@@ -10,6 +10,7 @@ CONSTANTS
     EntryCapacityScenario,
     InFlightCapacityScenario,
     ByteCapacityScenario,
+    ZeroReservationScenario,
     Scenario,
     AllowOverCapacity
 
@@ -18,7 +19,8 @@ ASSUME
         \in {
             EntryCapacityScenario,
             InFlightCapacityScenario,
-            ByteCapacityScenario
+            ByteCapacityScenario,
+            ZeroReservationScenario
         }
 
 VARIABLES
@@ -73,6 +75,8 @@ INSTANCE PackageRealizationAdmission WITH
     ReservationOf <-
         IF Scenario = ByteCapacityScenario
         THEN (d1 :> 1 @@ d2 :> 2)
+        ELSE IF Scenario = ZeroReservationScenario
+        THEN [d \in {d1, d2} |-> 0]
         ELSE [d \in {d1, d2} |-> 1],
     MaxEntries <- MaxEntriesMC,
     MaxInFlight <- MaxInFlightMC,
@@ -87,5 +91,15 @@ INSTANCE PackageRealizationAdmission WITH
     AllowCancellationAbandon <- FALSE,
     AllowCancellationFailure <- FALSE,
     AllowDuplicateBindingAsDistinct <- FALSE
+
+ZeroReservationAdmissionObserved ==
+    /\ Scenario = ZeroReservationScenario
+    /\ ReservedByteUnits = 0
+    /\ \E c \in Coordinates :
+        /\ cacheState[c] = "InFlight"
+        /\ cacheOperation[c] # 0
+
+NoZeroReservationAdmissionObserved ==
+    ~ZeroReservationAdmissionObserved
 
 =============================================================================

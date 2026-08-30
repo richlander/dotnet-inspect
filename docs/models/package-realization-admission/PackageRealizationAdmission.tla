@@ -99,7 +99,7 @@ ASSUME
                 )
         ]
     /\ OptionsOf \in [Demands -> Options]
-    /\ ReservationOf \in [Demands -> Nat \ {0}]
+    /\ ReservationOf \in [Demands -> Nat]
     /\ MaxEntries \in Nat \ {0}
     /\ MaxInFlight \in Nat \ {0}
     /\ MaxReservedByteUnits \in Nat \ {0}

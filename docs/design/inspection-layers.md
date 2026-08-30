@@ -1084,6 +1084,8 @@ configuration supplies validated positive limits for:
 
 An absent request atomically reserves one entry, one operation slot, and its
 exact `MaxAggregateRetainedImageBytes` option value before the executor starts.
+That byte reservation may be zero, matching current options validation; the
+request still consumes entry and operation capacity.
 Joining an in-flight entry or leasing a ready entry consumes no additional
 capacity. Operation settlement releases the operation slot. Failure before
 publication also releases the entry and byte reservation; successful ready
