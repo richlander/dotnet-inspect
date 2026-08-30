@@ -454,11 +454,13 @@ late-result cleanup path, and every group release completion. One failed group
 does not prevent another release from being requested or observed. The final
 report retains one workspace registration identity and exact terminal release
 result for every group that reached workspace ownership, in registration
-order. A coordinated entry retains the adjacent owner's typed cleanup result;
-the workspace does not flatten it into exception text or a second cleanup
-taxonomy. Expected cleanup failures are data in the report. The report becomes
-available only after all entries are terminal and is the same immutable
-instance returned by every close call.
+order. That historical domain is immutable: owner-first release cannot remove
+an entry, while failed or canceled construction that produced no group never
+enters the domain and cannot acquire cleanup data. A coordinated entry retains
+the adjacent owner's typed cleanup result; the workspace does not flatten it
+into exception text or a second cleanup taxonomy. Expected cleanup failures are
+data in the report. The report becomes available only after all entries are
+terminal and is the same immutable instance returned by every close call.
 
 Workspace construction selects its lifetime mode before any group admission.
 The existing public construction path creates a synchronous-compatibility
