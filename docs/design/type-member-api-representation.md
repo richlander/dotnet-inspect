@@ -141,7 +141,8 @@ The opaque structural string used by legacy call-graph correspondence remains
 outside this exact array-kind contract.
 `ArrayKindIdentityTests` gates valid synthetic metadata through decode,
 canonical identity, typed shape equality, anchor projection, JSON persistence,
-exact API comparison, and non-movement of the legacy structural selector.
+exact API comparison, and compatibility of Metadata's existing
+payload-bearing structural output.
 
 `ApiMember.HasMethodBody` preserves the nullable MethodDef RVA/body fact beside
 the API member, and `HasRuntimeJsExportWrapperCandidate` preserves whether
