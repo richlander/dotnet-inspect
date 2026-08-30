@@ -319,10 +319,10 @@ public sealed class StateMachineCompletenessTests
         {
             problems.Add(
                 $"""
-                {unclassifiable.Count} PE file{(unclassifiable.Count == 1 ? "" : "s")} could not be classified, so
-                the sweep cannot say whether {(unclassifiable.Count == 1 ? "it was" : "they were")} managed. Damaged
-                or truncated headers stop the question being decidable before SRM
-                is even reached. Reporting {(unclassifiable.Count == 1 ? "it" : "them")} as non-managed would assert
+                {unclassifiable.Count} corpus file{(unclassifiable.Count == 1 ? "" : "s")} could not be classified
+                as managed or non-managed. The raw-header oracle could not decide,
+                and SRM did not expose managed metadata that would settle the
+                question. Reporting {(unclassifiable.Count == 1 ? "it" : "them")} as non-managed would assert
                 something nothing measured, which is how a completeness gate goes
                 green over files it never covered.
 
@@ -430,6 +430,15 @@ public sealed class StateMachineCompletenessTests
                 $"A {damage} assembly left the population without failing the "
                     + $"sweep, which reported the rest as clean. {surveyed}");
             Assert.Contains("damaged.dll", problems);
+            if (damage == DamageKind.HeaderTruncated)
+            {
+                Assert.Contains(
+                    "1 corpus file could not be classified",
+                    problems);
+                Assert.Contains(
+                    "as managed or non-managed.",
+                    problems);
+            }
             AssertSurvey(expectedSurvey, surveyed);
         }
         finally
