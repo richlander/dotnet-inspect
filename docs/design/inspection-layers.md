@@ -60,9 +60,12 @@ A layer may be more than one project. The rule is the dependency direction and
 the ownership boundaries below, not the project count.
 
 `DotnetInspector.RowSelection` is an orthogonal leaf utility rather than a new
-layer. L3 constructs plans, L2 binds generic values to declared row sets, and
-L1 or source owners may analyze the same plan for equivalent pushdown. None
-takes a dependency on another consumer merely to reach the leaf.
+layer. L3 lowers typed operation intent, L2 resolves owner-issued identities
+and constructs the executable plan and source request, and L1 or source owners
+may analyze that request for equivalent execution and return a typed result
+with completion evidence. The
+[composition map](item-and-line-limits.md#composition) owns the exact sequence.
+None takes a dependency on another consumer merely to reach the leaf.
 
 ## Implementation status
 
@@ -280,9 +283,12 @@ L2 binds declared typed row sets to the consumer-neutral
 `DotnetInspector.RowSelection` leaf component.
 [Semantic row selection](semantic-row-selection.md) defines that component's
 ordered stage plan, strictness, stage-local positions, and pure output. L3
-lowers CLI gestures into the plan; source owners may optimize its execution but
-cannot redefine it; L2 reconnects selected values to their row-set identity
-before Markout receives them.
+hands L2 typed operation intent rather than constructing the executable plan.
+L2 resolves the owner-issued identities, constructs the typed source request,
+consumes the typed source result and completion evidence, completes its
+owner-defined residual work, and reconnects selected values to their row-set
+identity before Markout receives them. This layer contract does not define the
+relative order of L2's internal row operations.
 
 Categories are consumer-neutral. `@Surface`, `@Performance`, `@Audit`,
 `@Integrations`, and `@SourceLink` are topical groupings, not terminal
