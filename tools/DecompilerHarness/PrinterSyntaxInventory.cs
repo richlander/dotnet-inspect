@@ -184,7 +184,7 @@ static class PrinterSyntaxInventory
             if (node is ParameterSyntax parameter)
                 AddParameterModifiers(parameter.Modifiers);
             if (node is FunctionPointerParameterSyntax functionPointerParameter)
-                AddParameterModifiers(functionPointerParameter.Modifiers);
+                AddFunctionPointerModifiers(functionPointerParameter);
             if (node is FunctionPointerCallingConventionSyntax convention)
             {
                 Features.Add(
@@ -208,6 +208,22 @@ static class PrinterSyntaxInventory
             && !SyntaxFacts.IsAliasQualifier(identifier)
             && !SyntaxFacts.IsNamedArgumentName(identifier)
             && identifier.Parent is not NameEqualsSyntax;
+
+        void AddFunctionPointerModifiers(FunctionPointerParameterSyntax parameter)
+        {
+            if (parameter.Parent is FunctionPointerParameterListSyntax list
+                && list.Parameters.Count > 0
+                && ReferenceEquals(
+                    list.Parameters[list.Parameters.Count - 1],
+                    parameter))
+            {
+                if (parameter.Modifiers.Any(SyntaxKind.RefKeyword))
+                    Features.Add("type.function-pointer-ref-return");
+                return;
+            }
+
+            AddParameterModifiers(parameter.Modifiers);
+        }
 
         void AddParameterModifiers(SyntaxTokenList modifiers)
         {

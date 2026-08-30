@@ -552,6 +552,41 @@ public sealed class AuthoredSourceOracleManifestTests
             out error),
             error);
         Assert.Contains($"parameter.{refKind}", functionPointerFeatures);
+        Assert.DoesNotContain(
+            "type.function-pointer-ref-return",
+            functionPointerFeatures);
+    }
+
+    [Fact]
+    public void SyntaxInventory_DistinguishesFunctionPointerByRefReturns()
+    {
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "delegate*<ref int, int> callback = null;",
+            out IReadOnlyList<string> parameterFeatures,
+            out string? error),
+            error);
+        Assert.Contains("parameter.ref", parameterFeatures);
+        Assert.DoesNotContain(
+            "type.function-pointer-ref-return",
+            parameterFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "delegate*<int, ref int> callback = null;",
+            out IReadOnlyList<string> returnFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("parameter.ref", returnFeatures);
+        Assert.Contains("type.function-pointer-ref-return", returnFeatures);
+
+        Assert.True(PrinterSyntaxInventory.TryCollect(
+            "delegate*<int, int> callback = null;",
+            out IReadOnlyList<string> ordinaryFeatures,
+            out error),
+            error);
+        Assert.DoesNotContain("parameter.ref", ordinaryFeatures);
+        Assert.DoesNotContain(
+            "type.function-pointer-ref-return",
+            ordinaryFeatures);
     }
 
     [Fact]
