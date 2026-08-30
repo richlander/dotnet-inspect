@@ -32,7 +32,9 @@ The modeled mechanism is:
   that leaves the producer running is an atomic handoff;
 - an epoch-work lease acquired before a producer outlives its final operation
   wrapper, with a managed-owner-issued monotonic non-reused work sequence and a
-  finish that happens exactly once from producer finalization; and
+  finish that happens exactly once from producer finalization;
+- later waiters reusing that exact active producer lease without another
+  allocation; and
 - visible work-sequence exhaustion under a finite `MaxWorkSequence` bound.
 
 The model keeps these values abstract: request, progress, result, error,
@@ -114,6 +116,7 @@ Deliberately outside the model, and owned elsewhere:
 | A producer outliving its final wrapper holds a started lease | `OutlivingProducerHasEpochWorkLease` |
 | Work sequences are monotonic and never reused | `WorkSequenceNeverReused` |
 | Exhaustion is visible rather than wrapping or silently omitted | `WorkSequenceExhaustionIsVisible` |
+| An already leased producer is not falsely exhausted | `VisibleExhaustionRequiresNoActiveLease` |
 | One lease handle finishes exactly once | `WorkLeaseFinishesAtMostOnce`, `WorkLeaseFinishFollowsStart` |
 | Every admitted operation eventually quiesces | `AdmittedEventuallyQuiesces` |
 | A running producer eventually finalizes | `RunningProducerEventuallyFinalizes` |
@@ -146,7 +149,7 @@ Both scenario configurations check every invariant and every temporal property.
 
 | Configuration | Bounds | Recorded result |
 | --- | --- | --- |
-| `InspectWebManagedOperationBridge.cfg` | `MaxProgress = 1`, `MaxCancelRequests = 2`, `MaxWorkSequence = 1` | 9,029,473 states generated, 2,187,221 distinct states, depth 29, no error |
+| `InspectWebManagedOperationBridge.cfg` | `MaxProgress = 1`, `MaxCancelRequests = 2`, `MaxWorkSequence = 1` | 8,976,337 states generated, 2,172,533 distinct states, depth 29, no error |
 | `InspectWebManagedOperationBridgeExhaustion.cfg` | as above with `MaxWorkSequence = 0` | 7,180,129 states generated, 1,769,693 distinct states, depth 29, no error |
 
 The comprehensive configuration is the primary one: it reaches successful
@@ -157,7 +160,7 @@ the primary configuration free of an unreachable-lease branch.
 
 ## Non-vacuity probes
 
-Fifteen scratch reachability probes confirmed that the interesting witnesses are
+Seventeen scratch reachability probes confirmed that the interesting witnesses are
 reachable rather than vacuously excluded. Each probe is a negated
 reachability invariant run against the scenario constants; each produced its
 expected violation. They are evidence, not checked-in configurations or
@@ -170,6 +173,7 @@ additional product behaviors.
 | An unexpected failure classified as failed despite an accepted reason | comprehensive |
 | One waiter detached while another still holds the running producer | comprehensive |
 | A running producer with no waiter, held by a started lease | comprehensive |
+| A later waiter detaching while the same producer lease remains active | comprehensive |
 | A finished work lease | comprehensive |
 | A `NotActive` cancellation-request result | comprehensive |
 | An `AlreadyRequested` cancellation-request result | comprehensive |
@@ -179,6 +183,7 @@ additional product behaviors.
 | A recorded progress-callback failure carried to quiescence | comprehensive |
 | A progress-callback failure that leaves a succeeded terminal outcome | comprehensive |
 | A recorded token-callback failure reaching terminal classification | comprehensive |
+| A token-callback failure outranking an expected feature failure | comprehensive |
 | Visible work-sequence exhaustion | exhaustion |
 
 ## Counterexample mutations
@@ -204,33 +209,35 @@ concrete invariant violation; a clean exit means the gate is vacuous or broken.
 | `FirstWaiterStopsProducer` | Stops the shared producer on a non-final detach | `OneWaiterDoesNotStopSharedProducer` |
 | `MissingEpochLease` | Removes the final waiter without acquiring a lease | `OutlivingProducerHasEpochWorkLease` |
 | `NonAtomicFinalDetach` | Commits the final waiter removal and installs the lease afterwards | `OutlivingProducerHasEpochWorkLease` |
+| `IgnoreExistingLease` | Treats an already leased producer as needing another allocation and falsely exhausts it | `VisibleExhaustionRequiresNoActiveLease` |
 | `DuplicateWorkFinish` | Reports `finished` twice for one lease handle | `WorkLeaseFinishesAtMostOnce` |
 | `WorkSequenceReuse` | Allocates without advancing the work sequence | `WorkSequenceNeverReused` |
 | `SilentExhaustion` | Continues unleased work when sequences are exhausted | `WorkSequenceExhaustionIsVisible` |
 
-All eighteen mutations were run with the environment above and four TLC
+All nineteen mutations were run with the environment above and four TLC
 workers; each produced its named violation:
 
 | Configuration suffix | States generated | Distinct states | Depth |
 | --- | --- | --- | --- |
 | `BodyBeforeRegistration` | 24 | 21 | 4 |
 | `DuplicateAdmission` | 8 | 7 | 4 |
-| `ReasonOverwrite` | 1,266 | 653 | 7 |
-| `SettlingAcceptsCancel` | 908 | 468 | 6 |
-| `ClassifyBeforeDrain` | 4,715 | 1,978 | 8 |
-| `ProgressAfterSeal` | 4,298 | 1,685 | 7 |
-| `ProgressAfterSealQuiescence` | 213,770 | 56,977 | 11 |
-| `ReleaseLeaseBeforeRecordingFailure` | 66,329 | 20,253 | 10 |
-| `ReleaseLeaseBeforeRecordingFailureQuiescence` | 642,706 | 158,429 | 12 |
-| `CallbackAfterClose` | 14,927 | 5,057 | 8 |
-| `RemoveBeforeCallbackClose` | 4,091 | 1,675 | 7 |
-| `QuiesceBeforeRelease` | 3,970 | 1,645 | 7 |
-| `FirstWaiterStopsProducer` | 64,807 | 19,477 | 10 |
-| `MissingEpochLease` | 28,152 | 9,167 | 9 |
-| `NonAtomicFinalDetach` | 22,685 | 7,507 | 9 |
-| `DuplicateWorkFinish` | 324,225 | 85,510 | 12 |
-| `WorkSequenceReuse` | 11,578 | 4,210 | 8 |
-| `SilentExhaustion` | 23,539 | 7,766 | 9 |
+| `ReasonOverwrite` | 971 | 496 | 6 |
+| `SettlingAcceptsCancel` | 927 | 480 | 6 |
+| `ClassifyBeforeDrain` | 3,443 | 1,439 | 7 |
+| `ProgressAfterSeal` | 4,109 | 1,659 | 7 |
+| `ProgressAfterSealQuiescence` | 214,953 | 57,110 | 11 |
+| `ReleaseLeaseBeforeRecordingFailure` | 49,506 | 15,493 | 9 |
+| `ReleaseLeaseBeforeRecordingFailureQuiescence` | 681,608 | 165,967 | 12 |
+| `CallbackAfterClose` | 14,227 | 4,845 | 8 |
+| `RemoveBeforeCallbackClose` | 4,102 | 1,670 | 7 |
+| `QuiesceBeforeRelease` | 4,110 | 1,672 | 7 |
+| `FirstWaiterStopsProducer` | 64,307 | 19,264 | 10 |
+| `MissingEpochLease` | 21,055 | 7,091 | 9 |
+| `NonAtomicFinalDetach` | 22,599 | 7,533 | 9 |
+| `IgnoreExistingLease` | 1,247,441 | 323,586 | 15 |
+| `DuplicateWorkFinish` | 308,354 | 81,873 | 12 |
+| `WorkSequenceReuse` | 22,852 | 7,593 | 9 |
+| `SilentExhaustion` | 25,950 | 8,512 | 9 |
 
 Mutation counts are the search prefix explored before the violating state was
 reported, not a complete state graph.

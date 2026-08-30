@@ -369,24 +369,27 @@ the entry's callout drain. Every callout records its failure before releasing
 its lease, so only the post-drain state supplies the first reason and failures
 used for classification.
 
-The wrapper classifies its physical result as follows:
+The wrapper classifies its physical result by the first matching row:
 
-| Feature-body observation | Stored reason at settlement | Bridge result |
-| --- | --- | --- |
-| Value returned | absent | `Succeeded(value)` |
-| Value returned | present | `Canceled(reason)` |
-| Matching operation-token cancellation | present | `Canceled(reason)` |
-| Expected feature failure | either | `Failed(Expected, error, diagnostic)` |
-| `OperationCanceledException` without an accepted reason | absent | `Failed(Unexpected, error, diagnostic)` |
-| Unexpected feature or token-callback failure | either | `Failed(Unexpected, error, diagnostic)` |
-| Progress callback failure | either | Promise rejection after release |
+| Observation at settlement | Recorded bridge failure | Stored reason | Bridge result |
+| --- | --- | --- | --- |
+| Progress callback failure | present | either | Promise rejection after release |
+| Token-callback failure | present | either | `Failed(Unexpected, error, diagnostic)` |
+| Unexpected feature failure | absent | either | `Failed(Unexpected, error, diagnostic)` |
+| Expected feature failure | absent | either | `Failed(Expected, error, diagnostic)` |
+| Value returned | absent | present | `Canceled(reason)` |
+| Matching operation-token cancellation | absent | present | `Canceled(reason)` |
+| `OperationCanceledException` | absent | absent | `Failed(Unexpected, error, diagnostic)` |
+| Value returned | absent | absent | `Succeeded(value)` |
 
 An accepted cancellation therefore wins over an ordinary late value and
 preserves its exact reason. An unexpected failure is never hidden as expected
 cancellation merely because cancellation was also requested. Feature adapters
 return expected failures explicitly; an escaping exception is unexpected.
-Feature adapters own the safe error and diagnostic projection; the bridge owns
-the failure class, closed variant, and precedence above.
+A recorded token-callback failure outranks an otherwise expected feature
+failure and forces `Failed(Unexpected, ...)`. Feature adapters own the safe
+error and diagnostic projection; the bridge owns the failure class, closed
+variant, and ordered precedence above.
 
 The first settlement transition owns the only feature-body classification.
 Duplicate classification, a second result envelope, or cancellation accepted
@@ -661,7 +664,8 @@ not yet exist and must include:
 - repeated same- and different-reason cancellation preserving the first reason
   and signaling the token once;
 - cancellation reentrancy and a throwing token callback after reason commit,
-  including settlement racing the in-flight cancellation callout;
+  including settlement racing the in-flight cancellation callout and an
+  otherwise expected feature failure;
 - cancellation losing to an already-started settlement and returning
   `NotActive`;
 - late ordinary success after accepted cancellation becoming canceled;
@@ -694,6 +698,8 @@ not yet exist and must include:
 - atomic lease installation into the exact producer before final waiter
   removal, plus start failure transferring to a callback-free epoch-fault
   record;
+- a later waiter attaching to an already leased producer and detaching without
+  allocating, exhausting, or replacing that lease;
 - producer-finally work finish, at-most-once finish, start/finish callback
   failure, and normal reporter unregister only after all leases finish;
 - monotonic work sequences at the JavaScript safe-integer boundary, visible

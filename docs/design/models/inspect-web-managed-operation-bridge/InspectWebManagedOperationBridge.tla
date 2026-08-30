@@ -160,6 +160,7 @@ ClassifyBeforeDrain == "ClassifyBeforeDrain"
 ProgressAfterSeal == "ProgressAfterSeal"
 ReleaseLeaseBeforeRecordingFailure == "ReleaseLeaseBeforeRecordingFailure"
 NonAtomicFinalDetach == "NonAtomicFinalDetach"
+IgnoreExistingLease == "IgnoreExistingLease"
 CallbackAfterClose == "CallbackAfterClose"
 RemoveBeforeCallbackClose == "RemoveBeforeCallbackClose"
 QuiesceBeforeRelease == "QuiesceBeforeRelease"
@@ -178,6 +179,7 @@ Mutations ==
      ProgressAfterSeal,
      ReleaseLeaseBeforeRecordingFailure,
      NonAtomicFinalDetach,
+     IgnoreExistingLease,
      CallbackAfterClose,
      RemoveBeforeCallbackClose,
      QuiesceBeforeRelease,
@@ -739,6 +741,7 @@ DetachFinalWaiterWithLease(op) ==
     /\ subscription[op] = SubAttached
     /\ WaitersOf([subscription EXCEPT ![op] = SubDetached]) = {}
     /\ producerState = ProducerRunning
+    /\ producerLease = NoLease
     /\ nextWorkSequence <= MaxWorkSequence
     /\ AdvanceToDetached(op)
     /\ subscription' = [subscription EXCEPT ![op] = SubDetached]
@@ -760,6 +763,7 @@ DetachFinalWaiterExhausted(op) ==
     /\ subscription[op] = SubAttached
     /\ WaitersOf([subscription EXCEPT ![op] = SubDetached]) = {}
     /\ producerState = ProducerRunning
+    /\ producerLease = NoLease
     /\ nextWorkSequence > MaxWorkSequence
     /\ Mutation # SilentExhaustion
     /\ AdvanceToDetached(op)
@@ -780,6 +784,7 @@ MutantDetachFinalWaiterSilentlyExhausted(op) ==
     /\ subscription[op] = SubAttached
     /\ WaitersOf([subscription EXCEPT ![op] = SubDetached]) = {}
     /\ producerState = ProducerRunning
+    /\ producerLease = NoLease
     /\ nextWorkSequence > MaxWorkSequence
     /\ AdvanceToDetached(op)
     /\ subscription' = [subscription EXCEPT ![op] = SubDetached]
@@ -799,6 +804,7 @@ MutantDetachFinalWaiterWithoutLease(op) ==
     /\ subscription[op] = SubAttached
     /\ WaitersOf([subscription EXCEPT ![op] = SubDetached]) = {}
     /\ producerState = ProducerRunning
+    /\ producerLease = NoLease
     /\ AdvanceToDetached(op)
     /\ subscription' = [subscription EXCEPT ![op] = SubDetached]
     /\ UNCHANGED producerState
@@ -814,6 +820,7 @@ MutantDetachFinalWaiterDeferredLease(op) ==
     /\ subscription[op] = SubAttached
     /\ WaitersOf([subscription EXCEPT ![op] = SubDetached]) = {}
     /\ producerState = ProducerRunning
+    /\ producerLease = NoLease
     /\ nextWorkSequence <= MaxWorkSequence
     /\ AdvanceToDetached(op)
     /\ subscription' = [subscription EXCEPT ![op] = SubDetached]
@@ -825,6 +832,44 @@ MutantDetachFinalWaiterDeferredLease(op) ==
                    allocatedSequences,
                    allocationCount,
                    exhaustionState>>
+    /\ DetachUnchanged
+
+\* A later waiter may join a producer whose epoch-work lease is already
+\* active.  Its final detach retains that exact producer lease and allocates
+\* no new sequence.
+DetachFinalWaiterWithExistingLease(op) ==
+    /\ Mutation # IgnoreExistingLease
+    /\ phase[op] = CallbackClosed
+    /\ subscription[op] = SubAttached
+    /\ WaitersOf([subscription EXCEPT ![op] = SubDetached]) = {}
+    /\ producerState = ProducerRunning
+    /\ producerLease # NoLease
+    /\ AdvanceToDetached(op)
+    /\ subscription' = [subscription EXCEPT ![op] = SubDetached]
+    /\ UNCHANGED producerState
+    /\ UNCHANGED leaseVars
+    /\ DetachUnchanged
+
+\* The old defect treated an already leased producer as if it needed another
+\* allocation and reported exhaustion at the sequence bound.
+MutantDetachFinalWaiterIgnoresExistingLease(op) ==
+    /\ Mutation = IgnoreExistingLease
+    /\ phase[op] = CallbackClosed
+    /\ subscription[op] = SubAttached
+    /\ WaitersOf([subscription EXCEPT ![op] = SubDetached]) = {}
+    /\ producerState = ProducerRunning
+    /\ producerLease # NoLease
+    /\ nextWorkSequence > MaxWorkSequence
+    /\ AdvanceToDetached(op)
+    /\ subscription' = [subscription EXCEPT ![op] = SubDetached]
+    /\ producerState' = ProducerFaulted
+    /\ exhaustionState' = ExhaustionVisible
+    /\ UNCHANGED <<producerLease,
+                   leaseFinishCount,
+                   nextWorkSequence,
+                   allocatedSequences,
+                   allocationCount,
+                   pendingLeaseInstall>>
     /\ DetachUnchanged
 
 MutantInstallDeferredLease ==
@@ -845,11 +890,13 @@ DetachSubscription(op) ==
     \/ DetachNoSubscription(op)
     \/ DetachNonFinalWaiter(op)
     \/ DetachFinalWaiterProducerSettled(op)
+    \/ DetachFinalWaiterWithExistingLease(op)
     \/ DetachFinalWaiterWithLease(op)
     \/ DetachFinalWaiterExhausted(op)
     \/ MutantDetachFinalWaiterSilentlyExhausted(op)
     \/ MutantDetachFinalWaiterWithoutLease(op)
     \/ MutantDetachFinalWaiterDeferredLease(op)
+    \/ MutantDetachFinalWaiterIgnoresExistingLease(op)
 
 RemoveEntry(op) ==
     /\ \/ phase[op] = Detached
@@ -1048,6 +1095,11 @@ WorkSequenceNeverReused ==
     /\ \A s \in allocatedSequences : s < nextWorkSequence
 
 WorkSequenceExhaustionIsVisible == exhaustionState # ExhaustionHidden
+
+\* Sequence exhaustion is relevant only when no active producer lease can be
+\* reused.
+VisibleExhaustionRequiresNoActiveLease ==
+    exhaustionState = ExhaustionVisible => producerLease = NoLease
 
 WorkLeaseFinishesAtMostOnce == leaseFinishCount <= 1
 
