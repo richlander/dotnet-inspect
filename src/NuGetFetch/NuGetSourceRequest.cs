@@ -19,6 +19,10 @@ namespace NuGetFetch;
 /// </remarks>
 internal static class NuGetSourceRequest
 {
+    private static readonly HttpRequestOptionsKey<bool>
+        SuppressPluginAuthentication =
+            new("NuGetFetch.SuppressPluginAuthentication");
+
     internal static string EndpointUrl(Uri endpoint)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
@@ -300,6 +304,69 @@ internal static class NuGetSourceRequest
         if (credential is not null)
             request.Headers.Authorization = Authentication(credential);
     }
+
+    internal static void SuppressPluginAuthenticationForCrossOrigin(
+        HttpRequestMessage request,
+        string? sourceUrl,
+        string endpointUrl)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(endpointUrl);
+        if (sourceUrl is not null
+            && !SameOrigin(sourceUrl, endpointUrl))
+        {
+            SuppressPluginAuthenticationForRequest(request);
+        }
+    }
+
+    internal static void SuppressPluginAuthenticationForRequest(
+        HttpRequestMessage request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        request.Options.Set(SuppressPluginAuthentication, true);
+    }
+
+    internal static bool IsPluginAuthenticationSuppressed(
+        HttpRequestMessage request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return request.Options.TryGetValue(
+                SuppressPluginAuthentication,
+                out bool suppressed)
+            && suppressed;
+    }
+
+    private static bool SameOrigin(
+        string sourceUrl,
+        string endpointUrl)
+    {
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            || !Uri.TryCreate(
+                endpointUrl,
+                UriKind.Absolute,
+                out Uri? endpoint))
+        {
+            return false;
+        }
+
+        try
+        {
+            return SameOrigin(source, endpoint);
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool SameOrigin(Uri source, Uri endpoint) =>
+        source.Scheme.Equals(
+            endpoint.Scheme,
+            StringComparison.OrdinalIgnoreCase)
+        && source.IdnHost.Equals(
+            endpoint.IdnHost,
+            StringComparison.OrdinalIgnoreCase)
+        && source.Port == endpoint.Port;
 
     private static AuthenticationHeaderValue Authentication(
         PackageSourceCredential credential)

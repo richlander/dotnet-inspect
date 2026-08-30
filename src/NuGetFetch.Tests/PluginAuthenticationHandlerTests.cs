@@ -62,6 +62,68 @@ public sealed class PluginAuthenticationHandlerTests
     }
 
     [Fact]
+    public async Task PluginIneligibleRequestBypassesCachedCredentialAndAcquisition()
+    {
+        var source = new FakeCredentialSource(
+            new PackageSourceCredential("user", "token"));
+        var transport = new ScriptedTransport(request =>
+            request.Authorization is null
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : new HttpResponseMessage(HttpStatusCode.OK));
+        using var client = Client(source, transport);
+
+        using (HttpResponseMessage primingResponse = await client.GetAsync(
+                   "https://feed.example/index.json",
+                   TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, primingResponse.StatusCode);
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://feed.example/package");
+        NuGetSourceRequest.SuppressPluginAuthenticationForRequest(request);
+        using HttpResponseMessage response = await client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(1, source.Calls);
+        Assert.Equal(3, transport.Requests.Count);
+        Assert.Null(transport.Requests[2].Authorization);
+    }
+
+    [Fact]
+    public async Task PluginIneligibleRequestSurvivesSameOriginRedirect()
+    {
+        var source = new FakeCredentialSource(
+            new PackageSourceCredential("user", "token"));
+        var transport = new SameOriginRedirectTransport();
+        using var client = new HttpClient(
+            new NuGetCredentialRedirectHandler(
+                new PluginAuthenticationHandler(
+                    source,
+                    transport)));
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://feed.example/start");
+        NuGetSourceRequest.SuppressPluginAuthenticationForRequest(request);
+
+        using HttpResponseMessage response = await client.SendAsync(
+            request,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, source.Calls);
+        Assert.Equal(
+            [
+                ("https://feed.example/start", (string?)null),
+                ("https://feed.example/target", (string?)null),
+            ],
+            transport.Requests);
+    }
+
+    [Fact]
     public async Task BrowserStreamingOptionSurvivesCredentialReplay()
     {
         var source = new FakeCredentialSource(
@@ -687,6 +749,41 @@ public sealed class PluginAuthenticationHandlerTests
             {
                 RequestMessage = request,
                 Content = new StringContent("LOGIN-PAGE"),
+            });
+        }
+    }
+
+    private sealed class SameOriginRedirectTransport : HttpMessageHandler
+    {
+        public List<(string Uri, string? Authorization)> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add((
+                request.RequestUri!.AbsoluteUri,
+                request.Headers.Authorization?.Parameter));
+            if (request.RequestUri.AbsolutePath == "/start")
+            {
+                return Task.FromResult(new HttpResponseMessage(
+                    HttpStatusCode.Found)
+                {
+                    Headers =
+                    {
+                        Location = new Uri(
+                            "https://feed.example/target"),
+                    },
+                    RequestMessage = request,
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(
+                request.Headers.Authorization is null
+                    ? HttpStatusCode.Unauthorized
+                    : HttpStatusCode.OK)
+            {
+                RequestMessage = request,
             });
         }
     }

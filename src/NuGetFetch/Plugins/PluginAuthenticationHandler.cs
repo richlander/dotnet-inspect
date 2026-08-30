@@ -32,6 +32,10 @@ namespace NuGetFetch.Plugins;
 /// <see cref="MaxAuthRetries"/> attempts per source, and 401 always triggers acquisition while
 /// 403 does so only when explicitly enabled.
 /// </para>
+/// <para>
+/// Requests marked ineligible by NuGetFetch source policy bypass plugin
+/// credential caches, acquisition, and replay.
+/// </para>
 /// </remarks>
 public sealed class PluginAuthenticationHandler : DelegatingHandler
 {
@@ -71,7 +75,9 @@ public sealed class PluginAuthenticationHandler : DelegatingHandler
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        if (!_provider.HasCredentialSources || request.RequestUri is null)
+        if (request.RequestUri is null
+            || NuGetSourceRequest.IsPluginAuthenticationSuppressed(request)
+            || !_provider.HasCredentialSources)
         {
             return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
         }

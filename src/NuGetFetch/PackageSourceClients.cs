@@ -688,7 +688,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                                                 _endpoint),
                                             endpoint,
                                             _credential),
-                                    operation)
+                                    operation,
+                                    NuGetSourceRequest.EndpointUrl(
+                                        _endpoint))
                                 .ConfigureAwait(false);
                         return PackageSourceProjection.ProjectSearch(
                             results,

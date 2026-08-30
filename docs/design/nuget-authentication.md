@@ -337,6 +337,40 @@ Behaviour follows NuGet's:
 | Concurrency | Concurrent requests to one source acquire credentials once |
 | Precedence | A credential already on the request is never overwritten |
 
+### Per-request plugin eligibility
+
+A configured package source may advertise a resource on another origin. That
+resource location is untrusted feed data: it does not authorize the foreign
+origin to acquire or receive credentials from a NuGet credential plugin.
+Configured credentials already follow the same-origin boundary described
+above. Plugin credentials follow it through a NuGetFetch-owned per-request
+eligibility option.
+
+Requests are plugin-eligible by default. A source client that has both the
+configured producer endpoint and a feed-derived target uses
+`NuGetSourceRequest.SuppressPluginAuthenticationForCrossOrigin` to mark the
+request ineligible unless scheme, IDN host, and port match. Failure to establish
+either origin is not same-origin. Requests without a configured producer
+endpoint retain the default because NuGetFetch cannot invent caller authority.
+
+`PluginAuthenticationHandler` checks eligibility before reading its credential
+cache or invoking a provider. An ineligible request is sent once without plugin
+acquisition or replay, so its challenge remains visible to the caller. The
+option survives NuGetFetch-owned request clones, retries, and redirect
+handoffs. A redirect to a different origin is marked ineligible even when the
+original request was eligible; returning to the configured origin does not
+inherit authority from an intermediate origin.
+
+This policy changes only plugin participation. It does not remove an
+`Authorization` header supplied directly by a caller, reinterpret configured
+source authority, or define package-layer compatibility routes.
+`PluginIneligibleRequestBypassesCachedCredentialAndAcquisition`,
+`PluginIneligibleRequestSurvivesSameOriginRedirect`,
+`V3CrossOriginResourcesSuppressPluginAuthentication`,
+`V3CrossOriginSearchRetryRetainsPluginSuppression`,
+`V3CrossOriginRedirectSuppressesPluginAuthentication`, and
+`V3SameOriginResourceRetainsPluginAuthentication` are the Release gates.
+
 The `-IsRetry` flag matters more than it looks. The provider's own help says that without it
 "INVALID CREDENTIALS MAY BE RETURNED. The caller is required to validate returned credentials
 themselves, and if invalid, should call the credential provider again with -IsRetry set."

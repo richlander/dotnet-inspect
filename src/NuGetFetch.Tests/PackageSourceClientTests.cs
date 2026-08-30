@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using NuGetFetch;
+using NuGetFetch.Plugins;
 
 namespace NuGetFetch.Tests;
 
@@ -735,6 +736,177 @@ public sealed class PackageSourceClientTests
                 null,
             ],
             handler.Authentication.Select(DecodeBasic));
+    }
+
+    [Fact]
+    public async Task V3CrossOriginResourcesSuppressPluginAuthentication()
+    {
+        const string crossOriginBase =
+            "https://packages.example/flat/";
+        const string crossOriginVersions =
+            "https://packages.example/flat/contoso/index.json";
+        const string crossOriginPackage =
+            "https://packages.example/flat/contoso/1.0.0/contoso.1.0.0.nupkg";
+        const string crossOriginManifest =
+            "https://packages.example/flat/contoso/1.0.0/contoso.nuspec";
+        var transport = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{crossOriginBase}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        transport.SetResponse(
+            crossOriginVersions,
+            ChallengeOrContent("""{"versions":["1.0.0"]}"""));
+        transport.SetResponse(
+            crossOriginManifest,
+            ChallengeOrContent("<package />"));
+        transport.SetResponse(
+            crossOriginPackage,
+            ChallengeOrContent("package bytes"));
+        var credentials = new RecordingCredentialSource();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("private", ServiceIndex),
+                new PluginAuthenticationHandler(
+                    credentials,
+                    transport));
+
+        Assert.Equal(
+            PackageSourceFailureKind.AuthenticationRequired,
+            Failed(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Kind);
+        Assert.Equal(
+            PackageSourceFailureKind.AuthenticationRequired,
+            Failed(
+                await runtime.GetManifestAsync(
+                    "contoso",
+                    "1.0.0",
+                    TestContext.Current.CancellationToken))
+                .Kind);
+        Assert.Equal(
+            PackageSourceFailureKind.AuthenticationRequired,
+            Failed(
+                await runtime.GetPackageAsync(
+                    "contoso",
+                    "1.0.0",
+                    TestContext.Current.CancellationToken))
+                .Kind);
+
+        Assert.Empty(credentials.Requested);
+        string?[] resourceAuthentication = transport.Authentication
+            .Where((_, index) => index > 0)
+            .ToArray();
+        Assert.Equal(3, resourceAuthentication.Length);
+        Assert.All(resourceAuthentication, Assert.Null);
+    }
+
+    [Fact]
+    public async Task V3CrossOriginSearchRetryRetainsPluginSuppression()
+    {
+        const string crossOriginSearch =
+            "https://search.example/query";
+        var transport = new CrossOriginSearchRetryHandler(
+            crossOriginSearch);
+        var credentials = new RecordingCredentialSource();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("private", ServiceIndex),
+                new PluginAuthenticationHandler(
+                    credentials,
+                    transport));
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.AuthenticationRequired,
+            failure.Kind);
+        Assert.Empty(credentials.Requested);
+        Assert.Equal(2, transport.CrossOriginRequests);
+        Assert.All(
+            transport.CrossOriginAuthorization,
+            Assert.Null);
+    }
+
+    [Fact]
+    public async Task V3CrossOriginRedirectSuppressesPluginAuthentication()
+    {
+        var transport = new CrossOriginRedirectAuthenticationHandler();
+        var credentials = new RecordingCredentialSource();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("private", ServiceIndex),
+                new PluginAuthenticationHandler(
+                    credentials,
+                    transport));
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.AuthenticationRequired,
+            failure.Kind);
+        Assert.Empty(credentials.Requested);
+        Assert.Equal([null], transport.CrossOriginAuthorization);
+    }
+
+    [Fact]
+    public async Task V3SameOriginResourceRetainsPluginAuthentication()
+    {
+        var transport = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        transport.SetResponse(
+            Versions,
+            ChallengeOrContent("""{"versions":["1.0.0"]}"""));
+        var credentials = new RecordingCredentialSource();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("private", ServiceIndex),
+                new PluginAuthenticationHandler(
+                    credentials,
+                    transport));
+
+        PackageVersionResult versions = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Single(versions.Candidates);
+        Assert.Equal(
+            [Versions],
+            credentials.Requested
+                .Select(uri => uri.AbsoluteUri)
+                .ToArray());
+        Assert.NotNull(transport.Authentication[^1]);
     }
 
     [Fact]
@@ -5331,6 +5503,17 @@ public sealed class PackageSourceClientTests
         Assert.IsType<PackageSourceOperationResult<T>.Failed>(result)
             .Failure;
 
+    private static Func<HttpRequestMessage, HttpResponseMessage>
+        ChallengeOrContent(string content) =>
+        request => new HttpResponseMessage(
+            request.Headers.Authorization is null
+                ? HttpStatusCode.Unauthorized
+                : HttpStatusCode.OK)
+        {
+            Content = new StringContent(content),
+            RequestMessage = request,
+        };
+
     private static TaskCanceledException CreateCanceledTransportTimeout() =>
         new(
             "Simulated canceled transport timeout from "
@@ -5679,6 +5862,132 @@ public sealed class PackageSourceClientTests
         {
             Disposed = true;
             base.Dispose(disposing);
+        }
+    }
+
+    private sealed class RecordingCredentialSource : ICredentialSource
+    {
+        public bool HasCredentialSources => true;
+
+        public List<Uri> Requested { get; } = [];
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken)
+        {
+            Requested.Add(uri);
+            return Task.FromResult<PackageSourceCredential?>(
+                new PackageSourceCredential("user", "token"));
+        }
+    }
+
+    private sealed class CrossOriginSearchRetryHandler(
+        string searchEndpoint) : HttpMessageHandler
+    {
+        public int CrossOriginRequests { get; private set; }
+
+        public List<string?> CrossOriginAuthorization { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string content;
+            HttpStatusCode status;
+            if (request.RequestUri!.AbsoluteUri == ServiceIndex)
+            {
+                status = HttpStatusCode.OK;
+                content = $$"""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        {
+                          "@id": "{{searchEndpoint}}",
+                          "@type": "SearchQueryService/3.5.0"
+                        }
+                      ]
+                    }
+                    """;
+            }
+            else
+            {
+                CrossOriginRequests++;
+                CrossOriginAuthorization.Add(
+                    request.Headers.Authorization?.Parameter);
+                status = CrossOriginRequests == 1
+                    ? HttpStatusCode.InternalServerError
+                    : request.Headers.Authorization is null
+                        ? HttpStatusCode.Unauthorized
+                        : HttpStatusCode.OK;
+                content = """{"totalHits":0,"data":[]}""";
+            }
+
+            return Task.FromResult(new HttpResponseMessage(status)
+            {
+                Content = new StringContent(content),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class CrossOriginRedirectAuthenticationHandler
+        : HttpMessageHandler
+    {
+        private const string CrossOriginVersions =
+            "https://packages.example/versions";
+
+        public List<string?> CrossOriginAuthorization { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            if (url == ServiceIndex)
+            {
+                return Task.FromResult(new HttpResponseMessage(
+                    HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            {
+                              "@id": "{{FlatContainer}}",
+                              "@type": "PackageBaseAddress/3.0.0"
+                            }
+                          ]
+                        }
+                        """),
+                    RequestMessage = request,
+                });
+            }
+
+            if (url == Versions)
+            {
+                return Task.FromResult(new HttpResponseMessage(
+                    HttpStatusCode.Found)
+                {
+                    Headers =
+                    {
+                        Location = new Uri(CrossOriginVersions),
+                    },
+                    RequestMessage = request,
+                });
+            }
+
+            CrossOriginAuthorization.Add(
+                request.Headers.Authorization?.Parameter);
+            return Task.FromResult(new HttpResponseMessage(
+                request.Headers.Authorization is null
+                    ? HttpStatusCode.Unauthorized
+                    : HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"versions":["1.0.0"]}"""),
+                RequestMessage = request,
+            });
         }
     }
 
