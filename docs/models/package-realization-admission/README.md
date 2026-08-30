@@ -33,9 +33,10 @@ bounds constrain exactly one of retained entry count, concurrent in-flight
 operation count, or aggregate retained-byte reservation while leaving the
 other two limits permissive. The byte-bound scenario gives its two exact
 options values reservations of one and two abstract units, proving aggregate
-reservation rather than merely recounting entries. A fourth scenario gives
-both requests zero-byte reservations, matching the valid zero value in current
-options while still exercising entry and in-flight capacity.
+reservation rather than merely recounting entries. Two additional scenarios
+give both requests zero-byte reservations, matching the valid zero value in
+current options, while independently binding retained-entry and in-flight
+operation capacity.
 
 Each coordinate atom abstracts one complete
 `RealizedMemberCoordinate.Package`, including its producer, and is paired with
@@ -197,8 +198,8 @@ idempotence is not hidden as stutter.
 
 ## Configurations
 
-The committed inventory contains 48 configurations: 12 complete correctness
-runs, 20 reachability probes, and 16 deliberate mutations.
+The committed inventory contains 51 configurations: 13 complete correctness
+runs, 22 reachability probes, and 16 deliberate mutations.
 
 | Configuration | Purpose |
 | --- | --- |
@@ -213,7 +214,8 @@ runs, 20 reachability probes, and 16 deliberate mutations.
 | `PackageRealizationAdmission_EntryCapacity.cfg` | Checks the complete gate when retained exact-request entry count is the binding workspace limit. |
 | `PackageRealizationAdmission_InFlightCapacity.cfg` | Checks the complete gate when concurrent physical operation count is the binding workspace limit. |
 | `PackageRealizationAdmission_ByteCapacity.cfg` | Checks the complete gate when aggregate retained-byte reservation is the binding workspace limit. |
-| `PackageRealizationAdmission_ZeroReservation.cfg` | Checks the complete gate when valid requests reserve zero bytes but still consume entry and operation capacity. |
+| `PackageRealizationAdmission_ZeroReservation.cfg` | Checks the complete gate when valid zero-byte requests bind retained-entry capacity. |
+| `PackageRealizationAdmission_ZeroInFlightCapacity.cfg` | Checks the complete gate when valid zero-byte requests bind in-flight-operation capacity. |
 | `ReachabilityJoin.cfg` | Proves that a matching in-flight demand can be joined. |
 | `ReachabilityRetryAfterFailure.cfg` | Proves that failure returns an exact request to retryable admission. |
 | `ReachabilityMultiDemandConsistency.cfg` | Proves that multiple attached demands can share one successful realization. |
@@ -234,6 +236,8 @@ runs, 20 reachability probes, and 16 deliberate mutations.
 | `ReachabilityInFlightCapacityRejection.cfg` | Proves in-flight capacity rejects while another distinct operation is active. |
 | `ReachabilityByteCapacityRejection.cfg` | Proves aggregate byte-reservation capacity rejects before work starts. |
 | `ReachabilityZeroReservationAdmission.cfg` | Proves a zero-byte request can start physical work while its retained-byte total remains zero. |
+| `ReachabilityZeroEntryCapacityRejection.cfg` | Proves retained-entry capacity rejects a second zero-byte request. |
+| `ReachabilityZeroInFlightCapacityRejection.cfg` | Proves in-flight-operation capacity rejects a second zero-byte request. |
 | `BrokenInexactReuse.cfg` | Reuses a result from another request identity. |
 | `BrokenInexactReuseOption.cfg` | Reuses a result whose otherwise equal request differs only by exact options. |
 | `BrokenInexactReuseContentGeneration.cfg` | Reuses a result whose otherwise equal request differs only by content generation. |
@@ -277,7 +281,8 @@ for scenario in Option ContentGeneration Selection Reordered Duplicate \
     PackageRealizationAdmission_MC.tla
 done
 
-for scenario in EntryCapacity InFlightCapacity ByteCapacity ZeroReservation; do
+for scenario in EntryCapacity InFlightCapacity ByteCapacity ZeroReservation \
+  ZeroInFlightCapacity; do
   java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
     -cleanup -workers auto \
     -config "PackageRealizationAdmission_$scenario.cfg" \
@@ -306,7 +311,8 @@ done
 for config in ReachabilityEntryCapacityRejection \
   ReachabilityInFlightCapacityRejection \
   ReachabilityByteCapacityRejection ReachabilityZeroReservationAdmission \
-  BrokenEntryCapacity \
+  ReachabilityZeroEntryCapacityRejection \
+  ReachabilityZeroInFlightCapacityRejection BrokenEntryCapacity \
   BrokenInFlightCapacity BrokenByteCapacity; do
   java -XX:+UseParallelGC -cp /path/to/tla2tools.jar tlc2.TLC \
     -cleanup -noGenerateSpecTE -config "$config.cfg" \
@@ -338,7 +344,8 @@ repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
 | `PackageRealizationAdmission_EntryCapacity.cfg` | No error | 758 | 487 | 11 |
 | `PackageRealizationAdmission_InFlightCapacity.cfg` | No error | 3,964 | 1,937 | 14 |
 | `PackageRealizationAdmission_ByteCapacity.cfg` | No error | 758 | 487 | 11 |
-| `PackageRealizationAdmission_ZeroReservation.cfg` | No error | 5,430 | 2,547 | 14 |
+| `PackageRealizationAdmission_ZeroReservation.cfg` | No error | 758 | 487 | 11 |
+| `PackageRealizationAdmission_ZeroInFlightCapacity.cfg` | No error | 3,964 | 1,937 | 14 |
 | `ReachabilityJoin.cfg` | `NoJoinObserved` violated | 10 | 10 | 3 |
 | `ReachabilityRetryAfterFailure.cfg` | `NoRetryAfterFailureObserved` violated | 95 | 72 | 4 |
 | `ReachabilityMultiDemandConsistency.cfg` | `NoMultiDemandConsistencyObserved` violated | 65 | 52 | 4 |
@@ -359,6 +366,8 @@ repository-pinned TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev
 | `ReachabilityInFlightCapacityRejection.cfg` | `NoCapacityRejectionObserved` violated | 8 | 8 | 3 |
 | `ReachabilityByteCapacityRejection.cfg` | `NoCapacityRejectionObserved` violated | 8 | 8 | 3 |
 | `ReachabilityZeroReservationAdmission.cfg` | `NoZeroReservationAdmissionObserved` violated | 2 | 2 | 2 |
+| `ReachabilityZeroEntryCapacityRejection.cfg` | `NoCapacityRejectionObserved` violated | 8 | 8 | 3 |
+| `ReachabilityZeroInFlightCapacityRejection.cfg` | `NoCapacityRejectionObserved` violated | 8 | 8 | 3 |
 | `BrokenInexactReuse.cfg` | `ExactRequestReuse` violated | 94 | 71 | 4 |
 | `BrokenInexactReuseOption.cfg` | `ExactRequestReuse` violated | 94 | 71 | 4 |
 | `BrokenInexactReuseContentGeneration.cfg` | `ExactRequestReuse` violated | 94 | 71 | 4 |

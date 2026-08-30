@@ -11,6 +11,7 @@ CONSTANTS
     InFlightCapacityScenario,
     ByteCapacityScenario,
     ZeroReservationScenario,
+    ZeroInFlightCapacityScenario,
     Scenario,
     AllowOverCapacity
 
@@ -20,7 +21,8 @@ ASSUME
             EntryCapacityScenario,
             InFlightCapacityScenario,
             ByteCapacityScenario,
-            ZeroReservationScenario
+            ZeroReservationScenario,
+            ZeroInFlightCapacityScenario
         }
 
 VARIABLES
@@ -56,10 +58,14 @@ RequestBindingsOfMC ==
         @@ (d2 :> <<<<c2, g2, s2>>>>)
 
 MaxEntriesMC ==
-    IF Scenario = EntryCapacityScenario THEN 1 ELSE 2
+    IF Scenario \in {EntryCapacityScenario, ZeroReservationScenario}
+    THEN 1
+    ELSE 2
 
 MaxInFlightMC ==
-    IF Scenario = InFlightCapacityScenario THEN 1 ELSE 2
+    IF Scenario \in {InFlightCapacityScenario, ZeroInFlightCapacityScenario}
+    THEN 1
+    ELSE 2
 
 INSTANCE PackageRealizationAdmission WITH
     PackageCoordinates <- {c1, c2},
@@ -75,7 +81,9 @@ INSTANCE PackageRealizationAdmission WITH
     ReservationOf <-
         IF Scenario = ByteCapacityScenario
         THEN (d1 :> 1 @@ d2 :> 2)
-        ELSE IF Scenario = ZeroReservationScenario
+        ELSE IF
+            Scenario
+                \in {ZeroReservationScenario, ZeroInFlightCapacityScenario}
         THEN [d \in {d1, d2} |-> 0]
         ELSE [d \in {d1, d2} |-> 1],
     MaxEntries <- MaxEntriesMC,
