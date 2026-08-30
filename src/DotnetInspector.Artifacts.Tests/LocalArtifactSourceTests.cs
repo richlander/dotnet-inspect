@@ -512,6 +512,123 @@ public sealed class LocalArtifactSourceTests
     }
 
     [Fact]
+    public async Task
+        LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Absolute extended-link coverage requires Windows.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string links = Path.Combine(root, "links");
+        string target = Path.Combine(root, "target.dll");
+        string link = Path.Combine(links, "input.dll");
+        try
+        {
+            Directory.CreateDirectory(links);
+            await File.WriteAllBytesAsync(target, [1], cancellationToken);
+            string extendedTarget =
+                @"\\?\" + Path.Combine(links, "..", "target.dll");
+            File.CreateSymbolicLink(link, extendedTarget);
+
+            LocalPathClassification classification =
+                LocalPathAdmission.Classify(link, cancellationToken);
+            Assert.Equal(
+                LocalPathOutcome.Rejected,
+                classification.Outcome);
+            Assert.Equal(
+                LocalPathReason.UnsupportedEntry,
+                classification.Reason);
+
+            var rejected =
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    await AcquireAsync(link, cancellationToken));
+            Assert.Equal(
+                "local.file.unsupported-entry",
+                rejected.Diagnostic.Code);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LocalPathAdmission_WindowsAncestorLinkLoopIsRejected()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Ancestor link-loop coverage requires Windows.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string first = Path.Combine(root, "first");
+        string second = Path.Combine(root, "second");
+        string child = Path.Combine(first, "child.dll");
+        try
+        {
+            Directory.CreateSymbolicLink(first, second);
+            Directory.CreateSymbolicLink(second, first);
+
+            LocalPathClassification classification =
+                LocalPathAdmission.Classify(child, cancellationToken);
+            Assert.Equal(
+                LocalPathOutcome.Rejected,
+                classification.Outcome);
+            Assert.Equal(
+                LocalPathReason.UnsupportedEntry,
+                classification.Reason);
+
+            var rejected =
+                Assert.IsType<ArtifactAcquisitionOutcome.Rejected>(
+                    await AcquireAsync(child, cancellationToken));
+            Assert.Equal(
+                "local.file.unsupported-entry",
+                rejected.Diagnostic.Code);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LocalPathAdmission_WindowsTrailingSeparatorDoesNotAdmitFiles()
+    {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Windows trailing-separator coverage requires Windows.");
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        string root = TempDirectory();
+        string target = Path.Combine(root, "target.dll");
+        string link = Path.Combine(root, "link.dll");
+        try
+        {
+            await File.WriteAllBytesAsync(target, [1], cancellationToken);
+            File.CreateSymbolicLink(link, target);
+
+            foreach (string path in new[] { target + '\\', link + '\\' })
+            {
+                LocalPathClassification classification =
+                    LocalPathAdmission.Classify(path, cancellationToken);
+                Assert.Equal(
+                    LocalPathOutcome.Unavailable,
+                    classification.Outcome);
+
+                Assert.IsType<ArtifactAcquisitionOutcome.Unavailable>(
+                    await AcquireAsync(path, cancellationToken));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LocalArtifactSnapshot_MutationCannotChangeInspectionBytes()
     {
         CancellationToken cancellationToken =

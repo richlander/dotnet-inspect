@@ -985,10 +985,12 @@ extended link merely because its stored target is relative: the target is
 resolved against the link's parent and normalized before final-target
 classification, with parent traversal bounded by the drive, share, or volume
 root and without rewriting the canonical requested coordinate. Absolute
-extended targets remain subject to the final-target syntax rules without this
-relative-target normalization. Any other non-empty path that cannot be
-normalized is also rejected rather than escaping as a platform exception.
-Invalid-path results carry the requested path and no canonical path.
+extended targets retain their raw substitute namespace and remain subject to
+the final-target syntax rules without this relative-target normalization.
+Managed link resolution must not erase that syntax evidence before
+classification. Any other non-empty path that cannot be normalized is also
+rejected rather than escaping as a platform exception. Invalid-path results
+carry the requested path and no canonical path.
 
 All local coordinates follow symbolic links and supported link-like reparse
 points to their final target. The same policy preserves existing explicit-file
@@ -1063,9 +1065,17 @@ above. An ordinary drive root such as `C:\` is a supported `Directory`
 coordinate; bounded-directory limits still govern its top-level enumeration.
 An ordinary regular file directly beneath that root, such as `C:\foo.dll`, is a
 supported `RegularFile` coordinate. Neither form is a device coordinate.
-Ordinary filesystem paths are inspected through managed attributes. For a final
-reparse point, a metadata handle opened without following the point queries its
-tag. Classification is tag-semantic rather than based only on the name-surrogate
+Ordinary filesystem paths are inspected component by component through managed
+attributes so an ancestor link is classified rather than followed implicitly
+by the metadata lookup. A metadata handle opened without following each
+reparse point queries its tag. Supported links also read the raw substitute
+name and relative flag from that handle. Relative targets are resolved and
+normalized under the rule above; absolute targets preserve their namespace for
+final-target syntax classification. The unresolved suffix, including a trailing
+directory separator, remains part of the exact coordinate after link
+substitution. A stable ancestor or final-component link cycle consumes the same
+bounded traversal budget and is rejected as an unsupported entry.
+Classification is tag-semantic rather than based only on the name-surrogate
 bit:
 
 - symbolic-link and mount-point tags are supported links, so their final target
@@ -1162,7 +1172,10 @@ These properties are represented by
 `LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration`,
 `LocalPathAdmission_OutcomesAndCancellationRemainDistinct`, and
 `LocalPathAdmission_PlatformClassifiersRemainPortable`. The Windows-specific
-`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized` gate runs in
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
+`LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
+`LocalPathAdmission_WindowsAncestorLinkLoopIsRejected`, and
+`LocalPathAdmission_WindowsTrailingSeparatorDoesNotAdmitFiles` gates run in
 Deep Inspect's `platform-test` lane. Together these gates enforce the shared
 classifier and explicit-file admission contract. The bounded-directory
 implementation must exercise the same contract through its public root and
@@ -1937,8 +1950,13 @@ deletion resistance, and cancellation remaining cancellation. The executable
 NativeAOT and Browser/Wasm probes enforce the normalized `Stat`/`FStat` imports
 and the platform-specific missing, not-directory, and link-loop outcome
 mappings. Deep Inspect's Windows `platform-test` execution of
-`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized` enforces
-extended-coordinate admission through a parent-relative symbolic-link target.
+`LocalPathAdmission_WindowsExtendedRelativeLinkTargetIsNormalized`,
+`LocalPathAdmission_WindowsAbsoluteExtendedLinkTargetRetainsSyntaxPolicy`, and
+`LocalPathAdmission_WindowsAncestorLinkLoopIsRejected`, and
+`LocalPathAdmission_WindowsTrailingSeparatorDoesNotAdmitFiles` enforces
+extended-coordinate admission through a parent-relative symbolic-link target,
+absolute-target syntax preservation, rejected ancestor link cycles, and exact
+trailing-separator semantics.
 The three named `LocalDirectoryAcquisition_*` gates remain unverified. Together
 they require bounded deterministic top-level selection, source-neutral
 exclusions, atomic empty and failure outcomes, directory provenance, immutable

@@ -171,6 +171,11 @@ internal readonly record struct WindowsReparseTagEntry(
     WindowsKnownReparseTag Tag,
     WindowsReparseDisposition Disposition);
 
+internal readonly record struct WindowsReparseInformation(
+    WindowsReparseDisposition Disposition,
+    string? TargetPath,
+    bool IsRelative);
+
 internal static partial class LocalPathAdmission
 {
     private const int UnixFileTypeMask = 0xF000;
@@ -186,6 +191,9 @@ internal static partial class LocalPathAdmission
     private const uint WindowsOpenExisting = 3;
     private const uint WindowsFileFlagBackupSemantics = 0x02000000;
     private const uint WindowsFileFlagOpenReparsePoint = 0x00200000;
+    private const uint WindowsFsctlGetReparsePoint = 0x000900A8;
+    private const uint WindowsSymbolicLinkFlagRelative = 1;
+    private const int WindowsMaximumReparseDataBufferSize = 16 * 1024;
     private const int MaximumWindowsLinkDepth = 40;
     private static readonly WindowsReparseTagEntry[] s_windowsReparseTags =
     [
@@ -646,88 +654,122 @@ internal static partial class LocalPathAdmission
                     : canonicalPath);
         }
 
-        FileAttributes attributes = File.GetAttributes(inspectedPath);
-        if ((attributes & FileAttributes.ReparsePoint) != 0)
+        if (!TryGetWindowsContentStart(inspectedPath, out int contentStart))
         {
-            WindowsReparseDisposition disposition =
-                GetWindowsReparseDisposition(inspectedPath);
-            if (disposition == WindowsReparseDisposition.Unsupported)
-            {
-                return LocalPathClassification.Rejected(
-                    LocalPathReason.UnsupportedEntry,
-                    requestedPath,
-                    canonicalPath);
-            }
-
-            if (disposition == WindowsReparseDisposition.SupportedLink)
-            {
-                if (remainingLinkDepth == 0)
-                {
-                    return LocalPathClassification.Rejected(
-                        LocalPathReason.UnsupportedEntry,
-                        requestedPath,
-                        canonicalPath);
-                }
-
-                FileSystemInfo entry =
-                    (attributes & FileAttributes.Directory) != 0
-                        ? new DirectoryInfo(inspectedPath)
-                        : new FileInfo(inspectedPath);
-                FileSystemInfo? target;
-                string? storedTarget;
-                try
-                {
-                    storedTarget = entry.LinkTarget;
-                    target = entry.ResolveLinkTarget(
-                        returnFinalTarget: false);
-                }
-                catch (Exception ex) when (ex is IOException
-                    && ex is not FileNotFoundException
-                    && ex is not DirectoryNotFoundException)
-                {
-                    return LocalPathClassification.Rejected(
-                        LocalPathReason.UnsupportedEntry,
-                        requestedPath,
-                        canonicalPath);
-                }
-
-                if (target is null)
-                {
-                    return LocalPathClassification.Rejected(
-                        LocalPathReason.UnsupportedEntry,
-                        requestedPath,
-                        canonicalPath);
-                }
-
-                string targetPath = target.FullName;
-                if (storedTarget is not null
-                    && !Path.IsPathFullyQualified(storedTarget))
-                {
-                    targetPath =
-                        NormalizeRelativeResolvedWindowsLinkTarget(
-                            targetPath);
-                }
-
-                if (string.Equals(
-                    targetPath,
-                    inspectedPath,
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    return LocalPathClassification.Rejected(
-                        LocalPathReason.UnsupportedEntry,
-                        requestedPath,
-                        canonicalPath);
-                }
-
-                return ClassifyWindowsTarget(
-                    requestedPath,
-                    canonicalPath,
-                    targetPath,
-                    isCoordinate: false,
-                    remainingLinkDepth - 1,
-                    cancellationToken);
-            }
+            return LocalPathClassification.Rejected(
+                LocalPathReason.UnsupportedEntry,
+                requestedPath,
+                canonicalPath);
         }
+
+        FileAttributes attributes;
+        int componentStart = contentStart;
+        while (componentStart < inspectedPath.Length)
+        {
+            while (componentStart < inspectedPath.Length
+                && IsWindowsDirectorySeparator(inspectedPath[componentStart]))
+            {
+                componentStart++;
+            }
+
+            if (componentStart >= inspectedPath.Length)
+                break;
+
+            int componentEnd = componentStart;
+            while (componentEnd < inspectedPath.Length
+                && !IsWindowsDirectorySeparator(inspectedPath[componentEnd]))
+            {
+                componentEnd++;
+            }
+
+            string componentPath = inspectedPath[..componentEnd];
+            attributes = File.GetAttributes(componentPath);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                WindowsReparseInformation reparse =
+                    GetWindowsReparseInformation(componentPath);
+                if (reparse.Disposition
+                    == WindowsReparseDisposition.Unsupported)
+                {
+                    return LocalPathClassification.Rejected(
+                        LocalPathReason.UnsupportedEntry,
+                        requestedPath,
+                        canonicalPath);
+                }
+
+                if (reparse.Disposition
+                    == WindowsReparseDisposition.SupportedLink)
+                {
+                    if (remainingLinkDepth == 0
+                        || reparse.TargetPath is null)
+                    {
+                        return LocalPathClassification.Rejected(
+                            LocalPathReason.UnsupportedEntry,
+                            requestedPath,
+                            canonicalPath);
+                    }
+
+                    string targetPath = reparse.TargetPath;
+                    if (reparse.IsRelative)
+                    {
+                        string? parent =
+                            Path.GetDirectoryName(componentPath);
+                        if (parent is null)
+                        {
+                            return LocalPathClassification.Rejected(
+                                LocalPathReason.UnsupportedEntry,
+                                requestedPath,
+                                canonicalPath);
+                        }
+
+                        targetPath =
+                            NormalizeRelativeResolvedWindowsLinkTarget(
+                                Path.Join(parent, targetPath));
+                    }
+
+                    int remainderStart = componentEnd;
+                    while (remainderStart < inspectedPath.Length
+                        && IsWindowsDirectorySeparator(
+                            inspectedPath[remainderStart]))
+                    {
+                        remainderStart++;
+                    }
+
+                    ReadOnlySpan<char> remainder =
+                        inspectedPath.AsSpan(remainderStart);
+                    if (!remainder.IsEmpty)
+                        targetPath = Path.Join(targetPath, remainder);
+                    if (IsWindowsDirectorySeparator(inspectedPath[^1])
+                        && !IsWindowsDirectorySeparator(targetPath[^1]))
+                    {
+                        targetPath += '\\';
+                    }
+
+                    if (string.Equals(
+                        targetPath,
+                        inspectedPath,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        return LocalPathClassification.Rejected(
+                            LocalPathReason.UnsupportedEntry,
+                            requestedPath,
+                            canonicalPath);
+                    }
+
+                    return ClassifyWindowsTarget(
+                        requestedPath,
+                        canonicalPath,
+                        targetPath,
+                        isCoordinate: false,
+                        remainingLinkDepth - 1,
+                        cancellationToken);
+                }
+            }
+
+            componentStart = componentEnd + 1;
+        }
+
+        attributes = File.GetAttributes(inspectedPath);
 
         return LocalPathClassification.Classified(
             requestedPath,
@@ -737,7 +779,8 @@ internal static partial class LocalPathAdmission
                 : LocalPathKind.RegularFile);
     }
 
-    private static WindowsReparseDisposition GetWindowsReparseDisposition(
+    private static unsafe WindowsReparseInformation
+        GetWindowsReparseInformation(
         string path)
     {
         string nativePath = ToExtendedWindowsPath(path);
@@ -770,7 +813,137 @@ internal static partial class LocalPathAdmission
                 $"{Marshal.GetLastPInvokeError()}");
         }
 
-        return ClassifyWindowsReparseTag(information.ReparseTag);
+        WindowsReparseDisposition disposition =
+            ClassifyWindowsReparseTag(information.ReparseTag);
+        if (disposition != WindowsReparseDisposition.SupportedLink)
+            return new(disposition, TargetPath: null, IsRelative: false);
+
+        Span<byte> buffer =
+            stackalloc byte[WindowsMaximumReparseDataBufferSize];
+        uint bytesReturned;
+        fixed (byte* bufferPointer = buffer)
+        {
+            if (!DeviceIoControl(
+                handle,
+                WindowsFsctlGetReparsePoint,
+                inputBuffer: null,
+                inputBufferSize: 0,
+                outputBuffer: bufferPointer,
+                outputBufferSize: (uint)buffer.Length,
+                out bytesReturned,
+                overlapped: IntPtr.Zero))
+            {
+                throw new IOException(
+                    $"DeviceIoControl failed with error " +
+                    $"{Marshal.GetLastPInvokeError()}");
+            }
+        }
+
+        if (bytesReturned > buffer.Length)
+        {
+            return new(
+                WindowsReparseDisposition.Unsupported,
+                TargetPath: null,
+                IsRelative: false);
+        }
+
+        ReadOnlySpan<byte> returned = buffer[..(int)bytesReturned];
+        if (information.ReparseTag
+            == (uint)WindowsKnownReparseTag.SymbolicLink)
+        {
+            if (!MemoryMarshal.TryRead(
+                    returned,
+                    out WindowsSymbolicLinkReparseBuffer symbolicLink)
+                || symbolicLink.ReparseTag != information.ReparseTag
+                || !TryReadWindowsReparseTarget(
+                    returned,
+                    Marshal.SizeOf<WindowsSymbolicLinkReparseBuffer>(),
+                    symbolicLink.ReparseDataLength,
+                    symbolicLink.SubstituteNameOffset,
+                    symbolicLink.SubstituteNameLength,
+                    out string targetPath))
+            {
+                return new(
+                    WindowsReparseDisposition.Unsupported,
+                    TargetPath: null,
+                    IsRelative: false);
+            }
+
+            bool isRelative =
+                (symbolicLink.Flags
+                    & WindowsSymbolicLinkFlagRelative) != 0;
+            return new(
+                disposition,
+                isRelative
+                    ? targetPath
+                    : ProjectWindowsAbsoluteReparseTarget(targetPath),
+                isRelative);
+        }
+
+        if (!MemoryMarshal.TryRead(
+                returned,
+                out WindowsMountPointReparseBuffer mountPoint)
+            || mountPoint.ReparseTag != information.ReparseTag
+            || !TryReadWindowsReparseTarget(
+                returned,
+                Marshal.SizeOf<WindowsMountPointReparseBuffer>(),
+                mountPoint.ReparseDataLength,
+                mountPoint.SubstituteNameOffset,
+                mountPoint.SubstituteNameLength,
+                out string mountTarget))
+        {
+            return new(
+                WindowsReparseDisposition.Unsupported,
+                TargetPath: null,
+                IsRelative: false);
+        }
+
+        return new(
+            disposition,
+            ProjectWindowsAbsoluteReparseTarget(mountTarget),
+            IsRelative: false);
+    }
+
+    private static bool TryReadWindowsReparseTarget(
+        ReadOnlySpan<byte> buffer,
+        int pathBufferOffset,
+        ushort reparseDataLength,
+        ushort targetOffset,
+        ushort targetLength,
+        out string target)
+    {
+        int start = pathBufferOffset + targetOffset;
+        int payloadEnd = sizeof(uint) + sizeof(ushort) + sizeof(ushort)
+            + reparseDataLength;
+        if (targetLength == 0
+            || (targetOffset & 1) != 0
+            || (targetLength & 1) != 0
+            || payloadEnd > buffer.Length
+            || pathBufferOffset > payloadEnd
+            || start > buffer.Length
+            || targetLength > payloadEnd - start)
+        {
+            target = string.Empty;
+            return false;
+        }
+
+        target = MemoryMarshal.Cast<byte, char>(
+            buffer.Slice(start, targetLength)).ToString();
+        return true;
+    }
+
+    private static string ProjectWindowsAbsoluteReparseTarget(
+        string target)
+    {
+        const string ntPrefix = @"\??\";
+        if (!target.StartsWith(
+            ntPrefix,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return target;
+        }
+
+        return @"\\?\" + target[ntPrefix.Length..];
     }
 
     private static LocalPathClassification VerifyRegularFileHandle(
@@ -896,51 +1069,63 @@ internal static partial class LocalPathAdmission
         return false;
     }
 
-    internal static string NormalizeRelativeResolvedWindowsLinkTarget(
-        string path)
+    private static bool TryGetWindowsContentStart(
+        string path,
+        out int contentStart)
     {
-        int contentStart;
         if (path.StartsWith(
             @"\\?\Volume{",
             StringComparison.OrdinalIgnoreCase))
         {
             int volumeEnd = path.IndexOf(@"}\", StringComparison.Ordinal);
             if (volumeEnd <= 11)
-                return path;
+            {
+                contentStart = 0;
+                return false;
+            }
 
             contentStart = volumeEnd + 2;
+            return true;
         }
-        else if (path.StartsWith(
+
+        if (path.StartsWith(
             @"\\?\UNC\",
             StringComparison.OrdinalIgnoreCase))
         {
-            if (!TryGetUncContentStart(path, 8, out contentStart))
-                return path;
+            return TryGetUncContentStart(path, 8, out contentStart);
         }
-        else if (path.Length >= 7
+
+        if (path.Length >= 7
             && path.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)
             && char.IsAsciiLetter(path[4])
             && path[5] == ':'
             && IsWindowsDirectorySeparator(path[6]))
         {
             contentStart = 7;
+            return true;
         }
-        else if (path.StartsWith(@"\\", StringComparison.Ordinal))
-        {
-            if (!TryGetUncContentStart(path, 2, out contentStart))
-                return path;
-        }
-        else if (path.Length >= 3
+
+        if (path.StartsWith(@"\\", StringComparison.Ordinal))
+            return TryGetUncContentStart(path, 2, out contentStart);
+
+        if (path.Length >= 3
             && char.IsAsciiLetter(path[0])
             && path[1] == ':'
             && IsWindowsDirectorySeparator(path[2]))
         {
             contentStart = 3;
+            return true;
         }
-        else
-        {
+
+        contentStart = 0;
+        return false;
+    }
+
+    internal static string NormalizeRelativeResolvedWindowsLinkTarget(
+        string path)
+    {
+        if (!TryGetWindowsContentStart(path, out int contentStart))
             return path;
-        }
 
         if (!ContainsDotSegment(path, contentStart))
             return path;
@@ -1111,6 +1296,22 @@ internal static partial class LocalPathAdmission
         uint bufferSize);
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [LibraryImport(
+        "kernel32.dll",
+        EntryPoint = "DeviceIoControl",
+        SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool DeviceIoControl(
+        SafeFileHandle handle,
+        uint controlCode,
+        void* inputBuffer,
+        uint inputBufferSize,
+        void* outputBuffer,
+        uint outputBufferSize,
+        out uint bytesReturned,
+        IntPtr overlapped);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial uint GetFileType(SafeFileHandle file);
 
@@ -1124,6 +1325,31 @@ internal static partial class LocalPathAdmission
     {
         internal uint FileAttributes;
         internal uint ReparseTag;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowsSymbolicLinkReparseBuffer
+    {
+        internal uint ReparseTag;
+        internal ushort ReparseDataLength;
+        internal ushort Reserved;
+        internal ushort SubstituteNameOffset;
+        internal ushort SubstituteNameLength;
+        internal ushort PrintNameOffset;
+        internal ushort PrintNameLength;
+        internal uint Flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowsMountPointReparseBuffer
+    {
+        internal uint ReparseTag;
+        internal ushort ReparseDataLength;
+        internal ushort Reserved;
+        internal ushort SubstituteNameOffset;
+        internal ushort SubstituteNameLength;
+        internal ushort PrintNameOffset;
+        internal ushort PrintNameLength;
     }
 
     [StructLayout(LayoutKind.Sequential)]
