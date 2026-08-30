@@ -71,6 +71,25 @@ public class CiWorkflowTests
             NamedStep("Check GitHub Packages fixture result"));
     }
 
+    [Fact]
+    public void JsExportAsyncWireGate_RunsBothParityFormsAndCloseNegative()
+    {
+        string step = NamedStep("Run JSExport runtime-async wire gates");
+        string[] methods =
+        [
+            "Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult",
+            "Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension",
+            "Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings",
+        ];
+
+        foreach (string method in methods)
+        {
+            Assert.Contains($" -method '*{method}*'", step);
+            Assert.Contains($"method=\\\"$method\\\"", step);
+        }
+        Assert.Contains("total=\"[1-9][0-9]*\"", step);
+    }
+
     static string JobHeader(string jobName)
     {
         int jobStart = Workflow.IndexOf($"\n  {jobName}:\n", StringComparison.Ordinal);

@@ -235,14 +235,20 @@ dotnet-inspect package System.Text.Json -n 12
 dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
 ```
 
-- `--count` reports rows for the selected candidate set, including zero-row
-  sections when category membership is being counted. It rejects row
-  addresses and item/range or line windows. An upstream-bounded source reports
-  the full count within that candidate set and discloses the bound rather than
-  claiming a corpus total; `package search --count` requests 20 rows per
-  configured source, deduplicates in configured-source order, and reports the
-  complete merged candidate count before the global cap while disclosing every
-  non-exhausted source.
+- `--count` reports exact cardinality after the selected candidate set's
+  preceding semantic item/range stages, as defined by
+  [Section-row shaping](section-row-shaping.md#count-semantics). The focused L3
+  design will decide final conflicts involving row addresses or rendered-line
+  windows. An upstream-bounded source may return Count only when it proves
+  exact completion for the logical request; a provider, work, page, time, or
+  memory cap is not semantic selection and must remain disclosed rather than
+  becoming a corpus total. Bare `package search`'s default provider and merged
+  caps remain non-semantic, so Count requires exact completion evidence for the
+  full candidate set rather than reporting `20`; an explicit `-n 20` is
+  semantic `Head(20)` and may prove the exact result `20` without exhausting
+  the tail. A Rows request may still render the capped search rows with their
+  bound incompleteness disclosure; that does not make the cap semantic or
+  Count-sufficient.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
   within each row set after filtering and ordering. Bare `package search` uses
   a default provider and global merged-row cap of 20; an explicit N sets both

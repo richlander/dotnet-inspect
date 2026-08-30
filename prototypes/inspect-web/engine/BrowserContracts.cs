@@ -201,6 +201,88 @@ public sealed record BrowserBuildIdentity(
     string? BuiltAtUtc,
     string? CommitUrl);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFacetTier>))]
+public enum BrowserPackageQueryFacetTier
+{
+    Nuspec,
+}
+
+public sealed record BrowserPackageQueryFacetDescriptor(
+    string Id,
+    string Label,
+    string Summary,
+    int Weight,
+    BrowserPackageQueryFacetTier Tier,
+    string? SelectionGroupId);
+
+public sealed record BrowserPackageQueryFacetCatalog(
+    BrowserPackageQueryFacetDescriptor[] Facets);
+
+public sealed record BrowserPackageQueryEvidence(
+    string Id,
+    string Text);
+
+public sealed record BrowserPackageQueryRow(
+    string PackageId,
+    string Version,
+    BrowserPackageQueryFacetTier Tier,
+    BrowserPackageQueryEvidence[] Evidence,
+    long TotalDownloads,
+    bool Verified,
+    string Producer);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
+public enum BrowserPackageQueryFailureKind
+{
+    Search,
+    SearchContract,
+    ManifestAcquisition,
+    ManifestContract,
+    InvalidManifest,
+}
+
+public sealed record BrowserPackageQueryFailure(
+    string? PackageId,
+    string? Version,
+    string Producer,
+    BrowserPackageQueryFailureKind Kind,
+    string Message);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryCompletionKind>))]
+public enum BrowserPackageQueryCompletionKind
+{
+    Exhausted,
+    MatchLimitReached,
+    CandidateLimitReached,
+    SourcePageLimitReached,
+    ClientPageLimitReached,
+    Failed,
+}
+
+public sealed record BrowserPackageQueryCompletion(
+    string Prefix,
+    string Producer,
+    int CandidateLimit,
+    int MatchLimit,
+    int Candidates,
+    int Matches,
+    int Failures,
+    BrowserPackageQueryCompletionKind Kind);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
+public enum BrowserPackageQueryEventKind
+{
+    Match,
+    Failure,
+    Completed,
+}
+
+public sealed record BrowserPackageQueryEvent(
+    BrowserPackageQueryEventKind Kind,
+    BrowserPackageQueryRow? Row,
+    BrowserPackageQueryFailure? Failure,
+    BrowserPackageQueryCompletion? Completion);
+
 /// <summary>
 /// One vocabulary field's discoverable contract, mapped verbatim from
 /// <c>DotnetInspector.Vocabulary.VocabularyWireField</c>. Kept as a browser-local record (rather
@@ -832,6 +914,8 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserBuildIdentity))]
+[JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateCandidate[]))]
 [JsonSerializable(typeof(BrowserDependencyCoordinateMatch))]

@@ -146,6 +146,14 @@ internal sealed class LibraryMethodAnalysisResult
     public ImmutableArray<FieldStoreFact> FieldStores;
     public ImmutableArray<FieldLoadFact> FieldLoads;
     public ImmutableArray<MethodReturnFlow> ReturnFlows;
+    // Reachable whole-value writes or unrecognized by-ref escapes of this
+    // method's current instance, consumed only by the assembly-level proof.
+    public ImmutableArray<int> CurrentInstanceMutations;
+    // Set before metadata/body classification; only a proven bodiless method
+    // can opt out of the unscoped absence census.
+    public bool RequiresCompleteFieldAccessCensus;
+    // Set only after MethodCallAnalysis has collected every field access.
+    public bool FieldAccessCensusComplete;
     public ImmutableArray<AllocationOccurrence> Allocations;
     public ImmutableArray<UnsafetyOccurrence> Unsafety;
     public ImmutableArray<OptimizationOpportunity> Opportunities;
@@ -551,7 +559,12 @@ internal sealed class LibraryMethodAnalysisRunner(
                 : new LibraryMethodAnalysisResult();
         }
 
-        var result = new LibraryMethodAnalysisResult();
+        var result = new LibraryMethodAnalysisResult
+        {
+            RequiresCompleteFieldAccessCensus =
+                includeJsonWireContractFlow
+                && !plan.IsScoped,
+        };
         var evidence =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
         var calls =
@@ -567,6 +580,10 @@ internal sealed class LibraryMethodAnalysisRunner(
         ImmutableArray<FieldLoadFact>.Builder? fieldLoads =
             includeJsonWireContractFlow
                 ? ImmutableArray.CreateBuilder<FieldLoadFact>()
+                : null;
+        ImmutableArray<int>.Builder? currentInstanceMutations =
+            includeJsonWireContractFlow
+                ? ImmutableArray.CreateBuilder<int>()
                 : null;
         ImmutableArray<MethodReturnFlow>.Builder? returnFlows =
             includeJsonWireContractFlow
@@ -610,6 +627,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 || !HasManagedIlBody(
                     methodDefinition.ImplAttributes))
             {
+                result.RequiresCompleteFieldAccessCensus =
+                    false;
                 if (includeAsyncSiblingOpportunities
                     && (bodyScope is null
                         || bodyScope.Contains(
@@ -925,7 +944,11 @@ internal sealed class LibraryMethodAnalysisRunner(
                     resultSinks: resultSinks,
                     fieldStores: fieldStores,
                     fieldLoads: fieldLoads,
+                    currentInstanceMutations:
+                        currentInstanceMutations,
                     returnFlows: returnFlows);
+                result.FieldAccessCensusComplete =
+                    result.RequiresCompleteFieldAccessCensus;
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -951,6 +974,19 @@ internal sealed class LibraryMethodAnalysisRunner(
                     {
                         AsyncBody = asyncBody,
                     };
+                }
+                if (fieldStores is not null
+                    && fieldLoads is not null)
+                {
+                    MethodCallAnalysis
+                        .AttachAsyncStateMachineFieldResultSources(
+                            context,
+                            asyncBody,
+                            calls,
+                            fieldStores,
+                            fieldLoads,
+                            currentInstanceMutations!,
+                            resultSinks);
                 }
             }
             if (includeOpportunities)
@@ -1120,6 +1156,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.ResultSinks = resultSinks?.ToImmutable() ?? [];
             result.FieldStores = fieldStores?.ToImmutable() ?? [];
             result.FieldLoads = fieldLoads?.ToImmutable() ?? [];
+            result.CurrentInstanceMutations =
+                currentInstanceMutations?.ToImmutable() ?? [];
             result.ReturnFlows = returnFlows?.ToImmutable() ?? [];
         }
         return result;

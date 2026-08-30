@@ -68,9 +68,9 @@ This document composes four adjacent owner contracts without defining them:
 - [#4787](https://github.com/richlander/dotnet-inspect/issues/4787) owns stable
   portable fields, versioning, migration, valid combinations, per-coordinate
   view state, canonical packet projection, and restoration.
-- [#4788](https://github.com/richlander/dotnet-inspect/issues/4788) owns any
-  default-feed or acquisition-preference semantics within multi-source package
-  resolution.
+- [Browser package sources](browser-package-sources.md#default-feed-decision)
+  owns browser source selection and the decision that first-run Gallery
+  bootstrap does not become default-feed or acquisition-preference semantics.
 
 Inspect Web renders those owner-issued descriptors and outcomes. Their product
 semantics are not prerequisites for reviewing the UI composition in this
@@ -1021,6 +1021,9 @@ Annotated Source viewer are modal dialogs:
 - background content is inert while it is open;
 - Tab and Shift+Tab remain within the dialog;
 - Escape closes it unless an owner-issued destructive confirmation is active;
+  the Annotated Source viewer first offers Escape to the viewer-owned transient
+  layer defined by
+  [Annotated Source viewer interaction](annotated-source-viewer-interaction.md);
   and
 - ordinary dismissal returns focus to the invoking control.
 
@@ -1043,10 +1046,10 @@ returning focus to the invoker, then performs the history transition. History
 navigation focuses the restored destination heading without reopening the
 modal.
 
-Home, Workspace, and Diagnostics are routed full-bleed surfaces rather than
-dialogs. Navigation places focus on their visible level-one heading. Browser
-Back returns to the prior routed surface and restores focus through the history
-transition.
+Home, Workspace, Package query, and Diagnostics are routed full-bleed surfaces
+rather than dialogs. Navigation places focus on their visible level-one heading
+or, for Package query, its prefix input under that heading. Browser Back returns
+to the prior routed surface and restores focus through the history transition.
 
 ### Search
 
@@ -1100,10 +1103,60 @@ documents inset inside a general page. This redesign does not change Metadata
 viewer composition.
 
 The package-query surface's internal query behavior remains owned by
-`package-query-experience.md`, but its former package-tab placement is
-superseded. This redesign does not add a replacement shell entry, lifecycle,
-history, or focus contract; those must be defined by a later Inspect Web UI
-change before that surface is integrated into the shell.
+`package-query-experience.md`; product facet identities, ordering, evidence,
+failures, and completion remain owned by `package-query-cli.md`. Its former
+package-tab placement stays superseded.
+
+### Package query
+
+Package query is the routed `/query` working surface. It has no package tab and
+no active inspection coordinate. The global Search experience exposes one
+visible `Package query` action that closes Spotlight, preserves the current
+package-search text as the initial prefix when it is valid, and pushes the
+route. A direct or refreshed `/query` visit starts with an empty prefix; query
+requests are session state and are not encoded in the URL in this slice.
+Seeding the prefix does not start source work; Run or facet selection dispatches
+the request.
+
+The route renders one visible level-one `Package query` heading followed by an
+editable `Package ID prefix` input and `Run query` action. Entry focuses that
+input. Browser Back and Forward own entry and return. Returning to the prior
+surface restores focus to the stable Search control when it is still rendered;
+otherwise it focuses that surface's level-one heading. The page's visible
+`Back` action invokes the same history transition, falling back to Home only
+when the route was loaded without an in-app predecessor. Each query history
+entry carries its own predecessor identity and focus target in session-only
+history state, so a later query route cannot change an older entry's Back
+behavior.
+
+The desktop layout gives the product-ordered nuspec facet rail a fixed readable
+column and lets rows consume the remaining width. At a narrow viewport the
+query bar remains first, facets become a wrapping horizontal control region,
+and results follow in one column. The prefix input, Run, Cancel, every facet,
+Back, and every `Open in workspace` action keep visible text or an explicit
+accessible name at both widths. Streamed row appends preserve the current
+query-page scroll position.
+
+Selecting a facet submits its opaque product ID and starts a fresh request; it
+never filters the current rows locally. The Browser adapter streams product
+rows, partial failures, and completion events into the query controller.
+Changing the prefix, toggling a facet, cancelling, leaving the route, or
+starting another run aborts or supersedes the active source operation. Rows
+already received remain visible after explicit cancellation, while events from
+an older generation cannot enter a replacement outcome.
+
+This first production surface is nuspec-only. It renders exactly the
+product-issued nuspec facet catalog and does not render promoted facets,
+selection checkboxes, or `Deepen`. Those controls require a separately owned
+product operation and UI change.
+
+`Open in workspace` submits the row's product-issued package ID and exact
+version once through the existing typed package-opening transition. Success
+leaves `/query`, pushes the returned Workspace location, and focuses the
+inspection destination. Failure keeps the query route, rows, and request
+intact, renders the typed failure, and returns focus to the invoking row action.
+Package query does not infer a framework, source, or fallback from display
+text; the existing Workspace transition owns that resolution.
 
 ### Source and Annotated Source
 
@@ -1172,10 +1225,11 @@ and producer provenance. This UI owner consumes those typed results and does
 not redefine them.
 
 The initial UI does not expose feed tabs or in-workspace source switching.
-Settings renders the package-source owner's registration, selection,
-capability, authentication, and cache-action descriptors and submits their
-typed actions. A `Default feed` control appears only when #4788 supplies its
-descriptor and semantics.
+Settings renders the package-source owner's registration, enablement,
+multi-selection, capability, authentication, and cache-action descriptors and
+submits their typed actions. There is no `Default feed` control: the source
+owner bootstraps Gallery only when no persisted registry exists, then the
+selected source set is the complete browser policy.
 
 Once a package is acquired, Workspace, package headings, and the data bar show
 its owner-issued compact producer label as read-only context. Source-scoped
@@ -1647,16 +1701,21 @@ outcomes:
 
 ### Package-source composition
 
-1. Supply registration, selection, capability, authentication, and cache-action
-   descriptors and confirm that the one Settings surface renders them and
-   dispatches their typed actions.
+1. Supply registration, enablement, multi-selection, capability,
+   authentication, and cache-action descriptors and confirm that the one
+   Settings surface renders them and dispatches their typed actions.
 2. Give two custom sources the same display name and confirm that search results
    and version choices render their distinct owner-issued compact labels
    verbatim.
 3. Supply an acquired producer label and confirm that Workspace, package
    headings, and the data bar render it as read-only context.
 4. Confirm that no feed tabs or in-workspace feed-switching control appears.
-5. Confirm that `Default feed` is absent until #4788 supplies its descriptor.
+5. Confirm that `Default feed` is absent and that source multi-selection is the
+   complete browser policy after first-run Gallery bootstrap.
+
+`InspectWebPackageSourceSettingsTests.RendersEnablementAndSelectionWithoutDefaultFeed`
+gates enabled, disabled, selected, and unselected source descriptors together
+with the absence of a synthesized `Default feed` control.
 
 ### Search input
 
@@ -1737,12 +1796,39 @@ outcomes:
 8. From that viewer, open Decompiler style Settings and confirm that the viewer
    closes, Settings receives focus, and closing Settings returns to inline
    Annotated Source without reopening the viewer.
-9. Navigate to Home, Workspace, and Diagnostics and confirm that each is a
-   routed surface with one visible level-one heading, no coordinate/subject
-   command, and a persistent `dotnet-inspect` control that opens Workspace.
+9. Navigate to Home, Workspace, Package query, and Diagnostics and confirm that
+   each is a routed surface with one visible level-one heading, no
+   coordinate/subject command, and a persistent `dotnet-inspect` control that
+   opens Workspace.
 10. Use Browser Back and Forward while a modal is open and confirm that the
    modal is dismissed, the restored destination heading receives focus, and the
    modal does not reopen.
+
+### Package query route
+
+1. Open Package query from Search and confirm that Spotlight closes, `/query`
+   is pushed, the package-search text becomes the initial valid prefix, and the
+   `Package ID prefix` input receives focus.
+2. Refresh or directly load `/query` and confirm that the route starts without
+   a persisted request or inferred package coordinate.
+3. Toggle two product-issued nuspec facets and confirm that each change starts
+   a fresh engine request with opaque IDs, cancels the prior request, and
+   suppresses its late rows and failures.
+4. Confirm that product rows, evidence, partial failures, and exhausted,
+   bounded, failed, cancelled, and zero-row completion states remain distinct.
+5. Cancel after rows arrive and confirm that the rows remain visible, the state
+   reads as cancelled, and the Browser source operation stops.
+6. Use Browser Back and Forward and the visible Back action, confirming route
+   restoration and focus return to the stable Search control or destination
+   heading.
+7. Open a row in Workspace and confirm one typed package transition using its
+   exact product-issued ID and version. Confirm success focuses the inspection
+   destination and a typed failure retains `/query`, the result set, and the
+   invoking row action.
+8. At desktop and narrow widths, confirm that the prefix, Run, facets, results,
+   evidence, completion, Cancel, Back, and `Open in workspace` remain visible
+   and keyboard reachable, with no promoted facet, selection, or `Deepen`
+   control.
 
 ### Data and diagnostics
 
