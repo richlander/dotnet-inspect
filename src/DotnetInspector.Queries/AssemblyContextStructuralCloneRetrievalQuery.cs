@@ -792,6 +792,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             reader.GetTableRowCount(TableIndex.MethodDef);
         var methods =
             ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+        var projected = new HashSet<MethodDefinitionHandle>();
         foreach (MethodDefinitionHandle method
             in reader.GetTypeDefinition(type).GetMethods())
         {
@@ -800,6 +801,13 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             {
                 throw new BadImageFormatException(
                     "The selected TypeDef contains an invalid MethodDef range.");
+            }
+
+            if (!projected.Add(method))
+            {
+                throw new BadImageFormatException(
+                    "The selected TypeDef projects the same MethodDef "
+                        + "row more than once.");
             }
 
             methods.Add(method);

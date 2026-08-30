@@ -886,8 +886,12 @@ whole-assembly scope is explicit, and Analysis method, result, and
 body-production limits remain the visible work controls. Exact selection still
 uses Metadata-owned cumulative name, member-anchor, method-row, decode-failure,
 and custom-attribute work ceilings, so malformed metadata fails visibly before
-retrieval rather than multiplying per-row work. It introduces no network,
-source, Research, Finding, Decompiler, or presentation capability.
+retrieval rather than multiplying per-row work. Each candidate type-name
+attempt consumes structural-name work, decode failures also count against the
+decode-failure ceiling, and a TypeDef that projects the same MethodDef row more
+than once is rejected before Analysis. A malformed population therefore cannot
+reach Analysis as an untyped argument error. It introduces no network, source,
+Research, Finding, Decompiler, or presentation capability.
 `AssemblyContextStructuralCloneRetrievalQueryTests` gates A-vs-A and A-vs-B
 product-result preservation, type and whole-assembly population behavior,
 exact-member, extension-member, and token selection, ambiguity, limit
@@ -896,7 +900,11 @@ malformed acquisition and metadata-neighbor isolation, and same-MVID
 independent-reader handling. Its virtual-token, repeated-long-leaf,
 repeated-long-unequal-leaf, repeated-malformed-leaf, near-limit-member-anchor,
 repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
-pre-retrieval work ceilings and visible metadata-failure boundary.
+pre-retrieval work ceilings and visible metadata-failure boundary. Its
+type-name decode-failure and duplicate-projected-method cases gate the
+decode-failure ceiling and the duplicate-population rejection. The
+below-ceiling type-name case proves isolated malformed neighbors remain
+tolerable.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.
