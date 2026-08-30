@@ -86,14 +86,15 @@ Admission is one ordered decision, not independent predicates:
 
 1. Require exact definition identity and per-segment introduced counts. A
    missing definition identity or `null` or empty count vector stays on the
-   legacy path outside this contract. A supplied nonempty vector participates
-   in admission; it does not become legacy merely because its length is wrong.
+   legacy path outside this contract.
 2. Keep a leaf recognized by the existing CSharp generated-name classifier on
-   the legacy path; generated substitution is not admitted by this design.
-3. Validate the complete count vector against the definition-name segment
-   count, then validate the leaf's canonical metadata arity against its
-   introduced count and require the leaf generic-parameter list to have that
-   same count.
+   the legacy path regardless of its exact-side arity evidence; generated
+   substitution and arity validation are not admitted by this design.
+3. For the remaining ordinary leaf, validate the supplied nonempty count vector
+   against the definition-name segment count, then validate the leaf's
+   canonical metadata arity against its introduced count and require the leaf
+   generic-parameter list to have that same count. A malformed nonempty vector
+   does not become legacy merely because its length is wrong.
 4. Invoke CSharpText #5215 directly on the arity-free leaf in
    type-declaration position.
 5. Map that owner-issued spelling into `Admitted`, or return the one
@@ -169,11 +170,13 @@ results.
 An `ApiType` without `MetadataTypeDefinitionName`, or with a `null` or empty
 introduced-count vector, remains on the existing legacy compatibility path.
 That path supports hand-composed and older serialized inputs, but it cannot
-produce an admitted self-name or serve as evidence for this claim. A nonempty
-vector whose length disagrees with the exact definition-name segment count is
-instead contradictory exact evidence and produces `ArityMismatch`. Recognized
-generated names likewise preserve their current legacy normalization without
-acquiring admission or identity-fidelity claims.
+produce an admitted self-name or serve as evidence for this claim. For an
+ordinary exact leaf, a nonempty vector whose length disagrees with the exact
+definition-name segment count is instead contradictory evidence and produces
+`ArityMismatch`. Recognized generated names preserve their current legacy
+normalization regardless of count-vector length, canonical suffix, or leaf
+generic-parameter count; none of that evidence acquires admission or
+identity-fidelity claims here.
 Existing formatter methods may continue to produce identity display or legacy
 text; that text cannot be converted to the admitted currency.
 
@@ -225,18 +228,20 @@ These properties remain unverified until the Release suite contains:
   top-level and nested requests with fewer or more leaf generic parameters than
   the exact introduced count;
 - `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
-  one admitted value supplies the type header, constructors, and
-  destructor-spelled finalizers while suppressed finalizers use no self-name.
-  An exact delegate named `extension` explicitly proves the separate delegate
-  header path consumes the prepared admitted identifier; and
+  an exact non-delegate named `extension` uses one prepared admitted identifier
+  in its type header, instance and static constructors, and
+  destructor-spelled finalizer while its suppressed finalizer uses no
+  self-name. A second exact `extension` delegate proves the separate delegate
+  header path consumes that same kind of prepared identifier; and
 - `CSharpTypePrinterTests.SelfNameFailureMakesBatchNotRendered`, using the
   hostile metadata fixture for top-level, nested, same-namespace,
   multi-namespace, and selected-replacement failures while proving the typed
   outcome exposes no partial source surface. Singleton `Print`, `PrintBatch`,
-  generated-name legacy routing, missing-identity and `null` or empty-count
-  legacy routing, nonempty truncated and overlong count-vector refusal, mixed
-  legacy/exact batches, and both request orders for refusal plus duplicate
-  validation are explicit cases.
+  generated-name legacy routing with valid, truncated, overlong, and
+  suffix-disagreeing arity evidence, missing-identity and `null` or empty-count
+  legacy routing, ordinary-name truncated and overlong count-vector refusal,
+  mixed legacy/exact batches, and both request orders for refusal plus
+  duplicate validation are explicit cases.
 
 The implementation remains in the existing SRM-only, Roslyn-free product
 closure and introduces no platform-specific API. Compiler use belongs only to
