@@ -272,6 +272,14 @@ public sealed class TypeScriptFacadeEmitterTests
             function => function.Name == "GetStringDtoAsync");
         JsExportFunction mapFunction = surface.Functions.Single(
             function => function.Name == "GetKeywordMapAsync");
+        Assert.Equal(
+            "System.Collections.Generic.IReadOnlyDictionary`2",
+            mapFunction.ReturnWireTypeShape?.Definition?.FullName);
+        Assert.Contains(
+            mapFunction.ReturnWireTypeReferences,
+            reference =>
+                reference.FullName
+                    == "System.Collections.Generic.IReadOnlyDictionary`2");
 
         string source = TypeScriptFacadeEmitter.Emit(
             surface,
@@ -317,6 +325,19 @@ public sealed class TypeScriptFacadeEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "readonly byteDtos: ReadonlyArray<byte>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly maybeBlob: string | null;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly blobs: ReadonlyArray<string | null>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly blobsByName: "
+                + "Readonly<Record<string, string | null>>;",
             source,
             StringComparison.Ordinal);
         Assert.Contains(

@@ -21,6 +21,8 @@ const getKeywordHolderAsyncKey =
   facadeSource.match(/"(GetKeywordHolderAsync\.-?\d+)"/)?.[1];
 const getKeywordMapAsyncKey =
   facadeSource.match(/"(GetKeywordMapAsync\.-?\d+)"/)?.[1];
+const getBlobAsyncKey =
+  facadeSource.match(/"(GetBlobAsync\.-?\d+)"/)?.[1];
 const getNullableWidgetAsyncKey =
   facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
 const undefinedKey =
@@ -53,6 +55,10 @@ assert.ok(
 assert.ok(
   getKeywordMapAsyncKey,
   "The generated GetKeywordMapAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getBlobAsyncKey,
+  "The generated GetBlobAsync runtime dispatch key was not found.",
 );
 assert.ok(
   getNullableWidgetAsyncKey,
@@ -99,6 +105,14 @@ function managedExports(methods = {}) {
               methods.getKeywordMapAsync
               ?? (async (value) => JSON.stringify({
                 [value]: { value },
+              })),
+            [getBlobAsyncKey]:
+              methods.getBlobAsync
+              ?? (async () => JSON.stringify({
+                blob: "AQ==",
+                maybeBlob: null,
+                blobs: ["AQ==", null],
+                blobsByName: { none: null },
               })),
             [getNullableWidgetAsyncKey]:
               methods.getNullableWidgetAsync
@@ -215,6 +229,15 @@ async function freshFacade() {
   assert.deepEqual(
     await facade.getKeywordMapAsync("map"),
     { map: { value: "map" } },
+  );
+  assert.deepEqual(
+    await facade.getBlobAsync(),
+    {
+      blob: "AQ==",
+      maybeBlob: null,
+      blobs: ["AQ==", null],
+      blobsByName: { none: null },
+    },
   );
   assert.deepEqual(
     await facade.getNullableWidgetAsync("nullable"),

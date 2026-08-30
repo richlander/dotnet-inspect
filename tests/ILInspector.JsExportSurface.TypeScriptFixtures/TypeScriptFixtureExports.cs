@@ -9,6 +9,12 @@ public sealed record WidgetDto(string Name, int Count);
 
 public sealed record RuntimeAPI(string Value);
 
+public sealed record BlobDto(
+    byte[] Blob,
+    byte[]? MaybeBlob,
+    byte[]?[] Blobs,
+    IReadOnlyDictionary<string, byte[]?> BlobsByName);
+
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
 [JsonSerializable(typeof(global::@string), TypeInfoPropertyName = "StringDto")]
@@ -19,6 +25,10 @@ public sealed record RuntimeAPI(string Value);
     TypeInfoPropertyName = "StringDtoMap")]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class FixtureJsonContext : JsonSerializerContext;
+
+[JsonSerializable(typeof(BlobDto))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+internal sealed partial class BlobFixtureJsonContext : JsonSerializerContext;
 
 [SupportedOSPlatform("browser")]
 public static partial class TypeScriptFixtureExports
@@ -92,6 +102,22 @@ public static partial class TypeScriptFixtureExports
         return JsonSerializer.Serialize(
             map,
             FixtureJsonContext.Default.StringDtoMap);
+    }
+
+    [JSExport]
+    public static async Task<string> GetBlobAsync()
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new BlobDto(
+                [1],
+                null,
+                [[1], null],
+                new Dictionary<string, byte[]?>
+                {
+                    ["none"] = null,
+                }),
+            BlobFixtureJsonContext.Default.BlobDto);
     }
 
     [JSExport]

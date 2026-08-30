@@ -259,6 +259,21 @@ static class TsTypeMapper
             return "unknown";
         }
 
+        if (trimmed.EndsWith("?", StringComparison.Ordinal))
+        {
+            string inner = trimmed[..^1];
+            return $"{Map(
+                inner,
+                recordNames,
+                diagnostics,
+                location,
+                blockedAliases,
+                mappedTypeNames,
+                mappingContext,
+                typeShape,
+                identityNames)} | null";
+        }
+
         // System.Text.Json encodes a byte[] value as one Base64 JSON string. Direct JS interop
         // signatures instead retain their marshalled numeric-array shape.
         if (mappingContext == TsTypeMappingContext.JsonWire
@@ -267,6 +282,14 @@ static class TsTypeMapper
 
         if (trimmed.EndsWith("[]", StringComparison.Ordinal))
         {
+            if (typeShape is not null
+                && typeShape.Kind != ApiTypeShapeKind.SzArray)
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    trimmed);
+                return "unknown";
+            }
             string element = trimmed[..^2];
             string mappedElement = Map(
                 element,
@@ -288,24 +311,22 @@ static class TsTypeMapper
                 : $"{mappedElement}[]";
         }
 
-        if (trimmed.EndsWith("?", StringComparison.Ordinal))
-        {
-            string inner = trimmed[..^1];
-            return $"{Map(
-                inner,
-                recordNames,
-                diagnostics,
-                location,
-                blockedAliases,
-                mappedTypeNames,
-                mappingContext,
-                typeShape,
-                identityNames)} | null";
-        }
-
         if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
             || TryUnwrapGeneric(trimmed, "Nullable", out nullableArg))
         {
+            if (typeShape is not null
+                && (!IsGenericShape(
+                        typeShape,
+                        "System.Nullable`1")
+                    || IsBlockedType(
+                        trimmed,
+                        blockedAliases)))
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    trimmed);
+                return "unknown";
+            }
             return $"{Map(
                 nullableArg!,
                 recordNames,
@@ -355,8 +376,44 @@ static class TsTypeMapper
             return exactName;
         }
 
-        if (IsBlockedType(trimmed, blockedAliases))
+        if (typeShape is not null)
         {
+            if (typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition.FullName: "System.Decimal",
+                    }
+                && !IsBlockedType(
+                    trimmed,
+                    blockedAliases))
+            {
+                return "number";
+            }
+            if (typeShape is
+                    {
+                        Kind: ApiTypeShapeKind.Named,
+                        Definition.FullName:
+                            "System.Text.Json.JsonElement",
+                    }
+                && !IsBlockedType(
+                    trimmed,
+                    blockedAliases))
+            {
+                return "unknown";
+            }
+            if (mappingContext == TsTypeMappingContext.JsInterop
+                && typeShape is
+                {
+                    Kind: ApiTypeShapeKind.Named,
+                    Definition.FullName:
+                        "System.Runtime.InteropServices.JavaScript.JSObject",
+                }
+                && !IsBlockedType(
+                    trimmed,
+                    blockedAliases))
+            {
+                return "unknown";
+            }
             diagnostics?.ReportUnmappedType(
                 location ?? trimmed,
                 trimmed);
@@ -490,6 +547,29 @@ static class TsTypeMapper
             mappedType = "unknown";
             return true;
         }
+        string expectedDefinition =
+            typeName.StartsWith(
+                "System.Collections.Generic.IReadOnlyDictionary<",
+                StringComparison.Ordinal)
+            || typeName.StartsWith(
+                "IReadOnlyDictionary<",
+                StringComparison.Ordinal)
+                ? "System.Collections.Generic.IReadOnlyDictionary`2"
+                : "System.Collections.Generic.Dictionary`2";
+        if (typeShape is not null
+            && (!IsGenericShape(
+                    typeShape,
+                    expectedDefinition)
+                || IsBlockedType(
+                    typeName,
+                    blockedAliases)))
+        {
+            diagnostics?.ReportUnmappedType(
+                location ?? typeName,
+                typeName);
+            mappedType = "unknown";
+            return true;
+        }
 
         string mappedKey = Map(
             keyType!,
@@ -528,9 +608,9 @@ static class TsTypeMapper
     static bool IsPrimitiveByteArray(
         string csharpType,
         ApiTypeShape? typeShape) =>
-        typeShape is null
-            ? csharpType is "byte[]" or "System.Byte[]"
-            : typeShape is
+        (csharpType is "byte[]" or "System.Byte[]")
+        && (typeShape is null
+            || typeShape is
             {
                 Kind: ApiTypeShapeKind.SzArray,
                 ElementType:
@@ -538,7 +618,17 @@ static class TsTypeMapper
                     Kind: ApiTypeShapeKind.Primitive,
                     Primitive: ApiPrimitiveType.Byte,
                 },
-            };
+            });
+
+    static bool IsGenericShape(
+        ApiTypeShape typeShape,
+        string expectedDefinition) =>
+        typeShape is
+        {
+            Kind: ApiTypeShapeKind.GenericInstance,
+            Definition.FullName: var fullName,
+        }
+        && fullName == expectedDefinition;
 
     static ApiTypeShape? ArrayElementShape(ApiTypeShape? typeShape) =>
         typeShape?.Kind is ApiTypeShapeKind.SzArray
