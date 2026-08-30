@@ -75,11 +75,14 @@ member-level lookalike is not evidence of the module's rules model.
 
 ### Shared binary-model handoff
 
-Metadata owns one normalized rules-model fact per inspected module. That fact
+Metadata owns one normalized rules-model fact per inspected module and one
+version-aware contract resolver for members in that module. The module fact
 must preserve both recognition state and the raw integer when one was decoded.
-Analysis and Decompiler should consume the Metadata-owned fact rather than
-independently testing for an attribute name, and the CLI should render that
-same fact rather than reinterpret the integer.
+The contract resolver combines that state with the correct member-kind carrier
+and legacy pointer compatibility. Analysis, Decompiler, and API-surface
+extraction should consume those Metadata-owned facts rather than independently
+testing for attribute names, and the CLI should render them rather than
+reinterpret the integer.
 
 This shared handoff prevents caller-contract analysis, source reconstruction,
 and user-visible Signals from assigning different meanings to the same module.
@@ -138,6 +141,19 @@ inside its implementation instead of imposing it on callers. A v2 member with
 `RequiresUnsafeAttribute` is a propagator whether or not its body contains
 unsafe operations.
 
+The metadata carrier depends on the member kind:
+
+| Contract surface | V2 attribute carrier |
+| --- | --- |
+| Method or constructor | MethodDef |
+| Field | FieldDef |
+| Property or accessor | PropertyDef for a property contract; MethodDef for an accessor-specific contract; accessors inherit through MethodSemantics |
+| Event | EventDef; add/remove accessors inherit the event contract through MethodSemantics |
+
+A TypeDef-level lookalike is not a valid substitute for any of these contracts.
+Same- and cross-assembly resolution must follow the accessor association before
+deciding that a MethodDef lacks a contract.
+
 ### Comparison
 
 | Question | V1: legacy | V2: updated |
@@ -178,6 +194,32 @@ The caller's project policy also determines which source operations it may
 express, but it does not rewrite the callee's classified contract. A legacy
 caller ignoring an explicit v2 contract is compatibility behavior, not evidence
 that the callee lacks that contract.
+
+## Pointer shape and operation semantics
+
+The module model controls caller-contract interpretation. It does not by itself
+select every rule for pointer syntax and operations. Unsafe-evolution language
+features are independently gated by language version.
+
+In particular, pointer declarations, pointer-target stack allocation, pointer
+arithmetic, and pointer comparison can be legal in safe contexts under the
+updated language feature regardless of whether the module publishes v1 or v2.
+Pointer dereference and function-pointer invocation remain examples of
+context-requiring operations.
+
+Raw IL does not always preserve the source distinction. A `localloc` operation,
+for example, can represent a safe pointer-target `stackalloc` or a conditionally
+unsafe uninitialized span allocation. Analysis should retain the raw operation
+as structural evidence until product-owned reconstruction and relevant facts
+such as `SkipLocalsInit` support a source-level judgment.
+
+Consequently, a binary-only unsafe-user answer must distinguish:
+
+- structural pointer and IL evidence;
+- operations known to require an unsafe context for the selected language
+  semantics; and
+- source or provenanced build evidence that establishes the original lexical
+  context.
 
 ## Project policy
 
@@ -268,7 +310,7 @@ substitute for typed provenance.
 | Which model did this binary publish? | Module `MemorySafetyRulesAttribute` constructor integer and recognition rules | Metadata decodes an `int?`; Library Signals displays it. Current scope and unsupported-version handling are incomplete. |
 | Did this project request updated enforcement? | Declared or evaluated `LangVersion`, `Features`, and future supported model property | Not currently answered. The `project` command reads `project.assets.json`, not these project properties. |
 | Was unsafe source permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
-| Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, or `RequiresUnsafeAttribute` | Analysis exposes method `CallerUnsafeMode`, but its current computation does not yet implement the model split faithfully; no equivalent field classification is exposed. |
+| Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, and the correct v2 attribute carrier | Metadata exposes `ApiMember.IsUnsafe` and Analysis exposes method `CallerUnsafeMode`; both are currently model-incomplete, and neither provides complete field/accessor coverage. |
 | Which methods use unsafe facilities? | Context-requiring operations plus source/build evidence where pointer declarations are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet separate pointer shape from proof that an unsafe context was established. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive body-unsafety evidence | Not currently exposed as a composed query. |
 | How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
@@ -285,6 +327,9 @@ substitute for typed provenance.
   `AssemblyAuditMetadata.MemorySafetyRulesVersion`; and
 - counts `RequiresUnsafeAttribute` occurrences.
 
+`ApiSurfaceExtractor` also publishes `ApiMember.IsUnsafe`, which feeds
+user-visible `api --unsafe` filtering and API-diff facts.
+
 `AuditSignalBuilder` presents those facts as the **Memory safety model** and
 **RequiresUnsafe members** signals. This is the existing user-visible answer
 for the binary marker.
@@ -295,7 +340,14 @@ The following gaps remain with Metadata and presentation:
 - malformed, duplicate, and absent markers collapse into insufficiently
   distinct states; and
 - Signals currently labels every integer greater than or equal to `2` as
-  updated, although current Roslyn recognizes exactly version `2`.
+  updated, although current Roslyn recognizes exactly version `2`;
+- method `ApiMember.IsUnsafe` combines pointer shape and
+  `RequiresUnsafeAttribute` without interpreting the module model;
+- property `ApiMember.IsUnsafe` uses pointer shape without reading its v2
+  PropertyDef/accessor contract, while events and fields do not currently set
+  `IsUnsafe`; and
+- there is no shared association-aware resolver for MethodDef, FieldDef,
+  PropertyDef, and EventDef contracts.
 
 ### Analysis
 
@@ -314,6 +366,8 @@ The following gaps remain with Analysis:
 - the module judgment tests attribute presence rather than decoding and
   recognizing the integer version;
 - it accepts an assembly-level marker as a fallback;
+- method contract lookup checks MethodDef and invalid TypeDef lookalikes but
+  does not follow PropertyDef or EventDef associations for accessors;
 - `ComputeCallerUnsafeMode` combines pointer signatures and
   `RequiresUnsafeAttribute` before testing the model, so a pointer-bearing v2
   member without `RequiresUnsafeAttribute` is incorrectly classified as an
@@ -323,6 +377,9 @@ The following gaps remain with Analysis:
   safe independently of the module model, so binary pointer shape must remain
   structural evidence unless a context-requiring operation or corresponding
   source/build evidence is available;
+- operation evidence treats every `localloc` as a realized unsafe operation,
+  although its reconstructed source form may be safe under the
+  unsafe-evolution language feature;
 - call evidence currently considers selected API types and pointer-bearing
   signatures, but `MemberRef` carries no callee rules model or caller contract.
   Analysis therefore misses pointerless `RequiresUnsafe` calls and treats
@@ -345,6 +402,12 @@ The following gaps remain with Decompiler:
   classifying the callee module model;
 - cross-assembly resolution reads `RequiresUnsafeAttribute` from a target
   member without also reading the target module's rules model; and
+- same- and cross-assembly method resolution checks MethodDef and invalid
+  TypeDef lookalikes rather than following PropertyDef and EventDef accessor
+  associations;
+- pointer-target stack allocation, pointer arithmetic, and pointer comparison
+  are currently treated as requiring an unsafe context even though the
+  unsafe-evolution language feature permits them in safe contexts; and
 - field-access contracts are not carried through the current method-oriented
   requires-unsafe path.
 
@@ -363,22 +426,28 @@ evaluation is hosted.
 
 Implementation should proceed through focused owner changes:
 
-1. Metadata introduces the normalized per-module rules state and exact marker
-   validation.
-2. Library Signals renders that state without independently interpreting raw
-   version numbers.
+1. Metadata introduces the normalized per-module rules state, exact marker
+   validation, and the member-kind-aware contract resolver, including
+   PropertyDef/EventDef accessor association.
+2. `ApiSurfaceExtractor` and Library Signals consume those facts without
+   independently combining pointer shapes, attributes, or raw version numbers.
+   The API surface gains version-aware field and accessor coverage.
 3. Analysis consumes the shared state and applies pointer compatibility only
    to legacy modules. Its call resolver carries the callee module model and
    member contract across assembly boundaries, its field resolver supplies the
    equivalent field contract, and both apply the caller/target enforcement
-   matrix. The same stage re-states and gates the resulting
+   matrix. Operation evidence separates raw `localloc` and pointer shapes from
+   context-requiring source operations. The same stage re-states and gates the
+   resulting
    `OpaqueUnsafeMethods()` and `HollowUnsafeMethods()` populations in
    [Memory-safety rendering modes](memory-safety-modes.md), because correcting
-   `CallerUnsafeMode` changes their inputs.
+   `CallerUnsafeMode` and realized-operation evidence changes their inputs.
 4. Decompiler consumes the shared state for conservative replay while keeping
    its explicit simulation mode. Same- and cross-assembly call and field
    resolution carry the target module model with the member contract before
-   deciding where source needs an unsafe context.
+   deciding where source needs an unsafe context, including accessor
+   associations. Rendering follows the selected language semantics rather than
+   treating relaxed pointer operations as unsafe because of the module model.
 5. Project inspection acquires declared or evaluated rule and permission
    facts through its own design.
 6. A composition query joins project policy, binary contracts, body evidence,
