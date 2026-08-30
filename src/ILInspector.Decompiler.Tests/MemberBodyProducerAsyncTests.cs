@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -39,6 +40,81 @@ public sealed class MemberBodyProducerAsyncTests
         Assert.Null(result.Output);
         Assert.Contains(
             result.Diagnostics,
+            static diagnostic =>
+                diagnostic.Id == DiagnosticIds.InternalError
+                && diagnostic.Message
+                    == "classic planning failed");
+
+        foreach (bool legacyErrorAsSource in
+            new[] { false, true })
+        {
+            DecompilerResult projection =
+                MemberBodyProducer.CompleteTypeProjection(
+                    new(
+                        Text: null,
+                        new MemberBodyProducer
+                            .ClassicAsyncBodyFailureException(
+                                result)),
+                    "Synthetic.C",
+                    legacyErrorAsSource);
+            Assert.False(projection.Succeeded);
+            Assert.Contains(
+                projection.Diagnostics,
+                static diagnostic =>
+                    diagnostic.Id
+                        == DiagnosticIds.InternalError
+                    && diagnostic.Message
+                        == "classic planning failed");
+        }
+    }
+
+    [Fact]
+    public void ClassicAsyncStageFailureStopsWholeTypeComposition()
+    {
+        using var source = MetadataSource.Open(
+            ClassicFixturePath());
+        IrFunction function = Assert.IsType<IrFunction>(
+            IrImporter.Import(
+                source,
+                "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures",
+                "AwaitVoid"));
+        ClassicAsyncRelationshipEvidence evidence =
+            Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                function.ClassicAsyncRelationship);
+        function.ClassicAsyncRelationship =
+            evidence with
+            {
+                PlanningSession =
+                    new FailedPlanningSession(),
+            };
+        MethodInfo method = Assert.IsAssignableFrom<MethodInfo>(
+            typeof(MemberBodyProducer).GetMethod(
+                "DecompileFunction",
+                BindingFlags.Static | BindingFlags.NonPublic));
+        object?[] arguments =
+        [
+            source,
+            function,
+            new SortedSet<string>(),
+            null,
+            false,
+            ClassicAsyncDeclarationDisposition.NoOpinion,
+            false,
+            false,
+            null,
+            false,
+        ];
+
+        TargetInvocationException exception =
+            Assert.Throws<TargetInvocationException>(
+                () => method.Invoke(null, arguments));
+        var failure = Assert.IsType<MemberBodyProducer
+            .ClassicAsyncBodyFailureException>(
+                exception.InnerException);
+
+        Assert.False(failure.Result.Succeeded);
+        Assert.Contains(
+            failure.Result.Diagnostics,
             static diagnostic =>
                 diagnostic.Id == DiagnosticIds.InternalError
                 && diagnostic.Message
@@ -225,5 +301,16 @@ public sealed class MemberBodyProducerAsyncTests
             "ILInspector.Decompiler.Fixtures.ClassicAsync",
             configuration,
             "ILInspector.Decompiler.Fixtures.ClassicAsync.dll"));
+    }
+
+    sealed class FailedPlanningSession
+        : IClassicAsyncPlanningSession
+    {
+        public ClassicAsyncPreparationResult Prepare(
+            ClassicAsyncRelationshipEvidence evidence)
+            => new ClassicAsyncPreparationResult.PlanningFailed(
+                new(
+                    DiagnosticIds.InternalError,
+                    "classic planning failed"));
     }
 }

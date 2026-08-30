@@ -3854,36 +3854,36 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         out Call suspensionCallback)
     {
         suspensionCallback = null!;
-        for (int i = spillIndex + 1;
-            i < block.Children.Count;
-            i++)
-        {
-            switch (block.Children[i])
-            {
-                case ExpressionStatement
+        if (spillIndex != 2
+            || block.Children is not
+            [
+                StoreLocal,
+                StoreField,
+                StoreField,
+                ExpressionStatement
                 {
                     Expression: Call call,
-                } when call.Callee.Name is
-                        "AwaitUnsafeOnCompleted"
-                        or "AwaitOnCompleted"
-                    && call.Arguments.Any(argument =>
-                        argument is LoadLocalAddress
-                        {
-                            Index: var index,
-                        }
-                        && index == awaiterLocal)
-                    && IsCompilerBuilderCallback(
-                        moveNext,
-                        call):
-                    if (suspensionCallback is not null)
-                        return false;
-                    suspensionCallback = call;
-                    break;
-                case Return when suspensionCallback is not null:
-                    return true;
-            }
+                },
+                Return,
+            ]
+            || call.Callee.Name is not
+                ("AwaitUnsafeOnCompleted"
+                or "AwaitOnCompleted")
+            || !call.Arguments.Any(argument =>
+                argument is LoadLocalAddress
+                {
+                    Index: var index,
+                }
+                && index == awaiterLocal)
+            || !IsCompilerBuilderCallback(
+                moveNext,
+                call))
+        {
+            return false;
         }
-        return false;
+
+        suspensionCallback = call;
+        return true;
     }
 
     static bool SameAwaiterField(
@@ -4428,6 +4428,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             || !ReferenceEquals(
                 statement.Parent,
                 catchBlock)
+            || catchBlock.Children is not
+                [
+                    StoreField,
+                    var callbackStatement,
+                    Return,
+                ]
+            || !ReferenceEquals(
+                callbackStatement,
+                statement)
             || variableIndex is null
             || exceptionValue.Index != variableIndex.Value
             || !IsExactExceptionType(caughtType)
@@ -4586,14 +4595,16 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             "SetResult" => IsExactSetResult(call.Callee),
             "SetException" => call.Callee.ParameterTypes is
                 [var exception]
-                && exception is
-                {
-                    Kind: TypeRefKind.Definition,
-                    Assembly: TypeRef.CoreLibrary,
-                    Namespace: "System",
-                    Name: "Exception",
-                    CustomModifiers.IsEmpty: true,
-                }
+                && IsExactExceptionType(exception)
+                && call.Arguments is
+                [
+                    _,
+                    LoadLocal { Type: var argumentType },
+                ]
+                && IsExactExceptionType(argumentType)
+                && SameExactType(
+                    exception,
+                    argumentType)
                 && call.Callee.TypeArguments.IsEmpty
                 && call.Callee.DefinitionParameterTypes.IsEmpty
                 && call.Callee.DefinitionReturnType is null,
@@ -4854,6 +4865,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     resumeField,
                     spill.Field)
                 || resumeStore.Parent is not Block resumeBlock
+                || resumeStore.ChildIndex != 0
+                || resumeBlock.Children.Count != 4
                 || resumeStore.ChildIndex + 3
                     >= resumeBlock.Children.Count
                 || resumeBlock.Children[
@@ -4921,6 +4934,30 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 setException,
                 kickoff.StateStorage,
                 out StoreField exceptionState))
+        {
+            return false;
+        }
+        if (selectedSetResult.Parent is not
+                ExpressionStatement successStatement
+            || successStatement.Parent is not
+                Block successBlock
+            || successBlock.Children is not
+                [
+                    var initialStateStatement,
+                    TryCatch,
+                    var successStateStatement,
+                    var successCallbackStatement,
+                    Return,
+                ]
+            || !ReferenceEquals(
+                initialStateStatement,
+                initialStateLoad)
+            || !ReferenceEquals(
+                successStateStatement,
+                successState)
+            || !ReferenceEquals(
+                successCallbackStatement,
+                successStatement))
         {
             return false;
         }

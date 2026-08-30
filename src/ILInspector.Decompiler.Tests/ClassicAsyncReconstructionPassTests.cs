@@ -664,6 +664,11 @@ public class ClassicAsyncReconstructionPassTests
             ClassicAsyncReconstructionPass.SameExactType(
                 classType,
                 valueType));
+        Assert.True(
+            ClassicAsyncReconstructionPass.SameExactType(
+                classType.WithValueTypeHint(
+                    ValueTypeHint.Unknown),
+                classType));
     }
 
     [Fact]
@@ -1878,6 +1883,127 @@ public class ClassicAsyncReconstructionPassTests
                             .Where(static call =>
                                 call.Callee.Name
                                     == "GetResult"),
+                    ],
+                    out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("exception")]
+    [InlineData("suspension")]
+    public void CallbacksRequireCanonicalUnbypassableSequence(
+        string callbackName)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitVoid");
+        string methodName = callbackName == "exception"
+            ? "SetException"
+            : "AwaitUnsafeOnCompleted";
+        var callback = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<ExpressionStatement>(),
+            statement => statement.Expression is Call call
+                && call.Callee.Name == methodName);
+        IrNode insertionPoint = callbackName == "exception"
+            ? Assert.IsType<Block>(callback.Parent)
+                .Children[callback.ChildIndex - 1]
+            : callback;
+        var block = Assert.IsType<Block>(
+            insertionPoint.Parent);
+        IReadOnlyList<IrNode> children =
+            block.DetachChildren();
+        foreach (IrNode child in children)
+        {
+            if (ReferenceEquals(child, insertionPoint))
+            {
+                var thenBlock = new Block(0);
+                thenBlock.Add(new Return(null));
+                block.Add(new IfStatement(
+                    new Constant(true, Boolean),
+                    thenBlock,
+                    elseArm: null));
+            }
+            block.Add(child);
+        }
+
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+        Call getResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "GetResult");
+        ClassicAsyncReconstructionPass.Kickoff kickoff =
+            ExpectedKickoff(source, "AwaitVoid");
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    kickoff.StateMachineType,
+                    kickoff.BuilderStorage,
+                    setResult,
+                    [getResult],
+                    out _));
+        Assert.Equal(
+            callbackName == "suspension",
+            ClassicAsyncReconstructionPass
+                .HasUnexpectedStore(
+                    moveNext,
+                    kickoff));
+        Assert.Equal(
+            callbackName == "exception",
+            ClassicAsyncReconstructionPass.TryGetAwaitSource(
+                moveNext,
+                getResult,
+                out _,
+                out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void SetExceptionRequiresExactParameterTypeKind()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitVoid");
+        Call setException = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetException");
+        ReplaceCallee(
+            setException,
+            setException.Callee with
+            {
+                ParameterTypes =
+                [
+                    setException.Callee.ParameterTypes[0]
+                        .WithValueTypeHint(
+                            ValueTypeHint.ValueType),
+                ],
+            });
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+        ClassicAsyncReconstructionPass.Kickoff kickoff =
+            ExpectedKickoff(source, "AwaitVoid");
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    kickoff.StateMachineType,
+                    kickoff.BuilderStorage,
+                    setResult,
+                    [
+                        .. moveNext
+                            .DescendantsOutsideNestedFunctions
+                            .OfType<Call>()
+                            .Where(static call =>
+                                call.Callee.Name == "GetResult"),
                     ],
                     out _));
         moveNext.CheckInvariant();

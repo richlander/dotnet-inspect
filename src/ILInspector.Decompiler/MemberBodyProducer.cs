@@ -258,12 +258,10 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions);
-        return composed.Error is { } error
-            ? DecompilerResult.Success(
-                $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
-            : composed.Text is null
-            ? DecompilerResult.Failure("DI_TYPESOURCE_NONE", $"No C# type source composed for {type.FullName}.")
-            : DecompilerResult.Success(composed.Text);
+        return CompleteTypeProjection(
+            composed,
+            type.FullName,
+            legacyErrorAsSource: true);
     }
 
     /// <summary>
@@ -295,15 +293,10 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions);
-        return composed.Error is { } error
-            ? DecompilerResult.Failure(
-                DiagnosticIds.InternalError,
-                $"Type source unavailable: {error.GetType().Name}: {error.Message}")
-            : composed.Text is null
-            ? DecompilerResult.Failure(
-                "DI_TYPESOURCE_NONE",
-                $"No C# type source composed for {type.FullName}.")
-            : DecompilerResult.Success(composed.Text);
+        return CompleteTypeProjection(
+            composed,
+            type.FullName,
+            legacyErrorAsSource: false);
     }
 
     /// <summary>
@@ -582,9 +575,42 @@ public static class MemberBodyProducer
         return valid.Name;
     }
 
-    sealed record TypeCompositionResult(
+    internal sealed record TypeCompositionResult(
         string? Text,
         Exception? Error = null);
+
+    internal sealed class ClassicAsyncBodyFailureException(
+        DecompilerResult result)
+        : Exception("classic async body projection failed")
+    {
+        internal DecompilerResult Result { get; } = result;
+    }
+
+    internal static DecompilerResult CompleteTypeProjection(
+        TypeCompositionResult composed,
+        string typeName,
+        bool legacyErrorAsSource)
+    {
+        if (composed.Error is
+            ClassicAsyncBodyFailureException classicFailure)
+        {
+            return classicFailure.Result;
+        }
+        if (composed.Error is { } error)
+        {
+            return legacyErrorAsSource
+                ? DecompilerResult.Success(
+                    $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
+                : DecompilerResult.Failure(
+                    DiagnosticIds.InternalError,
+                    $"Type source unavailable: {error.GetType().Name}: {error.Message}");
+        }
+        return composed.Text is null
+            ? DecompilerResult.Failure(
+                "DI_TYPESOURCE_NONE",
+                $"No C# type source composed for {typeName}.")
+            : DecompilerResult.Success(composed.Text);
+    }
 
     static TypeCompositionResult ComposeCore(
         ApiType type,
@@ -2282,6 +2308,13 @@ public static class MemberBodyProducer
         var result = Pipeline.CSharpPrinter.PrintRaised(
             function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
+        if (!result.Succeeded
+            && function.ClassicAsyncStageResult is
+                Pipeline.ClassicAsyncStageResult.Failed)
+        {
+            throw new ClassicAsyncBodyFailureException(
+                result);
+        }
         if (failOnDiagnostic
             && (!result.Succeeded
             || result.Diagnostics.Any(static diagnostic =>
