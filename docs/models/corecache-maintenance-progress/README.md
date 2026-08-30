@@ -2,8 +2,8 @@
 
 `CoreCacheMaintenanceProgress.tla` models `CoreCache.CacheMaintenanceProgress`
 (`src/DotnetInspector.Core/CoreCache.cs`), the counter object that background
-maintenance tasks update and that `Clear`/`CancelAndWaitForMaintenance` read
-and reset, described by
+maintenance tasks update and that `CancelAndWaitForMaintenance` reads and
+resets on a timed-out wait, described by
 [`../../design/corecache-maintenance-lifecycle.md`](../../design/corecache-maintenance-lifecycle.md#maintenance-progress-accounting).
 
 ## Scope
@@ -16,15 +16,24 @@ in the maintenance lifecycle is between that single lock-holding control
 thread and the independent background `Task.Run` bodies that delete
 directories and record their result. The model isolates exactly that
 interaction: one writer action per completed directory deletion, and one
-reader action per `Clear`/`CancelAndWaitForMaintenance` report.
+reader action per report.
+
+The reader action models `CancelAndWaitForMaintenance` specifically, and only
+the case where its wait times out: `Clear` always waits for its triggered
+background tasks with an effectively unbounded timeout before reading, the
+same unconditional-drain pattern a generation transition uses, so it cannot
+tear (see the design doc). A `CancelAndWaitForMaintenance` call whose bounded
+wait completes in time is likewise unaffected, since it observes the same
+guaranteed-quiescent state as `Clear`; the model's reader represents the
+timed-out case.
 
 The modeled interactions are:
 
 - a background task recording a completed deletion's byte count and directory
   count as two operations, matching `RecordDeletion`'s
   `Interlocked.Add`-then-`Interlocked.Increment` order;
-- a `Clear`/`CancelAndWaitForMaintenance` report reading and resetting the same
-  two counters as two operations, matching `TakeSnapshot`'s
+- a timed-out `CancelAndWaitForMaintenance` report reading and resetting the
+  same two counters as two operations, matching `TakeSnapshot`'s
   `Interlocked.Exchange`-then-`Interlocked.Exchange` order; and
 - a proposed fix, toggled independently on the writer and the reader side, that
   guards `CacheMaintenanceProgress`'s fields with a single lock so each
@@ -53,7 +62,7 @@ The model does not cover:
 
 | Property | Claim |
 | --- | --- |
-| `NoTornAccounting` | A deletion's byte count and directory count are never attributed to two different `Clear`/`CancelAndWaitForMaintenance` reports. |
+| `NoTornAccounting` | A deletion's byte count and directory count are never attributed to two different reports. |
 | `EventuallyConsumed` | Under weak fairness, every fully-recorded deletion is eventually attributed to some report. |
 
 ## Configurations
@@ -99,8 +108,8 @@ TLA+ `v1.8.0` prerelease (`TLC2 2026.08.21.155922`, rev `9787e65`). The checked
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `Safety.cfg` | No error | 83 | 54 | 6 |
-| `Liveness.cfg` | No error | 83 | 54 | 6 |
-| `BrokenTornWriteAndRead.cfg` | `NoTornAccounting` violated | 114 | 84 | 6 |
-| `BrokenTornReadOnly.cfg` | `NoTornAccounting` violated | 33 | 31 | 5 |
-| `BrokenTornWriteOnly.cfg` | `NoTornAccounting` violated | 46 | 41 | 5 |
+| `Safety.cfg` | No error | 19 | 11 | 5 |
+| `Liveness.cfg` | No error | 19 | 11 | 5 |
+| `BrokenTornWriteAndRead.cfg` | `NoTornAccounting` violated | 92 | 61 | 7 |
+| `BrokenTornReadOnly.cfg` | `NoTornAccounting` violated | 23 | 17 | 6 |
+| `BrokenTornWriteOnly.cfg` | `NoTornAccounting` violated | 36 | 25 | 5 |
