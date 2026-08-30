@@ -274,13 +274,8 @@ public class CommandErrorOwnershipTests
                 .Select(line => line.Split(';', 2)[0])
         ];
 
-        // Spelled through nameof rather than as literals. Two reasons, and the
-        // second is the interesting one: it ties the pin to the members that
-        // exist, so a rename cannot leave the rule naming a symbol that is no
-        // longer there; and ConsoleCaptureTests scans this project's text for a
-        // call to the redirection method, which a literal spelling of it here
-        // would match even though nothing is called -- the same
-        // spelling-versus-binding confusion this class stopped making.
+        // Spelled through nameof to tie the pin to members that exist, so a
+        // rename cannot leave the rule naming a symbol that is no longer there.
         Assert.Equal(
             [
                 $"M:System.Console.{nameof(Console.OpenStandardError)}()",
