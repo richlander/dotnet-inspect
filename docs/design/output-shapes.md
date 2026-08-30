@@ -133,11 +133,16 @@ Single-table, stream, plain-text, tree, unary projection, and single-row-set
 independent row sets. Count remains valid because it preserves the producer's
 declared aggregate or independent row-set scopes.
 
-Shape cardinality is evaluated after both section and subject selection.
-`--table`, `--tsv`, and `--jsonl` require exactly one table shape; `--tree`
-requires exactly one tree shape; standalone `--mermaid` requires exactly one
-graph shape. Selecting one section with `--tfm all` still produces one shape
-per inspection, so it does not satisfy any single-shape contract.
+For unreduced output, shape cardinality is evaluated after both section and
+subject selection. `--table`, `--tsv`, and `--jsonl` require exactly one table
+shape; `--tree` requires exactly one tree shape; standalone `--mermaid`
+requires exactly one graph shape. Selecting one section with `--tfm all` still
+produces one shape per inspection, so it does not satisfy any unreduced
+single-shape contract.
+
+Count does not apply that eligibility test to its contributing inputs. It first
+consumes the already-bound typed reduction result, then evaluates format
+eligibility against the resulting Scalar or one count Table as defined below.
 
 ### Coordinate carriers sit before the ladder
 
