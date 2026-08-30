@@ -29242,9 +29242,11 @@ public partial class CommandExecutionTests
             foreach (var testCase in cases)
             {
                 var outputPath = Path.Combine(tempDir, $"{testCase.Name}.txt");
-                var stdout = await RunAppAsync(
+                var stdout = await RunAppInDirectoryAsync(
+                    tempDir,
                     ["package", packagePath, .. testCase.Arguments, "--tips", "q"]);
-                var redirected = await RunAppAsync(
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
                     [
                         "package", packagePath, .. testCase.Arguments,
                         "--out", outputPath, "--tips", "q",
