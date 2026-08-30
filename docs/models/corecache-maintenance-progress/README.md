@@ -54,6 +54,10 @@ The model does not cover:
 - category registration, scheduling dedup, or generation-restart carry-forward
   (safe by construction, see above);
 - directory enumeration, path validation, or deletion failure handling;
+- `RequestVersionedCategoryCleanupAsync`'s returned task racing a
+  newly-scheduled background task (a second, distinct, self-correcting
+  exposure since its `Snapshot()` read doesn't reset the counters -- see the
+  design doc's "Maintenance progress accounting" section);
 - `CoreCache`'s non-maintenance read/write cache paths;
 - `CacheTelemetry`; or
 - thread scheduling beyond the writer/reader interleaving above.

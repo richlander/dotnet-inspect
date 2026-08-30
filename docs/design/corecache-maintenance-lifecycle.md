@@ -36,12 +36,17 @@ publishing is a different owner; see
   schedules the category being registered in the new generation; other
   already-registered categories remain unscheduled until a later `Initialize`
   or aggregate-cleanup call reschedules them.
-- **A generation transition never loses or duplicates already-recorded
-  progress.** Both transition paths wait for the outgoing generation's
-  background tasks to finish before reading its counters and carrying the
-  result forward into the new generation -- enforced by an unconditional wait
-  in `WaitForMaintenanceTasksBestEffort` that precedes every read of the
-  progress object during a transition.
+- **A generation transition never loses or duplicates progress it carries
+  forward.** Both transition paths wait for the outgoing generation's
+  background tasks to finish before reading its counters -- enforced by an
+  unconditional wait in `WaitForMaintenanceTasksBestEffort` that precedes
+  every read of the progress object during a transition. A
+  cancellation-triggered restart always carries the drained result forward
+  into the new generation. `Initialize` only carries it forward when the
+  cache root (app name and base path) is unchanged from the prior call; a
+  root change intentionally drops the outgoing root's drained progress,
+  since it describes deletions under a cache location the new generation no
+  longer owns.
 - **Cleanup is best-effort.** A directory that cannot be enumerated or
   deleted is silently skipped and left for a future generation to retry. A
   directory that cannot be *measured* is still deleted, credited as zero
@@ -60,7 +65,11 @@ publishing is a different owner; see
 - **The internal aggregate task returned by `RequestVersionedCategoryCleanupAsync`
   is a point-in-time snapshot.** A category registered after that call
   returns is not included in an already-obtained task reference; a caller
-  must call it again to observe newly-registered work.
+  must call it again to observe newly-registered work. Because that
+  registration is not serialized against the already-returned task's await
+  (the lock is held only while creating and returning it, not while a caller
+  awaits it), a newly-scheduled background task can race the returned task's
+  own read of the counters -- see "Maintenance progress accounting" below.
 
 ## Maintenance progress accounting
 
@@ -100,6 +109,21 @@ waited beforehand. The model's reader action is deliberately generic (it does
 not distinguish which caller invoked it) and so is a faithful abstraction of
 `CancelAndWaitForMaintenance`'s racy read specifically, not of `Clear`'s
 race-free one.
+
+**A second, distinct exposure: `RequestVersionedCategoryCleanupAsync`'s
+returned task can race a newly-scheduled background task.** That method
+holds the lock only while creating and returning its aggregate task; a
+caller awaits the returned task outside the lock. If another category is
+registered while the first task is still pending, its cleanup runs as a new
+background task against the *same* `CacheMaintenanceProgress` instance, but
+is not part of the `tasks` array the first call already captured -- so the
+first task's eventual `progress.Snapshot()` can race that new task's
+`RecordDeletion`. Unlike the `CancelAndWaitForMaintenance` case, `Snapshot()`
+does not reset the counters, so a torn read here is transient: a later
+`Snapshot`/`TakeSnapshot` call still observes the complete, untorn total.
+This model and its `Safety`/`Liveness` properties do not cover this second
+reader path (see the model's Non-claims); it is noted here as a known,
+self-correcting gap in this contract's coverage, not a proven defect.
 
 **Recommendation:** guard `CacheMaintenanceProgress`'s four methods
 (`Record`, `RecordDeletion`, `Snapshot`, `TakeSnapshot`) with a single lock (or
