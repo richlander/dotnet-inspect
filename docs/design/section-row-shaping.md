@@ -21,6 +21,9 @@ Related designs:
   `Tail`, `Window`, and `Top` behavior over named sequences.
 - [Inspection layers](inspection-layers.md) assigns executable request and
   result binding to L2.
+- [Row-source execution](row-source-execution.md) owns source delegation, the
+  delegated result contract, completion-evidence binding, and the equivalence
+  gates for accepted upstream Count and row handoff.
 - [Item and line selection composition](item-and-line-limits.md) sequences L2
   with source execution and presentation without redefining either owner.
 
@@ -487,10 +490,11 @@ physical strategies may include ordinary L2 enumeration, provider count APIs,
 source aggregation, exact feed or index metadata, cached exact cardinality, or
 early termination.
 
-The source-execution design owns capability negotiation, proof shape, stopping
-rules, completion evidence, and the non-vacuous optimized-execution gate. L2
-accepts an optimized result only when it is observationally equivalent to the
-complete reference contracts in
+The
+[row-source execution design](row-source-execution.md) owns delegation
+planning, the delegated result contract, completion-evidence binding, and the
+non-vacuous optimized-execution gates. L2 accepts an optimized result only
+when it is observationally equivalent to the complete reference contracts in
 [Row query and ordering](row-query-order.md#logical-composition) and
 [Semantic row selection](semantic-row-selection.md#reference-semantics-and-optimized-execution).
 That includes their predicate, baseline-order, callback, exception-identity,
@@ -506,15 +510,19 @@ The optimized result must also preserve:
 
 If an optimization cannot establish those properties, sufficient rows return
 to L2 for residual shaping. A fast incomplete number is not a Count result.
+An operation its owner has not declared source-closed remains on that
+reference or residual path.
 
-This optimization property remains unverified until the focused source design
-adds the conditional Release gate
-`OptimizedCountMatchesSectionRowReference`. That gate is required only when an
-optimized-result acceptance path exists. It must prove that the optimized path
-was exercised, compare it with the complete reference contract over positive
-and sentinel-failure cases, and reject insufficient completion evidence. An
-implementation with no optimized-result acceptance path makes no optimization
-claim and does not satisfy the conditional gate vacuously.
+This optimization property remains unverified until an adoption implements the
+applicable conditional Release gates from the focused source design.
+`OptimizedCountMatchesSectionRowReference` covers exact Count, and
+`OptimizedRowHandoffMatchesSectionRowReference` covers row handoff after its
+named residual. Each gate is required only when its optimized acceptance path
+exists. It must prove that path was exercised, compare it with the complete
+reference contract over positive and sentinel cases, and reject insufficient
+completion evidence. An implementation with no optimized-result acceptance
+path makes no optimization claim and does not satisfy a conditional gate
+vacuously.
 
 ## Required gates
 
