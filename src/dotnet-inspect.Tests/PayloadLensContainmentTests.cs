@@ -89,6 +89,17 @@ public class PayloadLensContainmentTests : IDisposable
     }
 
     [Fact]
+    public void ChildCli_LineLimitIgnoresRowsLiteralAfterOptionTerminator()
+    {
+        var (output, error) = RunCliCore(
+            ["package", "--help", "-n1", "--", "--rows"]);
+
+        Assert.Empty(error);
+        Assert.Single(
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
     public void ReadmeLens_VisuallyEncodesThePayloadOnStdout()
     {
         using var package = HostilePackage.Create();
@@ -124,6 +135,53 @@ public class PayloadLensContainmentTests : IDisposable
         Assert.Empty(output);
         Assert.Empty(error);
         Assert.Equal(HostileReadme, File.ReadAllText(outputPath));
+    }
+
+    [Fact]
+    public void ReadmeLens_ScopedFileExportVisuallyEncodesThePayload()
+    {
+        using var package = HostilePackage.Create();
+        string outputPath = System.IO.Path.Combine(
+            package.Directory,
+            "README.body.md");
+
+        var (output, error) = RunCli(
+            [
+                package.Path,
+                ..ReadmeLens,
+                "--body",
+                "--bare",
+                "--out",
+                outputPath,
+            ]);
+
+        Assert.Empty(output);
+        Assert.Empty(error);
+        AssertIsEncodedPayload(File.ReadAllText(outputPath));
+    }
+
+    [Fact]
+    public void ContentLens_ScopedFileExportVisuallyEncodesThePayload()
+    {
+        using var package = HostilePackage.Create();
+        string outputPath = System.IO.Path.Combine(
+            package.Directory,
+            "README.content-body.md");
+
+        var (output, error) = RunCli(
+            [
+                package.Path,
+                "--content",
+                "--path",
+                "README.md",
+                "--body",
+                "--out",
+                outputPath,
+            ]);
+
+        Assert.Empty(output);
+        Assert.Empty(error);
+        AssertIsEncodedPayload(File.ReadAllText(outputPath));
     }
 
     /// <summary>
