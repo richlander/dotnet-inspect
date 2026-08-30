@@ -927,6 +927,122 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_TypeNameDecodeFailuresBelowTheCeilingStillResolve()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildMalformedTypeNameAssembly(malformedTypes: 2));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var available = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Available>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Completed,
+            available.Retrieval.Disposition);
+    }
+
+    [Fact]
+    public void Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildMalformedTypeNameAssembly(malformedTypes: 3));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+    }
+
+    [Fact]
+    public void Execute_DuplicateProjectedMethodRowIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildDuplicateMethodPtrAssembly());
+        using (var peReader = new PEReader(image))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            Assert.Equal(
+                2,
+                reader.GetTableRowCount(TableIndex.MethodPtr));
+        }
+
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Candidate,
+            failed.Failure.Role);
+    }
+
+    [Fact]
     public void Execute_MalformedSeedImageIsAVisibleSeedRejection()
     {
         ImmutableArray<byte> candidateImage =
@@ -1456,8 +1572,506 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         return image.ToArray();
     }
 
-    static byte[] BuildRepeatedTypeNameAssembly(
-        string @namespace,
+    /// <summary>
+    /// Builds an assembly whose leading TypeDef rows carry out-of-range
+    /// Name string handles, so inspecting them fails to decode while a
+    /// healthy <c>N.Fixture</c> row remains resolvable.
+    /// </summary>
+    static byte[] BuildMalformedTypeNameAssembly(int malformedTypes)
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "MalformedTypeNames",
+            new Guid("7A0B1C2D-3E4F-5061-7283-94A5B6C7D8E9"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        for (int i = 0; i < malformedTypes; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString($"Broken{i}"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Fixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        AddSyntheticMethod(metadata, encoder, "Seed");
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        byte[] bytes = image.ToArray();
+        CorruptTypeDefinitionNames(bytes, malformedTypes);
+        return bytes;
+    }
+
+    /// <summary>
+    /// Rewrites the Name column of the TypeDef rows that follow
+    /// <c>&lt;Module&gt;</c> so each points past the end of the string
+    /// heap. The edit is size-neutral, so the surrounding PE stays valid.
+    /// </summary>
+    static void CorruptTypeDefinitionNames(
+        byte[] image,
+        int malformedTypes)
+    {
+        const int typeDefRowSize = 4 + 2 + 2 + 2 + 2 + 2;
+        const int moduleRowSize = 2 + 2 + 2 + 2 + 2;
+        const ushort outOfRangeStringOffset = 0xFFF0;
+
+        using var peReader = new PEReader(
+            ImmutableCollectionsMarshal.AsImmutableArray(image));
+        int root = peReader.PEHeaders.MetadataStartOffset;
+        int cursor = root + 4 + 2 + 2 + 4;
+        cursor += 4 + BitConverter.ToInt32(image, cursor);
+        cursor += 2;
+        int streamCount = BitConverter.ToUInt16(image, cursor);
+        cursor += 2;
+        int tables = -1;
+        for (int i = 0; i < streamCount; i++)
+        {
+            int offset = BitConverter.ToInt32(image, cursor);
+            cursor += 8;
+            int start = cursor;
+            while (image[cursor] != 0)
+            {
+                cursor++;
+            }
+
+            string name = System.Text.Encoding.ASCII.GetString(
+                image,
+                start,
+                cursor - start);
+            cursor = start + (((cursor - start) / 4) + 1) * 4;
+            if (name is "#~" or "#-")
+            {
+                tables = root + offset;
+            }
+        }
+
+        Assert.NotEqual(-1, tables);
+
+        // The fixture is small enough that every heap and table index is
+        // two bytes wide, which the fixed row sizes above assume.
+        Assert.Equal(0, image[tables + 6]);
+
+        ulong valid = BitConverter.ToUInt64(image, tables + 8);
+        int rowCounts = tables + 24;
+        var rows = new Dictionary<int, int>();
+        for (int table = 0; table < 64; table++)
+        {
+            if ((valid & (1UL << table)) == 0)
+            {
+                continue;
+            }
+
+            rows[table] = BitConverter.ToInt32(image, rowCounts);
+            rowCounts += 4;
+        }
+
+        // Only Module and TypeRef can precede TypeDef, and this fixture
+        // never emits a TypeRef row.
+        Assert.False(rows.ContainsKey((int)TableIndex.TypeRef));
+        int typeDefs = rowCounts
+            + (rows[(int)TableIndex.Module] * moduleRowSize);
+        for (int i = 0; i < malformedTypes; i++)
+        {
+            BitConverter
+                .GetBytes(outOfRangeStringOffset)
+                .CopyTo(image, typeDefs + ((1 + i) * typeDefRowSize) + 4);
+        }
+    }
+
+    /// <summary>
+    /// Builds an assembly whose metadata uses the unoptimized <c>#-</c>
+    /// tables stream and carries a MethodPtr table of <c>[1, 1]</c>, so
+    /// <c>N.Fixture</c> projects MethodDef row 1 twice. MetadataBuilder
+    /// cannot emit MethodPtr, so the serialized image is patched.
+    /// </summary>
+    static byte[] BuildDuplicateMethodPtrAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        MethodDefinitionHandle first =
+            AddSyntheticMethod(metadata, encoder, "M0");
+        AddSyntheticMethod(metadata, encoder, "M1");
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DuplicateMethodPtr"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("DuplicateMethodPtr.dll"),
+            metadata.GetOrAddGuid(
+                new Guid("3F2A6C18-9D74-4E51-B0C3-6E8A1D2F4B77")),
+            encId: default,
+            encBaseId: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: first);
+
+        // N.Fixture is the last TypeDef, so its method range runs to the
+        // end of the projection and spans both MethodPtr rows.
+        metadata.AddTypeDefinition(
+            TypeAttributes.Class | TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Fixture"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: first);
+
+        // Unreferenced user string, reclaimed to keep the patch
+        // size-neutral. #US preserves insertion order, so it lands last.
+        metadata.GetOrAddUserString("PADPADPADPADPADPAD");
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return InsertDuplicateMethodPtrTable(image.ToArray());
+    }
+
+    /// <summary>
+    /// Rewrites the metadata so the tables stream is named <c>#-</c> and
+    /// declares a MethodPtr table. The eight bytes this adds are
+    /// reclaimed from the <c>#US</c> tail, keeping the image length and
+    /// therefore every PE header and section size valid.
+    /// </summary>
+    static byte[] InsertDuplicateMethodPtrTable(byte[] image)
+    {
+        int metadataStart;
+        int metadataSize;
+        using (var peReader = new PEReader(
+            ImmutableCollectionsMarshal.AsImmutableArray(image)))
+        {
+            metadataStart = peReader.PEHeaders.MetadataStartOffset;
+            metadataSize = peReader.PEHeaders.MetadataSize;
+        }
+
+        Assert.Equal(
+            0x424A5342u,
+            ReadUInt32At(image, metadataStart));
+        int versionLength =
+            ReadInt32At(image, metadataStart + 12);
+        int cursor =
+            metadataStart + 16 + AlignTo4(versionLength) + 2;
+        int streamCount = ReadUInt16At(image, cursor);
+        cursor += 2;
+
+        var streams = new List<MetadataStreamHeader>();
+        for (int i = 0; i < streamCount; i++)
+        {
+            var header = new MetadataStreamHeader
+            {
+                HeaderPosition = cursor,
+                Offset = ReadInt32At(image, cursor),
+                Size = ReadInt32At(image, cursor + 4),
+            };
+            cursor += 8;
+            int nameStart = cursor;
+            while (image[cursor] != 0)
+            {
+                cursor++;
+            }
+
+            header.Name = System.Text.Encoding.ASCII.GetString(
+                image,
+                nameStart,
+                cursor - nameStart);
+            cursor = nameStart + AlignTo4(cursor - nameStart + 1);
+            streams.Add(header);
+        }
+
+        MetadataStreamHeader tables =
+            streams.Single(s => s.Name == "#~");
+        MetadataStreamHeader userStrings =
+            streams.Single(s => s.Name == "#US");
+        Assert.True(
+            userStrings.Offset > tables.Offset,
+            "#US must follow the tables stream.");
+
+        var contents = new Dictionary<string, byte[]>();
+        foreach (MetadataStreamHeader stream in streams)
+        {
+            var body = new byte[stream.Size];
+            Array.Copy(
+                image,
+                metadataStart + stream.Offset,
+                body,
+                0,
+                stream.Size);
+            contents[stream.Name] = body;
+        }
+
+        contents["#~"] = GrowTablesWithMethodPtr(contents["#~"]);
+        byte[] originalUserStrings = contents["#US"];
+        Assert.True(
+            originalUserStrings.Length >= 12,
+            "#US is too small to reclaim padding from.");
+        var trimmed = new byte[originalUserStrings.Length - 8];
+        Array.Copy(
+            originalUserStrings,
+            trimmed,
+            trimmed.Length);
+        contents["#US"] = trimmed;
+
+        List<MetadataStreamHeader> ordered =
+            streams.OrderBy(s => s.Offset).ToList();
+        int next = ordered[0].Offset;
+        foreach (MetadataStreamHeader stream in ordered)
+        {
+            next = AlignTo4(next);
+            stream.Offset = next;
+            stream.Size = contents[stream.Name].Length;
+            next += stream.Size;
+        }
+
+        Assert.Equal(metadataSize, next);
+
+        byte[] patched = (byte[])image.Clone();
+        foreach (MetadataStreamHeader stream in streams)
+        {
+            WriteInt32At(
+                patched,
+                stream.HeaderPosition,
+                stream.Offset);
+            WriteInt32At(
+                patched,
+                stream.HeaderPosition + 4,
+                stream.Size);
+        }
+
+        // "#~" and "#-" are the same length, so the rename is in place.
+        patched[tables.HeaderPosition + 9] = (byte)'-';
+        foreach (MetadataStreamHeader stream in ordered)
+        {
+            byte[] body = contents[stream.Name];
+            Array.Copy(
+                body,
+                0,
+                patched,
+                metadataStart + stream.Offset,
+                body.Length);
+        }
+
+        return patched;
+    }
+
+    /// <summary>
+    /// Returns a tables-stream body that additionally declares a
+    /// MethodPtr table holding two rows that both select MethodDef 1.
+    /// </summary>
+    static byte[] GrowTablesWithMethodPtr(byte[] tables)
+    {
+        Assert.Equal(0, tables[6] & 0x07);
+        ulong valid = ReadUInt64At(tables, 8);
+        Assert.Equal(
+            0UL,
+            valid & (1UL << (int)TableIndex.MethodPtr));
+
+        var present = new List<int>();
+        for (int table = 0; table < 64; table++)
+        {
+            if ((valid & (1UL << table)) != 0)
+            {
+                present.Add(table);
+            }
+        }
+
+        var counts = new Dictionary<int, int>();
+        for (int i = 0; i < present.Count; i++)
+        {
+            counts[present[i]] = ReadInt32At(tables, 24 + (4 * i));
+        }
+
+        foreach (KeyValuePair<int, int> entry in counts)
+        {
+            Assert.True(
+                entry.Value < 0x10000,
+                "The fixture must keep every table index two bytes.");
+        }
+
+        int insertAt =
+            present.Count(t => t < (int)TableIndex.MethodPtr);
+        int methodDefStart = 0;
+        foreach (int table in present)
+        {
+            if (table >= (int)TableIndex.MethodDef)
+            {
+                break;
+            }
+
+            methodDefStart +=
+                MethodPtrFixtureRowSize(table, counts) * counts[table];
+        }
+
+        var grown = new byte[tables.Length + 8];
+        Array.Copy(tables, 0, grown, 0, 24);
+        WriteUInt64At(
+            grown,
+            8,
+            valid | (1UL << (int)TableIndex.MethodPtr));
+
+        int write = 24;
+        for (int i = 0; i < present.Count; i++)
+        {
+            if (i == insertAt)
+            {
+                WriteInt32At(grown, write, 2);
+                write += 4;
+            }
+
+            WriteInt32At(
+                grown,
+                write,
+                ReadInt32At(tables, 24 + (4 * i)));
+            write += 4;
+        }
+
+        if (insertAt == present.Count)
+        {
+            WriteInt32At(grown, write, 2);
+            write += 4;
+        }
+
+        int source = 24 + (4 * present.Count);
+        Array.Copy(tables, source, grown, write, methodDefStart);
+        int inserted = write + methodDefStart;
+        WriteUInt16At(grown, inserted, 1);
+        WriteUInt16At(grown, inserted + 2, 1);
+        Array.Copy(
+            tables,
+            source + methodDefStart,
+            grown,
+            inserted + 4,
+            tables.Length - source - methodDefStart);
+        return grown;
+    }
+
+    /// <summary>
+    /// Sizes the tables that can precede MethodDef in this fixture. Every
+    /// heap and coded index is two bytes, which the caller asserts.
+    /// </summary>
+    static int MethodPtrFixtureRowSize(
+        int table,
+        Dictionary<int, int> counts)
+    {
+        const int HeapIndex = 2;
+        const int TableIndexSize = 2;
+        const int CodedTypeDefOrRef = 2;
+        foreach (TableIndex related in (TableIndex[])
+            [
+                TableIndex.TypeDef,
+                TableIndex.TypeRef,
+                TableIndex.TypeSpec,
+            ])
+        {
+            Assert.True(
+                !counts.TryGetValue((int)related, out int rows)
+                    || rows < 1 << 14,
+                "TypeDefOrRef must stay a two-byte coded index.");
+        }
+
+        return table switch
+        {
+            (int)TableIndex.Module =>
+                2 + HeapIndex + HeapIndex + HeapIndex + HeapIndex,
+            (int)TableIndex.TypeDef =>
+                4
+                    + HeapIndex
+                    + HeapIndex
+                    + CodedTypeDefOrRef
+                    + TableIndexSize
+                    + TableIndexSize,
+            (int)TableIndex.Field => 2 + HeapIndex + HeapIndex,
+            _ => throw new InvalidOperationException(
+                $"Unexpected table 0x{table:X2} before MethodDef."),
+        };
+    }
+
+    sealed class MetadataStreamHeader
+    {
+        public int HeaderPosition { get; init; }
+
+        public int Offset { get; set; }
+
+        public int Size { get; set; }
+
+        public string Name { get; set; } = "";
+    }
+
+    static int AlignTo4(int value) => (value + 3) & ~3;
+
+    static ushort ReadUInt16At(byte[] buffer, int position) =>
+        (ushort)(buffer[position] | (buffer[position + 1] << 8));
+
+    static uint ReadUInt32At(byte[] buffer, int position) =>
+        (uint)(buffer[position]
+            | (buffer[position + 1] << 8)
+            | (buffer[position + 2] << 16)
+            | (buffer[position + 3] << 24));
+
+    static int ReadInt32At(byte[] buffer, int position) =>
+        (int)ReadUInt32At(buffer, position);
+
+    static ulong ReadUInt64At(byte[] buffer, int position) =>
+        ReadUInt32At(buffer, position)
+            | ((ulong)ReadUInt32At(buffer, position + 4) << 32);
+
+    static void WriteUInt16At(byte[] buffer, int position, ushort value)
+    {
+        buffer[position] = (byte)value;
+        buffer[position + 1] = (byte)(value >> 8);
+    }
+
+    static void WriteInt32At(byte[] buffer, int position, int value)
+    {
+        buffer[position] = (byte)value;
+        buffer[position + 1] = (byte)(value >> 8);
+        buffer[position + 2] = (byte)(value >> 16);
+        buffer[position + 3] = (byte)(value >> 24);
+    }
+
+    static void WriteUInt64At(byte[] buffer, int position, ulong value)
+    {
+        WriteInt32At(buffer, position, (int)value);
+        WriteInt32At(buffer, position + 4, (int)(value >> 32));
+    }
+
+    static byte[] BuildRepeatedTypeNameAssembly(        string @namespace,
         string name,
         int typeCount)
     {

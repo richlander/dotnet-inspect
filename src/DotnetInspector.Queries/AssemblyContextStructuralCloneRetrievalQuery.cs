@@ -656,6 +656,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
         int leafUtf8Length = Encoding.UTF8.GetByteCount(
             name.Segments[^1]);
         MetadataTypeNameFailure? rejected = null;
+        int nameDecodeFailures = 0;
         foreach (TypeDefinitionHandle candidate
             in reader.TypeDefinitions)
         {
@@ -669,6 +670,17 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             }
             catch (Exception ex) when (IsMalformedMetadata(ex))
             {
+                nameDecodeFailures++;
+                if (nameDecodeFailures
+                    >= MetadataSafetyPolicy
+                        .MaxClassificationIdentityDecodeFailures)
+                {
+                    throw new BadImageFormatException(
+                        "The exact TypeDef lookup exceeds the "
+                            + "type-name decode failure budget.",
+                        ex);
+                }
+
                 rejected ??=
                     MetadataTypeNameFailure.Malformed(
                         candidate,
@@ -706,6 +718,16 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             if (result
                 == MetadataTypeDefinitionNameMatchResult.Rejected)
             {
+                nameDecodeFailures++;
+                if (nameDecodeFailures
+                    >= MetadataSafetyPolicy
+                        .MaxClassificationIdentityDecodeFailures)
+                {
+                    throw new BadImageFormatException(
+                        "The exact TypeDef lookup exceeds the "
+                            + "type-name decode failure budget.");
+                }
+
                 rejected ??= failure;
                 continue;
             }
@@ -762,6 +784,7 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             reader.GetTableRowCount(TableIndex.MethodDef);
         var methods =
             ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+        var projected = new HashSet<MethodDefinitionHandle>();
         foreach (MethodDefinitionHandle method
             in reader.GetTypeDefinition(type).GetMethods())
         {
@@ -770,6 +793,13 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             {
                 throw new BadImageFormatException(
                     "The selected TypeDef contains an invalid MethodDef range.");
+            }
+
+            if (!projected.Add(method))
+            {
+                throw new BadImageFormatException(
+                    "The selected TypeDef projects the same MethodDef "
+                        + "row more than once.");
             }
 
             methods.Add(method);

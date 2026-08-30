@@ -295,10 +295,14 @@ count is unverified beyond direct inspection. It does not add ranking,
 comparison, correspondence, semantic, provenance, or vulnerability
 conclusions. Query-owned exact selection uses Metadata safety ceilings for
 cumulative name, member-anchor, method-row, decode-failure, and attribute work;
-selection-budget exhaustion and rejected attribute-constructor type metadata
-are typed pre-retrieval metadata failures. The
-`Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget` and
-`Execute_RejectedTypeSpecificationAttributeIsVisible` gates cover those
+selection-budget exhaustion, rejected attribute-constructor type metadata,
+undecodable candidate type names beyond the decode-failure ceiling, and a
+TypeDef projecting the same MethodDef row more than once are typed
+pre-retrieval metadata failures. The
+`Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget`,
+`Execute_RejectedTypeSpecificationAttributeIsVisible`,
+`Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection`, and
+`Execute_DuplicateProjectedMethodRowIsAVisibleRejection` gates cover those
 boundaries.
 
 ## Correspondence and automorphisms
