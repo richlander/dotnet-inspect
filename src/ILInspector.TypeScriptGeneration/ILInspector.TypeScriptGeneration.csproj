@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CSharpText\CSharpText.csproj" />
+    <ProjectReference Include="..\ILInspector.JsExportSurface\ILInspector.JsExportSurface.csproj" />
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
+    <InternalsVisibleTo Include="tsbindgen" />
+    <InternalsVisibleTo Include="ts-jsexport" />
+  </ItemGroup>
+
+</Project>

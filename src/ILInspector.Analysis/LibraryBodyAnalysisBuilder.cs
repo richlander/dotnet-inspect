@@ -52,7 +52,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         TypeDefinitionHandle>? _localTypeDefinitions;
     readonly string _assemblyName;
     readonly Guid _mvid;
-    readonly bool _memorySafetyRulesEnabled;
     readonly Action? _parallelBuildStarting;
 
     internal LibraryBodyAnalysisBuilder(
@@ -87,7 +86,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 null,
                 null,
                 null);
-        _memorySafetyRulesEnabled = DetectMemorySafetyRules();
         _parallelBuildStarting = parallelBuildStarting;
         _methodReferenceResolver =
             new LibraryBodyMethodReferenceResolver(
@@ -431,20 +429,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
     }
 
-    // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
-    // when MemorySafetyRulesAttribute is applied (emitted [module:], like
-    // RefSafetyRulesAttribute). Check the module and assembly scopes.
-    public bool MemorySafetyRulesEnabled => _memorySafetyRulesEnabled;
-
-    bool DetectMemorySafetyRules()
-    {
-        const string ns = "System.Runtime.CompilerServices";
-        if (HasAttributeNamed(_reader.GetModuleDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns))
-            return true;
-        return _reader.IsAssembly
-            && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
-    }
-
     internal bool ScopeMayRequireStateMachineBody(
         IReadOnlySet<int> bodyScope) =>
         _asyncSourceResolver.ScopeMayRequireStateMachineBody(
@@ -589,33 +573,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     // Assemblies with at least this many methods use the parallel per-method analysis path.
     // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
     const int ParallelBuildMethodThreshold = 200;
-
-    bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
-    {
-        foreach (var handle in attributes)
-        {
-            var (ns, name) = AttributeTypeName(_reader.GetCustomAttribute(handle).Constructor);
-            if (name == simpleName && (namespaces.Length == 0 || Array.IndexOf(namespaces, ns) >= 0))
-                return true;
-        }
-        return false;
-    }
-
-    (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
-    {
-        if (constructor.Kind == HandleKind.MemberReference
-            && _reader.GetMemberReference((MemberReferenceHandle)constructor).Parent is { Kind: HandleKind.TypeReference } parent)
-        {
-            var typeRef = _reader.GetTypeReference((TypeReferenceHandle)parent);
-            return (_reader.GetString(typeRef.Namespace), _reader.GetString(typeRef.Name));
-        }
-        if (constructor.Kind == HandleKind.MethodDefinition)
-        {
-            var declType = _reader.GetTypeDefinition(_reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType());
-            return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
-        }
-        return ("", "");
-    }
 
     TypeRef TypeFromEntity(EntityHandle handle)
     {

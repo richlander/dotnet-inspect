@@ -120,6 +120,8 @@ public static class JsExportSurfaceBuilder
                         HasJsExportEvidence(candidate)
                         && candidate.Name == member.Name);
                 string? runtimeDispatchKey = null;
+                IReadOnlyList<JsExportDelegateParameter>
+                    delegateParameters = [];
                 if (bodyIndex is null
                         ? member.HasRuntimeJsExportWrapperCandidate
                             == false
@@ -132,7 +134,8 @@ public static class JsExportSurfaceBuilder
                                 member,
                                 incompleteBodyTokens,
                                 managedNameExportCount,
-                                out runtimeDispatchKey))
+                                out runtimeDispatchKey,
+                                out delegateParameters))
                 {
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
@@ -166,6 +169,7 @@ public static class JsExportSurfaceBuilder
                     ReturnTypeReferences =
                         signature.ReturnTypeReferences,
                     Parameters = signature.Parameters,
+                    DelegateParameters = delegateParameters,
                 };
 
                 if (bodyIndex is not null && member.MetadataToken is { } token)
@@ -191,6 +195,8 @@ public static class JsExportSurfaceBuilder
             new Dictionary<int, JsonSourceGenerationMode>();
         var registeredJsonTypeInfoDefaultGetterTokens =
             new Dictionary<int, int>();
+        var registeredJsonTypeInfoShapes =
+            new Dictionary<int, ApiTypeShape>();
         var unsupportedJsonTypeInfoGetterReasons =
             new Dictionary<int, string>();
         var queue = new Queue<(
@@ -328,6 +334,17 @@ public static class JsExportSurfaceBuilder
                                         throw new UnsupportedJsExportSurfaceException(
                                             FormatMemberLocation(type, member),
                                             "serializer-context default-instance evidence conflicts");
+                                    }
+                                    if (!registeredJsonTypeInfoShapes.TryAdd(
+                                            getterToken,
+                                            root!.Type!)
+                                        && !registeredJsonTypeInfoShapes[
+                                                getterToken].Equals(
+                                                root.Type))
+                                    {
+                                        throw new UnsupportedJsExportSurfaceException(
+                                            FormatMemberLocation(type, member),
+                                            "serializer-context root shapes conflict");
                                     }
                                 }
                             }
@@ -484,6 +501,7 @@ public static class JsExportSurfaceBuilder
                         token,
                         registeredJsonTypeInfoGetterModes,
                         registeredJsonTypeInfoDefaultGetterTokens,
+                        registeredJsonTypeInfoShapes,
                         unsupportedJsonTypeInfoGetterReasons);
                 }
             }
@@ -873,9 +891,11 @@ public static class JsExportSurfaceBuilder
         ApiMember export,
         IReadOnlySet<int> incompleteBodyTokens,
         int managedNameExportCount,
-        out string? runtimeDispatchKey)
+        out string? runtimeDispatchKey,
+        out IReadOnlyList<JsExportDelegateParameter> delegateParameters)
     {
         runtimeDispatchKey = null;
+        delegateParameters = [];
         if (export.MetadataToken is not { } exportToken
             || export.RuntimeJsExportWrapperCandidates is not
                 { Count: > 0 } candidates)
@@ -955,7 +975,9 @@ public static class JsExportSurfaceBuilder
                         registration!,
                         exportCall.Callee,
                         declaringType,
-                        export))
+                        export,
+                        out IReadOnlyList<JsExportDelegateParameter>
+                            authenticatedDelegates))
                 {
                     continue;
                 }
@@ -965,6 +987,7 @@ public static class JsExportSurfaceBuilder
                     + "."
                     + signatureHash.ToString(
                         CultureInfo.InvariantCulture);
+                delegateParameters = authenticatedDelegates;
                 return true;
             }
         }
@@ -1088,8 +1111,10 @@ public static class JsExportSurfaceBuilder
         DirectCall registration,
         MemberRef exportSignature,
         ApiType declaringType,
-        ApiMember export)
+        ApiMember export,
+        out IReadOnlyList<JsExportDelegateParameter> delegateParameters)
     {
+        delegateParameters = [];
         if (!callsByEvidenceMethod.TryGetValue(
                 candidate.RegistrationMethodToken,
                 out ImmutableArray<DirectCall> registrationCalls))
@@ -1136,6 +1161,27 @@ public static class JsExportSurfaceBuilder
             }
         }
 
+        var delegates = new List<JsExportDelegateParameter>();
+        for (int index = 0;
+            index < exportSignature.ParameterTypes.Length;
+            index++)
+        {
+            if (TryGetDelegateShape(
+                    exportSignature.ParameterTypes[index],
+                    out JsExportDelegateKind kind,
+                    out ImmutableArray<TypeRef> parameterTypes,
+                    out TypeRef? returnType))
+            {
+                delegates.Add(new JsExportDelegateParameter
+                {
+                    ParameterIndex = index,
+                    Kind = kind,
+                    ParameterTypes = parameterTypes,
+                    ReturnType = returnType,
+                });
+            }
+        }
+        delegateParameters = delegates;
         return true;
     }
 
@@ -1146,12 +1192,27 @@ public static class JsExportSurfaceBuilder
         IReadOnlyDictionary<int, DirectCall> callsByOffset,
         string location)
     {
+        if (TryGetDelegateShape(
+                managed,
+                out _,
+                out _,
+                out TypeRef? delegateReturnType)
+            && delegateReturnType is not null
+            && IsTaskType(delegateReturnType))
+        {
+            throw new UnsupportedJsExportSurfaceException(
+                location,
+                $"JS export marshaling of '{managed.ToDisplayString()}' is "
+                    + "recognized but not supported: Promise-returning "
+                    + "delegates are not synchronous callbacks");
+        }
+
         if (!TryGetMarshalerRule(
                 managed,
                 isReturn,
                 out string[] factoryNames,
                 out string[] unsupportedFactoryNames,
-                out TypeRef? elementType))
+                out ImmutableArray<TypeRef> elementTypes))
         {
             throw new UnsupportedJsExportSurfaceException(
                 location,
@@ -1195,19 +1256,24 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        int expectedArguments = elementType is null ? 0 : 1;
-        if (factory.Callee.ParameterTypes.Length != expectedArguments)
+        if (factory.Callee.ParameterTypes.Length != elementTypes.Length
+            || factory.ResolvedArgumentValues.Count != elementTypes.Length)
             return false;
-        if (elementType is null)
-            return true;
 
-        return factory.ResolvedArgumentValues.Count == 1
-            && DescribesManagedType(
-                factory.ResolvedArgumentValues[0],
-                elementType,
-                isReturn: false,
-                callsByOffset,
-                location);
+        for (int index = 0; index < elementTypes.Length; index++)
+        {
+            if (!DescribesManagedType(
+                    factory.ResolvedArgumentValues[index],
+                    elementTypes[index],
+                    isReturn: false,
+                    callsByOffset,
+                    location))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1238,16 +1304,34 @@ public static class JsExportSurfaceBuilder
         bool isReturn,
         out string[] factoryNames,
         out string[] unsupportedFactoryNames,
-        out TypeRef? elementType)
+        out ImmutableArray<TypeRef> elementTypes)
     {
         factoryNames = [];
         unsupportedFactoryNames = [];
-        elementType = null;
+        elementTypes = [];
+        if (TryGetDelegateShape(
+                managed,
+                out JsExportDelegateKind delegateKind,
+                out ImmutableArray<TypeRef> delegateParameterTypes,
+                out TypeRef? delegateReturnType))
+        {
+            factoryNames =
+            [
+                delegateKind == JsExportDelegateKind.Action
+                    ? "Action"
+                    : "Function",
+            ];
+            elementTypes = delegateReturnType is null
+                ? delegateParameterTypes
+                : [.. delegateParameterTypes, delegateReturnType];
+            return true;
+        }
+
         switch (managed.Kind)
         {
             case TypeRefKind.SzArray when managed.ElementType is { } array:
                 factoryNames = ["Array"];
-                elementType = array;
+                elementTypes = [array];
                 return true;
             case TypeRefKind.GenericInstance
                 when managed is
@@ -1262,25 +1346,25 @@ public static class JsExportSurfaceBuilder
                     "Task`1"))
                 {
                     factoryNames = ["Task"];
-                    elementType = argument;
+                    elementTypes = [argument];
                     return true;
                 }
                 if (IsCoreLibType(definition, "System", "Nullable`1"))
                 {
                     factoryNames = ["Nullable"];
-                    elementType = argument;
+                    elementTypes = [argument];
                     return true;
                 }
                 if (IsCoreLibType(definition, "System", "Span`1"))
                 {
                     factoryNames = ["Span"];
-                    elementType = argument;
+                    elementTypes = [argument];
                     return true;
                 }
                 if (IsCoreLibType(definition, "System", "ArraySegment`1"))
                 {
                     factoryNames = ["ArraySegment"];
-                    elementType = argument;
+                    elementTypes = [argument];
                     return true;
                 }
                 return false;
@@ -1337,6 +1421,73 @@ public static class JsExportSurfaceBuilder
                 managed.Namespace,
                 managed.Name);
     }
+
+    internal static bool TryGetDelegateShape(
+        TypeRef managed,
+        out JsExportDelegateKind kind,
+        out ImmutableArray<TypeRef> parameterTypes,
+        out TypeRef? returnType)
+    {
+        kind = default;
+        parameterTypes = [];
+        returnType = null;
+
+        if (IsCoreLibType(managed, "System", "Action"))
+        {
+            kind = JsExportDelegateKind.Action;
+            return true;
+        }
+
+        if (managed is not
+            {
+                Kind: TypeRefKind.GenericInstance,
+                ElementType: { } definition,
+                TypeArguments: { Length: > 0 } arguments,
+            })
+        {
+            return false;
+        }
+
+        if (IsCoreLibType(
+                definition,
+                "System",
+                $"Action`{arguments.Length}")
+            && arguments.Length <= 3)
+        {
+            kind = JsExportDelegateKind.Action;
+            parameterTypes = arguments;
+            return true;
+        }
+
+        if (!IsCoreLibType(
+                definition,
+                "System",
+                $"Func`{arguments.Length}")
+            || arguments.Length - 1 > 3)
+        {
+            return false;
+        }
+
+        kind = JsExportDelegateKind.Func;
+        parameterTypes = arguments[..^1];
+        returnType = arguments[^1];
+        return true;
+    }
+
+    static bool IsTaskType(TypeRef type) =>
+        IsCoreLibType(
+            type,
+            "System.Threading.Tasks",
+            "Task")
+        || type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { } definition,
+        }
+        && IsCoreLibType(
+            definition,
+            "System.Threading.Tasks",
+            "Task`1");
 
     static bool IsJsMarshalerTypeFactory(MemberRef method) =>
         method.Kind == MemberKind.Method

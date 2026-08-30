@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -1797,6 +1798,45 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 Assert.Equal(
                     EcosystemIntegrationNames.AI,
                     evidence.Integration);
+                Assert.Same(
+                    IntegrationConceptCatalog.AI,
+                    evidence.GetConcept());
+                evidence.Deconstruct(
+                    out _,
+                    out _,
+                    out string integration,
+                    out _);
+                Assert.Equal(EcosystemIntegrationNames.AI, integration);
+                Assert.Same(
+                    IntegrationConceptCatalog.Logging,
+                    (evidence with
+                    {
+                        Integration = EcosystemIntegrationNames.Logging,
+                    }).GetConcept());
+                string json = JsonSerializer.Serialize(evidence);
+                Assert.Contains(
+                    $"\"Integration\":\"{EcosystemIntegrationNames.AI}\"",
+                    json);
+                Assert.DoesNotContain("\"Concept\":", json);
+                var reconstructed =
+                    new InspectionGraphIntegrationEvidence(
+                        evidence.Registration,
+                        evidence.Member,
+                        evidence.Integration,
+                        evidence.TargetType);
+                Assert.Equal(evidence, reconstructed);
+                Assert.Equal(
+                    evidence.GetHashCode(),
+                    reconstructed.GetHashCode());
+                Assert.Equal(
+                    [
+                        nameof(InspectionGraphIntegrationEvidence.Registration),
+                        nameof(InspectionGraphIntegrationEvidence.Member),
+                        nameof(InspectionGraphIntegrationEvidence.Integration),
+                        nameof(InspectionGraphIntegrationEvidence.TargetType),
+                    ],
+                    PositionalPropertyOrder<
+                        InspectionGraphIntegrationEvidence>());
                 Assert.Equal(
                     "AsIChatClient",
                     evidence.Member.MemberName);
@@ -1846,6 +1886,49 @@ public sealed class InspectionGraphIntegrationsQueryTests
         Assert.Equal(
             "Azure.AI.OpenAI.AzureOpenAIClient",
             TypeName(opportunityOccurrence.SourceSubject));
+        var opportunityEvidence =
+            Assert.IsType<InspectionGraphOpportunityEvidence>(
+                opportunityOccurrence.Evidence);
+        Assert.Same(
+            IntegrationConceptCatalog.AI,
+            opportunityEvidence.GetConcept());
+        opportunityEvidence.Deconstruct(
+            out _,
+            out _,
+            out string opportunityIntegration,
+            out _);
+        Assert.Equal(
+            EcosystemIntegrationNames.AI,
+            opportunityIntegration);
+        Assert.Null((opportunityEvidence with
+        {
+            Integration = "External Integration",
+        }).GetConcept());
+        string opportunityJson = JsonSerializer.Serialize(
+            opportunityEvidence);
+        Assert.Contains(
+            $"\"Integration\":\"{EcosystemIntegrationNames.AI}\"",
+            opportunityJson);
+        Assert.DoesNotContain("\"Concept\":", opportunityJson);
+        var reconstructedOpportunity =
+            new InspectionGraphOpportunityEvidence(
+                opportunityEvidence.SourceRegistration,
+                opportunityEvidence.SourceType,
+                opportunityEvidence.Integration,
+                opportunityEvidence.Target);
+        Assert.Equal(opportunityEvidence, reconstructedOpportunity);
+        Assert.Equal(
+            opportunityEvidence.GetHashCode(),
+            reconstructedOpportunity.GetHashCode());
+        Assert.Equal(
+            [
+                nameof(
+                    InspectionGraphOpportunityEvidence.SourceRegistration),
+                nameof(InspectionGraphOpportunityEvidence.SourceType),
+                nameof(InspectionGraphOpportunityEvidence.Integration),
+                nameof(InspectionGraphOpportunityEvidence.Target),
+            ],
+            PositionalPropertyOrder<InspectionGraphOpportunityEvidence>());
         Assert.DoesNotContain(
             document.Edges,
             edge => edge.Relationship.Id == "call");
@@ -2372,6 +2455,31 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 InspectionGraphTypeIdentity.AcquiredDefinition>(
                     type.Identity);
         return identity.Type.ToMetadataFullName();
+    }
+
+    static string[] PositionalPropertyOrder<T>()
+    {
+        string[] names =
+        [
+            .. typeof(T)
+                .GetConstructors(
+                    BindingFlags.Public | BindingFlags.Instance)
+                .Single()
+                .GetParameters()
+                .Select(parameter => parameter.Name!),
+        ];
+        HashSet<string> positionalNames = names.ToHashSet(
+            StringComparer.Ordinal);
+        return
+        [
+            .. typeof(T)
+                .GetProperties(
+                    BindingFlags.Public
+                    | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly)
+                .Select(property => property.Name)
+                .Where(positionalNames.Contains),
+        ];
     }
 
     static string AssemblyName(InspectionGraphSubject subject)

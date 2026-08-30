@@ -187,6 +187,18 @@ public class NuGetClient(HttpClient client)
             operation).ConfigureAwait(false);
     }
 
+    internal async Task<ReadOnlyMemory<byte>> GetManifestFromBaseAddressAsync(
+        string packageId,
+        string version,
+        string baseAddress,
+        NuGetOperationDeadline operation) =>
+        await _packageResources.GetManifestFromBaseAddressAsync(
+            packageId,
+            version,
+            baseAddress,
+            _options,
+            operation).ConfigureAwait(false);
+
     /// <summary>
     /// Downloads a package to a file.
     /// </summary>
