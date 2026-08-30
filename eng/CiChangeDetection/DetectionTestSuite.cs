@@ -891,6 +891,37 @@ internal static class DetectionTestSuite
                 FormatValues(nonModelDoc));
         }
 
+        // A .tla/.cfg placed directly under a model root (no model
+        // subdirectory) is outside the layout eng/run-tla-checks.sh
+        // supports and must still route to the tla-plus job, so the
+        // runner's own loud rejection of that layout actually executes
+        // instead of the change silently skipping the job altogether.
+        Dictionary<string, string> tlaRootLevelModule = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/models/RootLevel.tla",
+            outputs);
+        if (tlaRootLevelModule["tla"] != "true" || tlaRootLevelModule["docs"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Root-level TLA+ module canary did not select tla: " +
+                FormatValues(tlaRootLevelModule));
+        }
+
+        Dictionary<string, string> tlaRootLevelConfig = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "docs/design/models/RootLevel.cfg",
+            outputs);
+        if (tlaRootLevelConfig["tla"] != "true" || tlaRootLevelConfig["docs"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Root-level TLA+ config canary did not select tla: " +
+                FormatValues(tlaRootLevelConfig));
+        }
+
         Dictionary<string, string> pushedSource = RunDetection(
             repository,
             body,

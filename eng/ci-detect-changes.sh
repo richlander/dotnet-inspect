@@ -416,7 +416,9 @@ while IFS= read -r -d '' file; do
   # (the docs lane is otherwise a cheap markdownlint-only pass).
   case "$file" in
     .github/workflows/ci.yml) TLA=true ;;
+    docs/design/models/*.tla|docs/design/models/*.cfg) TLA=true ;;
     docs/design/models/*/*.tla|docs/design/models/*/*.cfg) TLA=true ;;
+    docs/models/*.tla|docs/models/*.cfg) TLA=true ;;
     docs/models/*/*.tla|docs/models/*/*.cfg) TLA=true ;;
     eng/run-tla-checks.sh|eng/tla-module-overrides.txt) TLA=true ;;
   esac

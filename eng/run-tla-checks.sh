@@ -95,15 +95,38 @@ CHECKED_MODULES=0
 CHECKED_CONFIGS=0
 TIMEOUTS=0
 
-# This script only discovers .tla/.cfg files exactly one level under each
-# model root (docs/design/models/<model>/*.tla, not deeper). That matches
-# every model directory's actual layout today, but a file nested any deeper
-# would be silently invisible to the discovery loops below while still
-# matching eng/ci-detect-changes.sh's classification (its `case` patterns
-# span `/`, so they are deliberately broader than this script's layout
-# assumption). Fail loudly rather than silently skip such a file.
+# Reject a duplicate cfg key in the override file up front: override_module_for
+# returns on the first match, so a second, conflicting entry for the same cfg
+# path would otherwise be silently ignored and the cfg checked against
+# whichever module happened to be listed first, rather than the file being
+# treated as a config error.
+if [ -f "$MODULE_OVERRIDES_FILE" ]; then
+  duplicate_keys=$(
+    grep -v -e '^[[:space:]]*$' -e '^[[:space:]]*#' "$MODULE_OVERRIDES_FILE" \
+      | cut -d= -f1 | sort | uniq -d
+  )
+  if [ -n "$duplicate_keys" ]; then
+    while IFS= read -r key; do
+      echo "::error::$MODULE_OVERRIDES_FILE has more than one entry for '$key'. Remove the duplicate so the module mapping is unambiguous." >&2
+      FAILURES=$((FAILURES + 1))
+    done <<< "$duplicate_keys"
+  fi
+fi
+
+# The discovery loop below only picks up .tla/.cfg files that live exactly
+# one directory level under each model root (docs/design/models/<model>/*.tla).
+# That matches every model directory's actual layout today, but a file placed
+# directly in the root itself (mindepth 1, no model subdirectory) or nested
+# any deeper (mindepth 3+) would be silently invisible to that loop, while
+# still matching eng/ci-detect-changes.sh's classification (its `case`
+# patterns span `/`, so they are deliberately broader than this script's
+# layout assumption). Fail loudly rather than silently skip such a file.
 for root in "${MODEL_ROOTS[@]}"; do
   [ -d "$root" ] || continue
+  while IFS= read -r -d '' misplaced; do
+    echo "::error::$misplaced is not in the layout eng/run-tla-checks.sh supports (a model directory exactly one level under $root). Move it into its own model directory directly under $root, or extend this script's discovery to handle this layout." >&2
+    FAILURES=$((FAILURES + 1))
+  done < <(find "$root" -mindepth 1 -maxdepth 1 \( -iname "*.tla" -o -iname "*.cfg" \) -print0)
   while IFS= read -r -d '' nested; do
     echo "::error::$nested is nested deeper than eng/run-tla-checks.sh supports (one directory level under $root). Move it into a model directory directly under $root, or extend this script's discovery to handle nesting." >&2
     FAILURES=$((FAILURES + 1))
