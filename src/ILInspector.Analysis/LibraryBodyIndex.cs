@@ -71,10 +71,12 @@ public sealed class LibraryBodyIndex
 {
     LibraryBodyIndex(
         string path,
+        LibraryBodyModuleIdentity moduleIdentity,
         LibraryBodyAnalysisResult analysis,
         LibraryBodyAnalysisFeatures features)
     {
         Path = path;
+        ModuleIdentity = moduleIdentity;
         DeclaredMethods = analysis.Methods.DeclaredMethods;
         Methods = analysis.Methods.Methods;
         DirectCalls = analysis.Methods.DirectCalls;
@@ -125,6 +127,11 @@ public sealed class LibraryBodyIndex
     }
 
     public string Path { get; }
+    /// <summary>
+    /// Exact image-derived identity for the module that produced this index.
+    /// This remains available when no body producer or method is selected.
+    /// </summary>
+    public LibraryBodyModuleIdentity ModuleIdentity { get; }
     /// <summary>
     /// Every decoded method identity, including abstract and extern members,
     /// when <see cref="LibraryBodyAnalysisFeatures.MethodEvidence"/> is enabled.
@@ -1086,9 +1093,14 @@ public sealed class LibraryBodyIndex
         ImmutableArray<MethodResultSink> resultSinks = default,
         ImmutableArray<FieldStoreFact> fieldStores = default,
         ImmutableArray<FieldLoadFact> fieldLoads = default,
-        ImmutableArray<MethodReturnFlow> returnFlows = default)
-        => new(
+        ImmutableArray<MethodReturnFlow> returnFlows = default,
+        LibraryBodyModuleIdentity? moduleIdentity = null)
+    {
+        moduleIdentity ??= SyntheticEvidenceIdentity(methods);
+        ValidateSyntheticEvidenceIdentity(moduleIdentity, methods);
+        return new(
             path: "",
+            moduleIdentity,
             analysis: new(
                 Methods: new(
                     DeclaredMethods: methods,
@@ -1139,6 +1151,7 @@ public sealed class LibraryBodyIndex
                 | (allocationOccurrences is null
                     ? LibraryBodyAnalysisFeatures.None
                     : LibraryBodyAnalysisFeatures.Allocations));
+    }
 
     public static LibraryBodyIndex Open(string path, IAssemblyReferenceResolver? resolver = null,
         bool includeAllocations = true, bool includeOpportunities = true, IReadOnlySet<int>? bodyScope = null, Func<TypeRef, bool>? bodyTypeScope = null)
@@ -1311,6 +1324,8 @@ public sealed class LibraryBodyIndex
         if (!peReader.HasMetadata)
             throw new BadImageFormatException($"No managed metadata: {path}");
         var reader = peReader.GetMetadataReader();
+        LibraryBodyModuleIdentity moduleIdentity =
+            LibraryBodyModuleIdentity.FromImage(reader);
         IAssemblyReferenceResolver? analysisResolver =
             plan.Includes(
                 LibraryBodyAnalysisFeatures
@@ -1333,7 +1348,52 @@ public sealed class LibraryBodyIndex
                 : rootSnapshot);
         LibraryBodyAnalysisResult analysis =
             builder.Build(plan);
-        return new LibraryBodyIndex(path, analysis, plan.Features);
+        return new LibraryBodyIndex(
+            path,
+            moduleIdentity,
+            analysis,
+            plan.Features);
+    }
+
+    static void ValidateSyntheticEvidenceIdentity(
+        LibraryBodyModuleIdentity moduleIdentity,
+        ImmutableArray<MethodIdentity> methods)
+    {
+        foreach (MethodIdentity method in methods)
+        {
+            if (moduleIdentity.AssemblyIdentity is not { } assembly
+                || !StringComparer.OrdinalIgnoreCase.Equals(
+                    assembly.Name,
+                    method.AssemblyName)
+                || moduleIdentity.ModuleVersionId
+                    != method.ModuleVersionId)
+            {
+                throw new ArgumentException(
+                    "Synthetic method evidence does not match the supplied "
+                    + "module identity.",
+                    nameof(methods));
+            }
+        }
+    }
+
+    static LibraryBodyModuleIdentity SyntheticEvidenceIdentity(
+        ImmutableArray<MethodIdentity> methods)
+    {
+        if (methods.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException(
+                "An empty synthetic index requires an explicit module identity.",
+                nameof(methods));
+        }
+
+        MethodIdentity first = methods[0];
+        return new LibraryBodyModuleIdentity(
+            new AssemblyReferenceIdentity(
+                first.AssemblyName,
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null),
+            first.ModuleVersionId);
     }
 
     static bool UsesReferenceResolution(

@@ -24,6 +24,222 @@ namespace ILInspector.Analysis.Tests;
 public class LibraryBodyIndexTests
 {
     [Fact]
+    public void
+        ModuleIdentity_IsImageDerivedAcrossFeaturesAndScopes()
+    {
+        string sourcePath =
+            typeof(LibraryBodyIndexTests).Assembly.Location;
+        ImmutableArray<byte> image =
+            [.. File.ReadAllBytes(sourcePath)];
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        var expected = new LibraryBodyModuleIdentity(
+            AssemblyReferenceIdentity.FromAssemblyDefinition(reader),
+            reader.GetGuid(reader.GetModuleDefinition().Mvid));
+
+        LibraryBodyIndex ordinary =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "ordinary-label.dll",
+                image,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+        LibraryBodyIndex capabilityLimited =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "capability-label.dll",
+                image,
+                LibraryBodyAnalysisFeatures.None);
+        LibraryBodyIndex filtered =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "filtered-label.dll",
+                image,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                bodyScope:
+                    new HashSet<int> { 0x0600FFFF });
+
+        Assert.NotEmpty(ordinary.DeclaredMethods);
+        Assert.NotEmpty(ordinary.DirectCalls);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.None,
+            capabilityLimited.Features);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            filtered.Features);
+        Assert.Empty(filtered.DirectCalls);
+        Assert.Equal(expected, ordinary.ModuleIdentity);
+        Assert.Equal(expected, capabilityLimited.ModuleIdentity);
+        Assert.Equal(expected, filtered.ModuleIdentity);
+    }
+
+    [Fact]
+    public void
+        ModuleIdentity_MethodlessPrefetchedImageRetainsExactIdentity()
+    {
+        Guid moduleVersionId = Guid.NewGuid();
+        ImmutableArray<byte> image =
+            [.. EmitAssembly(
+                "MethodlessIdentity",
+                static _ => { },
+                moduleVersionId)];
+
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "not-the-assembly-name.dll",
+                image,
+                LibraryBodyAnalysisFeatures.MethodEvidence);
+
+        Assert.Empty(index.DeclaredMethods);
+        Assert.Equal(
+            new AssemblyReferenceIdentity(
+                "MethodlessIdentity",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            index.ModuleIdentity.AssemblyIdentity);
+        Assert.Equal(
+            moduleVersionId,
+            index.ModuleIdentity.ModuleVersionId);
+    }
+
+    [Fact]
+    public void ModuleIdentity_DistinguishesAssemblyAndModuleGeneration()
+    {
+        Guid firstModuleVersionId = Guid.NewGuid();
+        LibraryBodyModuleIdentity first =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "first.dll",
+                [.. EmitAssembly(
+                    "FirstIdentity",
+                    static _ => { },
+                    firstModuleVersionId)],
+                LibraryBodyAnalysisFeatures.None)
+            .ModuleIdentity;
+        LibraryBodyModuleIdentity differentAssembly =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "second.dll",
+                [.. EmitAssembly(
+                    "SecondIdentity",
+                    static _ => { },
+                    firstModuleVersionId)],
+                LibraryBodyAnalysisFeatures.None)
+            .ModuleIdentity;
+        LibraryBodyModuleIdentity differentGeneration =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "third.dll",
+                [.. EmitAssembly(
+                    "FirstIdentity",
+                    static _ => { },
+                    Guid.NewGuid())],
+                LibraryBodyAnalysisFeatures.None)
+            .ModuleIdentity;
+
+        Assert.NotEqual(first, differentAssembly);
+        Assert.NotEqual(first, differentGeneration);
+    }
+
+    [Fact]
+    public void ModuleIdentity_StandaloneModuleHasNoAssemblyIdentity()
+    {
+        Guid moduleVersionId = Guid.NewGuid();
+        LibraryBodyIndex index =
+            LibraryBodyIndex.OpenFromPrefetchedImage(
+                "standalone-label.netmodule",
+                [.. EmitStandaloneModule(
+                    "StandaloneIdentity.netmodule",
+                    moduleVersionId)],
+                LibraryBodyAnalysisFeatures.None);
+
+        Assert.Null(index.ModuleIdentity.AssemblyIdentity);
+        Assert.Equal(
+            moduleVersionId,
+            index.ModuleIdentity.ModuleVersionId);
+    }
+
+    [Fact]
+    public void ModuleIdentity_RejectsEmptyModuleVersionIdentifier()
+    {
+        ImmutableArray<byte> image =
+            [.. EmitAssembly(
+                "EmptyModuleVersionId",
+                static _ => { },
+                Guid.Empty)];
+
+        BadImageFormatException error =
+            Assert.Throws<BadImageFormatException>(
+                () => LibraryBodyIndex.OpenFromPrefetchedImage(
+                    "empty-mvid.dll",
+                    image,
+                    LibraryBodyAnalysisFeatures.None));
+
+        Assert.Contains(
+            "non-empty MVID",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        SyntheticModuleIdentity_EmptyEvidenceRequiresExplicitIdentity()
+    {
+        Assert.Throws<ArgumentException>(
+            () => LibraryBodyIndex.FromEvidence([], []));
+
+        var identity = new LibraryBodyModuleIdentity(
+            new AssemblyReferenceIdentity(
+                "EmptySynthetic",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null),
+            Guid.Empty);
+        LibraryBodyIndex index = LibraryBodyIndex.FromEvidence(
+            [],
+            [],
+            moduleIdentity: identity);
+
+        Assert.Same(identity, index.ModuleIdentity);
+    }
+
+    [Fact]
+    public void
+        SyntheticModuleIdentity_ValidatesMethodsAgainstExplicitIdentity()
+    {
+        Guid moduleVersionId = Guid.NewGuid();
+        MethodIdentity method = SyntheticMethod(
+            "ActualAssembly",
+            moduleVersionId);
+        var identity = new LibraryBodyModuleIdentity(
+            new AssemblyReferenceIdentity(
+                "DifferentAssembly",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null),
+            moduleVersionId);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => LibraryBodyIndex.FromEvidence(
+                [method],
+                [],
+                moduleIdentity: identity));
+
+        Assert.Equal("methods", error.ParamName);
+    }
+
+    [Fact]
+    public void
+        SyntheticModuleIdentity_NonEmptyEvidenceDerivesFixtureIdentity()
+    {
+        Guid moduleVersionId = Guid.NewGuid();
+        LibraryBodyIndex index = LibraryBodyIndex.FromEvidence(
+            [SyntheticMethod("SyntheticAssembly", moduleVersionId)],
+            []);
+
+        Assert.Equal(
+            "SyntheticAssembly",
+            index.ModuleIdentity.AssemblyIdentity?.Name);
+        Assert.Equal(
+            moduleVersionId,
+            index.ModuleIdentity.ModuleVersionId);
+    }
+
+    [Fact]
     public void OptimizationOpportunities_FindSyncCallsWithAsyncSiblings()
     {
         string path = typeof(OptimizationOpportunityFixtures)
@@ -9745,13 +9961,16 @@ public class LibraryBodyIndexTests
     }
 
     /// <summary>Emits a minimal unsigned assembly whose only content is what <paramref name="addContent"/> adds.</summary>
-    static byte[] EmitAssembly(string name, Action<MetadataBuilder> addContent)
+    static byte[] EmitAssembly(
+        string name,
+        Action<MetadataBuilder> addContent,
+        Guid? moduleVersionId = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             generation: 0,
             metadata.GetOrAddString(name + ".dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
+            metadata.GetOrAddGuid(moduleVersionId ?? Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(
@@ -9782,6 +10001,50 @@ public class LibraryBodyIndexTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    static byte[] EmitStandaloneModule(
+        string name,
+        Guid moduleVersionId)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(name),
+            metadata.GetOrAddGuid(moduleVersionId),
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static MethodIdentity SyntheticMethod(
+        string assemblyName,
+        Guid moduleVersionId) =>
+        new(
+            assemblyName,
+            moduleVersionId,
+            TypeRef.Definition(
+                assemblyName,
+                "Fixtures",
+                "SyntheticType"),
+            "SyntheticMethod",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
 
     static byte[] EmitAssemblyIdentity(
         string name,
