@@ -295,11 +295,9 @@ focus to **Explore**.
 
 Focus is trapped inside the open modal by Inspect Web UI. Successful
 destination navigation closes the modal and lets the destination/history
-owner focus the destination. A current rejected, unavailable, failed, or
-aborted result supplies its typed visible outcome and a stable rendered focus
-target to the shared modal owner; that owner controls dismissal and destination
-focus. Superseded work returns no consumer result or authority and produces no
-viewer effect.
+owner focus the destination. Presentation, synchronization, announcements, and
+focus for every non-applied navigation outcome remain governed by Inspect Web
+UI. Superseded work produces no viewer effect.
 
 ## Source presentation
 
@@ -354,8 +352,8 @@ bounded executable design model for viewer-local interaction. It checks:
   persistent inspector actions, annotatable-Finding toggles, and
   supported-medium toggles, plus exact availability of selectable nodes and
   every modeled fixed action, including an unanchored inspector witness and
-  pointer **Close** while detail is open, all checked through the actual
-  `Next` transition relation;
+  pointer **Close** while detail is open, all checked against the executable
+  model's complete transition relation;
 - exact rendered-target derivation from active annotations and visible media;
 - distinct Finding and non-Finding annotation identities, with structural
   annotations excluded from defaults but included by **All** and rendered from
