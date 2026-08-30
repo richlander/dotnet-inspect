@@ -669,6 +669,41 @@ public sealed class IntegrationCensusTests
     }
 
     [Fact]
+    public void IntegrationCensus_LargeContextProductUsesHashBackedAddressing()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        var participants = new[] { participant };
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            DefaultPeer);
+        CountingContext[] contexts =
+        [
+            .. Enumerable.Range(0, 2_000).Select(
+                index => new CountingContext(index)),
+        ];
+        IntegrationCandidateAttempt[] attempts =
+        [
+            .. contexts.Select(
+                context => ClassifiedOut(candidate, context)),
+        ];
+
+        CountingContext.Reset();
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            participants,
+            producerAttempts: Producers(
+                participants,
+                Completed(participant, Ecosystem, candidate)),
+            contexts: contexts,
+            candidateAttempts: attempts);
+
+        Assert.Equal(contexts.Length, snapshot.CandidateAttempts.Length);
+        Assert.True(
+            CountingContext.EqualsCalls < 10_000,
+            $"Expected hash-backed addressing, but observed {CountingContext.EqualsCalls} context equality calls.");
+    }
+
+    [Fact]
     public void IntegrationCensus_EmptyHealthyUniverseIsCompleteAndSuccessful()
     {
         IntegrationCensusSnapshot snapshot = Snapshot([Portable()]);
@@ -705,7 +740,8 @@ public sealed class IntegrationCensusTests
             [
                 new IntegrationCandidateAttempt.Classified(
                     new IntegrationCandidateAttemptAddress(candidate, context),
-                    new IntegrationCandidateDisposition.In(Resolved(terminal))),
+                    new IntegrationCandidateDisposition.In(
+                        Resolved(candidate, terminal))),
             ]);
 
         // In without a selected terminal is rejected.
@@ -719,7 +755,8 @@ public sealed class IntegrationCensusTests
                 [
                     new IntegrationCandidateAttempt.Classified(
                         new IntegrationCandidateAttemptAddress(candidate, context),
-                        new IntegrationCandidateDisposition.In(Resolved(terminal))),
+                        new IntegrationCandidateDisposition.In(
+                            Resolved(candidate, terminal))),
                 ]));
     }
 
@@ -788,7 +825,7 @@ public sealed class IntegrationCensusTests
                     new IntegrationCandidateAttempt.Classified(
                         new IntegrationCandidateAttemptAddress(candidate, context),
                         new IntegrationCandidateDisposition.Out(
-                            Resolved(mismatched))),
+                            Resolved(candidate, mismatched))),
                 ]));
     }
 
@@ -805,7 +842,8 @@ public sealed class IntegrationCensusTests
         IntegrationTypeIdentity facade = PeerTerminal(candidate);
         IntegrationTypeIdentity terminal =
             new(ParticipantForAssembly(Assembly("Implementation")), candidate.Peer.Type);
-        var resolved = new IntegrationResolvedPeer([facade, terminal]);
+        var resolved =
+            new IntegrationResolvedPeer(candidate.Peer, [facade, terminal]);
 
         IntegrationCensusSnapshot snapshot = Snapshot(
             participants,
@@ -826,11 +864,12 @@ public sealed class IntegrationCensusTests
         Assert.Equal(
             [facade, terminal],
             classified.Disposition.Peer.ResolutionPath);
+        Assert.Equal(candidate.Peer, classified.Disposition.Peer.Lookup);
         Assert.Equal(terminal, classified.Disposition.Peer.Terminal);
     }
 
     [Fact]
-    public void IntegrationCensus_ResolutionRejectsWrongAssemblyForwardingHopAndCycle()
+    public void IntegrationCensus_ResolutionRejectsMismatchedLookupForwardingHopAndCycle()
     {
         IntegrationSourceParticipantIdentity participant = Portable();
         var participants = new[] { participant };
@@ -841,10 +880,13 @@ public sealed class IntegrationCensusTests
         IContext context = new Context();
         IntegrationTypeIdentity terminal = PeerTerminal(candidate);
 
-        // An assembly-reference lookup cannot begin in the wrong assembly.
+        // A resolution issued for a different lookup cannot classify this
+        // candidate, regardless of the selected participant.
         IntegrationTypeIdentity wrongAssemblyStart = new(
             ParticipantForAssembly(Assembly("Wrong")),
             candidate.Peer.Type);
+        IntegrationCandidatePeerIdentity wrongLookup =
+            AssemblyPeer(Assembly("Wrong"), candidate.Peer.Type);
         Assert.Throws<ArgumentException>(() =>
             Snapshot(
                 participants,
@@ -858,7 +900,9 @@ public sealed class IntegrationCensusTests
                     new IntegrationCandidateAttempt.Classified(
                         new IntegrationCandidateAttemptAddress(candidate, context),
                         new IntegrationCandidateDisposition.In(
-                            Resolved(wrongAssemblyStart))),
+                            new IntegrationResolvedPeer(
+                                wrongLookup,
+                                [wrongAssemblyStart]))),
                 ]));
 
         // A forwarding hop must retain the exact candidate Type name.
@@ -878,12 +922,16 @@ public sealed class IntegrationCensusTests
                     new IntegrationCandidateAttempt.Classified(
                         new IntegrationCandidateAttemptAddress(candidate, context),
                         new IntegrationCandidateDisposition.In(
-                            new IntegrationResolvedPeer([renamingHop, terminal]))),
+                            new IntegrationResolvedPeer(
+                                candidate.Peer,
+                                [renamingHop, terminal]))),
                 ]));
 
         // A repeated identity in the resolution path is a forwarding cycle.
         Assert.Throws<ArgumentException>(() =>
-            new IntegrationResolvedPeer([terminal, terminal]));
+            new IntegrationResolvedPeer(
+                candidate.Peer,
+                [terminal, terminal]));
 
         IntegrationCandidateIdentity moduleCandidate = ObservedCandidate(
             participant,
@@ -900,6 +948,52 @@ public sealed class IntegrationCensusTests
                 contexts: [context],
                 candidateAttempts:
                 [ClassifiedOut(moduleCandidate, context)]));
+    }
+
+    [Fact]
+    public void IntegrationCensus_ResolutionRetainsLookupAcrossBindingPolicyVersionSelection()
+    {
+        IntegrationSourceParticipantIdentity participant = Portable();
+        var participants = new[] { participant };
+        IntegrationCandidateIdentity candidate = ObservedCandidate(
+            participant,
+            IntegrationConceptCatalog.AI,
+            AssemblyPeer(
+                new AssemblyReferenceIdentity(
+                    "Peer",
+                    new Version(1, 0),
+                    null,
+                    null),
+                TypeName("Peer", "Client")));
+        IContext context = new Context();
+        IntegrationTypeIdentity selected = new(
+            ParticipantForAssembly(
+                new AssemblyReferenceIdentity(
+                    "Peer",
+                    new Version(2, 0),
+                    null,
+                    null)),
+            candidate.Peer.Type);
+
+        IntegrationCensusSnapshot snapshot = Snapshot(
+            participants,
+            producerAttempts: Producers(
+                participants,
+                Completed(participant, Ecosystem, candidate)),
+            selectedTypes: [selected],
+            contexts: [context],
+            candidateAttempts:
+            [
+                new IntegrationCandidateAttempt.Classified(
+                    new IntegrationCandidateAttemptAddress(candidate, context),
+                    new IntegrationCandidateDisposition.In(
+                        Resolved(candidate, selected))),
+            ]);
+
+        IntegrationResolvedPeer resolved =
+            Assert.Single(snapshot.ClassifiedAttempts).Disposition.Peer;
+        Assert.Equal(candidate.Peer, resolved.Lookup);
+        Assert.Equal(selected, resolved.Terminal);
     }
 
     [Fact]
@@ -993,7 +1087,8 @@ public sealed class IntegrationCensusTests
             [
                 new IntegrationCandidateAttempt.Classified(
                     new IntegrationCandidateAttemptAddress(candidate, context),
-                    new IntegrationCandidateDisposition.In(Resolved(terminal))),
+                    new IntegrationCandidateDisposition.In(
+                        Resolved(candidate, terminal))),
             ]);
         IntegrationCensusSnapshot withoutPeer = Snapshot(
             participants,
@@ -1057,6 +1152,9 @@ public sealed class IntegrationCensusTests
     public void IntegrationCensus_SuppressionRequiresSameContextClassifiedObservedOfSameConcept()
     {
         SuppressionFixture fixture = new(this);
+        Assert.NotEqual(
+            SourceType(fixture.OpportunityCandidateId),
+            SourceType(fixture.ObservedCandidate));
 
         IntegrationCensusSnapshot snapshot = fixture.Snapshot(
             fixture.Suppressed(fixture.ObservedAttemptAddress));
@@ -1138,7 +1236,7 @@ public sealed class IntegrationCensusTests
                         secondAddress,
                         new IntegrationOpportunityFulfillment(
                             SourceType(first),
-                            Resolved(PeerTerminal(second)))),
+                            Resolved(first, PeerTerminal(second)))),
                 ]));
     }
 
@@ -1180,7 +1278,7 @@ public sealed class IntegrationCensusTests
                     new IntegrationCandidateAttempt.Classified(
                         observedAddress,
                         new IntegrationCandidateDisposition.In(
-                            Resolved(observedTerminal))),
+                            Resolved(observed, observedTerminal))),
                     new IntegrationCandidateAttempt.Suppressed(
                         new IntegrationCandidateAttemptAddress(
                             opportunity,
@@ -1188,7 +1286,7 @@ public sealed class IntegrationCensusTests
                         observedAddress,
                         new IntegrationOpportunityFulfillment(
                             SourceType(opportunity),
-                            Resolved(observedTerminal))),
+                            Resolved(opportunity, observedTerminal))),
                 ]));
     }
 
@@ -1215,7 +1313,9 @@ public sealed class IntegrationCensusTests
         IntegrationOpportunityFulfillment wrongSource =
             new IntegrationOpportunityFulfillment(
                 new IntegrationTypeIdentity(participant, TypeName("Src", "Other")),
-                Resolved(fixture.ObservedTerminal));
+                Resolved(
+                    fixture.OpportunityCandidateId,
+                    fixture.ObservedTerminal));
         Assert.Throws<ArgumentException>(() =>
             fixture.Snapshot(
                 fixture.Suppressed(
@@ -1227,6 +1327,7 @@ public sealed class IntegrationCensusTests
             new IntegrationOpportunityFulfillment(
                 SourceType(fixture.OpportunityCandidateId),
                 Resolved(
+                    fixture.OpportunityCandidateId,
                     new IntegrationTypeIdentity(
                         ParticipantForAssembly(Assembly("Peer.Lib")),
                         TypeName("Peer", "Other"))));
@@ -1348,11 +1449,14 @@ public sealed class IntegrationCensusTests
     static IntegrationCandidateIdentity ObservedCandidate(
         IntegrationSourceParticipantIdentity participant,
         IntegrationConceptDescriptor concept,
-        IntegrationCandidatePeerIdentity peer) =>
+        IntegrationCandidatePeerIdentity peer,
+        IntegrationCandidateSourceElement? sourceElement = null) =>
         new(
             Observed,
             concept,
-            new IntegrationCandidateSourceIdentity(participant, TypeElement()),
+            new IntegrationCandidateSourceIdentity(
+                participant,
+                sourceElement ?? TypeElement()),
             peer);
 
     static IntegrationCandidateIdentity OpportunityCandidate(
@@ -1365,8 +1469,10 @@ public sealed class IntegrationCensusTests
             new IntegrationCandidateSourceIdentity(participant, TypeElement()),
             peer);
 
-    static IntegrationResolvedPeer Resolved(IntegrationTypeIdentity terminal) =>
-        new([terminal]);
+    static IntegrationResolvedPeer Resolved(
+        IntegrationCandidateIdentity candidate,
+        IntegrationTypeIdentity terminal) =>
+        new(candidate.Peer, [terminal]);
 
     static IntegrationSourceParticipantAttempt Available(
         IntegrationSourceParticipantIdentity participant) =>
@@ -1400,7 +1506,7 @@ public sealed class IntegrationCensusTests
         new IntegrationCandidateAttempt.Classified(
             new IntegrationCandidateAttemptAddress(candidate, context),
             new IntegrationCandidateDisposition.Out(
-                Resolved(PeerTerminal(candidate))));
+                Resolved(candidate, PeerTerminal(candidate))));
 
     // The exact selected-universe Type identity backing one candidate's source
     // element, admitted so completed producer evidence stays live.
@@ -1562,6 +1668,23 @@ public sealed class IntegrationCensusTests
 
     interface IContext : IIntegrationBindingContextIdentity;
     sealed class Context : IContext;
+    sealed class CountingContext(int id) : IIntegrationBindingContextIdentity
+    {
+        public static int EqualsCalls { get; private set; }
+
+        public static void Reset() => EqualsCalls = 0;
+
+        public override bool Equals(object? obj)
+        {
+            EqualsCalls++;
+            return obj is CountingContext other
+                && id == other.Id;
+        }
+
+        public override int GetHashCode() => id;
+
+        int Id => id;
+    }
     sealed class SurfaceIdentity : IAnalysisReportSurfaceIdentity;
     sealed class TargetIdentity : IAnalysisTargetIdentity;
     sealed class UniverseIdentity : IAnalysisUniverseIdentity;
@@ -1573,11 +1696,9 @@ public sealed class IntegrationCensusTests
     sealed class PolicyFailure : IIntegrationProducerPolicyFailure;
     sealed class CandidateFailure : IIntegrationCandidateFailure;
 
-    // A same-context observed/opportunity pair sharing one concept and one
-    // exact target Type/assembly, so the opportunity can legitimately be
-    // fulfilled by the observation. The observation names the opportunity's
-    // policy target Type in that target's assembly, and its resolved terminal
-    // is the fulfillment's proof target.
+    // A same-context observed adapter member and opportunity sharing one
+    // concept and exact target. The proof source is the SDK Type the adapter
+    // extends, not the adapter member that supplied observed evidence.
     sealed class SuppressionFixture
     {
         readonly IntegrationSourceParticipantIdentity _participant;
@@ -1595,11 +1716,16 @@ public sealed class IntegrationCensusTests
             ObservedCandidate = IntegrationCensusTests.ObservedCandidate(
                 _participant,
                 IntegrationConceptCatalog.AI,
-                AssemblyPeer(Assembly("Peer.Lib"), TypeName("Peer", "Client")));
+                AssemblyPeer(
+                    Assembly("Peer.Lib"),
+                    TypeName("Peer", "Client")),
+                new IntegrationCandidateSourceElement.Member(
+                    TypeName("Adapters", "ChatClientAdapter"),
+                    Anchor("Adapters.ChatClientAdapter")));
             _observedTerminal = PeerTerminal(ObservedCandidate);
             Fulfillment = new IntegrationOpportunityFulfillment(
                 SourceType(OpportunityCandidateId),
-                Resolved(_observedTerminal));
+                Resolved(OpportunityCandidateId, _observedTerminal));
         }
 
         public IContext Context { get; }
@@ -1641,7 +1767,9 @@ public sealed class IntegrationCensusTests
                         ?? new IntegrationCandidateAttempt.Classified(
                             ObservedAttemptAddress,
                             new IntegrationCandidateDisposition.In(
-                                Resolved(_observedTerminal))),
+                                Resolved(
+                                    ObservedCandidate,
+                                    _observedTerminal))),
                     opportunityAttempt,
                 ]);
         }

@@ -621,12 +621,15 @@ its successful resolution must use the attempt address's exact binding-context
 identity; evidence from another context cannot suppress this attempt. The
 suppression receipt also retains the exact acquired source Type and resolved
 target path used by the fulfillment policy. The source must match the
-opportunity source, the path must begin at the opportunity's policy-issued
-target, and its terminal must match the classified observation's terminal
-target. A classified `In` or `Out` observation may fulfill the opportunity
-because both are successful exact resolution outcomes in the same binding
-context. `Failed` retains its typed cause and makes the affected Census
-incomplete. Only `Classified` attempts contribute candidate inventory.
+opportunity source, the path must retain the opportunity's exact policy-issued
+lookup, and its terminal must match the classified observation's terminal
+target. The observation's candidate source remains the adapter member or Type
+that supplied observed evidence; it is not required to equal the SDK source
+Type retained by the fulfillment proof. A classified `In` or `Out` observation
+may fulfill the opportunity because both are successful exact resolution
+outcomes in the same binding context. `Failed` retains its typed cause and
+makes the affected Census incomplete. Only `Classified` attempts contribute
+candidate inventory.
 
 ### Candidate disposition
 
@@ -656,15 +659,18 @@ its terminal definition's selected-universe membership determines `In` or
 healthy domain is the positive proof that distinguishes `Out` from an unknown
 peer.
 
-The core model rejects a resolution path that changes the candidate Type name,
-repeats an exact Type identity, or begins outside the candidate's structured
-assembly, current-assembly, or policy-target scope. The terminal may belong to a
-different assembly after forwarding, and its selected-universe membership
-determines disposition. Module-reference lookup cannot currently produce a
-classified Census attempt because the resolution owner reports that scope as
-unsupported. Intrinsic-core-library resolution remains an owner-issued binding
-result because structural core library authentication belongs to Metadata
-acquisition rather than the Census model.
+The core model requires each successful resolution to retain the exact
+candidate peer lookup that the binding owner consumed. It rejects a path that
+changes the candidate Type name or repeats an exact Type identity, but it does
+not reconstruct assembly selection from the lookup: version unification,
+wildcards, platform roll-forward, and other candidate-selection policy remain
+owned by Metadata binding. The terminal may belong to a different assembly
+after forwarding, and its selected-universe membership determines disposition.
+Module-reference lookup cannot currently produce a classified Census attempt
+because the resolution owner reports that scope as unsupported.
+Intrinsic-core-library resolution remains an owner-issued binding result
+because structural core library authentication belongs to Metadata acquisition
+rather than the Census model.
 
 An unacquired, unavailable, ambiguous, rejected, malformed, or
 selected-but-missing binding cannot become `Out`. A forwarding cycle, rejected
@@ -939,12 +945,14 @@ The projection-neutral core-model slice is verified by:
 - `IntegrationCensus_UnavailableOrFailedProducerYieldsNoCandidatesAndIncompleteness`
 - `IntegrationCensus_DuplicateEvidenceCoalescesRetainingProducerCorrespondence`
 - `IntegrationCensus_CandidateAttemptsCoverCoalescedCandidatesByContext`
+- `IntegrationCensus_LargeContextProductUsesHashBackedAddressing`
 - `IntegrationCensus_EmptyHealthyUniverseIsCompleteAndSuccessful`
 - `IntegrationCensus_ClassifiedInRequiresSelectedTerminalPeer`
 - `IntegrationCensus_ClassifiedOutRequiresUnselectedTerminalPeer`
 - `IntegrationCensus_ClassificationRequiresTerminalPeerMatchingCandidate`
 - `IntegrationCensus_ForwardedClassificationRetainsResolutionPath`
-- `IntegrationCensus_ResolutionRejectsWrongAssemblyForwardingHopAndCycle`
+- `IntegrationCensus_ResolutionRejectsMismatchedLookupForwardingHopAndCycle`
+- `IntegrationCensus_ResolutionRetainsLookupAcrossBindingPolicyVersionSelection`
 - `IntegrationCensus_FailedCandidateHasNoDispositionAndIsIncomplete`
 - `IntegrationCensus_SameCandidateAcrossContextsProducesDistinctAttempts`
 - `IntegrationCensus_AddingOrRemovingSelectedPeerPreservesIdentityWhileFlippingDisposition`

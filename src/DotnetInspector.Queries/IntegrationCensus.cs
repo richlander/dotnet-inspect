@@ -515,9 +515,12 @@ public sealed class IntegrationTypeIdentity :
 public sealed class IntegrationResolvedPeer
 {
     public IntegrationResolvedPeer(
+        IntegrationCandidatePeerIdentity lookup,
         IEnumerable<IntegrationTypeIdentity> resolutionPath)
     {
+        ArgumentNullException.ThrowIfNull(lookup);
         ArgumentNullException.ThrowIfNull(resolutionPath);
+        Lookup = lookup;
         ResolutionPath = [.. resolutionPath];
         if (ResolutionPath.IsEmpty)
         {
@@ -547,6 +550,7 @@ public sealed class IntegrationResolvedPeer
         }
     }
 
+    public IntegrationCandidatePeerIdentity Lookup { get; }
     public ImmutableArray<IntegrationTypeIdentity> ResolutionPath { get; }
     public IntegrationTypeIdentity Terminal => ResolutionPath[^1];
 }
@@ -731,6 +735,11 @@ public sealed class IntegrationCensusCandidate
 /// </summary>
 public sealed class IntegrationCensusSnapshot
 {
+    readonly Dictionary<
+        IntegrationCandidateAttemptAddress,
+        IntegrationCandidateAttempt> _candidateAttemptsByAddress;
+    readonly HashSet<IntegrationTypeIdentity> _selectedTypeSet;
+
     public IntegrationCensusSnapshot(
         AnalysisRequestPlan plan,
         IEnumerable<IntegrationSourceParticipantIdentity> sourceParticipants,
@@ -752,24 +761,23 @@ public sealed class IntegrationCensusSnapshot
 
         SourceParticipants = CopyUnique(
             sourceParticipants,
-            static (left, right) => left.Equals(right),
+            EqualityComparer<IntegrationSourceParticipantIdentity>.Default,
             nameof(sourceParticipants));
         SelectedTypes = CopyUnique(
             selectedTypes,
-            static (left, right) => left.Equals(right),
+            EqualityComparer<IntegrationTypeIdentity>.Default,
             nameof(selectedTypes));
+        _selectedTypeSet = SelectedTypes.ToHashSet();
         BindingContexts = CopyUnique(
             bindingContexts,
-            static (left, right) =>
-                EqualityComparer<IIntegrationBindingContextIdentity>
-                    .Default.Equals(left, right),
+            EqualityComparer<IIntegrationBindingContextIdentity>.Default,
             nameof(bindingContexts));
 
         SourceAttempts = Canonicalize(
             SourceParticipants,
             sourceAttempts,
             static attempt => attempt.Participant,
-            static (left, right) => left.Equals(right),
+            EqualityComparer<IntegrationSourceParticipantIdentity>.Default,
             nameof(sourceAttempts));
 
         RequiredProducerPolicies = RequiredPolicies(plan);
@@ -786,7 +794,7 @@ public sealed class IntegrationCensusSnapshot
             expectedProducerAddresses,
             producerPolicyAttempts,
             static attempt => attempt.Address,
-            static (left, right) => left.Equals(right),
+            EqualityComparer<IntegrationProducerPolicyAttemptAddress>.Default,
             nameof(producerPolicyAttempts));
         ValidateProducerAttempts();
 
@@ -811,8 +819,10 @@ public sealed class IntegrationCensusSnapshot
             expectedCandidateAddresses,
             candidateAttempts,
             static attempt => attempt.Address,
-            static (left, right) => left.Equals(right),
+            EqualityComparer<IntegrationCandidateAttemptAddress>.Default,
             nameof(candidateAttempts));
+        _candidateAttemptsByAddress = CandidateAttempts.ToDictionary(
+            static attempt => attempt.Address);
         ValidateCandidateAttempts();
 
         ClassifiedAttempts =
@@ -909,8 +919,7 @@ public sealed class IntegrationCensusSnapshot
             }
             if (attempt is IntegrationProducerPolicyAttempt.Completed completed
                 && completed.Candidates.Any(candidate =>
-                    !SelectedTypes.Any(selected =>
-                        selected.Equals(SourceTypeOf(candidate)))))
+                    !_selectedTypeSet.Contains(SourceTypeOf(candidate))))
             {
                 throw new ArgumentException(
                     "Candidate evidence requires its source Type in the selected universe.",
@@ -921,9 +930,12 @@ public sealed class IntegrationCensusSnapshot
 
     ImmutableArray<IntegrationCensusCandidate> BuildCandidates()
     {
-        var candidates = new List<(
-            IntegrationCandidateIdentity Identity,
-            List<IntegrationProducerPolicyAttemptAddress> Producers)>();
+        var candidateOrder = new List<IntegrationCandidateIdentity>();
+        var candidateProducers = new Dictionary<
+            IntegrationCandidateIdentity,
+            (
+                List<IntegrationProducerPolicyAttemptAddress> Order,
+                HashSet<IntegrationProducerPolicyAttemptAddress> Set)>();
         foreach (IntegrationProducerPolicyAttempt.Completed attempt
             in ProducerPolicyAttempts.OfType<
                 IntegrationProducerPolicyAttempt.Completed>())
@@ -931,30 +943,30 @@ public sealed class IntegrationCensusSnapshot
             foreach (IntegrationCandidateIdentity candidate
                 in attempt.Candidates)
             {
-                int index = candidates.FindIndex(item =>
-                    item.Identity.Equals(candidate));
-                if (index < 0)
+                if (!candidateProducers.TryGetValue(
+                        candidate,
+                        out var producers))
                 {
-                    candidates.Add((candidate, [attempt.Address]));
-                    continue;
+                    producers = (
+                        [],
+                        []);
+                    candidateProducers.Add(candidate, producers);
+                    candidateOrder.Add(candidate);
                 }
 
-                List<IntegrationProducerPolicyAttemptAddress> producers =
-                    candidates[index].Producers;
-                if (!producers.Any(address =>
-                        address.Equals(attempt.Address)))
+                if (producers.Set.Add(attempt.Address))
                 {
-                    producers.Add(attempt.Address);
+                    producers.Order.Add(attempt.Address);
                 }
             }
         }
 
         return
         [
-            .. candidates.Select(candidate =>
+            .. candidateOrder.Select(candidate =>
                 new IntegrationCensusCandidate(
-                    candidate.Identity,
-                    candidate.Producers)),
+                    candidate,
+                    candidateProducers[candidate].Order)),
         ];
     }
 
@@ -982,7 +994,7 @@ public sealed class IntegrationCensusSnapshot
 
         IntegrationTypeIdentity terminal =
             attempt.Disposition.Peer.Terminal;
-        bool selected = SelectedTypes.Any(type => type.Equals(terminal));
+        bool selected = _selectedTypeSet.Contains(terminal);
         if (attempt.Disposition
                 is IntegrationCandidateDisposition.In
             && !selected
@@ -1029,10 +1041,10 @@ public sealed class IntegrationCensusSnapshot
                 nameof(CandidateAttempts));
         }
 
-        IntegrationCandidateAttempt? fulfillingAttempt =
-            CandidateAttempts.FirstOrDefault(candidateAttempt =>
-                candidateAttempt.Address.Equals(attempt.FulfilledBy));
-        if (fulfillingAttempt
+        if (!_candidateAttemptsByAddress.TryGetValue(
+                attempt.FulfilledBy,
+                out IntegrationCandidateAttempt? fulfillingAttempt)
+            || fulfillingAttempt
                 is not IntegrationCandidateAttempt.Classified classified)
         {
             throw new ArgumentException(
@@ -1061,6 +1073,12 @@ public sealed class IntegrationCensusSnapshot
         IntegrationCandidateIdentity candidate,
         IntegrationResolvedPeer resolved)
     {
+        if (!candidate.Peer.Equals(resolved.Lookup))
+        {
+            throw new ArgumentException(
+                "Resolved peer evidence must retain its exact candidate lookup.",
+                nameof(CandidateAttempts));
+        }
         if (resolved.ResolutionPath.Any(
                 type => type.Type != candidate.Peer.Type))
         {
@@ -1069,34 +1087,15 @@ public sealed class IntegrationCensusSnapshot
                 nameof(CandidateAttempts));
         }
 
-        IntegrationTypeIdentity first = resolved.ResolutionPath[0];
-        bool startsAtPeer = candidate.Peer switch
-        {
-            IntegrationCandidatePeerIdentity.NamedType named =>
-                named.Reference.Scope switch
+        if (resolved.Lookup
+                is IntegrationCandidatePeerIdentity.NamedType
                 {
-                    MetadataTypeReferenceScope.CurrentAssembly =>
-                        first.Participant.Equals(
-                            candidate.Source.Participant),
-                    MetadataTypeReferenceScope.AssemblyReference assembly =>
-                        first.Participant.Assembly.IsEquivalentTo(
-                            assembly.Assembly),
-                    MetadataTypeReferenceScope.ModuleReference => false,
-                    MetadataTypeReferenceScope.IntrinsicCoreLibrary => true,
-                    _ => throw new InvalidOperationException(
-                        "Unknown metadata type-reference scope."),
-                },
-            IntegrationCandidatePeerIdentity.PolicyTarget target =>
-                StringComparer.OrdinalIgnoreCase.Equals(
-                    first.Participant.Assembly.Name,
-                    target.Target.AssemblyName),
-            _ => throw new InvalidOperationException(
-                "Unknown Integration candidate peer identity."),
-        };
-        if (!startsAtPeer)
+                    Reference.Scope:
+                        MetadataTypeReferenceScope.ModuleReference,
+                })
         {
             throw new ArgumentException(
-                "Resolved peer evidence must begin in the candidate peer scope.",
+                "Module-reference peers cannot be classified by the current resolution owner.",
                 nameof(CandidateAttempts));
         }
     }
@@ -1148,26 +1147,26 @@ public sealed class IntegrationCensusSnapshot
 
     static ImmutableArray<T> CopyUnique<T>(
         IEnumerable<T> values,
-        Func<T, T, bool> equals,
+        IEqualityComparer<T> comparer,
         string parameterName)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(values);
         ImmutableArray<T> result = [.. values];
-        if (result.Any(value => value is null))
-            throw new ArgumentException(
-                "The collection cannot contain null.",
-                parameterName);
-        for (int left = 0; left < result.Length; left++)
+        var identities = new HashSet<T>(comparer);
+        foreach (T value in result)
         {
-            for (int right = left + 1; right < result.Length; right++)
+            if (value is null)
             {
-                if (equals(result[left], result[right]))
-                {
-                    throw new ArgumentException(
-                        "The collection cannot contain duplicate identities.",
-                        parameterName);
-                }
+                throw new ArgumentException(
+                    "The collection cannot contain null.",
+                    parameterName);
+            }
+            if (!identities.Add(value))
+            {
+                throw new ArgumentException(
+                    "The collection cannot contain duplicate identities.",
+                    parameterName);
             }
         }
         return result;
@@ -1177,7 +1176,7 @@ public sealed class IntegrationCensusSnapshot
         ImmutableArray<TAddress> expected,
         IEnumerable<TAttempt> supplied,
         Func<TAttempt, TAddress> addressOf,
-        Func<TAddress, TAddress, bool> equals,
+        IEqualityComparer<TAddress> comparer,
         string parameterName)
         where TAddress : class
         where TAttempt : class
@@ -1189,35 +1188,35 @@ public sealed class IntegrationCensusSnapshot
                 "Attempt collections cannot contain null.",
                 parameterName);
 
-        var used = new bool[actual.Length];
+        var attemptsByAddress =
+            new Dictionary<TAddress, TAttempt>(comparer);
+        foreach (TAttempt attempt in actual)
+        {
+            if (!attemptsByAddress.TryAdd(
+                    addressOf(attempt),
+                    attempt))
+            {
+                throw new ArgumentException(
+                    "Attempt collections cannot contain duplicate addresses.",
+                    parameterName);
+            }
+        }
+
         var ordered = ImmutableArray.CreateBuilder<TAttempt>(expected.Length);
         foreach (TAddress expectedAddress in expected)
         {
-            int match = -1;
-            for (int index = 0; index < actual.Length; index++)
-            {
-                if (!equals(expectedAddress, addressOf(actual[index])))
-                    continue;
-                if (match >= 0)
-                {
-                    throw new ArgumentException(
-                        "Attempt collections cannot contain duplicate addresses.",
-                        parameterName);
-                }
-                match = index;
-            }
-
-            if (match < 0)
+            if (!attemptsByAddress.Remove(
+                    expectedAddress,
+                    out TAttempt? attempt))
             {
                 throw new ArgumentException(
                     "Attempt collection is missing an expected address.",
                     parameterName);
             }
-            used[match] = true;
-            ordered.Add(actual[match]);
+            ordered.Add(attempt);
         }
 
-        if (used.Any(value => !value))
+        if (attemptsByAddress.Count != 0)
         {
             throw new ArgumentException(
                 "Attempt collection contains an extraneous address.",
