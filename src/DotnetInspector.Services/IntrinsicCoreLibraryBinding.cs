@@ -18,11 +18,14 @@ static class IntrinsicCoreLibraryBinding
         try
         {
             using Stream stream = requestingAssembly.OpenRead();
-            using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            using var peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
                 return CandidateUnavailable();
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
             if (reader.IsAssembly
                 && IsCoreLibraryFacade(
                     AssemblyReferenceIdentity.FromAssemblyDefinition(
@@ -51,6 +54,14 @@ static class IntrinsicCoreLibraryBinding
                 ?? AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.UnsupportedScope));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            throw;
+        }
+        catch (MalformedMetadataRootException)
+        {
+            throw;
         }
         catch (Exception ex) when (
             ex is IOException

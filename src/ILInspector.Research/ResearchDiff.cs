@@ -1940,22 +1940,60 @@ public static class ResearchDiff
 
         public MethodBodyLookup(string path)
         {
-            _stream = File.OpenRead(path);
-            _peReader = new PEReader(_stream, PEStreamOptions.PrefetchEntireImage);
-            _metadataReader = _peReader.GetMetadataReader();
-            _ownsReaders = true;
+            Stream? stream = null;
+            PEReader? peReader = null;
+            try
+            {
+                stream = File.OpenRead(path);
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.PrefetchEntireImage
+                        | PEStreamOptions.LeaveOpen);
+                _metadataReader =
+                    MetadataFormatAdmission.GetMetadataReader(
+                        peReader);
+                _stream = stream;
+                _peReader = peReader;
+                _ownsReaders = true;
+            }
+            catch (Exception ex)
+            {
+                DisposeAfterFailure(
+                    peReader,
+                    stream,
+                    ex);
+                throw;
+            }
         }
 
         public MethodBodyLookup(BodyIndexEntry entry)
         {
             if (entry.Source is null)
             {
-                _stream = File.OpenRead(entry.Path);
-                _peReader = new PEReader(
-                    _stream,
-                    PEStreamOptions.PrefetchEntireImage);
-                _metadataReader = _peReader.GetMetadataReader();
-                _ownsReaders = true;
+                Stream? stream = null;
+                PEReader? peReader = null;
+                try
+                {
+                    stream = File.OpenRead(entry.Path);
+                    peReader = new PEReader(
+                        stream,
+                        PEStreamOptions.PrefetchEntireImage
+                            | PEStreamOptions.LeaveOpen);
+                    _metadataReader =
+                        MetadataFormatAdmission.GetMetadataReader(
+                            peReader);
+                    _stream = stream;
+                    _peReader = peReader;
+                    _ownsReaders = true;
+                }
+                catch (Exception ex)
+                {
+                    DisposeAfterFailure(
+                        peReader,
+                        stream,
+                        ex);
+                    throw;
+                }
                 return;
             }
 
@@ -1995,6 +2033,29 @@ public static class ResearchDiff
 
             _peReader.Dispose();
             _stream!.Dispose();
+        }
+
+        static void DisposeAfterFailure(
+            PEReader? peReader,
+            Stream? stream,
+            Exception primaryFailure)
+        {
+            ArgumentNullException.ThrowIfNull(primaryFailure);
+            try
+            {
+                peReader?.Dispose();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                stream?.Dispose();
+            }
+            catch
+            {
+            }
         }
     }
 }

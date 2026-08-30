@@ -82,6 +82,34 @@ public sealed class MetadataSourceFormatAdmissionTests
         Assert.Equal(1, opened!.DisposeCount);
     }
 
+    [Fact]
+    public void ReferencedAssembly_CleanupCannotReplaceFormatRejection()
+    {
+        byte[] image = BuildManagedWindowsMetadata();
+        ThrowingDisposeMemoryStream? opened = null;
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => OpenedAssembly.TryOpen(
+                () => opened =
+                    new ThrowingDisposeMemoryStream(image)));
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void ReferencedAssembly_NoMetadataCleanupCannotReplaceNoResult()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+
+        OpenedAssembly? assembly =
+            OpenedAssembly.TryOpen(
+                () => opened =
+                    new ThrowingDisposeMemoryStream(
+                        BuildNoMetadataImage()));
+
+        Assert.Null(assembly);
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
     static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();
@@ -124,6 +152,19 @@ public sealed class MetadataSourceFormatAdmissionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildNoMetadataImage()
+    {
+        byte[] image = BuildManagedWindowsMetadata();
+        using var peReader = new PEReader(
+            ImmutableArray.Create(image));
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
     }
 
     sealed class ThrowingDisposeMemoryStream(byte[] image)

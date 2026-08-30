@@ -60,7 +60,7 @@ public sealed class MetadataFormatAdmissionTests
                 MetadataTokens.MethodDefinitionHandle(2)));
     }
 
-    static byte[] BuildManagedWindowsMetadata()
+    internal static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(

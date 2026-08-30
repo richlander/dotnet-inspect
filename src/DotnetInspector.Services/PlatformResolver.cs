@@ -1230,10 +1230,15 @@ public static class PlatformResolver
         try
         {
             using var stream = File.OpenRead(assemblyPath);
-            using var peReader = new System.Reflection.PortableExecutable.PEReader(stream);
-            if (!peReader.HasMetadata) return false;
+            using var peReader =
+                new System.Reflection.PortableExecutable.PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
+                return false;
 
-            var mdReader = peReader.GetMetadataReader();
+            MetadataReader mdReader =
+                MetadataFormatAdmission.GetMetadataReader(peReader);
             foreach (var handle in mdReader.TypeDefinitions)
             {
                 var typeDef = mdReader.GetTypeDefinition(handle);
@@ -1255,7 +1260,17 @@ public static class PlatformResolver
                     return true;
             }
         }
-        catch { }
+        catch (UnsupportedMetadataFormatException)
+        {
+            throw;
+        }
+        catch (MalformedMetadataRootException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
         return false;
     }
 }

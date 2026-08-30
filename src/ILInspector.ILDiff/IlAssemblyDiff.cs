@@ -104,9 +104,9 @@ public static class IlAssemblyDiff
         using var newPe = new PEReader(newStream, PEStreamOptions.LeaveOpen);
         var result = Compare(
             oldPe,
-            oldPe.GetMetadataReader(),
+            MetadataFormatAdmission.GetMetadataReader(oldPe),
             newPe,
-            newPe.GetMetadataReader(),
+            MetadataFormatAdmission.GetMetadataReader(newPe),
             maxExamples,
             normalization);
         return new IlAssemblyDiffPairResult(oldName, newName, result);

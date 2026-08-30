@@ -335,7 +335,8 @@ public static class ILOffsetProjectionProducer
             static image =>
             {
                 MetadataReader metadata =
-                    image.GetMetadataReader();
+                    MetadataFormatAdmission.GetMetadataReader(
+                        image);
                 return metadata.GetGuid(
                     metadata.GetModuleDefinition().Mvid);
             });

@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.AssemblyOnlyHost.Fixture;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -426,6 +427,28 @@ public sealed class LayeringTests
         Assert.Empty(
             MetadataHasMetadataSites(
                 typeof(LibraryBodyIndex).Assembly.Location));
+    }
+
+    [Fact]
+    public void RemainingProduct_MetadataReadersRequireFormatAdmission()
+    {
+        AssertAdmissionClosed(
+            MetadataReaderConstructionSites,
+            typeof(ILInspector.Decompiler.Pipeline.MetadataSource),
+            typeof(ResearchMatch),
+            typeof(IlAssemblyDiff),
+            typeof(PlatformResolver));
+    }
+
+    [Fact]
+    public void RemainingProduct_MetadataPredicatesRequireFormatAdmission()
+    {
+        AssertAdmissionClosed(
+            MetadataHasMetadataSites,
+            typeof(ILInspector.Decompiler.Pipeline.MetadataSource),
+            typeof(ResearchMatch),
+            typeof(IlAssemblyDiff),
+            typeof(PlatformResolver));
     }
 
     [Fact]
@@ -1194,6 +1217,24 @@ public sealed class LayeringTests
         MetadataCallSites(
             assemblyPath,
             CallsPeReaderHasMetadata);
+
+    static void AssertAdmissionClosed(
+        Func<string, IEnumerable<string>> callSites,
+        params Type[] assemblyMarkers)
+    {
+        foreach (Type marker in assemblyMarkers)
+        {
+            string[] sites =
+                callSites(marker.Assembly.Location)
+                    .Order(StringComparer.Ordinal)
+                    .ToArray();
+            Assert.True(
+                sites.Length == 0,
+                $"Raw assembly metadata calls remain in "
+                + $"{marker.Assembly.GetName().Name}: "
+                + string.Join(", ", sites));
+        }
+    }
 
     static IEnumerable<string> MetadataCallSites(
         string assemblyPath,

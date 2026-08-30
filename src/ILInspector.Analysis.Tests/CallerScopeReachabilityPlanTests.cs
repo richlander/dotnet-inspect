@@ -133,6 +133,95 @@ public class CallerScopeReachabilityPlanTests
             plan.Resolution.GetRelation(caller, callerType));
     }
 
+    [Fact]
+    public void Candidate_CleanupCannotReplaceFormatRejection()
+    {
+        byte[] targetImage = BuildTarget();
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        ThrowingDisposeMemoryStream? opened = null;
+        var candidate = ResolvedAssemblyReference.Create(
+            UnsupportedIdentity(),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                MetadataFormatAdmissionTests
+                    .BuildManagedWindowsMetadata()),
+            AssemblyResolutionProvenance.Local(
+                "analysis format admission test"));
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => CallerScopeReachabilityPlan.Create(
+                new ExactPolicy([]),
+                target,
+                ReadTargetDefinition(targetImage),
+                [candidate]));
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void Candidate_NoMetadataCleanupCannotReplaceUnopenable()
+    {
+        byte[] targetImage = BuildTarget();
+        AssemblyReferenceIdentity targetIdentity =
+            ReadIdentity(targetImage);
+        byte[] candidateImage = BuildCaller(targetIdentity);
+        ThrowingDisposeMemoryStream? opened = null;
+        var candidate = ResolvedAssemblyReference.Create(
+            ReadIdentity(candidateImage),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                BuildNoMetadataImage(candidateImage)),
+            AssemblyResolutionProvenance.Local(
+                "analysis format admission test"));
+
+        _ = CallerScopeReachabilityPlan.Create(
+            new ExactPolicy([]),
+            Descriptor(targetImage),
+            ReadTargetDefinition(targetImage),
+            [candidate]);
+
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void ReferencedAssembly_CleanupCannotReplaceFormatRejection()
+    {
+        ThrowingDisposeMemoryStream? opened = null;
+        var candidate = ResolvedAssemblyReference.Create(
+            UnsupportedIdentity(),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                MetadataFormatAdmissionTests
+                    .BuildManagedWindowsMetadata()),
+            AssemblyResolutionProvenance.Local(
+                "analysis format admission test"));
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => LibraryBodyReferenceMetadataResolver
+                .ReferencedAssemblyMetadata
+                .TryOpen(candidate));
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void ReferencedAssembly_NoMetadataCleanupCannotReplaceNoResult()
+    {
+        byte[] source = BuildTarget();
+        ThrowingDisposeMemoryStream? opened = null;
+        var candidate = ResolvedAssemblyReference.Create(
+            ReadIdentity(source),
+            path: null,
+            () => opened = new ThrowingDisposeMemoryStream(
+                BuildNoMetadataImage(source)),
+            AssemblyResolutionProvenance.Local(
+                "analysis format admission test"));
+
+        Assert.Null(
+            LibraryBodyReferenceMetadataResolver
+                .ReferencedAssemblyMetadata
+                .TryOpen(candidate));
+        Assert.Equal(1, opened!.DisposeCount);
+    }
+
     static TypeRef ReadTargetDefinition(byte[] image)
     {
         using var stream = new MemoryStream(image, writable: false);
@@ -268,6 +357,26 @@ public class CallerScopeReachabilityPlanTests
         return image.ToArray();
     }
 
+    static byte[] BuildNoMetadataImage(byte[] source)
+    {
+        byte[] image = (byte[])source.Clone();
+        using var peReader = new PEReader(
+            ImmutableArray.Create(image));
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
+    }
+
+    static AssemblyReferenceIdentity UnsupportedIdentity() =>
+        new(
+            "Unsupported",
+            new Version(1, 0, 0, 0),
+            Culture: null,
+            PublicKeyToken: null);
+
     static ResolvedAssemblyReference Descriptor(byte[] image) =>
         ResolvedAssemblyReference.Create(
             ReadIdentity(image),
@@ -317,5 +426,23 @@ public class CallerScopeReachabilityPlanTests
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request) =>
             AssemblyBindingSelection.Found(selected);
+    }
+
+    sealed class ThrowingDisposeMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                DisposeCount++;
+            base.Dispose(disposing);
+            if (disposing)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic disposal failure.");
+            }
+        }
     }
 }

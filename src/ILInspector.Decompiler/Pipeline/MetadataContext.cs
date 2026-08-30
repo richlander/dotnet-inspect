@@ -276,24 +276,91 @@ internal sealed class OpenedAssembly : IDisposable
     {
         Stream? stream = null;
         PEReader? pe = null;
+        bool unavailableEstablished = false;
         try
         {
             stream = openRead();
-            pe = new PEReader(stream);
-            if (!pe.HasMetadata)
+            pe = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(pe))
             {
-                pe.Dispose();
-                stream.Dispose();
+                unavailableEstablished = true;
                 return null;
             }
-            return new OpenedAssembly(stream, pe, pe.GetMetadataReader());
+            OpenedAssembly result = new(
+                stream,
+                pe,
+                MetadataFormatAdmission.GetMetadataReader(pe));
+            stream = null;
+            pe = null;
+            return result;
         }
-        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        catch (UnsupportedMetadataFormatException ex)
         {
-            pe?.Dispose();
-            stream?.Dispose();
+            DisposeAfterFailure(ref pe, ref stream, ex);
+            throw;
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            DisposeAfterFailure(ref pe, ref stream, ex);
+            throw;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or BadImageFormatException
+                or UnauthorizedAccessException)
+        {
+            DisposeAfterFailure(ref pe, ref stream, ex);
             return null;
         }
+        catch (Exception ex)
+        {
+            DisposeAfterFailure(ref pe, ref stream, ex);
+            throw;
+        }
+        finally
+        {
+            if (unavailableEstablished)
+                DisposeWithoutReplacingOutcome(ref pe, ref stream);
+            else
+            {
+                pe?.Dispose();
+                stream?.Dispose();
+            }
+        }
+    }
+
+    static void DisposeAfterFailure(
+        ref PEReader? pe,
+        ref Stream? stream,
+        Exception primaryFailure)
+    {
+        ArgumentNullException.ThrowIfNull(primaryFailure);
+        DisposeWithoutReplacingOutcome(ref pe, ref stream);
+    }
+
+    static void DisposeWithoutReplacingOutcome(
+        ref PEReader? pe,
+        ref Stream? stream)
+    {
+        try
+        {
+            pe?.Dispose();
+        }
+        catch
+        {
+        }
+        pe = null;
+
+        try
+        {
+            stream?.Dispose();
+        }
+        catch
+        {
+        }
+        stream = null;
     }
 
     /// <summary>

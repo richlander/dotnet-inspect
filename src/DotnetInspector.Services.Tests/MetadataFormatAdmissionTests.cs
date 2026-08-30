@@ -5,12 +5,32 @@ using System.Reflection.PortableExecutable;
 
 using ILInspector.Metadata;
 
-namespace ILInspector.Research.Tests;
+namespace DotnetInspector.Services.Tests;
 
-public sealed class AnalysisIndexCacheAdmissionTests
+public sealed class MetadataFormatAdmissionTests
 {
     [Fact]
-    public void ForAssembly_UnsupportedSnapshotIsTyped()
+    public void PlatformHasType_RejectsWindowsMetadata()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-platform-{Guid.NewGuid():N}.winmd");
+        File.WriteAllBytes(path, BuildManagedWindowsMetadata());
+        try
+        {
+            Assert.Throws<UnsupportedMetadataFormatException>(
+                () => PlatformResolver.HasType(
+                    path,
+                    "System.Object"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void IntrinsicBinding_RejectsWindowsMetadata()
     {
         byte[] image = BuildManagedWindowsMetadata();
         var assembly = ResolvedAssemblyReference.Create(
@@ -22,25 +42,12 @@ public sealed class AnalysisIndexCacheAdmissionTests
             path: null,
             () => new MemoryStream(image, writable: false),
             AssemblyResolutionProvenance.Local(
-                "research format admission test"));
+                "services format admission test"));
 
         Assert.Throws<UnsupportedMetadataFormatException>(
-            () => AnalysisIndexCache.ForAssembly(assembly));
-    }
-
-    [Fact]
-    public void ResearchMatch_RejectsWindowsMetadata()
-    {
-        byte[] image = BuildManagedWindowsMetadata();
-        using var peReader = new PEReader(
-            new MemoryStream(image, writable: false));
-
-        Assert.Throws<UnsupportedMetadataFormatException>(
-            () => ResearchMatch.Compare(
-                "Unsupported.winmd",
-                peReader,
-                MetadataTokens.MethodDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(2)));
+            () => IntrinsicCoreLibraryBinding.Select(
+                assembly,
+                static _ => AssemblyBindingSelection.NotFound()));
     }
 
     static byte[] BuildManagedWindowsMetadata()
@@ -48,7 +55,7 @@ public sealed class AnalysisIndexCacheAdmissionTests
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
-            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddString("Unsupported.winmd"),
             metadata.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);

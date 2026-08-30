@@ -1,7 +1,10 @@
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.ILDiff.Tests;
 
@@ -82,6 +85,23 @@ public class IlAssemblyDiffTests
 
         Assert.True(oldStream.CanRead);
         Assert.True(newStream.CanRead);
+    }
+
+    [Fact]
+    public void CompareStreams_RejectsWindowsMetadata()
+    {
+        byte[] image = BuildManagedWindowsMetadata();
+        using var oldStream =
+            new MemoryStream(image, writable: false);
+        using var newStream =
+            new MemoryStream(image, writable: false);
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => IlAssemblyDiff.CompareStreams(
+                oldStream,
+                "old.winmd",
+                newStream,
+                "new.winmd"));
     }
 
     [Fact]
@@ -188,5 +208,42 @@ public class IlAssemblyDiffTests
         }
 
         throw new InvalidOperationException($"{typeName}.{methodName} not found.");
+    }
+
+    static byte[] BuildManagedWindowsMetadata()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.winmd"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 }

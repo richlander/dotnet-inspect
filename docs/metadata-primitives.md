@@ -223,9 +223,11 @@ no-metadata boundary. Neither it nor a malformed-root result is translated to
 Acquisition owners call it before exposing metadata sessions. Public or
 reusable `PEReader` entry points that can bypass those owners call it directly.
 That closure includes `AssemblyImage`, `PdbContext`, Decompiler
-`MetadataSource`, Analysis `LibraryBodyIndex` and its referenced-image
-consumers, `MetadataImageInspector`, every `MetadataTableProjector`
-table/row/reference/heap operation, and the defensive
+`MetadataSource`, referenced-assembly context, and body production; Analysis
+`LibraryBodyIndex` and its referenced-image consumers; Research and ILDiff
+assembly comparison; Services platform and intrinsic-core-library probes;
+`MetadataImageInspector`; every `MetadataTableProjector`
+table/row/reference/heap operation; and the defensive
 `MethodSemanticsRowReader` leaf check. `MDP017` in
 [member inspection planning and Metadata
 projection](design/member-inspection-planning-and-metadata-projection.md) gates
@@ -246,12 +248,18 @@ same compiled-IL closure to Decompiler `MetadataSource` predicates and reader
 construction. The `Analysis_MetadataReadersRequireFormatAdmission` and
 `Analysis_MetadataPredicatesRequireFormatAdmission` gates close the same raw
 reader and predicate paths across the Analysis assembly.
+`RemainingProduct_MetadataReadersRequireFormatAdmission` and
+`RemainingProduct_MetadataPredicatesRequireFormatAdmission` close those paths
+across Decompiler, Research, ILDiff, and Services without treating wrapper
+state or portable-PDB readers as assembly-metadata admission sites.
 `MetadataAdmissionCleanupTests`,
 `MetadataSourceFormatAdmissionTests`, and
 `SignatureSpellabilityTests.InspectField_CleanupCannotDegradeFormatRejection`
 gate cleanup precedence across the stream-backed Metadata and Decompiler
 admission consumers. `MetadataFormatAdmissionTests` and
 `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation.
+`IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata` and the Services
+`MetadataFormatAdmissionTests` gate ILDiff and Services propagation.
 Browser projection
 preservation is gated by
 `BrowserMetadataOperationsTests.MetadataProjection_PreservesFormatRejection`.

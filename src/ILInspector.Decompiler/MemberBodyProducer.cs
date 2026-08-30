@@ -599,8 +599,11 @@ public static class MemberBodyProducer
             try
             {
                 stream = definition.Assembly.Assembly.OpenRead();
-                peReader = new PEReader(stream);
-                MetadataReader reader = peReader.GetMetadataReader();
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+                MetadataReader reader =
+                    MetadataFormatAdmission.GetMetadataReader(peReader);
 
                 if (!definition.Address.TryResolve(
                         reader,
@@ -667,6 +670,14 @@ public static class MemberBodyProducer
                             type.Namespace,
                             bodyNamespaces));
             }
+            catch (Exception ex)
+            {
+                DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
+                throw;
+            }
             finally
             {
                 peReader?.Dispose();
@@ -703,8 +714,11 @@ public static class MemberBodyProducer
             try
             {
                 stream = definition.Assembly.Assembly.OpenRead();
-                peReader = new PEReader(stream);
-                MetadataReader reader = peReader.GetMetadataReader();
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+                MetadataReader reader =
+                    MetadataFormatAdmission.GetMetadataReader(peReader);
 
                 if (!definition.Address.TryResolve(
                         reader,
@@ -746,6 +760,14 @@ public static class MemberBodyProducer
                 var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
                 string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
                 return new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+            }
+            catch (Exception ex)
+            {
+                DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
+                throw;
             }
             finally
             {
@@ -808,8 +830,11 @@ public static class MemberBodyProducer
             try
             {
                 stream = definition.Assembly.Assembly.OpenRead();
-                peReader = new PEReader(stream);
-                MetadataReader reader = peReader.GetMetadataReader();
+                peReader = new PEReader(
+                    stream,
+                    PEStreamOptions.LeaveOpen);
+                MetadataReader reader =
+                    MetadataFormatAdmission.GetMetadataReader(peReader);
 
                 if (!definition.Address.TryResolve(
                         reader,
@@ -861,6 +886,14 @@ public static class MemberBodyProducer
 
                 return results;
             }
+            catch (Exception ex)
+            {
+                DisposeAfterFailure(
+                    ref peReader,
+                    ref stream,
+                    ex);
+                throw;
+            }
             finally
             {
                 peReader?.Dispose();
@@ -879,6 +912,31 @@ public static class MemberBodyProducer
             MemberBodyProductionStatus.Failed,
             $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
             []);
+
+    static void DisposeAfterFailure(
+        ref PEReader? peReader,
+        ref Stream? stream,
+        Exception primaryFailure)
+    {
+        ArgumentNullException.ThrowIfNull(primaryFailure);
+        try
+        {
+            peReader?.Dispose();
+        }
+        catch
+        {
+        }
+        peReader = null;
+
+        try
+        {
+            stream?.Dispose();
+        }
+        catch
+        {
+        }
+        stream = null;
+    }
 
     sealed record UnionDeclarationInfo(
         IReadOnlyList<string> CaseTypes,
