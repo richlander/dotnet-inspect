@@ -431,6 +431,8 @@ public sealed record DirectCall(
     /// </summary>
     public ResolvedValueSet? ResolvedReceiverValue { get; init; }
 
+    internal bool SecondByRefArgumentIsCurrentInstance { get; init; }
+
     /// <summary>
     /// Ordered element provenance for span-shaped arguments the C# compiler
     /// built from a recognized inline-array or single-element
@@ -686,6 +688,32 @@ public sealed record MethodResultSink(
     /// <c>MethodCallResolvedValueTests.ResolvesResultSinkValues</c> gates it.
     /// </remarks>
     public ResolvedValueSet? ResolvedValue { get; init; }
+
+    /// <summary>
+    /// Exact direct-call sources recovered through one authenticated compiler
+    /// async state-machine field. Null unless Analysis proves one unambiguous
+    /// store that dominates the initial suspension and the corresponding load
+    /// after every suspension in the physical body, with no field-address
+    /// escape or exact store outside that body, into the same exact trusted
+    /// framework async-builder field used by every suspension. The source task
+    /// and builder families and result types must match. Scoped body indexes
+    /// withhold this whole-assembly absence proof.
+    /// </summary>
+    /// <remarks>
+    /// This augments rather than reinterprets
+    /// <see cref="SourceCallOffsets"/>/<see cref="IsComplete"/>: those members
+    /// retain their direct evaluation-stack meaning.
+    /// <c>LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias</c>
+    /// and
+    /// <c>LibraryBodyIndexTests.ResultSinks_AuthenticateStateMachineCompletionBuilderField</c>
+    /// gate this contract.
+    /// </remarks>
+    public AsyncStateMachineFieldResultSource? StateMachineFieldSource
+        { get; init; }
 }
 
 /// <summary>

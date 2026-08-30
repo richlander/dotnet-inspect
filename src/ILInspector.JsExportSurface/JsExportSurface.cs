@@ -98,10 +98,11 @@ public sealed class JsExportFunction
     /// when more than one distinct DTO was found for the return position (an ambiguity this is
     /// left unresolved rather than guessed — see <see cref="JsonWireContractResolver"/> remarks).
     /// Compiler-state-machine and runtime-async implementations issue the same fact when Analysis
-    /// proves the same direct serializer-to-completion contract; gated by
-    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>.
-    /// Serializer values hoisted through a compiler state-machine field remain unresolved pending
-    /// issue #5025.
+    /// proves the same serializer-to-completion contract, including a serializer result carried
+    /// through an authenticated compiler state-machine field; gated by
+    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>
+    /// and
+    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension</c>.
     /// </summary>
     public string? ReturnWireType { get; init; }
 

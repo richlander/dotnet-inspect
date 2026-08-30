@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 
 using ILInspector.ControlFlow;
@@ -75,7 +76,8 @@ internal static partial class MethodCallAnalysis
     /// <summary>
     /// Records one <see cref="FieldStoreFact"/> per physical <c>stsfld</c> or
     /// <c>stfld</c>, including stores whose value stays unresolved, and one
-    /// <see cref="FieldLoadFact"/> per physical <c>ldsfld</c> or <c>ldfld</c>.
+    /// <see cref="FieldLoadFact"/> per physical <c>ldsfld</c>, <c>ldfld</c>,
+    /// <c>ldsflda</c>, or <c>ldflda</c>.
     /// </summary>
     static void CollectFieldAccesses(
         MethodBodyAnalysisContext context,
@@ -96,6 +98,8 @@ internal static partial class MethodCallAnalysis
                     break;
                 case ILOpCode.Ldsfld:
                 case ILOpCode.Ldfld:
+                case ILOpCode.Ldsflda:
+                case ILOpCode.Ldflda:
                     CollectFieldLoad(instruction);
                     break;
                 default:
@@ -132,7 +136,10 @@ internal static partial class MethodCallAnalysis
 
         void CollectFieldLoad(DecodedInstruction instruction)
         {
-            bool isStatic = instruction.OpCode == ILOpCode.Ldsfld;
+            bool isStatic = instruction.OpCode is
+                ILOpCode.Ldsfld or ILOpCode.Ldsflda;
+            bool isAddress = instruction.OpCode is
+                ILOpCode.Ldsflda or ILOpCode.Ldflda;
             int token = MethodInstructionFacts.OperandInt32(instruction);
             (TypeRef? declaringType, string? name) =
                 resolver.ResolveFieldOwner(token);
@@ -150,7 +157,10 @@ internal static partial class MethodCallAnalysis
                 isStatic
                     ? -1
                     : ReceiverArgument(instruction.Offset, depthFromTop: 0),
-                IsReachableAt(context, reachability, instruction.Offset)));
+                IsReachableAt(context, reachability, instruction.Offset))
+            {
+                IsAddress = isAddress,
+            });
         }
 
         int ReceiverArgument(int offset, int depthFromTop)
@@ -159,6 +169,652 @@ internal static partial class MethodCallAnalysis
                 ? argument.ArgumentIndex
                 : -1;
     }
+
+    static void CollectCurrentInstanceMutations(
+        MethodBodyAnalysisContext context,
+        StackValueSourceResolver sources,
+        ImmutableArray<bool> reachability,
+        IEnumerable<DirectCall> calls,
+        ImmutableArray<int>.Builder mutations)
+    {
+        if (context.Method.IsStatic
+            || context.Method.Name == ".ctor")
+            return;
+
+        foreach (DecodedInstruction instruction
+            in context.Instructions.Instructions)
+        {
+            int destinationDepth = instruction.OpCode switch
+            {
+                ILOpCode.Initobj => 0,
+                ILOpCode.Stobj or ILOpCode.Cpobj => 1,
+                ILOpCode.Stind_i
+                    or ILOpCode.Stind_i1
+                    or ILOpCode.Stind_i2
+                    or ILOpCode.Stind_i4
+                    or ILOpCode.Stind_i8
+                    or ILOpCode.Stind_r4
+                    or ILOpCode.Stind_r8
+                    or ILOpCode.Stind_ref => 1,
+                ILOpCode.Initblk or ILOpCode.Cpblk => 2,
+                _ => -1,
+            };
+            if (destinationDepth < 0
+                || IsReachableAt(
+                    context,
+                    reachability,
+                    instruction.Offset) == false)
+            {
+                continue;
+            }
+
+            if (IncludesCurrentInstance(
+                    sources.ResolveStackSlot(
+                        instruction.Offset,
+                        destinationDepth)))
+            {
+                mutations.Add(instruction.Offset);
+            }
+        }
+
+        foreach (DirectCall call in calls)
+        {
+            if (call.Caller != context.Method
+                || call.EvidenceMethod != context.Method
+                || call.IsReachable == false)
+            {
+                continue;
+            }
+            if (call.Kind == CallKind.CallIndirect)
+            {
+                mutations.Add(call.ILOffset);
+                continue;
+            }
+            if (call.Kind is not (CallKind.Call
+                or CallKind.CallVirtual
+                or CallKind.NewObject))
+            {
+                continue;
+            }
+
+            int parameterCount = call.Callee.ParameterTypes.Length;
+            for (int argument = 0;
+                argument < parameterCount;
+                argument++)
+            {
+                if (call.Callee.ParameterTypes[argument].Kind
+                        != TypeRefKind.ByRef
+                    || !IncludesCurrentInstance(
+                        sources.ResolveArgumentValue(
+                            call.ILOffset,
+                            parameterCount,
+                            argument)))
+                {
+                    continue;
+                }
+
+                if (argument == 1
+                    && IsAuthenticatedAsyncBuilderSuspension(
+                        context.Method,
+                        call))
+                {
+                    continue;
+                }
+
+                mutations.Add(call.ILOffset);
+            }
+
+            if (call.Kind is CallKind.Call or CallKind.CallVirtual
+                && call.Callee.HasThis
+                && !call.Callee.DeclaringType.Equals(
+                    context.Method.DeclaringType)
+                && IncludesCurrentInstance(
+                    sources.ResolveReceiverValue(
+                        call.ILOffset,
+                        parameterCount)))
+            {
+                mutations.Add(call.ILOffset);
+            }
+        }
+    }
+
+    static bool IncludesCurrentInstance(ResolvedValueSet value)
+        => value.IsResolved
+            && value.Sources.Any(source =>
+                source is
+                {
+                    Kind: ResolvedValueSourceKind.Argument,
+                    ArgumentIndex: 0,
+                });
+
+    internal static void AttachAsyncStateMachineFieldResultSources(
+        MethodBodyAnalysisContext context,
+        AsyncBodyAttribution asyncBody,
+        ImmutableArray<DirectCall>.Builder calls,
+        ImmutableArray<FieldStoreFact>.Builder fieldStores,
+        ImmutableArray<FieldLoadFact>.Builder fieldLoads,
+        ImmutableArray<int>.Builder currentInstanceMutations,
+        ImmutableArray<MethodResultSink>.Builder resultSinks)
+    {
+        TypeRef asyncResultType =
+            asyncBody.SourceMethod.ReturnType;
+        if (asyncBody.Lowering != AsyncLoweringKind.StateMachine
+            || asyncBody.SourceMethod == context.Method
+            || !IsSupportedFrameworkAsyncResult(
+                asyncResultType)
+            || currentInstanceMutations.Count != 0)
+        {
+            return;
+        }
+
+        DirectCall[] suspensions =
+        [
+            .. calls
+                .Where(call =>
+                    call.Caller == context.Method
+                    && call.IsReachable != false
+                    && IsFrameworkAsyncBuilderSuspension(
+                        call.Callee))
+                .OrderBy(call => call.ILOffset),
+        ];
+        DirectCall[] completions =
+        [
+            .. calls
+                .Where(call =>
+                    call.Caller == context.Method
+                    && call.IsReachable != false
+                    && IsFrameworkAsyncBuilderCompletion(
+                        call.Callee))
+                .OrderBy(call => call.ILOffset),
+        ];
+        if (suspensions.Length == 0
+            || suspensions.Any(call =>
+                !IsAuthenticatedAsyncBuilderSuspension(
+                    context.Method,
+                    call)
+                || !IsCompatibleFrameworkAsyncBuilder(
+                    asyncResultType,
+                    call.Callee.DeclaringType))
+            || !TryGetBuilderField(
+                context.Method,
+                suspensions[0],
+                out FieldIdentity? builderField)
+            || suspensions.Any(call =>
+                !TryGetBuilderField(
+                    context.Method,
+                    call,
+                    out FieldIdentity? candidate)
+                || !builderField.Equals(candidate))
+            || completions.Length == 0
+            || completions.Any(call =>
+                !IsAsyncBuilderResult(
+                    call.Callee,
+                    asyncResultType)
+                || !TryGetBuilderField(
+                    context.Method,
+                    call,
+                    out FieldIdentity? candidate)
+                || !builderField.Equals(candidate)))
+        {
+            return;
+        }
+
+        int[] suspensionOffsets =
+            [.. suspensions.Select(call => call.ILOffset)];
+        Dominators dominators = Dominators.Of(
+            context.Blocks.Blocks
+                .Select(static block => block.Edges)
+                .ToArray());
+
+        for (int index = 0; index < resultSinks.Count; index++)
+        {
+            MethodResultSink sink = resultSinks[index];
+            DirectCall? sinkCall = calls.FirstOrDefault(
+                call => call.Caller == context.Method
+                    && call.ILOffset == sink.ILOffset);
+            if (sink.Caller != context.Method
+                || sink.EvidenceMethod != context.Method
+                || sink.Kind
+                    != MethodResultSinkKind.SingleArgumentCall
+                || sinkCall is null
+                || !IsAsyncBuilderResult(
+                    sinkCall.Callee,
+                    asyncResultType)
+                || !TryGetBuilderField(
+                    context.Method,
+                    sinkCall,
+                    out FieldIdentity? sinkBuilderField)
+                || !builderField.Equals(sinkBuilderField)
+                || sink.ResolvedValue?.Single is not
+                    {
+                        Kind: ResolvedValueSourceKind.InstanceFieldLoad,
+                        ArgumentIndex: 0,
+                        FieldIdentity: { LocalDefinitionToken: not 0 } field,
+                    } loadSource
+                || !field.DeclaringType.Equals(
+                    context.Method.DeclaringType))
+            {
+                continue;
+            }
+
+            FieldLoadFact[] matchingLoads =
+            [
+                .. fieldLoads.Where(load =>
+                    load.Caller == context.Method
+                    && load.EvidenceMethod == context.Method
+                    && load.ILOffset == loadSource.ILOffset
+                    && !load.IsStatic
+                    && !load.IsAddress
+                    && load.ReceiverArgumentIndex == 0
+                    && load.IsReachable == true
+                    && field.Equals(load.Identity)),
+            ];
+            if (matchingLoads.Length != 1)
+                continue;
+            if (fieldLoads.Any(load =>
+                load.Caller == context.Method
+                && load.EvidenceMethod == context.Method
+                && load.IsAddress
+                && load.IsReachable != false
+                && field.MightBeSameFieldAs(load.Identity)))
+            {
+                continue;
+            }
+
+            if (!TryFindAsyncStateMachineFieldSourceStore(
+                    context.Method,
+                    field,
+                    loadSource.ILOffset,
+                    fieldStores,
+                    out FieldStoreFact? sourceStore)
+                || HasUnsafeNullCleanup(
+                    context,
+                    field,
+                    loadSource.ILOffset,
+                    fieldStores)
+                || context.IsInLoopRegion(sourceStore.ILOffset)
+                || sourceStore.ILOffset >= suspensionOffsets[0]
+                || !DominatesOffset(
+                    context,
+                    dominators,
+                    sourceStore.ILOffset,
+                    suspensionOffsets[0])
+                || suspensions.Any(call =>
+                    CanReachOffset(
+                        context,
+                        call.ILOffset,
+                        loadSource.ILOffset))
+                || loadSource.ILOffset
+                    <= suspensionOffsets[^1]
+                || !TryCallResultOffsets(
+                    sourceStore.Value,
+                    out ImmutableArray<int> sourceCallOffsets))
+            {
+                continue;
+            }
+
+            resultSinks[index] = sink with
+            {
+                StateMachineFieldSource =
+                    new AsyncStateMachineFieldResultSource(
+                        field,
+                        sourceStore.ILOffset,
+                        loadSource.ILOffset,
+                        sourceCallOffsets),
+            };
+        }
+    }
+
+    static bool TryGetBuilderField(
+        MethodIdentity method,
+        DirectCall call,
+        [NotNullWhen(true)]
+        out FieldIdentity? field)
+    {
+        if (call.Caller == method
+            && call.EvidenceMethod == method
+            && call.ResolvedReceiverValue?.Single is
+            {
+                Kind: ResolvedValueSourceKind.InstanceFieldAddress,
+                ArgumentIndex: 0,
+                FieldIdentity: { LocalDefinitionToken: not 0 } candidate,
+            }
+            && candidate.DeclaringType.Equals(method.DeclaringType))
+        {
+            field = candidate;
+            return true;
+        }
+
+        field = null;
+        return false;
+    }
+
+    static bool DominatesOffset(
+        MethodBodyAnalysisContext context,
+        Dominators dominators,
+        int sourceOffset,
+        int targetOffset)
+    {
+        int sourceBlock =
+            context.Blocks.BlockIndexAt(sourceOffset);
+        int targetBlock =
+            context.Blocks.BlockIndexAt(targetOffset);
+        return sourceBlock >= 0
+            && targetBlock >= 0
+            && dominators.Dominates(
+                sourceBlock,
+                targetBlock);
+    }
+
+    static bool HasUnsafeNullCleanup(
+        MethodBodyAnalysisContext context,
+        FieldIdentity field,
+        int loadOffset,
+        IEnumerable<FieldStoreFact> fieldStores)
+        => fieldStores.Any(store =>
+            store.Caller == context.Method
+            && store.EvidenceMethod == context.Method
+            && store.ILOffset >= loadOffset
+            && store.IsReachable == true
+            && field.Equals(store.Identity)
+            && IsNullReference(store.Value)
+            && CanReachOffset(
+                context,
+                store.ILOffset,
+                loadOffset));
+
+    static bool CanReachOffset(
+        MethodBodyAnalysisContext context,
+        int sourceOffset,
+        int targetOffset)
+    {
+        if (!context.Blocks.IsComplete)
+            return true;
+
+        int sourceBlock =
+            context.Blocks.BlockIndexAt(sourceOffset);
+        int targetBlock =
+            context.Blocks.BlockIndexAt(targetOffset);
+        if (sourceBlock < 0 || targetBlock < 0)
+            return true;
+        if (sourceBlock == targetBlock
+            && sourceOffset <= targetOffset)
+        {
+            return true;
+        }
+
+        var visited = new bool[context.Blocks.Blocks.Length];
+        var pending = new Queue<int>();
+        visited[sourceBlock] = true;
+        foreach (int successor in
+            context.Blocks.Blocks[sourceBlock].Edges.Successors)
+        {
+            pending.Enqueue(successor);
+        }
+
+        while (pending.Count != 0)
+        {
+            int block = pending.Dequeue();
+            if (block == targetBlock)
+                return true;
+            if ((uint)block >= (uint)visited.Length
+                || visited[block])
+            {
+                continue;
+            }
+
+            visited[block] = true;
+            foreach (int successor in
+                context.Blocks.Blocks[block].Edges.Successors)
+            {
+                pending.Enqueue(successor);
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool IsSupportedFrameworkAsyncResult(
+        TypeRef returnType)
+        => TryGetFrameworkAsyncResult(
+            returnType,
+            out _,
+            out _);
+
+    internal static bool IsCompatibleFrameworkAsyncBuilder(
+        TypeRef returnType,
+        TypeRef builderType)
+        => TryGetFrameworkAsyncResult(
+                returnType,
+                out string? builderName,
+                out TypeRef? resultType)
+            && IsMatchingAsyncMethodBuilder(
+                builderType,
+                builderName,
+                resultType);
+
+    static bool TryGetFrameworkAsyncResult(
+        TypeRef returnType,
+        [NotNullWhen(true)] out string? builderName,
+        [NotNullWhen(true)] out TypeRef? resultType)
+    {
+        builderName = null;
+        resultType = null;
+        if (returnType.Kind != TypeRefKind.GenericInstance
+            || returnType.TypeArguments is not [var candidate])
+        {
+            return false;
+        }
+
+        if (FrameworkIdentity.IsCoreLibraryType(
+                returnType,
+                "System.Threading.Tasks",
+                "Task`1"))
+        {
+            builderName = "AsyncTaskMethodBuilder`1";
+        }
+        else if (FrameworkIdentity.IsCoreLibraryType(
+            returnType,
+            "System.Threading.Tasks",
+            "ValueTask`1"))
+        {
+            builderName = "AsyncValueTaskMethodBuilder`1";
+        }
+        else
+        {
+            return false;
+        }
+
+        resultType = candidate;
+        return true;
+    }
+
+    internal static bool TryFindAsyncStateMachineFieldSourceStore(
+        MethodIdentity method,
+        FieldIdentity field,
+        int loadOffset,
+        IEnumerable<FieldStoreFact> fieldStores,
+        [NotNullWhen(true)]
+        out FieldStoreFact? sourceStore)
+    {
+        sourceStore = null;
+        foreach (FieldStoreFact store in fieldStores)
+        {
+            if (store.Caller != method
+                || store.EvidenceMethod != method
+                || !field.MightBeSameFieldAs(store.Identity)
+                || store.IsReachable == false)
+            {
+                continue;
+            }
+
+            // A possible alias blocks the proof but can never supply it.
+            if (store.Identity is null
+                || !field.Equals(store.Identity)
+                || store.IsReachable != true
+                || store.IsStatic
+                || store.ReceiverArgumentIndex != 0)
+            {
+                sourceStore = null;
+                return false;
+            }
+
+            if (store.ILOffset < loadOffset)
+            {
+                if (sourceStore is not null
+                    || IsNullReference(store.Value))
+                {
+                    sourceStore = null;
+                    return false;
+                }
+                sourceStore = store;
+                continue;
+            }
+
+            if (!IsNullReference(store.Value))
+            {
+                sourceStore = null;
+                return false;
+            }
+        }
+
+        return sourceStore is not null;
+    }
+
+    static bool TryCallResultOffsets(
+        ResolvedValueSet value,
+        out ImmutableArray<int> offsets)
+    {
+        if (!value.IsResolved
+            || value.Sources.IsDefaultOrEmpty
+            || value.Sources.Any(source =>
+                source.Kind != ResolvedValueSourceKind.CallResult))
+        {
+            offsets = [];
+            return false;
+        }
+
+        offsets =
+        [
+            .. value.Sources
+                .Select(source => source.ILOffset)
+                .Distinct()
+                .Order(),
+        ];
+        return offsets.Length != 0;
+    }
+
+    static bool IsNullReference(ResolvedValueSet value)
+        => value.Single is
+        {
+            Kind: ResolvedValueSourceKind.NullReference,
+        };
+
+    static bool IsFrameworkAsyncBuilderSuspension(
+        MemberRef callee)
+        => callee.Name is "AwaitOnCompleted"
+                or "AwaitUnsafeOnCompleted"
+            && callee.HasThis
+            && IsFrameworkAsyncBuilder(
+                callee.DeclaringType);
+
+    static bool IsFrameworkAsyncBuilderCompletion(
+        MemberRef callee)
+        => callee.Name == "SetResult"
+            && callee.HasThis
+            && IsFrameworkAsyncBuilder(
+                callee.DeclaringType);
+
+    static bool IsFrameworkAsyncBuilder(
+        TypeRef declaringType)
+        => FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncTaskMethodBuilder`1")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncValueTaskMethodBuilder`1")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncTaskMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncValueTaskMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "PoolingAsyncValueTaskMethodBuilder`1")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "PoolingAsyncValueTaskMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncVoidMethodBuilder")
+        || FrameworkIdentity.IsCoreLibraryType(
+            declaringType,
+            "System.Runtime.CompilerServices",
+            "AsyncIteratorMethodBuilder");
+
+    static bool IsAuthenticatedAsyncBuilderSuspension(
+        MethodIdentity method,
+        DirectCall call)
+        => HasAuthenticatedAsyncBuilderSuspensionSignature(
+                method,
+                call)
+            && call.SecondByRefArgumentIsCurrentInstance;
+
+    static bool HasAuthenticatedAsyncBuilderSuspensionSignature(
+        MethodIdentity method,
+        DirectCall call)
+    {
+        MemberRef callee = call.Callee;
+        return IsFrameworkAsyncBuilderSuspension(callee)
+            && call.Caller == method
+            && call.EvidenceMethod == method
+            && callee.GenericArity == 2
+            && callee.ParameterTypes is
+            [
+                { Kind: TypeRefKind.ByRef },
+                {
+                    Kind: TypeRefKind.ByRef,
+                    ElementType: { } stateMachineType,
+                },
+            ]
+            && stateMachineType.Equals(method.DeclaringType)
+            && callee.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void"));
+    }
+
+    static bool IsAsyncBuilderResult(
+        MemberRef callee,
+        TypeRef asyncResultType)
+        => callee.Name == "SetResult"
+            && callee.HasThis
+            && callee.ParameterTypes is [var parameter]
+            && asyncResultType.TypeArguments is [var resultType]
+            && parameter.Equals(resultType)
+            && callee.ReturnType.Equals(
+                TypeRef.CoreLib("System", "Void"))
+            && IsCompatibleFrameworkAsyncBuilder(
+                asyncResultType,
+                callee.DeclaringType);
+
+    static bool IsMatchingAsyncMethodBuilder(
+        TypeRef declaringType,
+        string builderName,
+        TypeRef resultType)
+        => declaringType.Kind == TypeRefKind.GenericInstance
+            && declaringType.TypeArguments is [var builderResult]
+            && builderResult.Equals(resultType)
+            && FrameworkIdentity.IsCoreLibraryType(
+                declaringType,
+                "System.Runtime.CompilerServices",
+                builderName);
 
     /// <summary>
     /// Fills the resolved-value union, the receiver value, and any recognized
@@ -214,6 +870,12 @@ internal static partial class MethodCallAnalysis
                 ResolvedArgumentValues =
                     new(values.MoveToImmutable()),
                 ResolvedReceiverValue = receiver,
+                SecondByRefArgumentIsCurrentInstance =
+                    parameterCount > 1
+                    && sources.ByRefArgumentIsCurrentInstance(
+                        call.ILOffset,
+                        parameterCount,
+                        argumentIndex: 1),
                 SpanArgumentSources = spans.Count == 0
                     ? SpanArgumentSources.Empty
                     : new(spans.ToImmutable()),
@@ -546,6 +1208,114 @@ internal static partial class MethodCallAnalysis
                 : ResolveValue(stack[stackIndex].ProducerOffset, []);
         }
 
+        internal bool ByRefArgumentIsCurrentInstance(
+            int callOffset,
+            int parameterCount,
+            int argumentIndex)
+        {
+            ImmutableArray<StackValue> stack =
+                _stack.StackBeforeOffset(callOffset);
+            int stackIndex =
+                stack.Length - parameterCount + argumentIndex;
+            if (stackIndex < 0 || stackIndex >= stack.Length)
+                return false;
+
+            int producerOffset = stack[stackIndex].ProducerOffset;
+            if (ResolveValue(producerOffset, []).Single is
+                {
+                    Kind: ResolvedValueSourceKind.Argument,
+                    ArgumentIndex: 0,
+                })
+            {
+                return true;
+            }
+
+            if (_context.InstructionAt(producerOffset)
+                is not { } instruction
+                || instruction.OpCode is not
+                    (ILOpCode.Ldloca or ILOpCode.Ldloca_s))
+            {
+                return false;
+            }
+
+            int slot = MethodInstructionFacts.OperandInt32(
+                instruction);
+            ReachingDefinitionsResult reaching =
+                EnsureReachingDefinitions();
+            LocalUse? use = reaching.IsComplete
+                ? reaching.Uses.FirstOrDefault(candidate =>
+                    !candidate.IsArgument
+                    && candidate.Slot == slot
+                    && candidate.Offset == producerOffset
+                    && candidate.Address)
+                : null;
+            if (use?.ReachingDefinitions is not
+                [LocalDefinition definition])
+            {
+                return false;
+            }
+
+            if (ResolveStackSlot(
+                    definition.Offset,
+                    depthFromTop: 0,
+                    []).Single is
+                not
+                {
+                    Kind: ResolvedValueSourceKind.Argument,
+                    ArgumentIndex: 0,
+                })
+            {
+                return false;
+            }
+
+            return !reaching.Uses.Any(candidate =>
+                candidate != use
+                && !candidate.IsArgument
+                && candidate.Slot == slot
+                && candidate.Address
+                && candidate.ReachingDefinitions.Any(
+                    reachingDefinition =>
+                        reachingDefinition.Id == definition.Id)
+                && CanReachOffset(
+                    _context,
+                    candidate.Offset,
+                    producerOffset)
+                && !IsFrameworkSuspensionStateMachineArgument(
+                    candidate.Offset));
+        }
+
+        bool IsFrameworkSuspensionStateMachineArgument(
+            int producerOffset)
+        {
+            // Trusted framework suspension methods do not replace the
+            // state-machine value passed through their second by-ref argument.
+            foreach (DirectCall call in _callsByOffset.Values)
+            {
+                if (!HasAuthenticatedAsyncBuilderSuspensionSignature(
+                        _context.Method,
+                        call)
+                    || call.IsReachable == false)
+                {
+                    continue;
+                }
+
+                int parameterCount = call.Callee.ParameterTypes.Length;
+                ImmutableArray<StackValue> stack =
+                    _stack.StackBeforeOffset(call.ILOffset);
+                int stackIndex =
+                    stack.Length - parameterCount + 1;
+                if (stackIndex >= 0
+                    && stackIndex < stack.Length
+                    && stack[stackIndex].ProducerOffset
+                        == producerOffset)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         internal ResolvedValueSet ResolveReceiverValue(
             int callOffset,
             int parameterCount)
@@ -660,6 +1430,7 @@ internal static partial class MethodCallAnalysis
                             });
                     }
                     case ILOpCode.Ldsfld:
+                    case ILOpCode.Ldsflda:
                     {
                         int token = MethodInstructionFacts.OperandInt32(
                             instruction);
@@ -668,7 +1439,9 @@ internal static partial class MethodCallAnalysis
                         return field is null
                             ? ResolvedValueSet.Unresolved
                             : Single(new ResolvedValueSource(
-                                ResolvedValueSourceKind.StaticFieldLoad,
+                                instruction.OpCode == ILOpCode.Ldsfld
+                                    ? ResolvedValueSourceKind.StaticFieldLoad
+                                    : ResolvedValueSourceKind.StaticFieldAddress,
                                 producerOffset)
                             {
                                 Token = token,
@@ -678,6 +1451,7 @@ internal static partial class MethodCallAnalysis
                             });
                     }
                     case ILOpCode.Ldfld:
+                    case ILOpCode.Ldflda:
                     {
                         int token = MethodInstructionFacts.OperandInt32(
                             instruction);
@@ -695,7 +1469,9 @@ internal static partial class MethodCallAnalysis
                             return ResolvedValueSet.Unresolved;
                         }
                         return Single(new ResolvedValueSource(
-                            ResolvedValueSourceKind.InstanceFieldLoad,
+                            instruction.OpCode == ILOpCode.Ldfld
+                                ? ResolvedValueSourceKind.InstanceFieldLoad
+                                : ResolvedValueSourceKind.InstanceFieldAddress,
                             producerOffset)
                         {
                             Token = token,
