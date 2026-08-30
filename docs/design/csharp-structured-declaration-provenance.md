@@ -320,8 +320,8 @@ Composition follows the result algebra rather than string concatenation.
 Fallback reasons never enter the declaration fact set. If the parent's own arm
 requires fallback, its stable reason remains the dominant reason. Otherwise,
 the dominant reason is the closed `SubordinateFallback` reason, with the
-causative child paths; each child's exact reason remains in its constituent
-record.
+exact set of causative child paths; each child's exact reason remains in its
+constituent record.
 
 This precedence is total for every mixture of the parent's own arm and child
 arms and cannot be overridden by selecting the most plausible payload. The
@@ -355,18 +355,22 @@ composition fails visibly.
 
 Plans, receipts, constituent records, compatibility entries, namespace
 requirements, and their semantic paths are artifact-proportional. Every
-operation supplies one finite CSharp result-retention budget. CSharp charges
-before retaining each distinct plan occurrence, receipt entry, constituent
-record, compatibility value and scalar, namespace requirement, and path
-segment. The budget is separate from Metadata fact charging and cannot be
+operation supplies one finite CSharp result-retention budget, which mints an
+opaque retention-domain identity carried by every plan and result. CSharp
+charges before retaining each distinct plan occurrence, receipt entry,
+constituent record, compatibility value and scalar, namespace requirement, and
+path segment. The budget is separate from Metadata fact charging and cannot be
 silently treated as unbounded.
 
 Composition structurally shares already charged immutable child facts and
-receipts. It charges only new parent records and path prefixes; it does not
-flatten-copy a descendant envelope or charge the same retained item again.
-Budget exhaustion fails result construction visibly before publication and
-does not relabel the owner-issued outcome, truncate a collection, or return an
-empty successful arm.
+receipts only when parent and child carry the same retention-domain identity.
+A foreign-domain child is rejected before its evidence is retained; callers
+must reproduce it in the current operation rather than borrowing another
+budget's capacity. Same-domain composition charges only new parent records and
+path prefixes; it does not flatten-copy a descendant envelope or charge the
+same retained item again. Budget exhaustion fails result construction visibly
+before publication and does not relabel the owner-issued outcome, truncate a
+collection, or return an empty successful arm.
 
 ## Adoption contract
 
@@ -461,7 +465,9 @@ itself:
   constituent envelope retains every native reason, fact, status, failure, and
   text-free receipt under its prefixed path, and mixed fallback fixtures prove
   complete-fact set equality across representable and fallback contributors
-  while keeping each fallback reason outside that fact set.
+  while keeping each fallback reason outside that fact set. Parent-owned,
+  multiple-child, and nested fallback fixtures assert the exact dominant reason
+  and exact causative-path set.
 - `CSharpDeclarationProtocolTests.QualificationOwnsNamespaceRequirements`
   proves requirements come from one shared qualification policy, union every
   selected representable child's requirements, and reject policy mismatch
@@ -474,7 +480,16 @@ itself:
   every artifact-proportional retained item charges the finite CSharp budget
   before allocation, near/over-limit nested compositions fail without
   publication or truncation, and descendant evidence is structurally shared
-  with linear rather than repeated retention.
+  with linear rather than repeated retention. Same-domain controls share
+  successfully; foreign-domain close negatives fail before importing evidence.
+- `CSharpDeclarationProtocolTests.DependencyAndIdentityClosure` proves the
+  protocol and adoption call closure remains SRM-only and Roslyn-free, never
+  loads an inspected assembly, and accepts no reflection type as declaration
+  identity.
+- `CSharpDeclarationProtocolPlatformTests.NativeAotAndBrowserCanaries` runs
+  result construction, mixed-arm composition, and retention exhaustion through
+  NativeAOT and single-threaded Browser/Wasm hosts without changing their
+  outcomes or failure visibility.
 - `CSharpDeclarationAdoptionTests.RegistryMatchesResultProducingForms` derives
   the expected form set independently from result-producing entry points and
   asserts set equality with owned plans.
