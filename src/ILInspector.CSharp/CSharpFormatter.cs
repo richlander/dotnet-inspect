@@ -470,18 +470,32 @@ public sealed class CSharpFormatter
     /// <summary>
     /// True when a C# <em>type</em> display name requires the <c>unsafe</c>
     /// modifier — it denotes a pointer or function-pointer type (both carry a
-    /// <c>*</c>). Unlike <see cref="RequiresUnsafeModifier"/> this deliberately
-    /// does not look for <c>stackalloc</c>, which is an expression construct that
-    /// can never appear in a type name (matching it against a type name — e.g. an
-    /// escaped identifier <c>@stackalloc</c> — would be a false positive, and a
-    /// spurious <c>unsafe</c> on an <c>async</c> member fails to compile). This is
-    /// the authoritative unsafe-requirement predicate for C# type names; consumers
+    /// <c>*</c>). A bracket-delimited <c>[*]</c> instead denotes a rank-one
+    /// non-SZ array and does not require <c>unsafe</c>. Unlike
+    /// <see cref="RequiresUnsafeModifier"/> this deliberately does not look for
+    /// <c>stackalloc</c>, which is an expression construct that can never appear
+    /// in a type name (matching it against a type name — e.g. an escaped
+    /// identifier <c>@stackalloc</c> — would be a false positive, and a spurious
+    /// <c>unsafe</c> on an <c>async</c> member fails to compile). This is the
+    /// authoritative unsafe-requirement predicate for C# type names; consumers
     /// must not reimplement it.
     /// </summary>
     public static bool TypeRequiresUnsafeModifier(string typeDisplayName)
     {
         ArgumentNullException.ThrowIfNull(typeDisplayName);
-        return typeDisplayName.Contains('*', StringComparison.Ordinal);
+        for (int i = 0; i < typeDisplayName.Length; i++)
+        {
+            if (typeDisplayName[i] == '*'
+                && (i == 0
+                    || i == typeDisplayName.Length - 1
+                    || typeDisplayName[i - 1] != '['
+                    || typeDisplayName[i + 1] != ']'))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
