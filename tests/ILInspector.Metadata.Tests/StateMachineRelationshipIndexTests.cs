@@ -252,22 +252,34 @@ public sealed class StateMachineRelationshipIndexTests
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(9999)]
-    [InlineData(0x10000001)]
+    [InlineData(0, false)]
+    [InlineData(9999, false)]
+    [InlineData(0x10000001, true)]
     public void
         StateMachineRelationshipIndex_InvalidMvidPreservesGlobalFailureForValidHandles(
-            int mvidIndex)
+            int mvidIndex,
+            bool largeGuidHeap)
     {
         using var image = new LoadedImage(
             BuildClaimImage(
                 [],
                 includeStateMachineType: false,
                 moduleVersionId:
-                    MetadataTokens.GuidHandle(mvidIndex)));
+                    MetadataTokens.GuidHandle(mvidIndex),
+                largeGuidHeap: largeGuidHeap));
+        MetadataReader reader = image.Reader;
+
+        Assert.Equal(
+            mvidIndex,
+            MetadataTokens.GetHeapOffset(
+                reader.GetModuleDefinition().Mvid));
+        Assert.Equal(
+            largeGuidHeap,
+            reader.GetHeapSize(HeapIndex.Guid)
+                > ushort.MaxValue);
 
         StateMachineRelationshipIndex index =
-            StateMachineRelationshipIndex.Create(image.Reader);
+            StateMachineRelationshipIndex.Create(reader);
         var relationships =
             Assert.IsType<StateMachineRelationshipsResult.Rejected>(
                 index.Relationships);
@@ -1314,6 +1326,43 @@ public sealed class StateMachineRelationshipIndexTests
             rejected.Failure.Kind);
     }
 
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_IsolatesTypeReferenceTraversalRejection()
+    {
+        using var image = new LoadedImage(
+            BuildNilNamedChainImage(
+                depth:
+                    MetadataSafetyPolicy.MaxRelationshipNodes
+                    + 1,
+                constructors: 1,
+                nodeName: "Node"));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+        var rejected =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Empty(relationships.Relationships);
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            rejected.Failure.Kind);
+        Assert.Equal(
+            "A custom-attribute constructor could not be read.",
+            rejected.Failure.Detail);
+        Assert.Equal(
+            0x06000001,
+            Assert.Single(
+                rejected.Failure.KickoffCandidates).Token);
+        Assert.Empty(rejected.Failure.StateMachineCandidates);
+        Assert.Empty(rejected.Failure.ClaimedTypes);
+    }
+
     /// <summary>
     /// Gates that projecting this image's own assembly identity charges its
     /// name and culture, not only its public key. An unsigned assembly has a
@@ -2233,9 +2282,29 @@ public sealed class StateMachineRelationshipIndexTests
         bool reuseClaimConstructors = false,
         byte[]? assemblyPublicKey = null,
         string? assemblyCulture = null,
-        GuidHandle? moduleVersionId = null)
+        GuidHandle? moduleVersionId = null,
+        bool largeGuidHeap = false)
     {
         var metadata = new MetadataBuilder();
+        if (largeGuidHeap)
+        {
+            for (int i = 1; i <= 4_096; i++)
+            {
+                metadata.GetOrAddGuid(
+                    new Guid(
+                        i,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0));
+            }
+        }
         metadata.AddModule(
             0,
             metadata.GetOrAddString("StateMachineClaims.dll"),

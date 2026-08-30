@@ -1980,7 +1980,7 @@ public sealed class StateMachineRelationshipIndex
                     chain,
                     out int consumedNodes,
                     out EntityHandle terminal,
-                    out _);
+                    out RelationshipTraversalRejection? rejection);
 
             // The walk itself is attacker-scaled work that happens before any
             // name is materialized, and it is not free: cycle detection
@@ -1996,8 +1996,13 @@ public sealed class StateMachineRelationshipIndex
                 consumedNodes
                     + (consumedNodes * (consumedNodes - 1) / 2));
 
-            if (!walked
-                || terminal.Kind
+            if (!walked)
+            {
+                return SignatureType.Rejected(
+                    MetadataTypeNameFailure.From(rejection!));
+            }
+
+            if (terminal.Kind
                     != HandleKind.AssemblyReference
                 || !TerminatesInPlatformAssembly(
                     (AssemblyReferenceHandle)terminal))

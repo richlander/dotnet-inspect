@@ -153,9 +153,9 @@ rejected as `Malformed`, without fabricating a claim kind, state-machine
 identity, or claimed name that the damaged row did not establish; discovery
 continues for other kickoff methods in the module. This includes typed
 type-name-reader rejections returned for malformed and over-budget constructor
-type names, not only exceptions thrown while reading constructor rows. Other
-malformed metadata that prevents module-wide construction remains a
-whole-module failure.
+type names and resolution-scope walks, not only exceptions thrown while reading
+constructor rows. Other malformed metadata that prevents module-wide
+construction remains a whole-module failure.
 Each ambiguous claimed name is expanded into its matching type definitions once
 per image rather than once per kickoff, so rejection evidence stays complete
 while the work stays bounded by the `TypeDef` row count. The TypeDef index
@@ -229,6 +229,8 @@ unreadable constructor row rejects only its owning kickoff while a valid
 relationship elsewhere in the module remains available.
 `StateMachineRelationshipIndex_IsolatesRejectedConstructorTypeName` gates the
 same containment for returned malformed-name and name-budget failures.
+`StateMachineRelationshipIndex_IsolatesTypeReferenceTraversalRejection` gates
+containment for a returned resolution-scope node-budget failure.
 
 ## Completeness
 
