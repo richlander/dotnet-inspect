@@ -549,15 +549,21 @@ Unrelated package, project, sibling, discovered, or other name-owning tiers and
 their typed failures remain outside this arbitration and cannot be bypassed by
 a role-bearing candidate.
 
-A delegated policy can join this composition only with a closed candidate
-registration domain supplied at policy formation. Every registration in that
-domain must already be present in the sealed group and role snapshot; otherwise
-formation rejects the policy as incomplete role evidence. A delegated result
-cannot add a registration after sealing or acquire authority from its
-provenance. Returning an undeclared registration is a visible
-`InvalidRoleEvidence` invariant failure, never a group mutation or fallback.
-The delegated policy's existing `Unavailable` and `Rejected` outcomes remain
-authoritative and cannot be bypassed by role precedence.
+A selected or ambiguous result from the requesting participant's delegated
+policy joins designated/platform arbitration only when every returned candidate
+identifies a registration in the sealed group and carries one of those roles in
+the snapshot. Those in-group registrations are classified from the snapshot,
+never from provenance.
+
+When any returned candidate is outside the group or has no designated/platform
+role, the delegated result remains an adjacent-policy outcome in full. It is
+not reclassified, added to the group, or recorded as an inactive shadow, and
+its selection or ambiguity is not bypassed by an in-group role candidate.
+Returning an outside-group candidate is not invalid role evidence because the
+adjacent policy owns that candidate. The delegated policy's existing
+`Unavailable` and `Rejected` outcomes likewise remain authoritative. A
+delegated `Missing` result contributes no candidate and does not prevent
+otherwise eligible in-group role arbitration.
 
 Existing #4593 fixtures that construct a designated or platform delegated
 candidate outside the initial participant array must declare and admit that
@@ -615,10 +621,16 @@ authority-bearing field to it.
   declaration and proves none becomes designated or platform-authorized.
 - `WorkspaceRoleBinding_InvalidRoleEvidenceRejectsWithoutFallback` derives
   absent-snapshot, foreign-generation, ended-generation, wrong-group,
-  missing-registration, extra-registration, duplicate-input,
-  undeclared-delegated-registration, altered-role-set, and contradictory
-  evidence cases and proves no policy version, selection, shadow, group
-  mutation, or provenance fallback survives.
+  missing-registration, extra-registration, duplicate-input, altered-role-set,
+  and contradictory evidence cases and proves no policy version, selection,
+  shadow, group mutation, or provenance fallback survives.
+- `WorkspaceRoleBinding_DelegatedOutcomesPreserveAdjacentPolicy` covers
+  selected and ambiguous results containing in-group role registrations,
+  outside-group registrations, and in-group registrations without an authority
+  role. Only an all-role-bearing in-group result joins arbitration; every other
+  result and every typed delegated failure remains the adjacent policy's exact
+  outcome without group mutation, role translation, or inactive-shadow
+  promotion.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
   registration, or role change requires a new version.
