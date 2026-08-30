@@ -34,8 +34,8 @@ namespace ILInspector.Metadata;
 /// visible in the output — the alternative spellings either lie about the shape or allocate.
 /// </para>
 /// <c>ArrayShapeTextTests</c> gates the spellings and the bound;
-/// <c>TypeRefDecoderRecursionTests</c> gates the Analysis decode boundary that keeps a hostile
-/// rank out of a <c>TypeRef</c> in the first place.
+/// the Analysis and Decompiler <c>TypeRefDecoderRecursionTests</c> suites gate their respective
+/// decode boundaries that keep a hostile rank out of a <c>TypeRef</c> in the first place.
 /// </remarks>
 public static class ArrayShapeText
 {
