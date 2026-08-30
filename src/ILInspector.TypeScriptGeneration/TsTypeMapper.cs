@@ -287,25 +287,6 @@ static class TsTypeMapper
             return dictionaryType!;
         }
 
-        if (mappedTypeNames?.TryGetValue(
-                trimmed,
-                out string? mappedTypeName) == true)
-        {
-            return mappedTypeName;
-        }
-
-        if (recordNames.Contains(trimmed))
-        {
-            if (blockedAliases?.Contains(trimmed) == true)
-            {
-                diagnostics?.ReportUnmappedType(
-                    location ?? trimmed,
-                    trimmed);
-                return "unknown";
-            }
-            return LastSegment(trimmed);
-        }
-
         // JsonElement is STJ's own representation of arbitrary/untyped JSON — there is no more
         // specific TS shape to recover here, so "unknown" is the deliberately correct mapping
         // (not a reporting gap the way an unrecognized type like Guid/DateTime/Dictionary is).
@@ -339,11 +320,29 @@ static class TsTypeMapper
             _ => "unknown",
         };
 
-        if (mapped == "unknown")
+        if (mapped != "unknown")
+            return mapped;
+
+        if (mappedTypeNames?.TryGetValue(
+                trimmed,
+                out string? mappedTypeName) == true)
         {
-            diagnostics?.ReportUnmappedType(location ?? trimmed, trimmed);
+            return mappedTypeName;
         }
 
+        if (recordNames.Contains(trimmed))
+        {
+            if (blockedAliases?.Contains(trimmed) == true)
+            {
+                diagnostics?.ReportUnmappedType(
+                    location ?? trimmed,
+                    trimmed);
+                return "unknown";
+            }
+            return LastSegment(trimmed);
+        }
+
+        diagnostics?.ReportUnmappedType(location ?? trimmed, trimmed);
         return mapped;
     }
 

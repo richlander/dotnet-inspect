@@ -15,6 +15,8 @@ const getWidgetAsyncKey =
   facadeSource.match(/"(GetWidgetAsync\.-?\d+)"/)?.[1];
 const getRuntimeApiAsyncKey =
   facadeSource.match(/"(GetRuntimeApiAsync\.-?\d+)"/)?.[1];
+const getStringDtoAsyncKey =
+  facadeSource.match(/"(GetStringDtoAsync\.-?\d+)"/)?.[1];
 assert.ok(
   configureHostKey,
   "The generated ConfigureHost runtime dispatch key was not found.",
@@ -27,6 +29,10 @@ assert.ok(
 assert.ok(
   getRuntimeApiAsyncKey,
   "The generated GetRuntimeApiAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getStringDtoAsyncKey,
+  "The generated GetStringDtoAsync runtime dispatch key was not found.",
 );
 let importSequence = 0;
 
@@ -44,6 +50,9 @@ function managedExports(methods = {}) {
               ?? (async (name, count) => JSON.stringify({ name, count })),
             [getRuntimeApiAsyncKey]:
               methods.getRuntimeApiAsync
+              ?? (async (value) => JSON.stringify({ value })),
+            [getStringDtoAsyncKey]:
+              methods.getStringDtoAsync
               ?? (async (value) => JSON.stringify({ value })),
           },
         },
@@ -137,6 +146,10 @@ async function freshFacade() {
   assert.deepEqual(
     await facade.getRuntimeApiAsync("runtime"),
     { value: "runtime" },
+  );
+  assert.deepEqual(
+    await facade.getStringDtoAsync("keyword"),
+    { value: "keyword" },
   );
   assert.equal(await facade.runEntryPoint("Main.dll", ["one", "two"]), 37);
   assert.deepEqual(

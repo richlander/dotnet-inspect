@@ -163,11 +163,16 @@ static class DtsEmitter
                 surface,
                 declarationTypes,
                 allocatedTypeNames);
-        IReadOnlyDictionary<string, string> returnTypeNames =
+        IReadOnlyDictionary<string, string> publicReturnTypeNames =
             MappedTypeNames(
                 typeEnvironment,
-                function.ReturnWireTypeReferences
-                    .Concat(function.ReturnTypeReferences));
+                function.ReturnWireType is not null
+                    ? function.ReturnWireTypeReferences
+                    : function.ReturnTypeReferences);
+        IReadOnlyDictionary<string, string> rawReturnTypeNames =
+            MappedTypeNames(
+                typeEnvironment,
+                function.ReturnTypeReferences);
 
         string publicReturnType = function.ReturnWireType is { } returnWireType
             ? TsTypeMapper.MapReturnEnvelope(
@@ -182,7 +187,7 @@ static class DtsEmitter
                         .ToArray(),
                     typeEnvironment.KnownTypeNames,
                     typeEnvironment.KnownTypeIdentities),
-                returnTypeNames)
+                publicReturnTypeNames)
             : TsTypeMapper.MapReturnType(
                 function.ReturnType,
                 typeEnvironment.KnownTypeNames,
@@ -192,7 +197,7 @@ static class DtsEmitter
                     function.ReturnTypeReferences,
                     typeEnvironment.KnownTypeNames,
                     typeEnvironment.KnownTypeIdentities),
-                returnTypeNames);
+                publicReturnTypeNames);
         string rawReturnType = includeRawReturnType
             && function.ReturnWireType is not null
             ? TsTypeMapper.MapReturnType(
@@ -204,7 +209,7 @@ static class DtsEmitter
                     function.ReturnTypeReferences,
                     typeEnvironment.KnownTypeNames,
                     typeEnvironment.KnownTypeIdentities),
-                returnTypeNames)
+                rawReturnTypeNames)
             : publicReturnType;
         TypeScriptParameterSignature[] parameters =
         [

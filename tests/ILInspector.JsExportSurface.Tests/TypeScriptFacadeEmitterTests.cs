@@ -262,6 +262,36 @@ public sealed class TypeScriptFacadeEmitterTests
     }
 
     [Fact]
+    public void Emit_PreservesPrimitivesWhenProducerTypeUsesKeywordSpelling()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        JsExportFunction function = surface.Functions.Single(
+            function => function.Name == "GetStringDtoAsync");
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.Contains(
+            $"readonly \"{function.RuntimeDispatchKey}\": "
+                + "(value: string) => Promise<string>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getStringDtoAsync(value: string): "
+                + "Promise<type_",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly value: string;",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Emit_MapsEveryManagedOperationToOneFacadeFunction()
     {
         JsExportFunction[] functions =

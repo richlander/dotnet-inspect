@@ -9,8 +9,11 @@ public sealed record WidgetDto(string Name, int Count);
 
 public sealed record RuntimeAPI(string Value);
 
+public sealed record @string(string Value);
+
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
+[JsonSerializable(typeof(@string), TypeInfoPropertyName = "StringDto")]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class FixtureJsonContext : JsonSerializerContext;
 
@@ -43,5 +46,14 @@ public static partial class TypeScriptFixtureExports
         return JsonSerializer.Serialize(
             new RuntimeAPI(value),
             FixtureJsonContext.Default.RuntimeAPI);
+    }
+
+    [JSExport]
+    public static async Task<string> GetStringDtoAsync(string value)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new @string(value),
+            FixtureJsonContext.Default.StringDto);
     }
 }
