@@ -9,11 +9,10 @@ public sealed record WidgetDto(string Name, int Count);
 
 public sealed record RuntimeAPI(string Value);
 
-public sealed record @string(string Value);
-
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(RuntimeAPI))]
-[JsonSerializable(typeof(@string), TypeInfoPropertyName = "StringDto")]
+[JsonSerializable(typeof(global::@string), TypeInfoPropertyName = "StringDto")]
+[JsonSerializable(typeof(global::KeywordHolder))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class FixtureJsonContext : JsonSerializerContext;
 
@@ -27,6 +26,9 @@ public static partial class TypeScriptFixtureExports
 
     [JSExport]
     public static string Echo(string value) => value;
+
+    [JSExport]
+    public static string Undefined(string value) => value;
 
     [JSExport]
     public static async Task<string> GetWidgetAsync(
@@ -53,7 +55,28 @@ public static partial class TypeScriptFixtureExports
     {
         await Task.Yield();
         return JsonSerializer.Serialize(
-            new @string(value),
+            new global::@string(value),
             FixtureJsonContext.Default.StringDto);
+    }
+
+    [JSExport]
+    public static async Task<string> GetKeywordHolderAsync(string title)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new global::KeywordHolder(
+                title,
+                new global::@string(title),
+                [new global::@string(title)]),
+            FixtureJsonContext.Default.KeywordHolder);
+    }
+
+    [JSExport]
+    public static async Task<string?> GetNullableWidgetAsync(string name)
+    {
+        await Task.Yield();
+        return JsonSerializer.Serialize(
+            new WidgetDto(name, 1),
+            FixtureJsonContext.Default.WidgetDto);
     }
 }

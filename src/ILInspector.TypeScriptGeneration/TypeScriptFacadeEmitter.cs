@@ -12,6 +12,7 @@ internal static class TypeScriptFacadeEmitter
     [
         "dotnet",
         "RuntimeAPI",
+        "undefined",
         "initializeRuntime",
         "runEntryPoint",
         "$ManagedExports",
@@ -344,8 +345,19 @@ internal static class TypeScriptFacadeEmitter
             sb.Append("  const $result = ")
                 .Append(signature.IsAsync ? "await " : "")
                 .Append(call)
-                .Append(";\n")
-                .Append("  const $parsed: unknown = JSON.parse($result);\n")
+                .Append(";\n");
+            if (signature.JsonEnvelopeMayBeNull)
+            {
+                sb.Append("  if ($result === null) {\n")
+                    .Append("    throw new Error(")
+                    .Append(Quote(
+                        $"Managed export '{function.DeclaringType}."
+                        + $"{function.RuntimeDispatchKey}' returned null "
+                        + "for an authenticated JSON envelope."))
+                    .Append(");\n")
+                    .Append("  }\n");
+            }
+            sb.Append("  const $parsed: unknown = JSON.parse($result);\n")
                 .Append("  return $parsed as ")
                 .Append(signature.IsAsync
                     ? UnwrapPromise(signature.PublicReturnType)

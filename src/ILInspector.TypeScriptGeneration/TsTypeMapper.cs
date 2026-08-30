@@ -30,17 +30,40 @@ static class TsTypeMapper
 
     public static bool IsJsonEnvelopeReturnType(string csharpType)
     {
-        string trimmed = csharpType.Trim();
-        if (trimmed is "string" or "System.String")
-            return true;
-
-        return ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
-                    || TryUnwrapGeneric(trimmed, "Task", out taskArg))
-                && taskArg!.Trim() is "string" or "System.String")
-            || ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
-                    || TryUnwrapGeneric(trimmed, "ValueTask", out valueTaskArg))
-                && valueTaskArg!.Trim() is "string" or "System.String");
+        return TryGetJsonEnvelopeType(
+            csharpType,
+            out _,
+            out _);
     }
+
+    public static bool IsNullableJsonEnvelopeReturnType(
+        string csharpType) =>
+        TryGetJsonEnvelopeType(
+            csharpType,
+            out _,
+            out bool nullable)
+        && nullable;
+
+    internal static bool IsIntrinsicTypeSpelling(string csharpType) =>
+        csharpType.Trim() is
+            "string" or "System.String"
+            or "char" or "System.Char"
+            or "bool" or "System.Boolean"
+            or "byte" or "System.Byte"
+            or "sbyte" or "System.SByte"
+            or "short" or "System.Int16"
+            or "ushort" or "System.UInt16"
+            or "int" or "System.Int32"
+            or "uint" or "System.UInt32"
+            or "long" or "System.Int64"
+            or "ulong" or "System.UInt64"
+            or "double" or "System.Double"
+            or "float" or "System.Single"
+            or "decimal" or "System.Decimal"
+            or "void" or "System.Void"
+            or "System.Text.Json.JsonElement" or "JsonElement"
+            or "System.Runtime.InteropServices.JavaScript.JSObject"
+            or "JSObject";
 
     public static string MapReturnType(
         string csharpType,
@@ -287,6 +310,13 @@ static class TsTypeMapper
             return dictionaryType!;
         }
 
+        if (mappedTypeNames?.TryGetValue(
+                trimmed,
+                out string? mappedTypeName) == true)
+        {
+            return mappedTypeName;
+        }
+
         // JsonElement is STJ's own representation of arbitrary/untyped JSON — there is no more
         // specific TS shape to recover here, so "unknown" is the deliberately correct mapping
         // (not a reporting gap the way an unrecognized type like Guid/DateTime/Dictionary is).
@@ -323,13 +353,6 @@ static class TsTypeMapper
         if (mapped != "unknown")
             return mapped;
 
-        if (mappedTypeNames?.TryGetValue(
-                trimmed,
-                out string? mappedTypeName) == true)
-        {
-            return mappedTypeName;
-        }
-
         if (recordNames.Contains(trimmed))
         {
             if (blockedAliases?.Contains(trimmed) == true)
@@ -344,6 +367,31 @@ static class TsTypeMapper
 
         diagnostics?.ReportUnmappedType(location ?? trimmed, trimmed);
         return mapped;
+    }
+
+    static bool TryGetJsonEnvelopeType(
+        string csharpType,
+        out string envelopeType,
+        out bool nullable)
+    {
+        string trimmed = csharpType.Trim();
+        if (TryUnwrapGeneric(
+                trimmed,
+                "System.Threading.Tasks.Task",
+                out string? taskArg)
+            || TryUnwrapGeneric(trimmed, "Task", out taskArg)
+            || TryUnwrapGeneric(
+                trimmed,
+                "System.Threading.Tasks.ValueTask",
+                out taskArg)
+            || TryUnwrapGeneric(trimmed, "ValueTask", out taskArg))
+        {
+            trimmed = taskArg!.Trim();
+        }
+
+        nullable = trimmed.EndsWith('?');
+        envelopeType = nullable ? trimmed[..^1].TrimEnd() : trimmed;
+        return envelopeType is "string" or "System.String";
     }
 
     static bool TryMapDictionary(

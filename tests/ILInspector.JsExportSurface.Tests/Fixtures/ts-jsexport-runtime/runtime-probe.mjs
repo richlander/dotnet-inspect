@@ -17,6 +17,16 @@ const getRuntimeApiAsyncKey =
   facadeSource.match(/"(GetRuntimeApiAsync\.-?\d+)"/)?.[1];
 const getStringDtoAsyncKey =
   facadeSource.match(/"(GetStringDtoAsync\.-?\d+)"/)?.[1];
+const getKeywordHolderAsyncKey =
+  facadeSource.match(/"(GetKeywordHolderAsync\.-?\d+)"/)?.[1];
+const getNullableWidgetAsyncKey =
+  facadeSource.match(/"(GetNullableWidgetAsync\.-?\d+)"/)?.[1];
+const undefinedKey =
+  facadeSource.match(/"(Undefined\.-?\d+)"/)?.[1];
+const undefinedOperationName =
+  facadeSource.match(
+    /export function (operation_[0-9a-f]+)\(value\)/,
+  )?.[1];
 assert.ok(
   configureHostKey,
   "The generated ConfigureHost runtime dispatch key was not found.",
@@ -33,6 +43,22 @@ assert.ok(
 assert.ok(
   getStringDtoAsyncKey,
   "The generated GetStringDtoAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getKeywordHolderAsyncKey,
+  "The generated GetKeywordHolderAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  getNullableWidgetAsyncKey,
+  "The generated GetNullableWidgetAsync runtime dispatch key was not found.",
+);
+assert.ok(
+  undefinedKey,
+  "The generated Undefined runtime dispatch key was not found.",
+);
+assert.ok(
+  undefinedOperationName,
+  "The generated Undefined facade operation was not found.",
 );
 let importSequence = 0;
 
@@ -54,6 +80,18 @@ function managedExports(methods = {}) {
             [getStringDtoAsyncKey]:
               methods.getStringDtoAsync
               ?? (async (value) => JSON.stringify({ value })),
+            [getKeywordHolderAsyncKey]:
+              methods.getKeywordHolderAsync
+              ?? (async (title) => JSON.stringify({
+                title,
+                inner: { value: title },
+                many: [{ value: title }],
+              })),
+            [getNullableWidgetAsyncKey]:
+              methods.getNullableWidgetAsync
+              ?? (async (name) => JSON.stringify({ name, count: 1 })),
+            [undefinedKey]:
+              methods.undefinedOperation ?? ((value) => value),
           },
         },
       },
@@ -151,10 +189,37 @@ async function freshFacade() {
     await facade.getStringDtoAsync("keyword"),
     { value: "keyword" },
   );
+  assert.deepEqual(
+    await facade.getKeywordHolderAsync("holder"),
+    {
+      title: "holder",
+      inner: { value: "holder" },
+      many: [{ value: "holder" }],
+    },
+  );
+  assert.deepEqual(
+    await facade.getNullableWidgetAsync("nullable"),
+    { name: "nullable", count: 1 },
+  );
+  assert.equal(facade[undefinedOperationName]("defined"), "defined");
   assert.equal(await facade.runEntryPoint("Main.dll", ["one", "two"]), 37);
   assert.deepEqual(
     scenario.runMainCalls,
     [["Main.dll", ["one", "two"]]],
+  );
+}
+
+{
+  configureScenario({
+    exports: managedExports({
+      getNullableWidgetAsync: async () => null,
+    }),
+  });
+  const facade = await freshFacade();
+  await facade.initializeRuntime();
+  await assert.rejects(
+    facade.getNullableWidgetAsync("null"),
+    /returned null for an authenticated JSON envelope/,
   );
 }
 

@@ -237,7 +237,10 @@ static class DtsEmitter
             publicReturnType,
             TsTypeMapper.IsAsyncReturnType(function.ReturnType),
             function.ReturnWireType is not null
-                && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType));
+                && TsTypeMapper.IsJsonEnvelopeReturnType(function.ReturnType),
+            function.ReturnWireType is not null
+                && TsTypeMapper.IsNullableJsonEnvelopeReturnType(
+                    function.ReturnType));
     }
 
     static TypeMappingEnvironment
@@ -307,8 +310,12 @@ static class DtsEmitter
         IEnumerable<ApiTypeReferenceIdentity> references)
     {
         var aliases = new Dictionary<string, string>(
-            environment.Aliases,
             StringComparer.Ordinal);
+        foreach ((string alias, string allocatedName) in environment.Aliases)
+        {
+            if (!TsTypeMapper.IsIntrinsicTypeSpelling(alias))
+                aliases.Add(alias, allocatedName);
+        }
         foreach (ApiTypeReferenceIdentity reference in references)
         {
             if (!environment.IdentityNames.TryGetValue(

@@ -289,6 +289,71 @@ public sealed class TypeScriptFacadeEmitterTests
             "readonly value: string;",
             source,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "export interface KeywordHolder {",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly title: string;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly inner: type_",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "readonly many: ReadonlyArray<type_",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ReservesUndefinedAndParsesNullableJsonEnvelope()
+    {
+        global::ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildSurface(
+                typeof(global::ILInspector.JsExportSurface.TypeScriptFixtures
+                    .TypeScriptFixtureExports).Assembly.Location);
+        JsExportFunction undefined = surface.Functions.Single(
+            function => function.Name == "Undefined");
+        JsExportFunction nullable = surface.Functions.Single(
+            function => function.Name == "GetNullableWidgetAsync");
+
+        string source = TypeScriptFacadeEmitter.Emit(
+            surface,
+            RuntimeModule);
+
+        Assert.DoesNotContain(
+            "export function undefined(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function operation_",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"readonly \"{undefined.RuntimeDispatchKey}\": "
+                + "(value: string) => string;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"readonly \"{nullable.RuntimeDispatchKey}\": "
+                + "(name: string) => Promise<string | null>;",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export async function getNullableWidgetAsync(name: string): "
+                + "Promise<WidgetDto>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "returned null for an authenticated JSON envelope.",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "const $parsed: unknown = JSON.parse($result);",
+            source,
+            StringComparison.Ordinal);
     }
 
     [Fact]
