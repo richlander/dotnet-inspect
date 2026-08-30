@@ -150,7 +150,9 @@ internal sealed record ClassicAsyncMachine(
 
 internal sealed record ClassicAsyncStorage(
     string Name,
-    TypeRef Type);
+    TypeRef Type,
+    ExactFieldDefinitionAddress? DefinitionAddress = null,
+    object? DefinitionAcquisitionGuard = null);
 
 internal sealed record ClassicAsyncParameterBinding(
     string FieldName,
@@ -159,7 +161,9 @@ internal sealed record ClassicAsyncParameterBinding(
     string ArgumentName,
     TypeRef ArgumentType,
     bool IsDynamic,
-    MetadataFactState ArrayElementIsDynamic);
+    MetadataFactState ArrayElementIsDynamic,
+    ExactFieldDefinitionAddress? FieldDefinitionAddress = null,
+    object? FieldDefinitionAcquisitionGuard = null);
 
 internal sealed class ClassicAsyncParameterBindingSet
     : IEquatable<ClassicAsyncParameterBindingSet>

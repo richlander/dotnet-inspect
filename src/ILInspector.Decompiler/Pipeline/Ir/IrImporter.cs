@@ -2973,8 +2973,73 @@ public static class IrImporter
         }
     }
 
-    static FieldRef ResolveField(MetadataSource source, EntityHandle handle, GenericScope callerScope)
-        => source.CrossAssembly.Upgrade(ResolveField(source.Reader, handle, callerScope));
+    static FieldRef ResolveField(
+        MetadataSource source,
+        EntityHandle handle,
+        GenericScope callerScope)
+    {
+        FieldRef field = source.CrossAssembly.Upgrade(
+            ResolveField(
+                source.Reader,
+                handle,
+                callerScope));
+        FieldDefinitionHandle definition = handle.Kind switch
+        {
+            HandleKind.FieldDefinition
+                => (FieldDefinitionHandle)handle,
+            HandleKind.MemberReference
+                => ResolveLocalFieldDefinition(
+                    source.Reader,
+                    (MemberReferenceHandle)handle),
+            _ => default,
+        };
+        return !definition.IsNil
+            ? field with
+            {
+                ExactDefinitionAddress = new(
+                    source.ModuleVersionId,
+                    MetadataTokens.GetToken(definition)),
+                ExactDefinitionAcquisitionGuard =
+                    source.AcquisitionGuard,
+            }
+            : field;
+    }
+
+    static FieldDefinitionHandle ResolveLocalFieldDefinition(
+        MetadataReader reader,
+        MemberReferenceHandle handle)
+    {
+        MemberReference member =
+            reader.GetMemberReference(handle);
+        TypeDefinitionHandle? declaringType =
+            DeclaringTypeDefinition(reader, member.Parent);
+        if (declaringType is null)
+            return default;
+
+        string name = reader.GetString(member.Name);
+        byte[] memberSignature =
+            reader.GetBlobBytes(member.Signature);
+        FieldDefinitionHandle match = default;
+        TypeDefinition definition = reader.GetTypeDefinition(
+            declaringType.Value);
+        foreach (FieldDefinitionHandle candidate
+            in definition.GetFields())
+        {
+            FieldDefinition field =
+                reader.GetFieldDefinition(candidate);
+            if (reader.GetString(field.Name) != name
+                || !reader.GetBlobBytes(field.Signature)
+                    .AsSpan()
+                    .SequenceEqual(memberSignature))
+            {
+                continue;
+            }
+            if (!match.IsNil)
+                return default;
+            match = candidate;
+        }
+        return match;
+    }
 
     static FixedBufferFieldInfo? FixedBufferFieldInfo(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => FixedBufferMetadata.Read(reader, attributes) is { } metadata

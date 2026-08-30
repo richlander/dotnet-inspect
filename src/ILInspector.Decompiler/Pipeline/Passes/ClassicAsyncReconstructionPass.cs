@@ -499,7 +499,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (builderStore?.Instance is not LoadLocalAddress stateMachineAddress
             || stateStore is null
             || startStatement is null
-            || returnTask is null && returnVoid is null)
+            || returnTask is null && returnVoid is null
+            || !HasExactFieldDefinition(builderStore.Field)
+            || !HasExactFieldDefinition(stateStore.Field))
         {
             return false;
         }
@@ -552,11 +554,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             stateMachineAddress.Index,
             builderStore.SourceOffset,
             narrowHandoff,
-            new(
-                stateStore.Field.Name,
+            StorageClaim(
+                stateStore.Field,
                 stateStore.Field.Type),
-            new(
-                builderStore.Field.Name,
+            StorageClaim(
+                builderStore.Field,
                 StateMachineFieldType(
                     builderStore.Field.Type,
                     stateMachineType)),
@@ -592,9 +594,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 _ => null,
             };
             if (field is { Name: var name }
-                && name.StartsWith("<>u__", StringComparison.Ordinal))
+                && name.StartsWith("<>u__", StringComparison.Ordinal)
+                && HasExactFieldDefinition(field))
             {
-                yield return new(name, field.Type);
+                yield return StorageClaim(field, field.Type);
             }
         }
     }
@@ -614,6 +617,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var copiedFields = new HashSet<string>(StringComparer.Ordinal);
         var bindings = new List<ClassicAsyncParameterBinding>();
         TypeRef? builderType = null;
+        FieldRef? builderStorageField = null;
         bool seenStart = false;
         bool seenReturn = false;
 
@@ -636,6 +640,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     && IsMachineField(
                         builderStore.Field,
                         stateMachineType)
+                    && HasExactFieldDefinition(builderStore.Field)
                     && TryAuthenticateBuilderStorage(
                         StateMachineFieldType(
                             builderStore.Field.Type,
@@ -644,6 +649,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         out builderType)
                     && IsExactBuilderCreate(create, builderType):
                     builderCreates++;
+                    builderStorageField = builderStore.Field;
                     break;
 
                 case StoreField
@@ -659,7 +665,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     && !seenReturn
                     && IsMachineField(
                         stateStore.Field,
-                        stateMachineType):
+                        stateMachineType)
+                    && HasExactFieldDefinition(stateStore.Field):
                     stateInitializations++;
                     break;
 
@@ -707,6 +714,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     && !seenReturn
                     && builderField.Name == "<>t__builder"
                     && IsMachineField(builderField, stateMachineType)
+                    && builderStorageField is not null
+                    && SameExactFieldDefinition(
+                        builderField,
+                        builderStorageField)
                     && builderType is not null
                     && SameExactType(
                         StateMachineFieldType(
@@ -739,6 +750,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     && returns == 0
                     && builderField.Name == "<>t__builder"
                     && IsMachineField(builderField, stateMachineType)
+                    && builderStorageField is not null
+                    && SameExactFieldDefinition(
+                        builderField,
+                        builderStorageField)
                     && builderType is not null
                     && SameExactType(
                         StateMachineFieldType(
@@ -1028,6 +1043,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         LoadArgument argument,
         out ClassicAsyncParameterBinding binding)
     {
+        if (!HasExactFieldDefinition(targetField))
+        {
+            binding = null!;
+            return false;
+        }
+
         TypeRef fieldType = StateMachineFieldType(
             targetField.Type,
             stateMachineType);
@@ -1056,7 +1077,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 argument.Name,
                 argument.Type,
                 argument.IsDynamic,
-                argument.ArrayElementIsDynamic);
+                argument.ArrayElementIsDynamic,
+                targetField.ExactDefinitionAddress,
+                targetField.ExactDefinitionAcquisitionGuard);
             return true;
         }
 
@@ -1092,9 +1115,57 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             parameter.Name,
             parameter.Type,
             parameter.IsDynamic,
-            parameter.ArrayElementIsDynamic);
+            parameter.ArrayElementIsDynamic,
+            targetField.ExactDefinitionAddress,
+            targetField.ExactDefinitionAcquisitionGuard);
         return true;
     }
+
+    static ClassicAsyncStorage StorageClaim(
+        FieldRef field,
+        TypeRef type)
+        => new(
+            field.Name,
+            type,
+            field.ExactDefinitionAddress,
+            field.ExactDefinitionAcquisitionGuard);
+
+    static bool HasExactFieldDefinition(FieldRef field)
+        => field.ExactDefinitionAddress is not null
+            && field.ExactDefinitionAcquisitionGuard is not null;
+
+    static bool SameExactFieldDefinition(
+        FieldRef left,
+        FieldRef right)
+        => left.ExactDefinitionAddress is { } leftAddress
+            && right.ExactDefinitionAddress is { } rightAddress
+            && leftAddress == rightAddress
+            && left.ExactDefinitionAcquisitionGuard is not null
+            && ReferenceEquals(
+                left.ExactDefinitionAcquisitionGuard,
+                right.ExactDefinitionAcquisitionGuard);
+
+    static bool SameExactFieldDefinition(
+        FieldRef field,
+        ClassicAsyncStorage storage)
+        => field.ExactDefinitionAddress is { } fieldAddress
+            && storage.DefinitionAddress is { } storageAddress
+            && fieldAddress == storageAddress
+            && field.ExactDefinitionAcquisitionGuard is not null
+            && ReferenceEquals(
+                field.ExactDefinitionAcquisitionGuard,
+                storage.DefinitionAcquisitionGuard);
+
+    static bool SameExactFieldDefinition(
+        FieldRef field,
+        ClassicAsyncParameterBinding binding)
+        => field.ExactDefinitionAddress is { } fieldAddress
+            && binding.FieldDefinitionAddress is { } bindingAddress
+            && fieldAddress == bindingAddress
+            && field.ExactDefinitionAcquisitionGuard is not null
+            && ReferenceEquals(
+                field.ExactDefinitionAcquisitionGuard,
+                binding.FieldDefinitionAcquisitionGuard);
 
     static TypeRef StateMachineFieldType(
         TypeRef fieldType,
@@ -1122,7 +1193,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         regionLedger = null!;
 
         var localBuilder = new LocalBuilder();
-        if (!TryBuildStatements(
+        if (!HasExactCompilerStorage(
+                moveNext,
+                kickoffModel)
+            || !TryBuildStatements(
                 moveNext,
                 kickoffModel,
                 localBuilder,
@@ -1163,6 +1237,66 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         locals = localBuilder.Locals;
         localNames = localBuilder.Names;
         return ReconstructionResult.Reconstructed;
+    }
+
+    static bool HasExactCompilerStorage(
+        IrFunction moveNext,
+        Kickoff kickoff)
+    {
+        var compilerFields = new Dictionary<
+            string,
+            FieldRef>(
+            StringComparer.Ordinal);
+        foreach (FieldRef field in moveNext
+            .DescendantsOutsideNestedFunctions
+            .Select(static node => node switch
+            {
+                LoadField load => load.Field,
+                LoadFieldAddress load => load.Field,
+                StoreField store => store.Field,
+                _ => null,
+            })
+            .OfType<FieldRef>())
+        {
+            if (field.Name == kickoff.StateStorage.Name)
+            {
+                if (!SameExactFieldDefinition(
+                        field,
+                        kickoff.StateStorage))
+                {
+                    return false;
+                }
+            }
+            else if (field.Name == kickoff.BuilderStorage.Name)
+            {
+                if (!SameExactFieldDefinition(
+                        field,
+                        kickoff.BuilderStorage))
+                {
+                    return false;
+                }
+            }
+            else if (field.Name.StartsWith(
+                "<",
+                StringComparison.Ordinal))
+            {
+                if (!compilerFields.TryGetValue(
+                        field.Name,
+                        out FieldRef? expected))
+                {
+                    if (!HasExactFieldDefinition(field))
+                        return false;
+                    compilerFields.Add(field.Name, field);
+                }
+                else if (!SameExactFieldDefinition(
+                    field,
+                    expected))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     static bool TryBuildRegionLedger(
@@ -2297,7 +2431,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             => TryClaimExpectedBuilderCallbacks(
                 moveNext,
                 kickoff.StateMachineType,
-                kickoff.BuilderStorage.Type,
+                kickoff.BuilderStorage,
                 setResult,
                 getResults,
                 ownership);
@@ -2602,9 +2736,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return true;
         }
 
-        var hoisted = new Dictionary<string, (int Index, TypeRef Type)>(StringComparer.Ordinal)
+        var hoisted = new Dictionary<
+            string,
+            (FieldRef Field, int Index, TypeRef Type)>(
+            StringComparer.Ordinal)
         {
-            [firstStore.Field.Name] = (firstIndex, firstType),
+            [firstStore.Field.Name] = (
+                firstStore.Field,
+                firstIndex,
+                firstType),
         };
         var replacements = new Dictionary<int, (int Index, TypeRef Type)> { [secondStore.Index] = (secondIndex, secondStore.Type) };
         var mapped = CloneAndRemap(
@@ -3708,6 +3848,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             && left.Name.StartsWith(
                 "<>u__",
                 StringComparison.Ordinal)
+            && SameExactFieldDefinition(left, right)
             && IsMachineField(left, DefinitionType(machine))
             && IsMachineField(right, DefinitionType(machine))
             && SameExactType(
@@ -3796,19 +3937,25 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return false;
         }
 
-        ConditionalBranch[] completionBranches =
-        [
-            .. sourceBlock.Children
-                .SkipWhile(node =>
-                    !ReferenceEquals(node, awaiterStore))
-                .Skip(1)
-                .OfType<ConditionalBranch>()
-                .Where(branch => IsExactIsCompletedTest(
-                    branch.Condition,
-                    awaiterAddress)),
-        ];
+        var completionBranches =
+            new List<(ConditionalBranch Branch, bool TargetIsCompleted)>();
+        foreach (ConditionalBranch branch in sourceBlock.Children
+            .SkipWhile(node =>
+                !ReferenceEquals(node, awaiterStore))
+            .Skip(1)
+            .OfType<ConditionalBranch>())
+        {
+            if (IsExactIsCompletedTest(
+                branch.Condition,
+                awaiterAddress,
+                out bool branchTargetsCompleted))
+            {
+                completionBranches.Add(
+                    (branch, branchTargetsCompleted));
+            }
+        }
         if (completionBranches is not
-            [var completionBranch]
+            [(var completionBranch, var targetIsCompleted)]
             || !ReferenceEquals(
                 sourceBlock.Children[^1],
                 completionBranch))
@@ -3827,9 +3974,23 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         IReadOnlyList<BlockEdges> edges =
             Cfg.Build(container.Blocks);
-        return edges[sourceIndex].Successors.Contains(
-                suspensionIndex)
-            && edges[sourceIndex].Successors.Contains(useIndex);
+        IReadOnlyList<int> successors =
+            edges[sourceIndex].Successors;
+        int targetIndex = IndexOfBlockAtOffset(
+            container,
+            completionBranch.TargetOffset);
+        int[] fallThrough =
+        [
+            .. successors.Where(index => index != targetIndex),
+        ];
+        return successors.Count == 2
+            && successors.Contains(targetIndex)
+            && fallThrough is [var fallThroughIndex]
+            && (targetIsCompleted
+                ? targetIndex == useIndex
+                    && fallThroughIndex == suspensionIndex
+                : targetIndex == suspensionIndex
+                    && fallThroughIndex == useIndex);
     }
 
     static int IndexOfBlock(
@@ -3848,6 +4009,24 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             }
         }
         return -1;
+    }
+
+    static int IndexOfBlockAtOffset(
+        BlockContainer container,
+        int offset)
+    {
+        var result = -1;
+        for (var index = 0;
+            index < container.Blocks.Count;
+            index++)
+        {
+            if (container.Blocks[index].StartOffset != offset)
+                continue;
+            if (result >= 0)
+                return -1;
+            result = index;
+        }
+        return result;
     }
 
     static bool TryGetExactAwaiterOperand(
@@ -3940,8 +4119,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool IsExactIsCompletedTest(
         IrExpression condition,
-        LoadLocalAddress awaiterAddress)
+        LoadLocalAddress awaiterAddress,
+        out bool targetIsCompleted)
     {
+        targetIsCompleted = condition is not LogicalNot;
         IrExpression test = condition is LogicalNot not
             ? not.Operand
             : condition;
@@ -4056,14 +4237,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool TryClaimExpectedBuilderCallbacks(
         IrFunction moveNext,
         TypeRef expectedStateMachineType,
-        TypeRef expectedBuilderType,
+        ClassicAsyncStorage expectedBuilderStorage,
         Call selectedSetResult,
         IReadOnlyList<Call> getResults,
         RecipeOwnership ownership)
         => TryGetExpectedBuilderCallbackSlots(
                 moveNext,
                 expectedStateMachineType,
-                expectedBuilderType,
+                expectedBuilderStorage,
                 selectedSetResult,
                 getResults,
                 out IReadOnlyList<IrNode> callbacks)
@@ -4072,7 +4253,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     internal static bool TryGetExpectedBuilderCallbackSlots(
         IrFunction moveNext,
         TypeRef expectedStateMachineType,
-        TypeRef expectedBuilderType,
+        ClassicAsyncStorage expectedBuilderStorage,
         Call selectedSetResult,
         IReadOnlyList<Call> getResults,
         out IReadOnlyList<IrNode> callbackSlots)
@@ -4111,8 +4292,17 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 !IsCompilerBuilderCallback(
                     moveNext,
                     pair.Call,
-                    expectedBuilderType,
+                    expectedBuilderStorage,
                     expectedStateMachineType)))
+        {
+            return false;
+        }
+        Call setException = callbacks.Single(
+            static pair => pair.Call.Callee.Name
+                == "SetException").Call;
+        if (!IsExactExceptionCompletion(
+                moveNext,
+                setException))
         {
             return false;
         }
@@ -4155,6 +4345,69 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 (IrNode)pair.Statement),
         ];
         return true;
+    }
+
+    static bool IsExactExceptionCompletion(
+        IrFunction moveNext,
+        Call callback)
+    {
+        CatchClause? catchClause =
+            ContainingCatchClause(callback);
+        if (callback.Arguments is not
+            [_, LoadLocal exceptionValue]
+            || !IsExactExceptionType(exceptionValue.Type)
+            || callback.Parent is not
+                ExpressionStatement statement
+            || !ReferenceEquals(
+                ContainingCatchClause(statement),
+                catchClause)
+            || catchClause is not
+                {
+                    ExceptionType: var caughtType,
+                    VariableIndex: var variableIndex,
+                    Filter: null,
+                    Parent: TryCatch
+                    {
+                        Parent: Block outerBlock,
+                    },
+                }
+            || variableIndex is null
+            || exceptionValue.Index != variableIndex.Value
+            || !IsExactExceptionType(caughtType)
+            || !ReferenceEquals(
+                outerBlock.Parent,
+                moveNext.Body)
+            || catchClause.Body.Descendants
+                .OfType<StoreLocal>()
+                .Any(store => store.Index
+                    == variableIndex.Value))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool IsExactExceptionType(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+            Name: "Exception",
+            CustomModifiers.IsEmpty: true,
+        };
+
+    static CatchClause? ContainingCatchClause(
+        IrNode node)
+    {
+        while (node.Parent is { } parent)
+        {
+            if (parent is CatchClause catchClause)
+                return catchClause;
+            node = parent;
+        }
+        return null;
     }
 
     static bool TryGetExecutionStateMachineType(
@@ -4214,7 +4467,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool IsCompilerBuilderCallback(
         IrFunction moveNext,
         Call call,
-        TypeRef? expectedBuilderType = null,
+        ClassicAsyncStorage? expectedBuilderStorage = null,
         TypeRef? expectedKickoffStateMachineType = null)
     {
         if (!IsBuilderCallbackName(call.Callee.Name)
@@ -4234,14 +4487,18 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             field.Type,
             moveNext.DeclaringType);
         return IsMachineField(field, machine)
+            && HasExactFieldDefinition(field)
             && IsAsyncMethodBuilder(executionBuilderType)
-            && (expectedBuilderType is null
+            && (expectedBuilderStorage is null
                 || expectedKickoffStateMachineType is not null
                     && SameExactType(
                         StateMachineFieldType(
                             field.Type,
                             expectedKickoffStateMachineType),
-                        expectedBuilderType))
+                        expectedBuilderStorage.Type)
+                    && SameExactFieldDefinition(
+                        field,
+                        expectedBuilderStorage))
             && SameExactType(
                 call.Callee.DeclaringType,
                 executionBuilderType)
@@ -4729,10 +4986,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 : null;
     }
 
-    static Call? CloneAndRemap(
+    internal static Call? CloneAndRemap(
         Call call,
         Kickoff kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)> hoisted,
+        IReadOnlyDictionary<
+            string,
+            (FieldRef Field, int Index, TypeRef Type)> hoisted,
         IReadOnlyDictionary<int, (int Index, TypeRef Type)> locals)
     {
         var clone = (Call)call.Clone();
@@ -4748,7 +5007,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool RemapInPlace(
         IrNode node,
         Kickoff kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)>? hoisted = null,
+        IReadOnlyDictionary<
+            string,
+            (FieldRef Field, int Index, TypeRef Type)>? hoisted = null,
         IReadOnlyDictionary<int, (int Index, TypeRef Type)>? localReplacements = null)
     {
         var swaps = new List<(IrNode Old, IrNode New)>();
@@ -4785,6 +5046,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                             field.Name,
                             out var local))
                     {
+                        if (!SameExactFieldDefinition(
+                                field,
+                                local.Field))
+                        {
+                            ok = false;
+                            return;
+                        }
                         swaps.Add((current, new LoadLocal(local.Index, local.Type)));
                     }
                     else if (TryGetParameterBinding(
@@ -4849,6 +5117,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 // Receiver realization remains outside the accepted recipes.
                 if (candidate.FieldName != "<>4__this"
                     && candidate.FieldName == field.Name
+                    && SameExactFieldDefinition(
+                        field,
+                        candidate)
                     && SameExactType(
                         candidate.FieldType,
                         StateMachineFieldType(

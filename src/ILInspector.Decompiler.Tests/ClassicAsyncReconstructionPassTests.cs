@@ -822,6 +822,68 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
+    public void HoistedResultRemappingRequiresExactFieldDefinition()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "TwoSequentialAwaits");
+        IrFunction kickoffFunction =
+            PreparedKickoff(source, "TwoSequentialAwaits");
+        var relationship =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                    kickoffFunction.ClassicAsyncRelationship)
+                    .Relationship)
+                .Relationship;
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetKickoff(
+                kickoffFunction,
+                relationship.StateMachineType,
+                relationship.StateMachineName,
+                out ClassicAsyncReconstructionPass.Kickoff kickoff,
+                out _,
+                out _));
+        Call keepAlive = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "KeepAlive");
+        LoadField hoistedLoad = Assert.Single(
+            keepAlive.Descendants.OfType<LoadField>());
+        ExactFieldDefinitionAddress address =
+            Assert.IsType<ExactFieldDefinitionAddress>(
+                hoistedLoad.Field.ExactDefinitionAddress);
+        Assert.NotNull(
+            hoistedLoad.Field.ExactDefinitionAcquisitionGuard);
+        var alias = hoistedLoad.Field with
+        {
+            ExactDefinitionAddress = address with
+            {
+                MetadataToken = address.MetadataToken + 1,
+            },
+        };
+        var hoisted = new Dictionary<
+            string,
+            (FieldRef Field, int Index, TypeRef Type)>
+        {
+            [alias.Name] = (alias, 0, alias.Type),
+        };
+        Dictionary<int, (int Index, TypeRef Type)> locals =
+            keepAlive.Descendants
+                .OfType<LoadLocal>()
+                .ToDictionary(
+                    static load => load.Index,
+                    static load => (load.Index, load.Type));
+
+        Assert.Null(
+            ClassicAsyncReconstructionPass.CloneAndRemap(
+                keepAlive,
+                kickoff,
+                hoisted,
+                locals));
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
     public void AwaitSourceRejectsDiamondWithTwoResumeDefinitions()
     {
         using var source = OpenClassicFixture();
@@ -1099,6 +1161,34 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
+    public void AwaitCompletionBranchRequiresMatchingPolarity()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitVoid");
+        Call getResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "GetResult");
+        LoadProperty completed = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<LoadProperty>(),
+            static property =>
+                property.Accessor.Name
+                    == "get_IsCompleted");
+        completed.ReplaceWith(new LogicalNot(
+            (IrExpression)completed.Clone()));
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.TryGetAwaitSource(
+                moveNext,
+                getResult,
+                out _,
+                out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
     public void BuilderStorageMustBeCanonical()
     {
         TypeRef modifier = TypeRef.CoreLib(
@@ -1172,7 +1262,7 @@ public class ClassicAsyncReconstructionPassTests
                     ExpectedStateMachineType(
                         source,
                         "AwaitVoid"),
-                    ExpectedBuilderType(
+                    ExpectedBuilderStorage(
                         source,
                         "AwaitVoid"),
                     setResult,
@@ -1270,7 +1360,13 @@ public class ClassicAsyncReconstructionPassTests
         var field = new FieldRef(
             kickoff.StateMachineType,
             original.FieldName,
-            modifiedType);
+            modifiedType)
+        {
+            ExactDefinitionAddress =
+                original.FieldDefinitionAddress,
+            ExactDefinitionAcquisitionGuard =
+                original.FieldDefinitionAcquisitionGuard,
+        };
         var argument = new LoadArgument(
             original.ArgumentIndex,
             original.ArgumentName,
@@ -1288,6 +1384,54 @@ public class ClassicAsyncReconstructionPassTests
                     kickoff.StateMachineType,
                     field,
                     argument,
+                    out _));
+    }
+
+    [Fact]
+    public void ParameterBindingRequiresExactFieldDefinition()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction kickoffFunction =
+            PreparedKickoff(source, "AwaitVoid");
+        var relationship =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                    kickoffFunction.ClassicAsyncRelationship)
+                    .Relationship)
+                .Relationship;
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetKickoff(
+                kickoffFunction,
+                relationship.StateMachineType,
+                relationship.StateMachineName,
+                out ClassicAsyncReconstructionPass.Kickoff kickoff,
+                out _,
+                out _));
+        ClassicAsyncParameterBinding binding =
+            Assert.Single(kickoff.ParameterBindings.Items);
+        ExactFieldDefinitionAddress address =
+            Assert.IsType<ExactFieldDefinitionAddress>(
+                binding.FieldDefinitionAddress);
+        Assert.NotNull(
+            binding.FieldDefinitionAcquisitionGuard);
+        var alias = new FieldRef(
+            kickoff.StateMachineType,
+            binding.FieldName,
+            binding.FieldType)
+        {
+            ExactDefinitionAddress = address with
+            {
+                MetadataToken = address.MetadataToken + 1,
+            },
+            ExactDefinitionAcquisitionGuard =
+                binding.FieldDefinitionAcquisitionGuard,
+        };
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetParameterBinding(
+                    kickoff,
+                    alias,
                     out _));
     }
 
@@ -1401,7 +1545,7 @@ public class ClassicAsyncReconstructionPassTests
                 .TryGetExpectedBuilderCallbackSlots(
                     moveNext,
                     ExpectedStateMachineType(source, "AwaitVoid"),
-                    ExpectedBuilderType(source, "AwaitVoid"),
+                    ExpectedBuilderStorage(source, "AwaitVoid"),
                     setResult,
                     [
                         .. moveNext
@@ -1409,6 +1553,165 @@ public class ClassicAsyncReconstructionPassTests
                             .OfType<Call>()
                             .Where(static call =>
                                 call.Callee.Name == "GetResult"),
+                    ],
+                    out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Fact]
+    public void CallbackBuilderRequiresExactFieldDefinition()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitGeneric");
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+        var receiver = Assert.IsType<LoadFieldAddress>(
+            setResult.Arguments[0]);
+        ExactFieldDefinitionAddress address =
+            Assert.IsType<ExactFieldDefinitionAddress>(
+                receiver.Field.ExactDefinitionAddress);
+        Assert.NotNull(
+            receiver.Field.ExactDefinitionAcquisitionGuard);
+        IrExpression? instance = receiver.Instance;
+        instance?.Detach();
+        receiver.ReplaceWith(new LoadFieldAddress(
+            receiver.Field with
+            {
+                ExactDefinitionAddress = address with
+                {
+                    MetadataToken = address.MetadataToken + 1,
+                },
+            },
+            instance));
+
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    ExpectedStateMachineType(
+                        source,
+                        "AwaitGeneric"),
+                    ExpectedBuilderStorage(
+                        source,
+                        "AwaitGeneric"),
+                    setResult,
+                    [
+                        .. moveNext
+                            .DescendantsOutsideNestedFunctions
+                            .OfType<Call>()
+                            .Where(static call =>
+                                call.Callee.Name
+                                    == "GetResult"),
+                    ],
+                    out _));
+        moveNext.CheckInvariant();
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("overwritten")]
+    [InlineData("outside-catch")]
+    public void ExceptionCompletionRequiresCanonicalCaughtValue(
+        string mutation)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction moveNext =
+            PreparedMoveNext(source, "AwaitVoid");
+        Call setException = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call =>
+                call.Callee.Name == "SetException");
+        var statement = Assert.IsType<ExpressionStatement>(
+            setException.Parent);
+        CatchClause clause = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<CatchClause>());
+        var exception = Assert.IsType<LoadLocal>(
+            setException.Arguments[1]);
+        switch (mutation)
+        {
+            case "null":
+                exception.ReplaceWith(new Constant(
+                    null,
+                    exception.Type));
+                break;
+            case "overwritten":
+                {
+                    var block = Assert.IsType<Block>(
+                        statement.Parent);
+                    IReadOnlyList<IrNode> children =
+                        block.DetachChildren();
+                    foreach (IrNode child in children)
+                    {
+                        if (ReferenceEquals(child, statement))
+                        {
+                            block.Add(new StoreLocal(
+                                exception.Index,
+                                exception.Type,
+                                new Constant(
+                                    null,
+                                    exception.Type)));
+                        }
+                        block.Add(child);
+                    }
+                    break;
+                }
+            case "outside-catch":
+                {
+                    var catchBlock = Assert.IsType<Block>(
+                        statement.Parent);
+                    IReadOnlyList<IrNode> catchChildren =
+                        catchBlock.DetachChildren();
+                    foreach (IrNode child in catchChildren)
+                    {
+                        if (!ReferenceEquals(child, statement))
+                            catchBlock.Add(child);
+                    }
+                    var tryCatch = Assert.IsType<TryCatch>(
+                        clause.Parent);
+                    var outerBlock = Assert.IsType<Block>(
+                        tryCatch.Parent);
+                    IReadOnlyList<IrNode> outerChildren =
+                        outerBlock.DetachChildren();
+                    foreach (IrNode child in outerChildren)
+                    {
+                        outerBlock.Add(child);
+                        if (ReferenceEquals(child, tryCatch))
+                            outerBlock.Add(statement);
+                    }
+                    break;
+                }
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(mutation));
+        }
+
+        Call setResult = Assert.Single(
+            moveNext.DescendantsOutsideNestedFunctions
+                .OfType<Call>(),
+            static call => call.Callee.Name == "SetResult");
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .TryGetExpectedBuilderCallbackSlots(
+                    moveNext,
+                    ExpectedStateMachineType(
+                        source,
+                        "AwaitVoid"),
+                    ExpectedBuilderStorage(
+                        source,
+                        "AwaitVoid"),
+                    setResult,
+                    [
+                        .. moveNext
+                            .DescendantsOutsideNestedFunctions
+                            .OfType<Call>()
+                            .Where(static call =>
+                                call.Callee.Name
+                                    == "GetResult"),
                     ],
                     out _));
         moveNext.CheckInvariant();
@@ -1545,7 +1848,7 @@ public class ClassicAsyncReconstructionPassTests
                 .TryGetExpectedBuilderCallbackSlots(
                     moveNext,
                     ExpectedStateMachineType(source, methodName),
-                    ExpectedBuilderType(source, methodName),
+                    ExpectedBuilderStorage(source, methodName),
                     setResult,
                     getResults,
                     out _));
@@ -1611,7 +1914,7 @@ public class ClassicAsyncReconstructionPassTests
                 .TryGetExpectedBuilderCallbackSlots(
                     moveNext,
                     ExpectedStateMachineType(source, "AwaitValue"),
-                    ExpectedBuilderType(source, "AwaitValue"),
+                    ExpectedBuilderStorage(source, "AwaitValue"),
                     setResult,
                     getResults,
                     out _));
@@ -3256,7 +3559,7 @@ public class ClassicAsyncReconstructionPassTests
         return kickoff.StateMachineType;
     }
 
-    static TypeRef ExpectedBuilderType(
+    static ClassicAsyncStorage ExpectedBuilderStorage(
         MetadataSource source,
         string methodName)
     {
@@ -3276,7 +3579,7 @@ public class ClassicAsyncReconstructionPassTests
                 out ClassicAsyncReconstructionPass.Kickoff kickoff,
                 out _,
                 out _));
-        return kickoff.BuilderStorage.Type;
+        return kickoff.BuilderStorage;
     }
 
     static IrFunction PreparedMoveNext(

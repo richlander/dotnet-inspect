@@ -330,9 +330,25 @@ public sealed record MethodRef(
 /// <summary>Compiler fixed-buffer source-field metadata decoded from <c>FixedBufferAttribute</c>.</summary>
 public sealed record FixedBufferFieldInfo(TypeRef ElementType, int Length);
 
+internal readonly record struct ExactFieldDefinitionAddress(
+    Guid ModuleVersionId,
+    int MetadataToken);
+
 /// <summary>A materialized field reference.</summary>
 public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
 {
+    internal ExactFieldDefinitionAddress? ExactDefinitionAddress
+    {
+        get;
+        init;
+    }
+
+    internal object? ExactDefinitionAcquisitionGuard
+    {
+        get;
+        init;
+    }
+
     /// <summary>
     /// Positive metadata evidence that an auto-property backing-field-shaped name
     /// has a corresponding property. Null means no proof, not proof of absence.
