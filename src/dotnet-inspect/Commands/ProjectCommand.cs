@@ -555,21 +555,33 @@ public class ProjectCommand
 
     private static int PrintSkillDocument(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
     {
-        var documents = rows
-            .Select((row, index) => CreatePrintableSkillDocument(row, index + 1, options))
-            .Where(document => document is not null)
-            .Cast<PrintableDocument>()
-            .ToList();
+        var printableRows = new List<PrintableRow>(rows.Count);
+        var sourceByRow = new Dictionary<PrintableRow, ProjectSkillRow>(
+            ReferenceEqualityComparer.Instance);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var source = rows[i];
+            var row = new PrintableRow(
+                i + 1,
+                ProjectSkillsSection,
+                $"{source.Package} {source.Path}",
+                source.Path,
+                null);
+            printableRows.Add(row);
+            sourceByRow.Add(row, source);
+        }
+        var visibleRows = RowWindow.Apply(options.Rows, printableRows);
 
         return PrintProjectionOutput.Write(
-            documents,
+            visibleRows,
+            row => ReadPrintableSkillContent(sourceByRow[row], options),
             new PrintProjectionOptions(
-                options.Bare && !options.Print ? RowSelector.FromIndex(1) : options.PrintRow,
+                options.Bare && !options.Print ? RowSelector.First : options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,
                 options.Bare,
-                options.OutputPath));
+                new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private static int WriteSkillShapeProjection(IReadOnlyList<ProjectSkillRow> rows, ProjectOptions options)
@@ -592,7 +604,13 @@ public class ProjectCommand
 
         return ShapeProjectionOutput.Write(
             projected,
-            new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+            new ShapeProjectionOptions(
+                kind,
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                new ProjectionDestination(options.OutputPath, options.Rows)));
     }
 
     private static string? SelectSkillValue(ProjectSkillRow row, ProjectOptions options)
@@ -610,24 +628,17 @@ public class ProjectCommand
         };
     }
 
-    private static PrintableDocument? CreatePrintableSkillDocument(ProjectSkillRow row, int rowNumber, ProjectOptions options)
+    private static PrintableContent ReadPrintableSkillContent(
+        ProjectSkillRow row,
+        ProjectOptions options)
     {
-        if (row.FullPath == null || !File.Exists(row.FullPath))
-            return null;
-
+        string fullPath = row.FullPath
+            ?? throw new InvalidOperationException(
+                $"The selected skill '{row.Path}' has no content path.");
         var selected = AgentSkillDocument.PrepareForOutput(
-            MarkdownContent.ApplyScope(File.ReadAllText(row.FullPath), options.ContentScope),
+            MarkdownContent.ApplyScope(File.ReadAllText(fullPath), options.ContentScope),
             normalizeGithubLinksToRaw: true);
-        return new PrintableDocument(
-            rowNumber,
-            ProjectSkillsSection,
-            $"{row.Package} {row.Path}",
-            row.Path,
-            null,
-            selected.ToString())
-        {
-            SelectedContent = selected
-        };
+        return PrintableContent.FromContainmentSelection(selected);
     }
 
     private static bool ValidateProjectProjectionOptions()

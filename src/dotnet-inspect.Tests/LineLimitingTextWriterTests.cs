@@ -27,4 +27,16 @@ public class LineLimitingTextWriterTests
 
         Assert.Equal("first\nsecond\n", output.ToString());
     }
+
+    [Fact]
+    public void TailFlush_UsesLfRatherThanTheDestinationNewline()
+    {
+        var output = new StringWriter { NewLine = "\r\n" };
+        var writer = new TailLineLimitingTextWriter(output, maxLines: 2);
+
+        writer.Write("first\nsecond\nthird");
+        writer.FlushTail();
+
+        Assert.Equal("second\nthird\n", output.ToString());
+    }
 }
