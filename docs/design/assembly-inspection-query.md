@@ -234,9 +234,11 @@ classification, assembly identity, and MVID decoding.
 The target operation has two distinct phases:
 
 1. During admission, the artifact owner validates the current admission
-   authority and invokes the assembly projector with the exact acquisition
-   registration and callback-scoped immutable bytes. The projector classifies
-   those bytes and returns content-free assembly facts.
+   authority, derives an owner-attested view from the exact selected
+   acquisition registration, and invokes the assembly projector with only that
+   view and callback-scoped immutable bytes. The full acquisition registration
+   does not cross the boundary. The projector classifies those bytes and
+   returns content-free assembly facts.
 2. During a later query, the artifact owner validates the current query
    authority and lends the retained immutable bytes for one operation. The
    assembly consumer validates those bytes against the published facts before
@@ -318,6 +320,7 @@ public sealed record ArtifactAssemblyProjectionFailure(
 public enum ArtifactAssemblyProjectionFailureKind
 {
     AdmissionUnauthorized,
+    UnsupportedWindowsMetadata,
     MalformedMetadata,
     EmptyModuleVersionId,
 }
@@ -342,6 +345,7 @@ public enum ArtifactAssemblyQueryFailureKind
     QueryUnauthorized,
     GenerationMismatch,
     ArtifactIdentityMismatch,
+    UnsupportedWindowsMetadata,
     MalformedMetadata,
     EmptyModuleVersionId,
     AssemblyIdentityMismatch,
@@ -395,13 +399,18 @@ content callback.
 ##### Admission classification
 
 The admission callback must observe one immutable byte sequence. Metadata
-classifies it without loading the inspected assembly:
+first applies the MetadataPrimitives-owned
+`MetadataImageFormatClassifier`. Unsupported Windows Metadata is rejected
+before constructing a `MetadataReader` or performing other managed metadata
+work. Supported input is then classified without loading the inspected
+assembly:
 
 | Input | Outcome | Participant consequence |
 | --- | --- | --- |
 | Managed assembly with a non-empty MVID | `Projected` | The context realizer may use the returned facts when forming its atomic publication. |
 | Native PE image with no managed metadata | `NotAssembly(NativeImage)` | No assembly registration or participant is manufactured. |
 | Managed netmodule | `NotAssembly(ManagedModule)` | No assembly registration or participant is manufactured. |
+| Windows Metadata (`WindowsMetadata` or `ManagedWindowsMetadata`) | `Rejected(UnsupportedWindowsMetadata)` | Required context admission fails visibly before managed metadata work. |
 | Malformed PE or metadata | `Rejected(MalformedMetadata)` | Required context admission fails visibly. |
 | Managed assembly with an empty MVID | `Rejected(EmptyModuleVersionId)` | Required context admission fails visibly. |
 | Foreign, revoked, disposed, or ended admission authority | `Rejected(AdmissionUnauthorized)` | The callback is not invoked and no assembly facts are minted. |
@@ -431,9 +440,12 @@ validates all of:
 
 1. the view's generation is the projection registration's exact generation;
 2. its artifact identity is the projection registration's exact artifact;
-3. the retained image is still a managed assembly;
-4. its assembly identity equals the projected identity; and
-5. its non-empty MVID equals the projection registration's MVID.
+3. `MetadataImageFormatClassifier` still classifies the retained image as
+   supported ECMA-335 before any `MetadataReader` construction or managed
+   metadata work;
+4. the retained image is still a managed assembly;
+5. its assembly identity equals the projected identity; and
+6. its non-empty MVID equals the projection registration's MVID.
 
 Because an `ArtifactIdentity` is scoped to its owner-issued generation, exact
 artifact identity already entails generation equality. The explicit generation
@@ -442,9 +454,10 @@ comparison runs first to classify a foreign-generation owner view as
 
 A generation, artifact identity, assembly identity, or MVID mismatch is a
 typed `Rejected` outcome. Native and module replacements produce the query
-outcome's typed `NotAssembly` arm; malformed and empty-MVID replacements use
-their dedicated query failure kinds. None is retried through a path, source
-adapter, descriptor opener, or new acquisition.
+outcome's typed `NotAssembly` arm; unsupported Windows Metadata, malformed
+metadata, and empty-MVID replacements use their dedicated query failure kinds.
+None is retried through a path, source adapter, descriptor opener, or new
+acquisition.
 
 The `Validated<TResult>` value is produced inside the query view's callback.
 The assembly query opens an internal `AssemblyImage` or
@@ -458,6 +471,13 @@ outer query operation maps that rejection to `QueryUnauthorized`. The assembly
 query consumes the owner-attested generation and artifact identity and performs
 the content-derived checks; it does not infer owner state from PE bytes,
 ordinal equality, or display values.
+
+The interaction model treats current admission and query authority as external
+inputs. It proves that projection or validation cannot proceed after
+revocation, but it does not model the artifact owner's outer
+`AdmissionUnauthorized` or `QueryUnauthorized` result mapping. The named
+Release gates below own those exact mappings and prove that the callback and
+producer are not invoked.
 
 ##### Relationship to compatibility descriptors
 
@@ -489,20 +509,25 @@ provenance, and query validation requires current query authority plus exact
 generation, artifact identity, assembly identity, and MVID agreement. Mutation
 configurations independently show that stale admission, leaked authority,
 dropped artifact identity, relaxed artifact, assembly-identity, MVID, or
-revoked-query checks violate those properties; the positive model separately
-requires a foreign-generation view to produce `GenerationMismatch`. The model
-does not establish implementation conformance.
+revoked-query checks violate those properties. Separate mutations show that
+unsupported Windows Metadata cannot project or validate as supported
+ECMA-335. The positive model separately requires a foreign-generation view to
+produce `GenerationMismatch`. The model does not establish implementation
+conformance or the outer authorization-result mapping.
 
 ##### Required gates
 
 Implementation is complete only when Release tests equivalent to these exist:
 
 - `AdmissionProjection_BindsExactArtifactIdentityAssemblyRegistrationIdentityAndMvid`
-- `AdmissionProjection_RejectsForeignRevokedDisposedOrEndedAuthority`
+- `AdmissionProjection_MapsUnauthorizedAuthorityWithoutInvokingCallback`
 - `AdmissionProjection_PublicSurfaceCarriesNoProvenanceContentOrLeaseCapability`
+- `AdmissionProjection_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`
 - `AdmissionProjection_ClassifiesNativeModuleMalformedAndEmptyMvid`
+- `QueryValidation_MapsUnauthorizedAuthorityWithoutInvokingCallback`
 - `QueryValidation_ConsumesOwnerAttestedArtifactIdentityAndGeneration`
 - `QueryValidation_AcceptsExactRetainedImageInsideCallbackWithoutRebinding`
+- `QueryValidation_RejectsUnsupportedWindowsMetadataBeforeMetadataWork`
 - `QueryValidation_ClassifiesNativeModuleMalformedAndEmptyMvid`
 - `QueryValidation_RejectsArtifactGenerationAssemblyIdentityAndMvidMismatch`
 - `AdmissionProjection_ExactArtifactIdentityIsNonVacuous`
@@ -515,7 +540,13 @@ The public-surface gate recursively inspects nested public types for paths,
 source provenance, content, openers, content references, and leases. The
 non-vacuity gate substitutes a different owner-issued artifact identity from
 the same generation in an otherwise valid query view and must fail before
-producer execution.
+producer execution. The two authorization-mapping gates cover every listed
+missing, foreign, revoked, disposed, and ended state, require the exact typed
+failure, and prove that no callback or producer runs. The two unsupported-input
+gates use both Windows Metadata kinds and require the
+MetadataPrimitives-owned classifier to reject before `MetadataReader`
+construction or other managed metadata work; `MDP017` continues to own the
+classifier's format detection and bounded-work guarantees.
 
 ##### Non-goals
 

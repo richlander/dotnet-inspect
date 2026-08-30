@@ -13,7 +13,8 @@
 (* MVID; C keeps A's MVID but changes identity; D keeps both but belongs to  *)
 (* a different artifact generation and identity; E keeps both and the       *)
 (* generation but reports a different artifact identity. The remaining      *)
-(* exercise native, netmodule, malformed, and empty-MVID classification.    *)
+(* exercise native, netmodule, unsupported Windows Metadata, malformed, and *)
+(* empty-MVID classification.                                               *)
 (*                                                                         *)
 (* Mutation constants independently weaken the authority, output, or        *)
 (* validation rules. Witness variables latch the pre-state condition at the *)
@@ -29,7 +30,9 @@ CONSTANTS
     AcceptRegistrationMismatch,
     AcceptIdentityMismatch,
     AcceptMvidMismatch,
-    AllowRevokedQuery
+    AllowRevokedQuery,
+    MisclassifyUnsupportedAdmission,
+    MisclassifyUnsupportedQuery
 
 ASSUME
     /\ AllowStaleAdmission \in BOOLEAN
@@ -39,6 +42,8 @@ ASSUME
     /\ AcceptIdentityMismatch \in BOOLEAN
     /\ AcceptMvidMismatch \in BOOLEAN
     /\ AllowRevokedQuery \in BOOLEAN
+    /\ MisclassifyUnsupportedAdmission \in BOOLEAN
+    /\ MisclassifyUnsupportedQuery \in BOOLEAN
 
 NoImage == "NoImage"
 NoValue == "NoValue"
@@ -46,22 +51,24 @@ NoValue == "NoValue"
 ManagedAssemblies == {"A", "B", "C", "D", "E"}
 Images ==
     ManagedAssemblies
-        \union {"Native", "Module", "Malformed", "EmptyMvid"}
+        \union {"Native", "Module", "WindowsMetadata", "Malformed", "EmptyMvid"}
 
 ImageKind(image) ==
     CASE image \in ManagedAssemblies -> "Assembly"
       [] image = "Native" -> "Native"
       [] image = "Module" -> "Module"
+      [] image = "WindowsMetadata" -> "Unsupported"
       [] image = "Malformed" -> "Malformed"
       [] image = "EmptyMvid" -> "EmptyMvid"
 
 ImageIdentity(image) ==
-    CASE image \in {"A", "B", "D", "E", "EmptyMvid"} -> "Identity1"
+    CASE image \in {"A", "B", "D", "E", "WindowsMetadata", "EmptyMvid"}
+        -> "Identity1"
       [] image = "C" -> "Identity2"
       [] OTHER -> NoValue
 
 ImageMvid(image) ==
-    CASE image \in {"A", "C", "D", "E"} -> "Mvid1"
+    CASE image \in {"A", "C", "D", "E", "WindowsMetadata"} -> "Mvid1"
       [] image = "B" -> "Mvid2"
       [] OTHER -> NoValue
 
@@ -124,12 +131,12 @@ vars == <<
 
 ProjectionStates == {"None", "Projected", "NotAssembly", "Rejected"}
 ProjectionReasons ==
-    {"None", "NativeImage", "ManagedModule", "MalformedMetadata",
-     "EmptyModuleVersionId"}
+    {"None", "NativeImage", "ManagedModule", "UnsupportedWindowsMetadata",
+     "MalformedMetadata", "EmptyModuleVersionId"}
 QueryStates == {"None", "Validated", "NotAssembly", "Rejected"}
 QueryReasons ==
-    {"None", "NativeImage", "ManagedModule", "MalformedMetadata",
-     "EmptyModuleVersionId", "GenerationMismatch",
+    {"None", "NativeImage", "ManagedModule", "UnsupportedWindowsMetadata",
+     "MalformedMetadata", "EmptyModuleVersionId", "GenerationMismatch",
      "ArtifactIdentityMismatch", "AssemblyIdentityMismatch",
      "ModuleVersionIdMismatch"}
 
@@ -141,7 +148,8 @@ ExactQueryMatch(image) ==
     /\ ImageMvid(image) = projectionMvid
 
 AcceptedQueryMatch(image) ==
-    /\ image \in ManagedAssemblies
+    /\ (image \in ManagedAssemblies
+        \/ (MisclassifyUnsupportedQuery /\ image = "WindowsMetadata"))
     /\ ImageGeneration(image) = projectionGeneration
     /\ (AcceptRegistrationMismatch
         \/ ImageRegistration(image) = projectionRegistration)
@@ -241,7 +249,9 @@ Project(image) ==
     /\ projectionImage' = image
     /\ admissionAuthorityWitness' =
         (admissionAuthorityWitness /\ admissionAuthority = "Current")
-    /\ CASE ImageKind(image) = "Assembly" ->
+    /\ CASE ImageKind(image) = "Assembly"
+            \/ (MisclassifyUnsupportedAdmission
+                /\ image = "WindowsMetadata") ->
             /\ projectionState' = "Projected"
             /\ projectionReason' = "None"
             /\ projectionGeneration' = ImageGeneration(image)
@@ -263,6 +273,16 @@ Project(image) ==
                 IF image = "Native"
                     THEN "NativeImage"
                     ELSE "ManagedModule"
+            /\ projectionGeneration' = NoValue
+            /\ projectionRegistration' = NoValue
+            /\ projectionIdentity' = NoValue
+            /\ projectionMvid' = NoValue
+            /\ projectionCarriesAuthority' = FALSE
+            /\ contentFreeWitness' = contentFreeWitness
+            /\ exactRegistrationWitness' = exactRegistrationWitness
+        [] ImageKind(image) = "Unsupported" ->
+            /\ projectionState' = "Rejected"
+            /\ projectionReason' = "UnsupportedWindowsMetadata"
             /\ projectionGeneration' = NoValue
             /\ projectionRegistration' = NoValue
             /\ projectionIdentity' = NoValue
@@ -350,7 +370,9 @@ ValidateQuery(image) ==
         accepted == AcceptedQueryMatch(image)
         exact == ExactQueryMatch(image)
         outcome ==
-            IF kind \in {"Native", "Module"}
+            IF kind = "Unsupported" /\ ~MisclassifyUnsupportedQuery
+                THEN "Rejected"
+            ELSE IF kind \in {"Native", "Module"}
                 THEN "NotAssembly"
             ELSE IF accepted
                 THEN "Validated"
@@ -358,6 +380,8 @@ ValidateQuery(image) ==
         reason ==
             CASE kind = "Native" -> "NativeImage"
               [] kind = "Module" -> "ManagedModule"
+              [] kind = "Unsupported" /\ ~MisclassifyUnsupportedQuery ->
+                    "UnsupportedWindowsMetadata"
               [] kind = "Malformed" -> "MalformedMetadata"
               [] kind = "EmptyMvid" -> "EmptyModuleVersionId"
               [] ImageGeneration(image) # projectionGeneration ->
@@ -415,7 +439,7 @@ PublicationCarriesExactFacts == publicationWitness
 QueryValidationRequiresCurrentAuthority == queryAuthorityWitness
 ValidatedImageMatchesProjection == queryMatchWitness
 
-OnlyManagedAssembliesProject ==
+OnlySupportedAssembliesProject ==
     projectionState = "Projected"
         => projectionImage \in ManagedAssemblies
 
@@ -434,6 +458,9 @@ NonAssemblyAndRejectionKindsAreTyped ==
     /\ (projectionImage = "Module"
         => /\ projectionState = "NotAssembly"
            /\ projectionReason = "ManagedModule")
+    /\ (projectionImage = "WindowsMetadata"
+        => /\ projectionState = "Rejected"
+           /\ projectionReason = "UnsupportedWindowsMetadata")
     /\ (projectionImage = "Malformed"
         => /\ projectionState = "Rejected"
            /\ projectionReason = "MalformedMetadata")
@@ -454,7 +481,8 @@ QueryOutcomesAreTyped ==
         => queryReason \in {"NativeImage", "ManagedModule"})
     /\ (queryState = "Rejected"
         => queryReason
-            \in {"MalformedMetadata", "EmptyModuleVersionId",
+            \in {"UnsupportedWindowsMetadata", "MalformedMetadata",
+                "EmptyModuleVersionId",
                 "GenerationMismatch", "ArtifactIdentityMismatch",
                 "AssemblyIdentityMismatch", "ModuleVersionIdMismatch"})
 
@@ -471,6 +499,11 @@ QueryMismatchReasonsAreExact ==
     /\ (queryImage = "E"
         => /\ queryState = "Rejected"
            /\ queryReason = "ArtifactIdentityMismatch")
+
+UnsupportedQueryIsRejected ==
+    queryImage = "WindowsMetadata"
+        => /\ queryState = "Rejected"
+           /\ queryReason = "UnsupportedWindowsMetadata"
 
 MatchingQueryRoundTripIsUnreachable == ~matchingRoundTripReached
 MismatchRejectionIsUnreachable == ~mismatchRejectionReached
