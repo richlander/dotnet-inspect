@@ -1161,10 +1161,12 @@ An explicit disposition is valid only for
 `AssemblyBindingTarget.AssemblyReference`, whose structured identity supplies
 the requested name. An intrinsic-core-library request has no requested
 assembly name and continues to use a selected, unavailable, or rejected
-outcome rather than a name-ownership miss. The Metadata adapter converts any
-missing result for an intrinsic-core-library request to
-`Rejected(InvalidPolicyResult)`; no public missing factory can bypass target
-validation.
+outcome rather than a name-ownership miss. Every wrapper or composite validates
+each delegated result against the original request before interpreting it. A
+missing result for an intrinsic-core-library request immediately becomes
+`Rejected(InvalidPolicyResult)` and no later tier is invoked. The Metadata
+adapter applies the same validation to a final policy result, so direct and
+composed policies share one closed rule.
 
 Only the policy owner that holds the complete frozen name-ownership decision
 for the exact request may issue `NoNameOwner` or `NameOwnedNoMatch`. This
@@ -1184,10 +1186,17 @@ Composition preserves each policy result exactly:
   frozen request-eligible tier chain and receiving `NoNameOwner` from every
   tier in that chain.
 
-That final disposition attests only that the exact composite, origin, scope,
-and version exhausted its own eligible tiers. It is not evidence that no owner
-exists globally or in a later independently owned composite. A skipped,
-unconfigured, or unevaluated eligible tier prevents the composite from issuing
+The complete request-eligible chain is an owner-attested input independent of
+the results its tiers return. A configured tier list without that completeness
+attestation is an invalid policy input and produces
+`Rejected(InvalidPolicyResult)` before a no-owner result can be issued. This
+contract consumes the closed chain and does not define how an adjacent
+workspace owner constructs or publishes it.
+
+A final `NoNameOwner` attests only that the exact composite, origin, scope, and
+version exhausted that complete chain. It is not evidence that no owner exists
+globally or in a later independently owned composite. A skipped, unconfigured,
+or unevaluated request-eligible tier prevents the composite from issuing
 `NoNameOwner`.
 
 A wrapper around `IAssemblyBindingPolicy` preserves the delegated disposition.
@@ -3679,15 +3688,21 @@ Claim: direct callers and transitive call graphs share one definition identity.
 - An external fake policy can construct every `AssemblyBindingFailureKind`.
 - An external fake policy can construct all three
   `AssemblyBindingMissDisposition` arms only through the closed missing-result
-  factories, and Metadata converts any missing intrinsic-core-library result
-  to `Rejected(InvalidPolicyResult)`.
+  factories.
+- `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition`
+  returns each public missing result from a first tier for an
+  intrinsic-core-library request while a second tier could select. Every
+  wrapper and composite returns `Rejected(InvalidPolicyResult)` without
+  invoking that second tier, and Metadata applies the same rule to a direct
+  final result.
 - `AssemblyBindingMissDisposition_OnlyNoNameOwnerContinues` derives every
   two-tier result pair from one declaration and proves that only
   `NoNameOwner` invokes the next tier; selected, ambiguous, unavailable,
   rejected, `NameOwnedNoMatch`, and `Undifferentiated` remain terminal.
 - `AssemblyBindingMissDisposition_CompleteExhaustionRequired` proves a
-  composite cannot issue `NoNameOwner` while any request-eligible tier in its
-  frozen chain remains unevaluated.
+  composite cannot issue `NoNameOwner` when its configured chain omits an
+  independently owner-attested request-eligible tier or while any tier in the
+  complete chain remains unevaluated.
 - `AssemblyBindingMissDisposition_AllNoOwnerRemainsNoOwner` proves a complete,
   exhausted policy chain containing only `NoNameOwner` results retains that
   disposition.

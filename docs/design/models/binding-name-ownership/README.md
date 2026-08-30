@@ -10,6 +10,8 @@ The model answers four focused questions:
 - Can any result other than `NoNameOwner` invoke the next tier?
 - Does `NameOwnedNoMatch` remain authoritative?
 - Does an undifferentiated legacy miss fail closed?
+- Is a target-invalid intrinsic-core-library miss rejected before another tier
+  can hide it?
 - Can a composite report `NoNameOwner` before exhausting its complete
   request-eligible tier chain?
 - Does Metadata preserve the exact miss disposition when it freezes the
@@ -17,26 +19,31 @@ The model answers four focused questions:
 
 ## Relationship to the product
 
-Each initial state chooses a complete request-eligible chain of one or two
-ordered policy tiers and one result for each tier: `NoNameOwner`,
-`NameOwnedNoMatch`, `Undifferentiated`, `Selected`, `Ambiguous`, `Unavailable`,
-or `Rejected`. The policy mode advances only after `NoNameOwner`; every other
-result is terminal. A composite can report `NoNameOwner` only after evaluating
-every tier in the complete chain and receiving that result from each. A second
+Each initial state chooses an assembly-reference or intrinsic-core-library
+target, a complete request-eligible chain of one or two ordered policy tiers,
+and one result for each tier: `NoNameOwner`, `NameOwnedNoMatch`,
+`Undifferentiated`, `Selected`, `Ambiguous`, `Unavailable`, or `Rejected`.
+The policy mode validates the target before interpreting a miss, advances only
+after a valid assembly-reference `NoNameOwner`, and treats every other result
+as terminal. A composite can report `NoNameOwner` only after evaluating every
+tier in the complete chain and receiving that result from each. A second
 transition freezes the result without changing it.
 
 The two-tier bound is sufficient for the composition rule: any longer policy
 chain is repeated application of the same current-tier/next-tier decision.
-TLC explores every one-tier result and all 49 two-tier result pairs rather than
-relying on selected scenarios.
+TLC explores both targets, every one-tier result, and all 49 two-tier result
+pairs rather than relying on selected scenarios. A mutation independently
+varies the configured chain from the request-eligible chain to check that
+declared exhaustion cannot substitute for completeness.
 
 ## Assumptions and non-claims
 
-The model assumes each policy owner has already issued a valid result for the
-exact request under one stable policy version. It does not model how package,
-project, sibling, platform, or local owners decide name ownership; identity
-matching; candidate acquisition; platform precedence; complete eligible
-candidate domains; or workspace lifecycle.
+The model assumes each policy owner has issued a result for the exact request
+under one stable policy version. A policy may issue a target-invalid miss; the
+composition boundary must reject it before interpreting the disposition. The
+model does not define how package, project, sibling, platform, or local owners
+decide name ownership; identity matching; candidate acquisition; platform
+precedence; complete eligible candidate domains; or workspace lifecycle.
 
 Atomic association between an answer and its governing policy version belongs
 to #5213 and is outside this model. The #5214 composition handoff may consume
@@ -49,11 +56,13 @@ unverified.
 
 | Configuration | Purpose |
 | --- | --- |
-| `BindingNameOwnershipSafety.cfg` | Explores every one- and two-tier result assignment and checks type safety, exclusive no-owner fallthrough, complete exhaustion, terminal owned and legacy misses, all-no-owner preservation, terminal success/failure behavior, and exact frozen disposition. |
-| `BindingNameOwnershipLiveness.cfg` | Checks that every complete chain and result assignment reaches a frozen terminal result under weak fairness. |
+| `BindingNameOwnershipSafety.cfg` | Explores both targets and every one- and two-tier result assignment. It checks type safety, pre-composition target validation, exclusive no-owner fallthrough, complete exhaustion, terminal owned and legacy misses, all-no-owner preservation, terminal success/failure behavior, and exact frozen disposition. |
+| `BindingNameOwnershipLiveness.cfg` | Checks that every target, complete chain, and result assignment reaches a frozen terminal result under weak fairness. |
 | `BindingNameOwnershipBrokenOwnedFallthrough.cfg` | Permits `NameOwnedNoMatch` to invoke the next tier. It must violate `NameOwnedNoMatchStops`. |
 | `BindingNameOwnershipBrokenLegacyFallthrough.cfg` | Permits `Undifferentiated` to invoke the next tier. It must violate `UndifferentiatedStops`. |
+| `BindingNameOwnershipBrokenTargetValidation.cfg` | Interprets a target-invalid intrinsic miss before validation and allows a later tier to hide it with a selection. It must violate `TargetValidationPreventsHiddenSelection`. |
 | `BindingNameOwnershipBrokenExhaustion.cfg` | Reports `NoNameOwner` before exhausting a two-tier eligible chain. It must violate `CompositeNoNameOwnerRequiresCompleteExhaustion`. |
+| `BindingNameOwnershipBrokenOmittedTier.cfg` | Omits a request-eligible tier from the configured chain. It must violate `CompositeNoNameOwnerRequiresCompleteExhaustion`. |
 | `BindingNameOwnershipBrokenFreeze.cfg` | Collapses every frozen miss to `Undifferentiated`. It must violate `FrozenDispositionPreserved`. |
 
 All configurations disable TLC's deadlock check because `Frozen` is an
@@ -97,7 +106,17 @@ java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
 
 java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 1 -cleanup -noGenerateSpecTE \
+  -config BindingNameOwnershipBrokenTargetValidation.cfg \
+  BindingNameOwnership.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
   -config BindingNameOwnershipBrokenExhaustion.cfg \
+  BindingNameOwnership.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config BindingNameOwnershipBrokenOmittedTier.cfg \
   BindingNameOwnership.tla
 
 java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
@@ -112,22 +131,24 @@ The positive configurations completed with no errors:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Safety | 301 | 301 | 4 | All eight invariants passed. |
-| Liveness | 301 | 301 | 4 | `SelectionConverges` passed. |
+| Safety | 595 | 595 | 4 | All ten invariants passed. |
+| Liveness | 595 | 595 | 4 | `SelectionConverges` passed. |
 
-The safety graph covers all 49 tier-result pairs for both one- and two-tier
-eligible chains. It executed 105 `Evaluate` transitions and 98 `Freeze`
-transitions, including seven paths that advanced from the first tier after
-`NoNameOwner`.
+The safety graph covers both targets and all 49 tier-result pairs for both
+one- and two-tier eligible chains. It executed 203 `Evaluate` transitions and
+196 `Freeze` transitions, including seven valid assembly-reference paths that
+advanced from the first tier after `NoNameOwner`.
 
 Each mutation exited with TLC status 12 on its intended invariant:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
-| Broken owned fallthrough | 212 / 212 | 3 | A first-tier `NameOwnedNoMatch` advanced to the second tier, violating `NameOwnedNoMatchStops`. |
-| Broken legacy fallthrough | 226 / 226 | 3 | A first-tier `Undifferentiated` result advanced to the second tier, violating `UndifferentiatedStops`. |
-| Broken complete exhaustion | 100 / 100 | 2 | A two-tier chain reported `NoNameOwner` after evaluating only its first tier, violating `CompositeNoNameOwnerRequiresCompleteExhaustion`. |
-| Broken frozen preservation | 197 / 197 | 3 | A frozen explicit miss became `Undifferentiated`, violating `FrozenDispositionPreserved`. |
+| Broken owned fallthrough | 422 / 422 | 3 | A first-tier `NameOwnedNoMatch` advanced to the second tier, violating `NameOwnedNoMatchStops`. |
+| Broken legacy fallthrough | 450 / 450 | 3 | A first-tier `Undifferentiated` result advanced to the second tier, violating `UndifferentiatedStops`. |
+| Broken target validation | 408 / 408 | 3 | An intrinsic-core-library `NoNameOwner` reached a second tier whose successful selection hid the invalid result, violating `TargetValidationPreventsHiddenSelection`. |
+| Broken complete exhaustion | 198 / 198 | 2 | A complete two-tier chain reported `NoNameOwner` after evaluating only its first tier, violating `CompositeNoNameOwnerRequiresCompleteExhaustion`. |
+| Broken omitted tier | 296 / 296 | 2 | A configured one-tier chain omitted an independently request-eligible second tier and still reported `NoNameOwner`, violating `CompositeNoNameOwnerRequiresCompleteExhaustion`. |
+| Broken frozen preservation | 393 / 393 | 3 | A frozen explicit miss became `Undifferentiated`, violating `FrozenDispositionPreserved`. |
 
 The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
 `2026.08.21.155922` revision `9787e65`. The checked
