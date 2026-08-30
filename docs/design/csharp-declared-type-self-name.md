@@ -60,13 +60,15 @@ The admission input is:
 
 - one exact `MetadataTypeDefinitionName`;
 - the complete authoritative per-segment introduced generic-parameter count;
-  and
-- the CSharpText-owned type-declaration identifier-admission result from #5215.
+- the declared type's leaf generic-parameter list; and
+- access to CSharpText's type-declaration identifier admission from #5215.
 
 An arbitrary `ApiType.Name`, formatted type name, compatibility string, or
 inert display value is not admission evidence. CSharpText continues to own the
 model-free compiler-accurate identifier and declaration-keyword classification;
-this component applies its owner-issued result to the typed Metadata identity.
+this component invokes that owner directly with the proven arity-free Metadata
+leaf. It does not accept a caller-supplied lexical result that could have been
+issued for different text.
 
 The closed result is one of:
 
@@ -89,9 +91,10 @@ Admission is one ordered decision, not independent predicates:
    the legacy path; generated substitution is not admitted by this design.
 3. Validate the complete count vector against the definition-name segment
    count, then validate the leaf's canonical metadata arity against its
-   introduced count.
-4. Ask CSharpText #5215 to admit the arity-free leaf in type-declaration
-   position.
+   introduced count and require the leaf generic-parameter list to have that
+   same count.
+4. Invoke CSharpText #5215 directly on the arity-free leaf in
+   type-declaration position.
 5. Map that owner-issued spelling into `Admitted`, or return the one
    `Unrepresentable` reason selected by the first unsuccessful applicable step.
 
@@ -104,10 +107,11 @@ policy, and this component does not reproduce CSharpText's compiler exceptions.
 Exact admission requires the canonical metadata arity to equal the
 authoritative introduced count: a positive count requires its matching suffix,
 and a zero count requires no suffix. It removes that suffix only after the
-equality is proven. CSharpText #5215 must then issue a legal source spelling
-whose compiler-emitted TypeDef name equals the remaining leaf. A reserved
-type-declaration word may therefore use the ordinary `@` prefix without
-changing identity.
+equality is proven. The declared type must carry exactly that many leaf generic
+parameters; fewer or more cannot recreate the exact TypeDef identity. CSharpText
+issue #5215 must then issue a legal source spelling whose compiler-emitted
+TypeDef name equals the remaining leaf. A reserved type-declaration word may
+therefore use the ordinary `@` prefix without changing identity.
 
 `@` escaping changes source spelling without changing the declared identifier,
 so the result remains identity-preserving. Punctuation encoding, character
@@ -119,26 +123,30 @@ is not admission.
 Admission is unrepresentable when:
 
 - the complete count vector or canonical leaf arity does not agree with the
-  exact definition name; or
+  exact definition name;
+- the declared leaf generic-parameter count does not equal that arity; or
 - CSharpText refuses the residual ordinary leaf in type-declaration position.
 
 The corresponding closed reasons are `ArityMismatch` and
 `IdentifierNotAdmitted`, with the latter retaining CSharpText's closed lexical
 reason.
-A noncanonical backtick sequence is residual leaf text, not a malformed
-canonical arity suffix. It is judged by the final identity-preservation step.
-The ordered decision gives one input one reason.
+A noncanonical backtick sequence is residual leaf text, not a canonical suffix.
+With an authoritative introduced count of zero it reaches CSharpText as literal
+text and normally produces `IdentifierNotAdmitted`; with a positive count it
+cannot supply the required canonical suffix and produces `ArityMismatch`. The
+ordered decision gives one input one reason.
 
 Identity-display escaping such as `A\+B`, inert-text containment, or replacement
 with a plausible ordinary identifier cannot turn this result into `Admitted`.
 
 ## First-adopter contract
 
-`CSharpTypePrinter` admits every exact self-name in the complete batch,
-including nested declared types, before rendering or publishing source. Its
-target return is an atomic typed outcome: `Printed` carries the existing
-`CSharpTypePrintResult`; `NotRendered` carries the exact self-name failures and
-has no units, source, source artifact, or replacement range.
+`CSharpTypePrinter` preflights every admissible exact self-name in the complete
+batch, including nested declared types, before existing duplicate validation,
+rendering, or source publication. Its target return is an atomic typed outcome:
+`Printed` carries the existing `CSharpTypePrintResult`; `NotRendered` carries
+the exact self-name failures and has no units, source, source artifact, or
+replacement range.
 
 For each admitted type:
 
@@ -170,7 +178,10 @@ Existing duplicate-output validation remains outside this self-name result.
 Its current exception behavior applies to exact, legacy, and mixed batches;
 this design neither makes it a `NotRendered` arm nor claims its key is
 compiler-complete. Correcting generated-name or cross-scope collisions is
-separate work tracked by issue #5217.
+separate work tracked by issue #5217. Because exact-name preflight runs first,
+a batch containing both an exact self-name refusal and any duplicate always
+returns `NotRendered`, independent of request order. Duplicate validation runs
+only after every applicable exact name admits.
 
 ## Mock interaction
 
@@ -187,7 +198,9 @@ uses
 request
   exact leaf = "A+B"
 result
-  Unrepresentable(reason=IdentityNotRepresentable, identity=["A+B"])
+  Unrepresentable(
+    reason=IdentifierNotAdmitted(InvalidIdentifier),
+    identity=["A+B"])
 uses
   no type, constructor, or finalizer source is published
 ```
@@ -205,7 +218,9 @@ These properties remain unverified until the Release suite contains:
   ordinary and newly reserved words such as `extension`, nested, generic,
   noncanonical-backtick, arity-mismatch, literal-punctuation, and hostile
   metadata neighbors; the gate requires #5215's real-compiler and emitted
-  TypeDef-identity evidence rather than restating its tables;
+  TypeDef-identity evidence rather than restating its tables, and rejects
+  top-level and nested requests with fewer or more leaf generic parameters than
+  the exact introduced count;
 - `CSharpTypePrinterTests.SelfNameIsSharedByItsDeclarationPositions`, proving
   one admitted value supplies the type header, constructors, and
   destructor-spelled finalizers while suppressed finalizers use no self-name;
@@ -213,7 +228,10 @@ These properties remain unverified until the Release suite contains:
 - `CSharpTypePrinterTests.SelfNameFailureMakesBatchNotRendered`, using the
   hostile metadata fixture for top-level, nested, same-namespace,
   multi-namespace, and selected-replacement failures while proving the typed
-  outcome exposes no partial source surface.
+  outcome exposes no partial source surface. Singleton `Print`, `PrintBatch`,
+  generated-name legacy routing, missing-evidence legacy routing, mixed
+  legacy/exact batches, and both request orders for refusal plus duplicate
+  validation are explicit cases.
 
 The implementation remains in the existing SRM-only, Roslyn-free product
 closure and introduces no platform-specific API. Compiler use belongs only to
