@@ -16,9 +16,9 @@ defined here.
 A structured C# declaration is composed only from explicitly classified input
 slots. Every slot selects exactly one class from the closed
 [slot value taxonomy](#slot-value-classes): raw identifier, qualified-name
-spelling, type declaration name, type expression, bound generic reference,
-closed syntax, rendered fragment, raw literal value, composite subplan, or
-opaque compatibility.
+spelling, namespace identity, type declaration name, type expression, bound
+generic reference, closed syntax, rendered fragment, raw literal value,
+composite subplan, or opaque compatibility.
 
 The CSharp owner prepares each non-opaque slot according to that classification
 before composition. It never recovers a slot boundary or provenance fact by
@@ -243,6 +243,7 @@ contain child catalog entries; they do not combine classes in one entry.
 | --- | --- | --- |
 | Raw identifier | Exact metadata name for one identifier position | Apply visual containment and C# identifier escaping once, at that position |
 | Qualified-name spelling | One metadata namespace or other qualified-name string whose dots have C# spelling semantics, not claimed metadata segment identity | Apply the CSharpText qualified-name grammar within the declared slot; reject or degrade empty, malformed, or unrepresentable components |
+| Namespace identity | One exact whole owner-issued namespace string, without a segment-identity claim | Preserve the raw identity separately; use its contained qualified-name spelling only in the declared type-name context and never derive it from type display text |
 | Type declaration name | Exact root-to-leaf metadata-name segments, introduced generic-parameter counts, and generic-parameter subplans | Validate per-segment arity ownership and the typed placement context, then compose a root's single name or an exact child leaf after parent-chain validation |
 | Type expression | Model-bound type spelling plus all available type/generic-reference evidence | Render or lex within this slot; apply qualification, alias, and identifier policy without inspecting neighboring slots |
 | Bound generic reference | Generic owner plus ordinal and raw declared name | Spell the bound declaration name as an identifier; equal text alone cannot construct this class |
@@ -296,7 +297,14 @@ options" handler does not satisfy the catalog.
 | Slot | Value class | Current source |
 | --- | --- | --- |
 | Type-name qualification mode | Closed syntax | `CSharpFormatOptions.TypeNamePolicy` |
-| Type-name qualification context | Composite subplan | caller-supplied namespace/import context and CSharp-owned shadowing sets |
+| Containing namespace identity | Namespace identity | typed identity corresponding to `CSharpFormatOptions.ContainingNamespace` |
+| Caller import namespace identity | Namespace identity | each typed identity corresponding to `CSharpFormatOptions.Usings` |
+| Lexical shadowing identifier | Raw identifier | each `AdditionalShadowingNames` entry |
+| Root-shadowing identifier | Raw identifier | each `AdditionalRootShadowingNames` entry |
+| Unresolvable-root identifier | Raw identifier | each `AdditionalUnresolvableRootNames` entry |
+| Declared-type binding | Type expression | typed binding evidence corresponding to each `AdditionalDeclaredTypeFullNames` entry |
+| Imported declared-type binding | Type expression | typed binding evidence corresponding to each `AdditionalImportedDeclaredTypeFullNames` entry |
+| Known namespace identity | Namespace identity | each typed identity corresponding to `AdditionalKnownNamespaces` |
 | Signature abbreviation mode | Closed syntax | `CSharpFormatOptions.AbbreviateSignature` |
 | Member terminator mode | Closed syntax | `CSharpFormatOptions.TerminateMemberDeclaration` |
 | Forced `async` modifier | Closed syntax | `CSharpFormatOptions.ForceAsync` |
@@ -314,6 +322,9 @@ options" handler does not satisfy the catalog.
 | Member attribute | Rendered fragment | `ApiMember.Attributes` |
 | Return attribute | Rendered fragment | `ApiSignature.ReturnAttributes` |
 | Member declaration kind | Closed syntax | `ApiMember.Kind`, constructor name, and exact finalizer discriminator |
+| Signature degradation status | Closed syntax | `ApiMember.SignatureDecodeStatus`; null means no degradation was reported, while `Degraded` refuses rendering |
+| Operator spelling kind | Closed syntax | exact metadata operator name mapped through the bounded operator catalog, including checked and conversion variants |
+| Indexer token selection | Closed syntax | owner-issued `ApiSignature.MemberName == "this[]"` sentinel after property-form validation; literal punctuation in a raw metadata name cannot select it |
 | Member accessibility | Closed syntax | `ApiMember.Accessibility` |
 | Constant modifier | Closed syntax | `ApiMember.IsConst` |
 | Static member modifier | Closed syntax | `ApiMember.IsStatic` |
@@ -481,6 +492,13 @@ Stable reasons include at least:
 - invalid closed syntax value; and
 - unsupported rendered fragment.
 
+`SignatureDecodeStatus.Degraded` always selects `Unavailable` with the degraded
+metadata signature reason. Neither a populated `ApiSignature` containing
+placeholder types nor `ApiMember.Signature` may turn it into `Structured` or
+`Compatibility`. Null status carries no degradation assertion, including for
+older persisted models, so the remaining structured or opaque evidence decides
+the outcome normally.
+
 An `Unavailable` result is not an exception-shaped success and not an empty
 declaration. Programmer errors such as an undefined enum remain argument
 errors. Artifact-caused incompleteness is a typed result or diagnostic.
@@ -523,9 +541,15 @@ properties remain unverified:
   varies each formatter option and metadata discriminator independently,
   including required-member presence, inherited `TypeParameter.TypeKind`,
   parameter-default presence, extension-receiver presence,
-  synthesized-obsolete presence and inclusion, abbreviation, accessor
-  omission, attribute inclusion, forced modifiers, and termination;
+  synthesized-obsolete presence and inclusion, operator and indexer selection,
+  signature degradation, abbreviation, accessor omission, attribute inclusion,
+  forced modifiers, and termination;
   each pair must change only its declared slot set and output syntax.
+- `CSharpDeclarationProvenanceTests.QualificationContextChildrenHaveIndependentReceipts`
+  distinguishes containing namespace, caller import, every shadowing set,
+  declared/imported type binding, and known namespace evidence. In particular,
+  a containing namespace that shortens `N.T` and a caller import that shortens
+  the same type produce different receipts and namespace-requirement sets.
 - `CSharpDeclarationProvenanceTests.NestedTypePlacementDoesNotComeFromDisplayText`
   varies only legacy `Name`/`MetadataName` spellings and proves that the typed
   declaration context selects an exact child leaf while mismatched parent
@@ -548,6 +572,10 @@ properties remain unverified:
 - `CSharpDeclarationProvenanceTests.MissingStructureIsVisible`
   proves that each target failure selects `Compatibility` or `Unavailable`,
   never `Structured` or success-shaped empty output.
+- `CSharpDeclarationProvenanceTests.DegradedSignatureNeverRenders`
+  pairs null and `Degraded` status with otherwise identical populated
+  structured and opaque signatures, proving that only the null neighbor may
+  render and that degraded placeholders always return `Unavailable`.
 - `CSharpDeclarationProvenanceTests.StructuredOutputContainsTheMetadataConfusionFixture`
   remains pending on #5134's scalar policy, then
   resolves the immutable version named by
