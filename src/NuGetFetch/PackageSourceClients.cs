@@ -280,37 +280,43 @@ public interface IPackageSourceClient : IDisposable
         string query,
         int take = 20,
         bool prerelease = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null);
 
     /// <summary>Searches for packages whose IDs start with a prefix.</summary>
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
         string prefix,
         int take = 100,
         bool prerelease = false,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null);
 
     /// <summary>Gets the versions reported for a package ID.</summary>
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null);
 
     /// <summary>Gets an exact bounded package manifest without acquiring the package archive.</summary>
     Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null);
 
     /// <summary>Gets an exact package payload owned by the returned stream.</summary>
     Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null);
 
     /// <summary>Gets an exact symbol-package payload when supported and available.</summary>
     Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null);
 }
 
 /// <summary>
@@ -635,17 +641,18 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         string query,
         int take = 20,
         bool prerelease = false,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null) =>
         await PackageSourceOperation.CaptureAsync(
             Identity,
             Kind,
             PackageSourceCapabilities.Search,
             async () =>
             {
-                using var operation = new NuGetOperationDeadline(
-                    _options,
-                    _clientTimeout,
-                    cancellationToken);
+                using NuGetOperationDeadline operation =
+                    CreateOperation(
+                        cancellationToken,
+                        operationContext);
                 IReadOnlyList<string> endpoints =
                     await NuGetV3SearchResourceDiscovery
                         .GetSearchEndpointsAsync(
@@ -714,22 +721,25 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         "The package source did not provide a usable search endpoint."),
                 };
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            operationContext: operationContext).ConfigureAwait(false);
 
     public Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(
         string prefix,
         int take = 100,
         bool prerelease = false,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(
-            PackageSourceOperation.Unsupported<PackageSearchResult>(
-                Identity,
-                Kind,
-                PackageSourceCapabilities.Search));
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null) =>
+        Unsupported<PackageSearchResult>(
+            PackageSourceCapabilities.Search,
+            coordinate: null,
+            cancellationToken,
+            operationContext);
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
         string packageId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
     {
         PackageCoordinateValidation.ValidatePackageId(
             packageId,
@@ -740,10 +750,10 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             PackageSourceCapabilities.VersionEnumeration,
             async () =>
             {
-                using var operation = new NuGetOperationDeadline(
-                    _options,
-                    _clientTimeout,
-                    cancellationToken);
+                using NuGetOperationDeadline operation =
+                    CreateOperation(
+                        cancellationToken,
+                        operationContext);
                 IReadOnlyList<string> versions =
                     await _packageResources.GetVersionsAsync(
                         packageId,
@@ -761,13 +771,15 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                     hasAuthoritativeListingState: false,
                     operation);
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            operationContext: operationContext).ConfigureAwait(false);
     }
 
     public async Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
@@ -777,10 +789,10 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             PackageSourceCapabilities.PackagePayload,
             async () =>
             {
-                var operation = new NuGetOperationDeadline(
-                    _options,
-                    _clientTimeout,
-                    cancellationToken);
+                NuGetOperationDeadline operation =
+                    CreateOperation(
+                        cancellationToken,
+                        operationContext);
                 try
                 {
                     (Stream content, long? advertisedLength) =
@@ -807,13 +819,15 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 }
             },
             cancellationToken,
-            coordinate).ConfigureAwait(false);
+            coordinate,
+            operationContext).ConfigureAwait(false);
     }
 
     public async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
@@ -823,10 +837,10 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             PackageSourceCapabilities.Manifest,
             async () =>
             {
-                using var operation = new NuGetOperationDeadline(
-                    _options,
-                    _clientTimeout,
-                    cancellationToken);
+                using NuGetOperationDeadline operation =
+                    CreateOperation(
+                        cancellationToken,
+                        operationContext);
                 return new PackageSourceManifest(
                     coordinate,
                     Identity,
@@ -841,22 +855,23 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         useNuGetOrgShortcut: false).ConfigureAwait(false));
             },
             cancellationToken,
-            coordinate).ConfigureAwait(false);
+            coordinate,
+            operationContext).ConfigureAwait(false);
     }
 
     public Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(
         string packageId,
         string version,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
     {
         PackageSourceCoordinate coordinate =
             PackageSourceCoordinate.Create(packageId, version);
-        return Task.FromResult(
-            PackageSourceOperation.Unsupported<PackageSourcePayload>(
-                Identity,
-                Kind,
-                PackageSourceCapabilities.SymbolPayload,
-                coordinate));
+        return Unsupported<PackageSourcePayload>(
+            PackageSourceCapabilities.SymbolPayload,
+            coordinate,
+            cancellationToken,
+            operationContext);
     }
 
     public void Dispose()
@@ -878,6 +893,55 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                 System.Net.HttpStatusCode.Unauthorized
                 or System.Net.HttpStatusCode.Forbidden,
         };
+
+    private NuGetOperationDeadline CreateOperation(
+        CancellationToken cancellationToken,
+        NuGetOperationContext? operationContext) =>
+        operationContext is null
+            ? new NuGetOperationDeadline(
+                _options,
+                _clientTimeout,
+                cancellationToken,
+                Identity,
+                Kind)
+            : operationContext.CreateDeadline(
+                _clientTimeout,
+                cancellationToken,
+                Identity,
+                Kind);
+
+    private Task<PackageSourceOperationResult<T>> Unsupported<T>(
+        PackageSourceCapabilities capability,
+        PackageSourceCoordinate? coordinate,
+        CancellationToken cancellationToken,
+        NuGetOperationContext? operationContext)
+    {
+        if (operationContext is null)
+        {
+            return Task.FromResult(
+                PackageSourceOperation.Unsupported<T>(
+                    Identity,
+                    Kind,
+                    capability,
+                    coordinate));
+        }
+
+        return PackageSourceOperation.CaptureAsync(
+            Identity,
+            Kind,
+            capability,
+            () =>
+            {
+                using NuGetOperationDeadline operation =
+                    CreateOperation(cancellationToken, operationContext);
+                operation.ThrowIfExpired();
+                return Task.FromException<T>(
+                    new NuGetSourceCapabilityUnavailableException());
+            },
+            cancellationToken,
+            coordinate,
+            operationContext);
+    }
 }
 
 internal static partial class PackageCoordinateValidation

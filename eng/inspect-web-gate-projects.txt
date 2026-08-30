@@ -22,7 +22,9 @@ src/ILInspector.MetadataPrimitives
 src/ILInspector.Research
 src/ILInspector.SourceLink
 src/ILInspector.Text
+src/ILInspector.TypeScriptGeneration
 src/InertText
 src/NuGetFetch
 src/SourceLinkFetch
+src/ts-jsexport
 src/tsbindgen

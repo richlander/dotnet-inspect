@@ -73,6 +73,45 @@ public sealed class PackagePayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task TypedCacheHit_DoesNotEscapeExpiredOperationContext()
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            new MemoryStream(nupkg),
+            TestContext.Current.CancellationToken);
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(new FailingHandler());
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationContext(
+            options.RequestTimeout,
+            options.OperationTimeout,
+            TestContext.Current.CancellationToken);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(40),
+            TestContext.Current.CancellationToken);
+
+        NuGetOperationTimeoutException error =
+            await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                () => PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    PackageSourceCoordinate.Create(PackageId, Version),
+                    store,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    operationContext: operation));
+
+        Assert.Equal(options.OperationTimeout, error.Timeout);
+    }
+
+    [Fact]
     public async Task CacheHit_IsRevalidatedAgainstCurrentPayloadLimits()
     {
         byte[] nupkg = TestPackageArchive.Create(
@@ -2069,6 +2108,50 @@ public sealed class PackagePayloadAcquisitionTests
                 [NuGetCache.GetSourceKey(NuGetOrg.Url)]));
     }
 
+    [Fact]
+    public async Task TypedAcquisition_PreservesPayloadStreamTimeout()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(40),
+            OperationTimeout = TimeSpan.FromSeconds(1),
+        };
+        var store = new InMemoryPackageStore();
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                new GalleryPayloadHandler(
+                    () => new StreamContent(
+                        new StallingStream())),
+                options);
+        using var operation = new NuGetOperationContext(
+                options.RequestTimeout,
+                options.OperationTimeout,
+                TestContext.Current.CancellationToken);
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    PackageSourceCoordinate.Create(PackageId, Version),
+                    store,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken,
+                    operationContext: operation));
+
+        Assert.Equal(source.Identity, error.Producer);
+        Assert.Equal(PackageSourceFailureKind.Timeout, error.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.Request,
+                options.RequestTimeout),
+            error.Timeout);
+        Assert.Null(
+            store.TryGetCached(
+                PackageId,
+                Version,
+                [NuGetCache.GetSourceKey(NuGetOrg.Url)]));
+    }
+
     /// <summary>
     /// Content disguised as a directory entry is refused before publication
     /// too, and the next authorized source still serves the coordinate.
@@ -2885,6 +2968,27 @@ public sealed class PackagePayloadAcquisitionTests
         }
     }
 
+    sealed class GalleryPayloadHandler(Func<HttpContent> content)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string expected =
+                $"https://globalcdn.nuget.org/packages/{PackageId}.{Version}.nupkg";
+            return Task.FromResult(
+                request.RequestUri!.ToString().Equals(
+                    expected,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = content(),
+                    }
+                    : new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+    }
+
     sealed class RecordingTransferPolicy(
         Action<PackagePayloadTransfer>? onReserve = null,
         Action? onComplete = null)
@@ -3077,6 +3181,43 @@ public sealed class PackagePayloadAcquisitionTests
             throw new NotSupportedException();
 
         public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    sealed class StallingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException("Unreachable.");
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
             throw new NotSupportedException();
     }
 
