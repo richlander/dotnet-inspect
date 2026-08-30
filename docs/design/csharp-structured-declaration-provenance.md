@@ -101,8 +101,9 @@ A dominant fallback's compatibility payload is an immutable path-keyed
 collection of these values. Its path set exactly equals the
 `CompatibilityContained` paths in that result's receipt: every such path has
 one value, no value lacks a receipt entry, and equal values at different paths
-remain separate. If the receipt has no compatibility path, the payload is
-absent.
+remain separate. Composition preserves the exact admitted path-to-value
+mapping after structural path prefixing; matching key sets with swapped values
+is invalid. If the receipt has no compatibility path, the payload is absent.
 
 ### `CSharpDeclarationReceipt`
 
@@ -140,10 +141,13 @@ into whole-declaration text.
 Each constituent record retains its semantic path, native arm, and required
 non-text evidence:
 
-- a representable contributor retains its complete typed declaration facts,
-  exact namespace requirements, and receipt;
-- a fallback contributor retains its stable reason, complete typed fallback
-  facts, and any attempt receipt;
+- every complete-fact contributor retains its complete typed declaration
+  facts; for fallback contributors, these are the MIP-owned complete fallback
+  facts;
+- a representable contributor additionally retains exact namespace
+  requirements and its receipt;
+- a fallback contributor additionally retains its stable reason and any
+  attempt receipt;
 - a degraded contributor retains its exact status, bounded typed evidence, and
   any selected-subtree attempt receipt;
 - an unavailable contributor retains its exact Metadata failures, bounded
@@ -154,8 +158,9 @@ result. It preserves lower-precedence evidence when a different arm dominates.
 Its receipts are text-free projections: they retain paths, value classes,
 dispositions, and child receipts, but no contained or compatibility fragment
 bytes. A dominant `FallbackRequired` result exposes compatibility text only
-through its path-keyed arm payload; exact path-set equality with the receipt
-keeps equal fragments distinct.
+through its path-keyed arm payload; exact path-to-value preservation keeps
+distinct fragments correctly associated and equal fragments independently
+observable.
 
 The Metadata status and failure mapping is forwarded unchanged from
 `member-inspection-planning-and-metadata-projection.md`. CSharp does not infer
@@ -177,8 +182,11 @@ taxonomy distinguishes:
 - `TypedScalar`, including enum values;
 - `CSharpSyntaxChoice`, including keywords and punctuation chosen by CSharp;
 - `ContainedFragment` returned by another admitted result;
+- `SubordinateResult` for a selected child that produced no contained
+  fragment;
 - inert `CompatibilityFragment`;
-- `OpaqueEvidence` retained only by a fallback or degraded constituent record.
+- `OpaqueEvidence` accepted only by a fallback receipt and its text-free
+  projection under a higher-precedence result.
 
 Adoption designs may propose a new class only when none of these classes can
 state its trust and composition rules. Adding a class changes the shared
@@ -195,18 +203,25 @@ one occurrence:
 - `Synthesized`: CSharp chose syntax from typed facts rather than copied text;
 - `Composed`: a subordinate representable result was admitted and its receipt
   was imported;
+- `RetainedOutcome`: a selected subordinate produced no contained fragment, so
+  its native arm and evidence were retained without composition;
 - `CompatibilityContained`: inert evidence was retained outside declaration
   text;
 - `Opaque`: CSharp cannot establish the occurrence's C# meaning.
 
 `Opaque` is incompatible with `Representable`. Compatibility containment does
-not make an occurrence representable. A subordinate result is composed by its
+not make an occurrence representable. `RetainedOutcome` is likewise
+incompatible with `Representable`. A subordinate result is admitted by its
 result arm and receipt, never by accepting its text alone.
 
 The value class and disposition are separate closed axes. Each disposition
 accepts only the value classes and typed evidence compatible with its meaning:
 for example, `Escaped` requires `MetadataIdentifier`, `Composed` requires a
 successfully admitted `ContainedFragment` and carries its child receipt, and
+`RetainedOutcome` requires `SubordinateResult` and points to the child's
+constituent evidence and receipt. `Opaque` requires `OpaqueEvidence` in a
+fallback receipt; it may appear under a degraded or unavailable dominant arm
+only through that fallback contributor's text-free projection.
 `CompatibilityContained` requires an admitted `CompatibilityFragment` at the
 same semantic path. Receipt entries attest admission but do not copy or retain
 fragment bytes; only a representable declaration payload or dominant fallback
@@ -298,9 +313,15 @@ Composition follows the result algebra rather than string concatenation.
 - An `Unavailable` parent retains every causative Metadata failure; a
   `Degraded` parent retains every exact incomplete input status; and a
   `FallbackRequired` parent has complete facts containing every selected
-  complete-fact child's typed facts plus every fallback child's stable reason.
+  complete-fact child's typed facts.
 - A `Representable` parent therefore requires its own representable admission
   and all-`Representable` selected children.
+
+Fallback reasons never enter the declaration fact set. If the parent's own arm
+requires fallback, its stable reason remains the dominant reason. Otherwise,
+the dominant reason is the closed `SubordinateFallback` reason, with the
+causative child paths; each child's exact reason remains in its constituent
+record.
 
 This precedence is total for every mixture of the parent's own arm and child
 arms and cannot be overridden by selecting the most plausible payload. The
@@ -313,20 +334,39 @@ contributes nothing to the parent.
 
 Receipt path prefixing is structural and immutable. Composition rejects
 duplicate or unattempted paths, mismatched value classes, opaque or
-compatibility dispositions in a representable result, or namespace
-requirements detached from the qualification request. Representable receipts
-cover every planned path; other arms cover exactly the attempted paths and do
-not invent entries for unattempted slots. Every selected child receipt is
-propagated under its prefixed path. If any occurrence was attempted in the
-selected subtree, the parent has a receipt even when its final arm is not
-representable; completed `Composed` entries retain child receipts but not child
-fragment bytes.
+compatibility or retained-outcome dispositions in a representable result, or
+namespace requirements detached from the qualification request. Representable
+receipts cover every planned path; other arms cover exactly the attempted paths
+and do not invent entries for unattempted slots. Every selected child receipt
+is propagated under its prefixed path. A selected nonrepresentable child adds
+one `SubordinateResult` / `RetainedOutcome` entry at its boundary path and
+retains its native evidence in the constituent envelope. If any occurrence was
+attempted in the selected subtree, the parent has a receipt even when its final
+arm is not representable; `Composed` and `RetainedOutcome` entries retain child
+receipts but not child fragment bytes.
 
 All selected representable children use the parent's qualification policy.
 Their exact namespace requirements are unioned with the parent's own
 requirements; no consumer derives the union by rescanning text. A child formed
 under another policy must be requested again under the parent policy or
 composition fails visibly.
+
+## Retention bounds
+
+Plans, receipts, constituent records, compatibility entries, namespace
+requirements, and their semantic paths are artifact-proportional. Every
+operation supplies one finite CSharp result-retention budget. CSharp charges
+before retaining each distinct plan occurrence, receipt entry, constituent
+record, compatibility value and scalar, namespace requirement, and path
+segment. The budget is separate from Metadata fact charging and cannot be
+silently treated as unbounded.
+
+Composition structurally shares already charged immutable child facts and
+receipts. It charges only new parent records and path prefixes; it does not
+flatten-copy a descendant envelope or charge the same retained item again.
+Budget exhaustion fails result construction visibly before publication and
+does not relabel the owner-issued outcome, truncate a collection, or return an
+empty successful arm.
 
 ## Adoption contract
 
@@ -393,12 +433,14 @@ itself:
   text/receipt payloads.
 - `CSharpDeclarationProtocolTests.RepresentableRequiresCompleteReceipt`
   derives required paths from the plan and rejects missing, duplicate, extra,
-  opaque, or compatibility entries.
+  opaque, compatibility, or retained-outcome entries.
 - `CSharpDeclarationProtocolTests.NonrepresentableReceiptsPreserveAttempts`
   proves every nonrepresentable arm omits its receipt only when zero
   occurrences were attempted, propagates selected child receipts independent
-  of failure order, validates exact attempted rather than planned paths, and
-  retains neither composed fragment bytes nor invented occurrences.
+  of failure order, records each selected nonrepresentable child as
+  `SubordinateResult` / `RetainedOutcome`, validates exact attempted rather
+  than planned paths, and retains neither fragment bytes nor invented
+  occurrences.
 - `CSharpDeclarationProtocolTests.EqualValuesRemainDistinctOccurrences` proves
   repeated equal values retain separate semantic paths.
 - `CSharpDeclarationProtocolTests.ReceiptSchemaIsClosedAndOffsetFree` derives
@@ -409,15 +451,17 @@ itself:
   text.
 - `CSharpDeclarationProtocolTests.CompatibilityTextCannotBecomeDeclarationText`
   proves inert text has no promotion or concatenation path and occurs only on
-  complete fallback results; it asserts set equality between the path-keyed
-  payload and `CompatibilityContained` receipt entries, including equal values
-  at different paths.
+  complete fallback results; it asserts exact prefixed path-to-value map
+  equality between admitted inputs, the fallback payload, and
+  `CompatibilityContained` receipt entries, including distinct nested values
+  and equal values at different paths.
 - `CSharpDeclarationProtocolTests.CompositionIsTotalAndMonotone` covers the
   cross product of parent-own and selected-child arms and proves a parent
   cannot hide either source's fallback, degradation, or unavailability; the
   constituent envelope retains every native reason, fact, status, failure, and
   text-free receipt under its prefixed path, and mixed fallback fixtures prove
-  complete-fact set equality across representable and fallback contributors.
+  complete-fact set equality across representable and fallback contributors
+  while keeping each fallback reason outside that fact set.
 - `CSharpDeclarationProtocolTests.QualificationOwnsNamespaceRequirements`
   proves requirements come from one shared qualification policy, union every
   selected representable child's requirements, and reject policy mismatch
@@ -426,6 +470,11 @@ itself:
   diagnostics cannot satisfy a plan or produce success-shaped empty payloads;
   it derives the closed reason/evidence schema and rejects free-form or
   plausible C# text members.
+- `CSharpDeclarationProtocolTests.ResultRetentionIsBoundedAndShared` proves
+  every artifact-proportional retained item charges the finite CSharp budget
+  before allocation, near/over-limit nested compositions fail without
+  publication or truncation, and descendant evidence is structurally shared
+  with linear rather than repeated retention.
 - `CSharpDeclarationAdoptionTests.RegistryMatchesResultProducingForms` derives
   the expected form set independently from result-producing entry points and
   asserts set equality with owned plans.
