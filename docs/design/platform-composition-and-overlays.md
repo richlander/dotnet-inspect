@@ -494,36 +494,46 @@ it be avoided.
 
 ## Precedence from workspace roles
 
-Policy formation consumes one sealed `AssemblyContextGroup` and the immutable
-registration-to-role projection issued by the
+Policy preparation consumes one owner-issued
+`AssemblyBindingContextEnvelope` before group construction. The envelope
+contains the context generation identity, the exact planned participant
+registrations, the immutable registration-to-role projection issued by the
 [explicit assembly-context realization](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context).
-The workspace owner remains the only role assigner. The platform owner
-validates the handoff and creates one `AssemblyBindingRoleSnapshot` that binds
-the group, its context generation, and the exact workspace-role set for every
-participant's `AssemblyAcquisitionRegistration`.
+and the exact delegated binding policy and version associated with each
+requesting registration. The workspace owner remains the only role assigner.
+The platform owner validates the handoff and creates one
+`AssemblyBindingRoleSnapshot` plus its `AssemblyBindingPolicyVersion`; roles
+are not supplied or recomputed per binding request.
 
-The snapshot is the platform-owned, read-only input to selection. Formation
-also mints one `AssemblyBindingPolicyVersion`; roles are not supplied or
-recomputed per binding request. The operation accepts the constrained
-owner-issued projection envelope, not an arbitrary caller-built dictionary.
-It returns either a ready snapshot and policy or typed `InvalidRoleEvidence`;
-there is no partially usable policy.
+Preparation produces an internal `Prepared` result, not a requestable policy.
+The realizer then constructs every `AssemblyContextParticipant` with that
+completed policy and creates the `AssemblyContextGroup` once. Group adoption
+revalidates that the context generation and participant registrations exactly
+match the prepared snapshot and that the group captured the same policy
+version. Only that combined result can be published as `Ready`; any failure
+returns typed `InvalidBindingSnapshot` with a `RoleEvidence`, `DelegateMap`, or
+`GroupAdoption` reason and publishes neither group nor usable policy. No
+placeholder policy, post-seal policy rebinding, or partially usable snapshot is
+permitted.
 
 The snapshot is valid only when:
 
-- its issuing context generation and group are the ones being bound;
-- its registration domain is exactly the complete group participant set, with
-  no missing or extra registration;
+- its issuing context generation is the one being prepared;
+- its registration domain is exactly the complete planned participant set,
+  with no missing or extra registration;
 - every mapped role set is the exact owner-issued set for that registration;
-  and
+- every requesting registration has the exact delegated policy and policy
+  version captured for it; and
 - no registration carries both `CallerDesignated` and
   `PlatformAuthorized`.
 
-Missing evidence, a foreign or ended generation, a group mismatch, incomplete
-or extra registration coverage, or contradictory authority roles rejects
-policy formation as typed `InvalidRoleEvidence`. Rejection publishes no usable
-policy version and cannot fall back to source provenance. An empty role set is
-valid for an ordinary participant; it grants no designated or platform
+Missing role evidence, a foreign, stale, or ended generation, incomplete or
+extra registration coverage, or contradictory authority roles rejects
+preparation with `InvalidBindingSnapshot(RoleEvidence)`. An incomplete delegate
+map uses `InvalidBindingSnapshot(DelegateMap)`, and a mismatch during group
+adoption uses `InvalidBindingSnapshot(GroupAdoption)`. Rejection publishes no
+usable policy version and cannot fall back to source provenance. An empty role
+set is valid for an ordinary participant; it grants no designated or platform
 authority.
 
 Admission remains responsible for validating the platform-realization evidence
@@ -561,9 +571,14 @@ not reclassified, added to the group, or recorded as an inactive shadow, and
 its selection or ambiguity is not bypassed by an in-group role candidate.
 Returning an outside-group candidate is not invalid role evidence because the
 adjacent policy owns that candidate. The delegated policy's existing
-`Unavailable` and `Rejected` outcomes likewise remain authoritative. A
-delegated `Missing` result contributes no candidate and does not prevent
-otherwise eligible in-group role arbitration.
+`Unavailable` and `Rejected` outcomes likewise remain authoritative.
+
+The delegated handoff must distinguish typed `NoNameOwner` from
+`NameOwnedNoMatch`. Only `NoNameOwner` contributes no candidate and permits
+otherwise eligible in-group role arbitration. `NameOwnedNoMatch` returns the
+adjacent policy's `Missing` result and blocks role fallback. An undifferentiated
+legacy `Missing` is treated as authoritative `NameOwnedNoMatch`, never as
+permission to bypass a package, sibling, or other name-owning tier.
 
 Preserving an adjacent result does not authorize it as designated or platform
 in this group. A target delegated policy that performs its own
@@ -595,14 +610,16 @@ remain unchanged. Its version observation and selection path revalidate those
 dependencies before returning either a cached or newly computed answer.
 
 If a delegate version differs before selection, or changes while its selection
-is in flight, the outer policy replaces its own version before the changed or
-stale answer can be accepted and the request fails visibly as an invalid policy
-result. Continuing requires a newly formed outer snapshot over the current
-delegate versions. Repeated equal requests under one unchanged outer version
-return the same selection instance. A different group, context generation,
-registration set, role set, delegated-policy map, or delegate version requires
-a different outer version; evidence and cached answers cannot be rebound or
-mixed across versions.
+is in flight, the changed or stale answer is rejected and the request fails
+visibly as an invalid policy result. The existing group and context generation
+cannot be rebound to a replacement policy. Continuing requires the workspace
+owner to terminate that generation and atomically realize a new prepared
+snapshot, participant set, and group over the current delegate versions.
+Repeated equal requests under one unchanged outer version return the same
+selection instance. A different group, context generation, registration set,
+role set, delegated-policy map, or delegate version requires a different outer
+version; evidence and cached answers cannot be rebound or mixed across
+versions.
 
 ### Migration boundary
 
@@ -639,25 +656,35 @@ authority-bearing field to it.
 - `WorkspaceRoleBinding_InvalidSnapshotRejectsWithoutFallback` derives
   absent-snapshot, foreign-generation, stale-generation, ended-generation,
   wrong-group, missing-registration, extra-registration, duplicate-input,
-  altered-role-set, and contradictory evidence cases and proves no policy
-  version, selection, shadow, group mutation, or provenance fallback survives.
+  incomplete-delegate-map, altered-role-set, and contradictory evidence cases
+  and proves no policy version, selection, shadow, group publication, or
+  provenance fallback survives.
+- `WorkspaceRoleBinding_PreparesBeforeExactGroupAdoption` proves the policy is
+  complete before participant and group construction, exact group adoption is
+  required before publication, and no placeholder or post-seal rebinding path
+  exists.
 - `WorkspaceRoleBinding_DelegatedOutcomesPreserveAdjacentPolicy` covers
   selected and ambiguous results containing in-group role registrations,
   outside-group registrations, and in-group registrations without an authority
-  role. Only an all-role-bearing in-group result joins arbitration; every other
-  result and every typed delegated failure remains the adjacent policy's exact
-  outcome without group mutation, role translation, or inactive-shadow
-  promotion.
+  role, plus `NoNameOwner`, `NameOwnedNoMatch`, and undifferentiated `Missing`.
+  Only an all-role-bearing in-group result or explicit `NoNameOwner` permits
+  role arbitration; every other result and every typed delegated failure
+  remains the adjacent policy's exact outcome without group mutation, role
+  translation, or inactive-shadow promotion.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
   registration, role, delegated-policy, or delegate-version change requires a
   new outer version.
-- `WorkspaceRoleBinding_DelegateVersionChangeInvalidatesOuterPolicy` changes a
-  captured delegate version before selection, during delegated selection, and
-  after warming a cached answer. It proves the old outer version returns no
-  changed or stale selection or shadow evidence, fails the request visibly as
-  an invalid policy result, and requires a newly formed snapshot before
-  continuing.
+- `WorkspaceRoleBinding_DelegateVersionChangeInvalidatesContextGeneration`
+  changes a captured delegate version before selection, during delegated
+  selection, and after warming a cached answer. It proves the old generation
+  returns no changed or stale selection or shadow evidence, fails the request
+  visibly as an invalid policy result, and requires atomic realization of a
+  new snapshot, participant set, and group before continuing.
+- `WorkspaceRoleBinding_NameOwnerMissCannotFallThroughToRoles` covers package,
+  sibling, and other adjacent name owners whose candidates fail identity
+  matching and proves their authoritative missing result cannot select an
+  in-group designated or platform candidate.
 - `WorkspaceRoleBinding_LegacyAndRoleFixturesProduceEquivalentOutcomes`
   runs every #4593 precedence and failure fixture against the replacement
   policy, using the current implementation only as a test oracle.

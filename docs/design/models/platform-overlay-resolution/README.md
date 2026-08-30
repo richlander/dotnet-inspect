@@ -104,13 +104,14 @@ granting roles; the model validates only the closed snapshot shape consumed by
 binding. It does not model legacy provenance values, policy-version object
 identity, group disposal, source-lease lifetime, or admission's rejection of
 replayed platform-realization evidence before `PlatformAuthorized` is granted.
-Delegated-policy composition is an implementation-boundary gate rather than a
-second model state: an all-role-bearing in-group delegated result is represented
-by the modeled registrations, while a result containing any outside-group or
-non-authority candidate remains an adjacent-policy outcome. Propagation of a
-delegated `AssemblyBindingPolicyVersion` change into a new outer policy version
-is covered by an implementation gate for the same reason; TLC does not establish
-policy-version consistency.
+Pre-publication policy preparation and exact group adoption, delegated-policy
+composition, typed name-owner disposition, and context replacement after a
+delegated `AssemblyBindingPolicyVersion` change are implementation-boundary
+gates rather than additional model states. An all-role-bearing in-group
+delegated result is represented by the modeled registrations, while a result
+containing any outside-group or non-authority candidate remains an
+adjacent-policy outcome. TLC does not establish group-construction,
+name-ownership, or policy-version consistency.
 TLC results establish properties of this state machine under the stated
 assumptions and bounds, not properties of the shipped implementation. Formal
 model-to-implementation correspondence is unverified.
