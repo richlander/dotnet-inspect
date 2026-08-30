@@ -106,9 +106,9 @@ into the binary fact.
 
 In the legacy model:
 
-- a pointer or function-pointer type in a callable member's parameter or return
-  signature makes the member propagate unsafe;
-- the compiler's compatibility rule also applies to pointer-bearing fields,
+- a pointer or function-pointer type in a method, constructor, property, or
+  event signature makes that member propagate unsafe;
+- the compiler's compatibility rule also applies to pointer-bearing fields
   except fixed-size-buffer fields;
 - the `unsafe` modifier on a type or member establishes a lexical unsafe
   context for declarations and bodies within its scope;
@@ -198,7 +198,7 @@ Mixed-model behavior has two inputs:
 
 | Target-member evidence | Contract | V1 caller | V2 caller |
 | --- | --- | --- | --- |
-| Unmarked module and pointer-bearing callable signature or non-fixed-buffer field | Implicit | Requires unsafe context | Requires unsafe context |
+| Unmarked module and pointer-bearing method, constructor, property, event, or non-fixed-buffer field | Implicit | Requires unsafe context | Requires unsafe context |
 | Unmarked module without a compatibility pointer contract | None | No caller requirement | No caller requirement |
 | V2 module and `RequiresUnsafeAttribute` | Explicit | Contract not enforced | Requires unsafe context |
 | V2 module without `RequiresUnsafeAttribute`, including a pointer-bearing signature or field | None | No caller requirement | No caller requirement |
@@ -333,13 +333,20 @@ that one produced the other. It must label their correspondence as
 Matching names, paths, target frameworks, versions, or timestamps is not a
 substitute for typed provenance.
 
-### Source audit declarations
+### Related source-audit models
 
 `<safety>` XML documentation and `// SAFETY:` comments are source audit
 declarations. They may explain a caller obligation or how an unsafe region
 discharges one, but their presence does not prove that an unsafe operation
 exists, that the explanation remains applicable, or that the code is correct.
 They are not recoverable binary-model or IL-body facts.
+
+Source-audit declarations are not an input to the composition contract in this
+document. It does not define source acquisition, audit-documentation
+validation, or a typed handoff for those declarations. If dotnet-inspect later
+composes them, that work requires a focused source-evidence owner; the existing
+[#4601](https://github.com/richlander/dotnet-inspect/issues/4601) owns the
+adjacent authoring view for `<safety>` XML documentation.
 
 The experimental migration analyzers introduced by
 [dotnet/runtime#131002](https://github.com/dotnet/runtime/pull/131002) use
@@ -349,10 +356,10 @@ and
 to guide incremental migration. The follow-on
 [dotnet/runtime#131484](https://github.com/dotnet/runtime/pull/131484) adds
 [coarse checks for `// SAFETY:` comments](https://github.com/dotnet/runtime/blob/b16bdcaa914bf10866f00192af8a5a81bcc1503a/src/tools/illink/src/ILLink.RoslynAnalyzer/UnsafeBlockMissingSafetyCommentAnalyzer.cs)
-and explicit-`safe` justification. These analyzers are useful source-audit
-models, but at the cited snapshots they are debug-only, disabled by default,
-and do not establish a shipping binary or body-analysis contract for
-dotnet-inspect.
+and explicit-`safe` justification. They ground the distinction between human
+audit intent and compiler or binary evidence, but at the cited snapshots they
+are debug-only, disabled by default, and do not establish a shipping
+dotnet-inspect evidence plane.
 
 ## Product answer map
 
