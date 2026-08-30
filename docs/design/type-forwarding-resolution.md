@@ -37,8 +37,10 @@ faithfully implemented a specification that asked for too much: a subject, plan,
 evaluation, evidence and proof vocabulary re-expressing a tri-state that
 `TypeResolutionOutcome` already carries, across 45 public types with no product
 consumer. The section below is the replacement, written around the resolution
-primitive that ships plus one newly specified accessibility operation. The
-bounded decode contract that effort produced is retained unchanged.
+primitive that ships plus two newly specified additions: a terminal-definition
+accessibility operation, and an authorized baseline scope carried with a
+resolved candidate. The bounded decode contract that effort produced is retained
+unchanged.
 
 This consumer extension is **design-only and unverified**. `Resolve` ships; the
 terminal-definition accessibility operation it depends on does not exist yet,
@@ -2122,10 +2124,16 @@ Two operations answer it:
   already uses it.
 - A terminal-definition accessibility operation on the same context answers the
   one question resolution does not: whether a definition it produced can be
-  named from outside its assembly. **This does not exist yet.** It is the single
-  new public primitive this consumer requires, and
+  named from outside its assembly. **This does not exist yet.**
   [§Terminal accessibility](#terminal-accessibility) below is its normative
   contract.
+
+This consumer also requires one piece of state the catalog does not yet keep: the
+authorized baseline scope of a resolved candidate, described under
+[§Reference scopes and request construction](#reference-scopes-and-request-construction).
+Those two additions — one operation and one candidate property — are the entire
+cost of this consumer, against the 45 public types the previous specification
+required.
 
 A speller walks the signature's named occurrences, asks for each to be bound,
 and asks the second question only of the external definitions the first one
@@ -2180,10 +2188,15 @@ only for occurrences whose role makes visibility matter.
   that the occurrence resolved locally; it does not grade it.
 - Primitive type codes are direct C# spellings. They add no request.
 - Generic parameters add no named occurrence. Arrays, pointers, by-reference
-  types, pinned types, function pointers, generic arguments, and modified types
-  contribute their named children rather than collapsing to one outer leaf. A
-  `ref` or `out` parameter and a ref return are by-reference types, so their
-  element type is a named occurrence like any other.
+  types, function pointers, generic arguments, and modified types contribute
+  their named children rather than collapsing to one outer leaf. A `ref` or
+  `out` parameter and a ref return are by-reference types, so their element type
+  is a named occurrence like any other.
+- Pinned types are deliberately absent. They are valid only in local-variable
+  signatures, and this consumer accepts field, property, and method signatures;
+  the repository's member-signature model already reports them as unavailable.
+  Specifying traversal for a shape this consumer cannot receive would add a rule
+  with no reachable case.
 
 When several occurrences produce one equal request, the speller may ask once and
 merge participation with logical OR. That is a caching decision inside the
@@ -2218,16 +2231,24 @@ confusable local copy of a platform assembly is not selected for it. A
 forwarding hops use the same operation and may tighten but never loosen, as
 [§Resolution algorithm](#resolution-algorithm) specifies.
 
-The source candidate's authorized baseline scope is owner-issued: the catalog
-records it when the candidate is registered and hands it to the consumer with
-the candidate. A speller neither infers it from assembly names or file paths nor
-substitutes an unconstrained scope when it is absent; a missing baseline is a
-rejection, not a default.
+The source candidate's authorized baseline scope must be owner-issued. **This
+does not exist today**: `ResolvedAssemblyCandidate` carries a catalog, an id and
+an assembly, and registration accepts no scope. Implementing this consumer
+therefore requires the catalog to record the authorized scope when a candidate is
+registered and to expose it with that candidate. It is new state, not a
+rediscovered property, and it belongs to the catalog because the catalog is what
+authorized the candidate.
 
-Implementing this requires exposing two things the context currently keeps
-private — the baseline scope carried with a resolved source candidate, and the
-scope-tightening operation, which today lives on the context builder. Both are
-existing behaviour, not new policy.
+Given that state, a speller neither infers scope from assembly names or file
+paths nor substitutes an unconstrained scope when it is absent. A candidate
+without a recorded baseline is a rejection with its own reason; substituting
+`Any` would silently widen every lookup the speller performs and is exactly the
+success-shaped degradation this document forbids.
+
+The scope-tightening operation itself does exist, but is private to the context
+builder; this consumer requires it to be reachable. That is existing behaviour
+becoming reachable, which is a different and smaller change than the baseline
+state above.
 
 The speller does not perform its own exact-then-versionless retry. It supplies
 the exact per-occurrence target, origin, and scope, and consumes the candidate
@@ -3946,8 +3967,8 @@ internal vocabulary constrains structure rather than behaviour.
   rather than decoding whatever bytes the mismatched row addresses. Each case is
   distinct, and each retains its reason.
 - `SignatureSpellability_CollectsEveryNamedChildOnce` covers arrays, pointers,
-  by-reference parameters and ref returns, pinned types, function pointers,
-  generic arguments, generic type and method parameters, and modified types.
+  by-reference parameters and ref returns, function pointers, generic
+  arguments, generic type and method parameters, and modified types.
   Every named child must produce its request: dropping the element type of a
   `ref` or `out` parameter fails the gate. Generic parameters must contribute no
   request; manufacturing one for them fails the gate. A rejected decode exposes
@@ -3976,7 +3997,14 @@ internal vocabulary constrains structure rather than behaviour.
 - `SignatureSpellability_DerivesInitialScopePerReference` combines a platform
   reference and an ordinary package reference in one signature; the first is
   `Platform`, the second remains `Any`, and a confusable local platform copy is
-  never selected.
+  never selected. The source candidate is registered with a baseline narrower
+  than `Any` so the gate cannot be satisfied by ignoring the baseline and
+  hard-coding an unconstrained start.
+- `SignatureSpellability_RejectsMissingBaselineScope` proves that a source
+  candidate registered without an authorized baseline scope produces a rejection
+  with its own reason. Substituting `Any` fails the gate. This is the
+  non-vacuity partner of the gate above: one proves the baseline is used, the
+  other proves its absence is not papered over.
 - `SignatureSpellability_MergesModifierParticipation` covers optional-only,
   required-only, ordinary, and mixed duplicate occurrences. Resolution is
   required for all; external accessibility is ignored only for an
@@ -4021,6 +4049,11 @@ internal vocabulary constrains structure rather than behaviour.
   proves one resolution per distinct request, one accessibility walk when
   aliasing requests reach one terminal candidate and token, and no stale reuse
   by a replacement generation.
+- `SignatureSpellability_AccessibilityIsSingleFlightUnderConcurrency` issues
+  concurrent accessibility requests for one terminal definition from parallel
+  callers and counts declaring-chain traversals, requiring exactly one. Ordinary
+  memoization that lets simultaneous callers each walk the chain fails the gate,
+  which sequential caching alone cannot detect.
 
 - The `System.Xml.ReaderWriter` to `System.Private.Xml` real-artifact caller
   resolves through the real platform adapter as `SameDefinition`, not merely
