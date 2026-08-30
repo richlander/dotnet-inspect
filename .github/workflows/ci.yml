@@ -544,10 +544,12 @@ jobs:
           results="$RUNNER_TEMP/ts-jsexport-generator-tests.xml"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
+            -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
             -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
             -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
             -xml "$results"
           for class in \
+            ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
             ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests \
             ILInspector.JsExportSurface.Tests.TsJsExportCommandTests
           do
@@ -561,10 +563,12 @@ jobs:
             -c Release --no-build -- \
             -method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
             -method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
+            -method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
             -xml "$negative_results"
           for method in \
             Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
-            Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling
+            Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling \
+            GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence
           do
             if ! grep -Fq "method=\"$method\"" "$negative_results"; then
               echo "::error::ts-jsexport negative gate '$method' did not run." >&2
