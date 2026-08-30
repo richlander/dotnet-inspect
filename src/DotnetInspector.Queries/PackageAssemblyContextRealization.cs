@@ -31,6 +31,151 @@ public sealed class PackageRootIdentity
 }
 
 /// <summary>
+/// Opaque identity for one immutable package compile-asset selection.
+/// </summary>
+/// <remarks>
+/// Equality is reference identity. A token is occurrence-local: equal tokens
+/// guarantee the same typed selection arm and ordered asset sequences, while
+/// independently repeated equal selections may receive different tokens.
+/// </remarks>
+public sealed class PackageRootSelectionIdentity
+{
+    internal PackageRootSelectionIdentity()
+    {
+    }
+}
+
+/// <summary>
+/// Acquisition-issued binding among one package Root, its authoritative
+/// realized coordinate, retained content generation, and compile-asset selection.
+/// </summary>
+public sealed class PackageRootBinding
+{
+    PackageRootBinding(
+        PackageRootRealization root,
+        RealizedMemberCoordinate.Package coordinate,
+        PackageContentGenerationIdentity contentGenerationIdentity,
+        PackageRootSelectionIdentity selectionIdentity)
+    {
+        Root = root;
+        Coordinate = coordinate;
+        ContentGenerationIdentity = contentGenerationIdentity;
+        SelectionIdentity = selectionIdentity;
+    }
+
+    public PackageRootRealization Root { get; }
+
+    public RealizedMemberCoordinate.Package Coordinate { get; }
+
+    public PackageContentGenerationIdentity ContentGenerationIdentity { get; }
+
+    public PackageRootSelectionIdentity SelectionIdentity { get; }
+
+    /// <summary>
+    /// Binds a payload acquired through the typed source-client path.
+    /// </summary>
+    public static PackageRootBinding CreateFromSource(
+        AcquiredPackageSourcePayload payload,
+        string? selectionTargetFramework = null,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        if (runtimeIdentifier is not null
+            && !RealizedMemberCoordinate.IsCanonicalRuntimeIdentifier(
+                runtimeIdentifier))
+        {
+            throw new ArgumentException(
+                "A package Root runtime identifier must be a canonical lowercase moniker.",
+                nameof(runtimeIdentifier));
+        }
+
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            SourceAcquisitionFramework(selectionTargetFramework),
+            selectionTargetFramework,
+            runtimeIdentifier);
+    }
+
+    /// <summary>
+    /// Binds a payload acquired through the resolved multi-source path.
+    /// </summary>
+    public static PackageRootBinding CreateFromResolved(
+        AcquiredPackagePayload payload,
+        string? selectionTargetFramework = null)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        return Create(
+            payload,
+            payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content,
+            payload.ProducerKey,
+            payload.Coordinate.Framework,
+            selectionTargetFramework ?? payload.Coordinate.Framework,
+            payload.Coordinate.RuntimeIdentifier);
+    }
+
+    static PackageRootBinding Create(
+        object acquiredPayload,
+        string packageId,
+        string packageVersion,
+        IPackageContent content,
+        string producerKey,
+        string? acquisitionFramework,
+        string? targetFramework,
+        string? runtimeIdentifier)
+    {
+        if (!content.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The acquired package payload and retained content name different producers.",
+                nameof(acquiredPayload));
+        }
+
+        var root = new PackageRootRealization(
+            content,
+            packageId,
+            packageVersion,
+            targetFramework);
+        string? effectiveFramework =
+            (string.IsNullOrWhiteSpace(acquisitionFramework)
+                ? null
+                : acquisitionFramework)
+            ?.ToLowerInvariant();
+        string? effectiveRuntimeIdentifier =
+            runtimeIdentifier;
+        if (!RealizedMemberCoordinate.Package.TryCreate(
+                packageId,
+                packageVersion,
+                producerKey,
+                effectiveFramework,
+                effectiveRuntimeIdentifier,
+                out RealizedMemberCoordinate.Package? coordinate,
+                out string? problem))
+        {
+            throw new ArgumentException(
+                $"The acquired package payload cannot form a realized coordinate: {problem}.",
+                nameof(acquiredPayload));
+        }
+
+        return new PackageRootBinding(
+            root,
+            coordinate,
+            content.GenerationIdentity,
+            new PackageRootSelectionIdentity());
+    }
+
+    static string? SourceAcquisitionFramework(string? targetFramework) =>
+        PackageCoordinateResolver.IsAcquisitionTargetText(targetFramework)
+            ? targetFramework!.ToLowerInvariant()
+            : null;
+}
+
+/// <summary>
 /// One exact, already-acquired package Root and its compile-asset selection outcome.
 /// </summary>
 public sealed class PackageRootRealization
@@ -55,10 +200,11 @@ public sealed class PackageRootRealization
             packageId,
             packageVersion,
             targetFramework);
-        AssetSelection = PackageCompileAssetSelector.Select(
-            content,
-            packageId,
-            targetFramework);
+        AssetSelection = Freeze(
+            PackageCompileAssetSelector.Select(
+                content,
+                packageId,
+                targetFramework));
     }
 
     public string PackageId { get; }
@@ -82,6 +228,21 @@ public sealed class PackageRootRealization
         ArgumentNullException.ThrowIfNull(content);
         return ReferenceEquals(_content, content);
     }
+
+    static PackageCompileAssetSelection Freeze(
+        PackageCompileAssetSelection selection) =>
+        new(
+            selection.Status,
+            selection.TargetFramework,
+            Freeze(selection.AvailableTargetFrameworks),
+            Freeze(selection.Assets),
+            selection.DefaultAsset,
+            Freeze(selection.CandidateAssets),
+            Freeze(selection.ImplementationAssets),
+            selection.Message);
+
+    static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T> values) =>
+        Array.AsReadOnly([.. values]);
 }
 
 /// <summary>Resource admission policy for acquired-package role realization.</summary>

@@ -16,22 +16,44 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
 
     private readonly byte[] _nupkgBytes;
     private readonly Lazy<IReadOnlyList<PackageContentEntry>> _entries;
+    private readonly PackageContentGenerationIdentity _generationIdentity;
 
     public InMemoryPackageContent(
         byte[] nupkgBytes,
         bool fromCache,
-        string producerKey)
+        string producerKey) :
+        this(
+            nupkgBytes,
+            fromCache,
+            producerKey,
+            new PackageContentGenerationIdentity())
+    {
+    }
+
+    private InMemoryPackageContent(
+        byte[] nupkgBytes,
+        bool fromCache,
+        string producerKey,
+        PackageContentGenerationIdentity generationIdentity)
     {
         ArgumentNullException.ThrowIfNull(nupkgBytes);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
+        ArgumentNullException.ThrowIfNull(generationIdentity);
         _nupkgBytes = nupkgBytes;
         _entries = new(ReadEntries);
+        _generationIdentity = generationIdentity;
         FromCache = fromCache;
         ProducerKey = producerKey;
     }
 
     /// <summary>The raw nupkg bytes backing this content.</summary>
     public ReadOnlyMemory<byte> NupkgBytes => _nupkgBytes;
+
+    /// <summary>
+    /// Reports whether this content retains the supplied archive memory.
+    /// </summary>
+    public bool ReferencesArchive(ReadOnlyMemory<byte> nupkgBytes) =>
+        NupkgBytes.Equals(nupkgBytes);
 
     internal byte[] RetainedArchive => _nupkgBytes;
 
@@ -46,6 +68,22 @@ public sealed class InMemoryPackageContent : IPackageContent, IPackageContentEnt
 
     /// <inheritdoc />
     public string ProducerKey { get; }
+
+    /// <inheritdoc />
+    public PackageContentGenerationIdentity GenerationIdentity =>
+        _generationIdentity;
+
+    /// <summary>
+    /// Returns a cache-origin handle over the same retained content generation.
+    /// </summary>
+    public InMemoryPackageContent AsCacheHit() =>
+        FromCache
+            ? this
+            : new InMemoryPackageContent(
+                _nupkgBytes,
+                fromCache: true,
+                ProducerKey,
+                _generationIdentity);
 
     /// <inheritdoc />
     /// <remarks>
