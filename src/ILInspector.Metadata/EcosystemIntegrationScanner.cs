@@ -48,6 +48,9 @@ public record EcosystemIntegrationSignalInfo(
             _concept = ResolveConcept(value);
         }
     }
+    public string Kind { get; init; } = Kind;
+    public string Name { get; init; } = Name;
+    public string Shape { get; init; } = Shape;
 
     internal EcosystemIntegrationSignalInfo(
         IntegrationConceptDescriptor concept,

@@ -1829,6 +1829,15 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     evidence.GetHashCode(),
                     reconstructed.GetHashCode());
                 Assert.Equal(
+                    [
+                        nameof(InspectionGraphIntegrationEvidence.Registration),
+                        nameof(InspectionGraphIntegrationEvidence.Member),
+                        nameof(InspectionGraphIntegrationEvidence.Integration),
+                        nameof(InspectionGraphIntegrationEvidence.TargetType),
+                    ],
+                    PositionalPropertyOrder<
+                        InspectionGraphIntegrationEvidence>());
+                Assert.Equal(
                     "AsIChatClient",
                     evidence.Member.MemberName);
             });
@@ -1911,6 +1920,15 @@ public sealed class InspectionGraphIntegrationsQueryTests
         Assert.Equal(
             opportunityEvidence.GetHashCode(),
             reconstructedOpportunity.GetHashCode());
+        Assert.Equal(
+            [
+                nameof(
+                    InspectionGraphOpportunityEvidence.SourceRegistration),
+                nameof(InspectionGraphOpportunityEvidence.SourceType),
+                nameof(InspectionGraphOpportunityEvidence.Integration),
+                nameof(InspectionGraphOpportunityEvidence.Target),
+            ],
+            PositionalPropertyOrder<InspectionGraphOpportunityEvidence>());
         Assert.DoesNotContain(
             document.Edges,
             edge => edge.Relationship.Id == "call");
@@ -2437,6 +2455,31 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 InspectionGraphTypeIdentity.AcquiredDefinition>(
                     type.Identity);
         return identity.Type.ToMetadataFullName();
+    }
+
+    static string[] PositionalPropertyOrder<T>()
+    {
+        string[] names =
+        [
+            .. typeof(T)
+                .GetConstructors(
+                    BindingFlags.Public | BindingFlags.Instance)
+                .Single()
+                .GetParameters()
+                .Select(parameter => parameter.Name!),
+        ];
+        HashSet<string> positionalNames = names.ToHashSet(
+            StringComparer.Ordinal);
+        return
+        [
+            .. typeof(T)
+                .GetProperties(
+                    BindingFlags.Public
+                    | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly)
+                .Select(property => property.Name)
+                .Where(positionalNames.Contains),
+        ];
     }
 
     static string AssemblyName(InspectionGraphSubject subject)

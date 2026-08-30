@@ -37,6 +37,9 @@ public record IntegrationOpportunityInfo(
             _concept = ResolveConcept(value);
         }
     }
+    public string Api { get; init; } = Api;
+    public string IntegrationType { get; init; } = IntegrationType;
+    public string LookFor { get; init; } = LookFor;
 
     internal IntegrationOpportunityInfo(
         IntegrationConceptDescriptor concept,

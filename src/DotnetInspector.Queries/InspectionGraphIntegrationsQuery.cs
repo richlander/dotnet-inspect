@@ -403,6 +403,9 @@ public sealed record InspectionGraphIntegrationEvidence(
     string _integration = Integration;
     IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
 
+    public AssemblyAcquisitionRegistration Registration { get; init; } =
+        Registration;
+    public MemberAnchor Member { get; init; } = Member;
     public string Integration
     {
         get => _integration;
@@ -412,6 +415,7 @@ public sealed record InspectionGraphIntegrationEvidence(
             _concept = ResolveConcept(value);
         }
     }
+    public MetadataNamedTypeReference TargetType { get; init; } = TargetType;
 
     internal InspectionGraphIntegrationEvidence(
         AssemblyAcquisitionRegistration registration,
@@ -488,6 +492,9 @@ public sealed record InspectionGraphOpportunityEvidence(
     string _integration = Integration;
     IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
 
+    public AssemblyAcquisitionRegistration SourceRegistration { get; init; } =
+        SourceRegistration;
+    public MetadataTypeDefinitionName SourceType { get; init; } = SourceType;
     public string Integration
     {
         get => _integration;
@@ -497,6 +504,7 @@ public sealed record InspectionGraphOpportunityEvidence(
             _concept = ResolveConcept(value);
         }
     }
+    public IntegrationOpportunityTarget Target { get; init; } = Target;
 
     internal InspectionGraphOpportunityEvidence(
         AssemblyAcquisitionRegistration sourceRegistration,
