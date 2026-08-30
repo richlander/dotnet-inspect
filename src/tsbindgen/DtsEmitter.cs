@@ -65,6 +65,26 @@ static class DtsEmitter
                         type.FullName,
                         type.DefinitionName)))
             : [];
+        var localTypeKinds = declarationTypes
+            .Select(type => (
+                type.FullName,
+                Kind: type.Kind switch
+                {
+                    "class" or "interface" or "delegate" =>
+                        TsLocalTypeKind.Reference,
+                    "struct" or "enum" =>
+                        TsLocalTypeKind.Value,
+                    _ => (TsLocalTypeKind?)null,
+                }))
+            .Where(item => item.Kind is not null)
+            .ToDictionary(
+                item => item.FullName,
+                item => item.Kind!.Value,
+                StringComparer.Ordinal);
+        var delegateMappingContext = new TsDelegateMappingContext(
+            knownTypeNames,
+            localTypeKinds,
+            surface.AssemblyIdentity);
 
         var sb = new StringBuilder();
 
@@ -97,7 +117,7 @@ static class DtsEmitter
                 function,
                 knownTypeNames,
                 knownTypeIdentities,
-                surface.AssemblyIdentity?.Name,
+                delegateMappingContext,
                 diagnostics);
 
         return sb.ToString();
@@ -653,9 +673,20 @@ static class DtsEmitter
         JsExportFunction function,
         IReadOnlySet<string> knownTypeNames,
         IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
-        string? containingAssemblyName,
+        TsDelegateMappingContext delegateMappingContext,
         TsBindGenDiagnostics? diagnostics)
     {
+        bool validDelegateAssociations = TryIndexDelegateParameters(
+            function,
+            out IReadOnlyDictionary<int, JsExportDelegateParameter>
+                delegateParameters);
+        if (!validDelegateAssociations)
+        {
+            diagnostics?.ReportUnmappedType(
+                $"{function.Name} delegate parameters",
+                "invalid delegate parameter association");
+        }
+
         string returnType = function.ReturnWireType is { } returnWireType
             ? TsTypeMapper.MapReturnEnvelope(
                 function.ReturnType,
@@ -689,10 +720,16 @@ static class DtsEmitter
                     p.TypeReferences,
                     knownTypeNames,
                     knownTypeIdentities),
-                function.DelegateParameters.SingleOrDefault(
-                    delegateParameter =>
-                        delegateParameter.ParameterIndex == index),
-                containingAssemblyName)}");
+                validDelegateAssociations
+                    ? delegateParameters.GetValueOrDefault(index)
+                    : null,
+                delegateMappingContext: delegateMappingContext)}");
+
+        if (!validDelegateAssociations)
+        {
+            parameters = function.Parameters.Select(p =>
+                $"{CamelCase.FromPascalCase(p.Name)}: unknown");
+        }
 
         sb.Append("export declare function ")
           .Append(CamelCase.FromPascalCase(function.Name))
@@ -701,6 +738,32 @@ static class DtsEmitter
           .Append("): ")
           .Append(returnType)
           .Append(";\n");
+    }
+
+    static bool TryIndexDelegateParameters(
+        JsExportFunction function,
+        out IReadOnlyDictionary<int, JsExportDelegateParameter>
+            delegateParameters)
+    {
+        var indexed = new Dictionary<int, JsExportDelegateParameter>();
+        foreach (JsExportDelegateParameter parameter
+            in function.DelegateParameters)
+        {
+            if (parameter is null
+                || parameter.ParameterIndex < 0
+                || parameter.ParameterIndex >= function.Parameters.Count
+                || !indexed.TryAdd(
+                    parameter.ParameterIndex,
+                    parameter))
+            {
+                delegateParameters =
+                    new Dictionary<int, JsExportDelegateParameter>();
+                return false;
+            }
+        }
+
+        delegateParameters = indexed;
+        return true;
     }
 
     static IReadOnlySet<string>? BlockedAliases(

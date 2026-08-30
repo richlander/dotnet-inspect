@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface;
+using ILInspector.Metadata;
 using tsbindgen;
 
 namespace ILInspector.JsExportSurface.Tests;
@@ -16,6 +18,11 @@ public sealed class TsTypeMapperTests
         "WidgetDto",
         "ILInspector.JsExportSurface.Fixtures.WidgetDto",
     };
+    private static readonly ApiAssemblyIdentity FixtureAssembly = new(
+        "ILInspector.JsExportSurface.Fixtures",
+        new Version(1, 0, 0, 0),
+        culture: null,
+        publicKeyToken: "0011223344556677");
 
     [Theory]
     [InlineData("string", "string")]
@@ -134,6 +141,19 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
+    public void MapParameterType_MapsAuthenticatedNullableArrayPayload()
+    {
+        Assert.Equal(
+            "(arg0: string[] | null) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<string[]?>",
+                RecordNames,
+                delegateParameter: ActionParameter(
+                    TypeRef.SzArray(
+                        TypeRef.CoreLib("System", "String")))));
+    }
+
+    [Fact]
     public void MapParameterType_MapsAuthenticatedFuncInManagedOrder()
     {
         var signature = new JsExportDelegateParameter
@@ -203,8 +223,8 @@ public sealed class TsTypeMapperTests
             Kind = JsExportDelegateKind.Action,
             ParameterTypes =
             [
-                TypeRef.Definition(
-                    "ILInspector.JsExportSurface.Fixtures",
+                ResolvedType(
+                    FixtureAssembly,
                     "ILInspector.JsExportSurface.Fixtures",
                     "WidgetDto"),
             ],
@@ -217,8 +237,9 @@ public sealed class TsTypeMapperTests
                     + "ILInspector.JsExportSurface.Fixtures.WidgetDto?>",
                 RecordNames,
                 delegateParameter: signature,
-                containingAssemblyName:
-                    "ILInspector.JsExportSurface.Fixtures"));
+                delegateMappingContext:
+                    FixtureDelegateContext(
+                        TsLocalTypeKind.Reference)));
     }
 
     [Fact]
@@ -298,12 +319,185 @@ public sealed class TsTypeMapperTests
             "System.Action<"
                 + "ILInspector.JsExportSurface.Fixtures.WidgetDto>",
             ActionParameter(
-                TypeRef.Definition(
-                    "Other.Assembly",
+                ResolvedType(
+                    new ApiAssemblyIdentity(
+                        "Other.Assembly",
+                        new Version(1, 0, 0, 0),
+                        culture: null,
+                        publicKeyToken: null),
                     "ILInspector.JsExportSurface.Fixtures",
                     "WidgetDto")),
-            containingAssemblyName:
-                "ILInspector.JsExportSurface.Fixtures");
+            FixtureDelegateContext(
+                TsLocalTypeKind.Reference));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsNullableLocalValueTypeWithoutWrapper()
+    {
+        AssertDelegateRejected(
+            "System.Action<"
+                + "ILInspector.JsExportSurface.Fixtures.WidgetDto?>",
+            ActionParameter(
+                ResolvedType(
+                    FixtureAssembly,
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "WidgetDto")),
+            FixtureDelegateContext(TsLocalTypeKind.Value));
+    }
+
+    [Fact]
+    public void MapParameterType_MapsNullableLocalValueTypeWithWrapper()
+    {
+        TypeRef localType = ResolvedType(
+            FixtureAssembly,
+            "ILInspector.JsExportSurface.Fixtures",
+            "WidgetDto");
+
+        Assert.Equal(
+            "(arg0: WidgetDto | null) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<"
+                    + "ILInspector.JsExportSurface.Fixtures.WidgetDto?>",
+                RecordNames,
+                delegateParameter: ActionParameter(
+                    TypeRef.GenericInstance(
+                        TypeRef.CoreLib("System", "Nullable`1"),
+                        [localType])),
+                delegateMappingContext:
+                    FixtureDelegateContext(TsLocalTypeKind.Value)));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsNullableWrapperAroundLocalReferenceType()
+    {
+        TypeRef localType = ResolvedType(
+            FixtureAssembly,
+            "ILInspector.JsExportSurface.Fixtures",
+            "WidgetDto");
+
+        AssertDelegateRejected(
+            "System.Action<"
+                + "ILInspector.JsExportSurface.Fixtures.WidgetDto?>",
+            ActionParameter(
+                TypeRef.GenericInstance(
+                    TypeRef.CoreLib("System", "Nullable`1"),
+                    [localType])),
+            FixtureDelegateContext(TsLocalTypeKind.Reference));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsNullableLocalTypeWithoutClassification()
+    {
+        AssertDelegateRejected(
+            "System.Action<"
+                + "ILInspector.JsExportSurface.Fixtures.WidgetDto?>",
+            ActionParameter(
+                ResolvedType(
+                    FixtureAssembly,
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "WidgetDto")),
+            new TsDelegateMappingContext(
+                RecordNames,
+                new Dictionary<string, TsLocalTypeKind>(
+                    StringComparer.Ordinal),
+                FixtureAssembly));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsSameSimpleAssemblyWithDifferentIdentity()
+    {
+        AssertDelegateRejected(
+            "System.Action<"
+                + "ILInspector.JsExportSurface.Fixtures.WidgetDto>",
+            ActionParameter(
+                ResolvedType(
+                    new ApiAssemblyIdentity(
+                        FixtureAssembly.Name,
+                        new Version(2, 0, 0, 0),
+                        FixtureAssembly.Culture,
+                        "8899aabbccddeeff"),
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "WidgetDto")),
+            FixtureDelegateContext(TsLocalTypeKind.Reference));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsLocalTypeWithoutResolutionOrigin()
+    {
+        AssertDelegateRejected(
+            "System.Action<"
+                + "ILInspector.JsExportSurface.Fixtures.WidgetDto>",
+            ActionParameter(
+                TypeRef.Definition(
+                    FixtureAssembly.Name,
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "WidgetDto")),
+            FixtureDelegateContext(TsLocalTypeKind.Reference));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsMalformedFrameworkGenericNames()
+    {
+        AssertDelegateRejected(
+            "System.Action<System.Nullable<int>>",
+            ActionParameter(
+                TypeRef.GenericInstance(
+                    TypeRef.Definition(
+                        "Other.Assembly",
+                        "System",
+                        "Nullable"),
+                    [TypeRef.CoreLib("System", "Int32")])));
+        AssertDelegateRejected(
+            "System.Action<"
+                + "System.Collections.Generic."
+                + "Dictionary<string, string>>",
+            ActionParameter(
+                TypeRef.GenericInstance(
+                    TypeRef.Definition(
+                        "Other.Assembly",
+                        "System.Collections.Generic",
+                        "Dictionary"),
+                    [
+                        TypeRef.CoreLib("System", "String"),
+                        TypeRef.CoreLib("System", "String"),
+                    ])));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsFrameworkNamesWithWrongGenericArity()
+    {
+        AssertDelegateRejected(
+            "System.Action<System.Nullable<int, int>>",
+            ActionParameter(
+                TypeRef.GenericInstance(
+                    TypeRef.CoreLib("System", "Nullable`2"),
+                    [
+                        TypeRef.CoreLib("System", "Int32"),
+                        TypeRef.CoreLib("System", "Int32"),
+                    ])));
+        AssertDelegateRejected(
+            "System.Action<System.String<int>>",
+            ActionParameter(
+                TypeRef.GenericInstance(
+                    TypeRef.CoreLib("System", "String`1"),
+                    [TypeRef.CoreLib("System", "Int32")])));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsVoidDelegatePayloads()
+    {
+        AssertDelegateRejected(
+            "System.Action<void>",
+            ActionParameter(
+                TypeRef.CoreLib("System", "Void")));
+        AssertDelegateRejected(
+            "System.Func<void>",
+            new JsExportDelegateParameter
+            {
+                ParameterIndex = 0,
+                Kind = JsExportDelegateKind.Func,
+                ReturnType = TypeRef.CoreLib("System", "Void"),
+            });
     }
 
     [Fact]
@@ -629,7 +823,7 @@ public sealed class TsTypeMapperTests
     static void AssertDelegateRejected(
         string displayType,
         JsExportDelegateParameter signature,
-        string? containingAssemblyName = null)
+        TsDelegateMappingContext? mappingContext = null)
     {
         var diagnostics = new TsBindGenDiagnostics();
 
@@ -641,11 +835,48 @@ public sealed class TsTypeMapperTests
                 diagnostics,
                 "Register.callback",
                 delegateParameter: signature,
-                containingAssemblyName: containingAssemblyName));
+                delegateMappingContext: mappingContext));
         Assert.Contains(
             diagnostics.UnmappedTypes,
             diagnostic =>
                 diagnostic.Location == "Register.callback"
                 && diagnostic.CSharpType == displayType);
+    }
+
+    static TsDelegateMappingContext FixtureDelegateContext(
+        TsLocalTypeKind kind) =>
+        new(
+            RecordNames,
+            new Dictionary<string, TsLocalTypeKind>(
+                StringComparer.Ordinal)
+            {
+                [
+                    "ILInspector.JsExportSurface.Fixtures.WidgetDto"
+                ] = kind,
+            },
+            FixtureAssembly);
+
+    static TypeRef ResolvedType(
+        ApiAssemblyIdentity assembly,
+        string @namespace,
+        string name)
+    {
+        var identity = new AssemblyReferenceIdentity(
+            assembly.Name,
+            assembly.Version,
+            assembly.Culture,
+            assembly.PublicKeyToken);
+        MetadataTypeDefinitionName definitionName =
+            ((MetadataTypeDefinitionNameResult.Valid)
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    ImmutableArray.Create(name))).Name;
+        return TypeRef.Definition(
+            assembly.Name,
+            @namespace,
+            name,
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(identity),
+                definitionName));
     }
 }

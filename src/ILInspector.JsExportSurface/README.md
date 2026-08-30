@@ -261,6 +261,9 @@ with method-scoped `SYSLIB1072`;
 `UnsupportedDelegateShapes_AreRejectedBySdkGenerator` gates that boundary.
 Consumers independently reject over-arity hand-composed delegate facts;
 `MapParameterType_RejectsDelegateFactsBeyondSdkArity` gates that containment.
+They also reject `Void` parameters and `Func<..., Void>` returns that this
+producer cannot publish;
+`MapParameterType_RejectsVoidDelegatePayloads` gates that boundary.
 
 `[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
 rejects for a different reason: the descriptor is real and the wrapper is

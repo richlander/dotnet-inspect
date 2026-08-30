@@ -71,10 +71,15 @@ accept Promise-returning functions. Delegate-looking C# text without the
 corresponding body-authenticated `JsExportDelegateParameter` fact remains
 diagnosed `unknown`; TypeScript does not reconstruct publication authority from
 display text. Every display argument must also correlate structurally with its
-authenticated `TypeRef`, including framework trust and the containing assembly
-for emitted records; display text contributes nullable spelling only after that
-check, and cannot replace payload identity, exceed the SDK callback arity, or
-hide an authenticated async return.
+authenticated `TypeRef`. Framework mappings require the exact metadata name,
+generic arity, and trusted defining assembly. Local mappings require retained
+resolution origin, the complete containing assembly identity, and a known
+declaration kind before nullable-reference spelling is accepted; a local
+value type requires an authenticated `Nullable<T>` wrapper. Every delegate
+fact must also have one unique in-range managed parameter index. Display text
+cannot replace payload identity, manufacture nullability, exceed the SDK
+callback arity, introduce `Void` callback payloads, or hide an authenticated
+async return.
 `MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
 `MapParameterType_MapsAuthenticatedFuncInManagedOrder`,
 `MapParameterType_AcceptsCorrelatedQualifiedDelegateTypes`,
@@ -82,13 +87,21 @@ hide an authenticated async return.
 `MapParameterType_RejectsDelegateFactsBeyondSdkArity`,
 `MapParameterType_RejectsFrameworkLookalikeIdentities`,
 `MapParameterType_RejectsSameRecordFromDifferentAssembly`,
+`MapParameterType_RejectsSameSimpleAssemblyWithDifferentIdentity`,
+`MapParameterType_RejectsNullableLocalValueTypeWithoutWrapper`,
+`MapParameterType_RejectsMalformedFrameworkGenericNames`,
+`MapParameterType_RejectsFrameworkNamesWithWrongGenericArity`,
+`MapParameterType_RejectsVoidDelegatePayloads`,
 `MapParameterType_RejectsAuthenticatedIdentityMismatch`,
 `MapParameterType_RejectsUnqualifiedRecordAliasMismatch`,
 `MapParameterType_RejectsPromiseReturningDelegate`,
 `MapParameterType_DoesNotTrustDelegateLookingText`, and
 `Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes`,
 `Emit_MapsDelegateRecordFromContainingAssembly`, and
-`Emit_RejectsDelegateRecordFromDifferentAssembly` gate the projection.
+`Emit_RejectsDelegateRecordFromDifferentAssembly`,
+`Emit_RejectsDelegateRecordWithDifferentFullAssemblyIdentity`,
+`Emit_RejectsNullableDelegateValueTypeWithoutWrapper`, and
+`Emit_RejectsInvalidDelegateParameterAssociations` gate the projection.
 Promise-returning delegates remain unsupported by the SDK source generator and
 by hand-composed mapper inputs.
 
