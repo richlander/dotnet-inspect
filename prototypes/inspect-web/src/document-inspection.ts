@@ -81,6 +81,15 @@ export function createDocumentInspectionCoordinator(
   dependencies: DocumentInspectionDependencies,
 ) {
   const { state } = dependencies;
+  const clear = () => {
+    state.docViewerSeq++;
+    state.docViewerOpen = false;
+    state.docViewer = null;
+    state.docViewerHtml = "";
+    state.docViewerMeta = null;
+    state.docViewerError = "";
+    state.docViewerLoading = false;
+  };
 
   return {
     async open(request: PackageDocumentRequest) {
@@ -124,14 +133,10 @@ export function createDocumentInspectionCoordinator(
       }
     },
 
+    clear,
+
     close() {
-      state.docViewerSeq++;
-      state.docViewerOpen = false;
-      state.docViewer = null;
-      state.docViewerHtml = "";
-      state.docViewerMeta = null;
-      state.docViewerError = "";
-      state.docViewerLoading = false;
+      clear();
       dependencies.render();
     },
   };
