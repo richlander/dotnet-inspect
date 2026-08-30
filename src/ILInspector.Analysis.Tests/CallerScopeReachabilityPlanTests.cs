@@ -199,6 +199,85 @@ public class CallerScopeReachabilityPlanTests
     }
 
     [Fact]
+    public void ScopeFirstBindingPolicy_SkewedRootRequiresIdentityPolicy()
+    {
+        ResolvedAssemblyReference target = Descriptor(BuildTarget());
+        ResolvedAssemblyReference root =
+            Descriptor(
+                BuildFacade(
+                    new Version(2, 0, 0, 0),
+                    target.Identity));
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                root.Identity with
+                {
+                    Version = new Version(1, 0, 0, 0),
+                }),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Any);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NotFound(
+                AssemblyBindingMissDisposition.NoNameOwner));
+        var policy =
+            new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
+                fallback,
+                target,
+                [root]);
+
+        var unavailable =
+            Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                policy.Select(request));
+
+        Assert.Equal(
+            AssemblyBindingFailureKind.IdentityPolicyRequired,
+            unavailable.Failure.Kind);
+        Assert.Equal(1, fallback.CallCount);
+    }
+
+    [Fact]
+    public void VersionSkewedFacadeRoots_ReportAmbiguous()
+    {
+        byte[] targetImage = BuildTarget();
+        ResolvedAssemblyReference target = Descriptor(targetImage);
+        byte[] firstFacadeImage = BuildFacade(
+            new Version(2, 0, 0, 0),
+            target.Identity);
+        byte[] secondFacadeImage = BuildFacade(
+            new Version(3, 0, 0, 0),
+            target.Identity);
+        ResolvedAssemblyReference first = Descriptor(firstFacadeImage);
+        ResolvedAssemblyReference second = Descriptor(secondFacadeImage);
+        byte[] callerImage = BuildCaller(
+            first.Identity with
+            {
+                Version = new Version(1, 0, 0, 0),
+            });
+        ResolvedAssemblyReference caller = Descriptor(callerImage);
+        var fallback = new FixedPolicy(
+            AssemblyBindingSelection.NotFound(
+                AssemblyBindingMissDisposition.NoNameOwner));
+
+        CallerScopeReachabilityPlan plan =
+            CallerScopeReachabilityPlan.Create(
+                fallback,
+                target,
+                ReadTargetDefinition(targetImage),
+                [caller, first, second]);
+
+        var relation =
+            Assert.IsType<CandidateTypeRelation.Indeterminate>(
+                plan.Resolution.GetRelation(
+                    caller,
+                    ReadCallerReference(callerImage)));
+        var resolution =
+            Assert.IsType<TypeCorrespondenceFailure.Resolution>(
+                relation.Failure);
+        Assert.IsType<TypeResolutionOutcome.Ambiguous>(
+            resolution.NonSuccess);
+        Assert.Equal(1, fallback.CallCount);
+    }
+
+    [Fact]
     public void EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition()
     {
         byte[] targetImage = BuildTarget();

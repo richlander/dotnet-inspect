@@ -69,6 +69,10 @@ valid assembly-reference miss answers unchanged. The concrete
 `ScopeFirstBindingPolicy_PreservesDelegatedTerminalResults` and
 `BindingPolicyResolver_PreservesDelegatedNonSelectedResults` gate that Analysis
 and Queries wrappers preserve the same terminal policy currency.
+`ScopeFirstBindingPolicy_SkewedRootRequiresIdentityPolicy` and
+`VersionSkewedFacadeRoots_ReportAmbiguous` gate that delegated `NoNameOwner`
+advances into the caller-scope inventory without losing one-root policy
+requirements or multi-root ambiguity.
 `Select_PreservesBindingPolicyIntrinsicSelection` gates that the Metadata
 migration adapter preserves structured intrinsic selections.
 `InstalledPlatformFallback_DoesNotOwnAbsentPrefixedName` and

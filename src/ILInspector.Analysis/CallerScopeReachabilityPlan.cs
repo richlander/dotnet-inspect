@@ -619,13 +619,41 @@ public sealed class CallerScopeReachabilityPlan
                     root => root.Identity.IsEquivalentTo(
                         reference.Identity))
                 .ToImmutableArray();
-            return matches.Length switch
+            if (matches.Length > 0)
             {
-                0 => AssemblyBindingSelection.ValidateForRequest(
+                return matches.Length == 1
+                    ? AssemblyBindingSelection.Found(matches[0])
+                    : AssemblyBindingSelection.Multiple(matches);
+            }
+
+            AssemblyBindingSelection delegated =
+                AssemblyBindingSelection.ValidateForRequest(
                     request,
-                    _fallback.Select(request)),
-                1 => AssemblyBindingSelection.Found(matches[0]),
-                _ => AssemblyBindingSelection.Multiple(matches),
+                    _fallback.Select(request));
+            if (delegated
+                is not AssemblyBindingSelection.Missing
+                {
+                    Disposition:
+                        AssemblyBindingMissDisposition.NoNameOwner,
+                })
+            {
+                return delegated;
+            }
+
+            ImmutableArray<ResolvedAssemblyReference> nameOwners = _roots
+                .Where(
+                    root => string.Equals(
+                        root.Identity.Name,
+                        reference.Identity.Name,
+                        StringComparison.OrdinalIgnoreCase))
+                .ToImmutableArray();
+            return nameOwners.Length switch
+            {
+                0 => delegated,
+                1 => AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.IdentityPolicyRequired)),
+                _ => AssemblyBindingSelection.Multiple(nameOwners),
             };
         }
     }

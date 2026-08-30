@@ -3736,6 +3736,10 @@ Claim: direct callers and transitive call graphs share one definition identity.
   `ScopeFirstBindingPolicy_NoNameOwnerRequiresIdentityPolicy` prove the
   caller-scope wrapper preserves every delegated terminal result and reaches
   its local identity-policy outcome only after `NoNameOwner`.
+- `ScopeFirstBindingPolicy_SkewedRootRequiresIdentityPolicy` and
+  `VersionSkewedFacadeRoots_ReportAmbiguous` prove delegated `NoNameOwner`
+  advances into the local caller-scope inventory, where one version-skewed
+  same-name root requires identity policy and multiple roots retain ambiguity.
 - `EcmaEquivalentTargetIdentity_ResolvesToTargetDefinition` and
   `EcmaEquivalentFacadeIdentity_ResolvesToTargetDefinition` prove exact-target
   and root selection use ECMA assembly-identity equivalence, including
