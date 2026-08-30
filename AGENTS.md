@@ -24,9 +24,10 @@ documentation.
   push, and open its PR without separate approval. Once eligible, round 1 and
   replacements inside the current six-round block dispatch automatically; only
   a new block requires approval. Merge remains separately authorized.
-- **Markdown-only PRs hot-start immediately at non-boundary rounds.** When every
-  changed file is `*.md`, `markdownlint` is the pre-review and per-round gate.
-  Open the PR and dispatch review without asking or waiting for `ci-required`.
+- **Review normally runs alongside CI.** Every round attempts one current-head
+  status snapshot; ordinary rounds continue when status is unavailable, every
+  third may wait up to 60 minutes, and every sixth requires green CI and
+  mergeability before approval. Markdown-only rounds never wait for CI.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -133,9 +134,6 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
 
 ### Standing adjustments
 
-- **Review ordinary non-Markdown changes in parallel with CI:** requires user
-  approval; conflict recovery is the explicit exception. A CI failure requiring
-  an author change still supersedes the attempt, and all findings carry forward.
 - **Auto-merge on the final push:** once every required review is review-clean,
   or the intended final head/base carries an approved exact-head
   trivial-interaction waiver, the user may authorize auto-merge for that exact
@@ -395,7 +393,9 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
    CI and GitHub's live mergeability immediately before every merge attempt,
    even when `review-clean` is present.
 6. **A round closes only when reconciled and its applicable gates are green.**
-   For a non-Markdown-only PR, known-red `ci-required` blocks; pending status follows
+   Every round attempts current-head status. Known-red `ci-required` blocks;
+   pending, missing, rate-limited, or transient status does not block an
+   ordinary round. Every third round follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
    At non-boundary rounds, a Markdown-only PR's gate is pre-commit
    `markdownlint`; do not wait for CI before review. A gate failure requiring an
@@ -555,12 +555,12 @@ Put it under `## Demo` above validation in the PR body.
   changes; see [GitHub API operations](docs/github-api-operations.md) for the
   exact commands and the `-F`/`-f` distinction that matters for PR bodies.
 - For non-Markdown-only PRs, run the focused gate, push promptly, and start
-  eligible local suites and CI concurrently. Reviewer dispatch waits for green
-  `ci-required` unless parallel review is approved or conflict recovery applies.
-  Query GitHub status only when the round cadence requires it; follow
-  [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. If an hour passes without an authored change while an
-  independent gate hasn't started, fix the sequencing or record the blocker.
+  eligible local suites and CI concurrently. Attempt one status snapshot before
+  reviewer dispatch; pending or unavailable status does not block an ordinary
+  round, while every third round uses the bounded wait. Follow
+  [GitHub status queries](docs/github-status-queries.md) instead of polling. If
+  an hour passes without an authored change while an independent gate hasn't
+  started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
   concludes `success`, and a missing aggregate is not green. Never require a

@@ -49,17 +49,19 @@ or the work appears to need multiple normative owners.
 
 | Attempt | Required before reviewer dispatch | May remain pending |
 | --- | --- | --- |
-| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, applicable CI rule below | Mergeability; eligible pending CI |
-| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
+| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, one status attempt, and no observed conflict | CI and mergeability |
+| Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
 | Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
-| Failed-gate restart | Required fix pushed, one status attempt, applicable CI rule below, and no observed conflict | Mergeability; eligible pending CI subject to [Bounded status waiting](#bounded-status-waiting) |
+| Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
-A non-Markdown candidate requires green current-head `ci-required` before
-reviewer dispatch unless the user authorized parallel review or conflict
-recovery applies. A Markdown-only candidate (every changed file is `*.md`)
-substitutes pre-commit `markdownlint` at non-boundary rounds. Only these
-exceptions make pending CI eligible; `ci-required` remains mandatory at
+At rounds not divisible by three, one status attempt is enough: pending,
+missing, rate-limited, or transient status may remain pending and reviewer
+dispatch continues. This is the normal cadence, not a user-authorized parallel
+review exception. Every third round instead applies the bounded wait before
+dispatch. A Markdown-only candidate (every changed file is `*.md`) substitutes
+pre-commit `markdownlint` and never waits for CI before review. Fresh green
+current-head `ci-required` and positive mergeability remain mandatory at
 six-round boundaries and final merge.
 
 ### Review-clean, and recovery
@@ -162,19 +164,16 @@ values.
 
 *This section defines repository policy, not GitHub timing guarantees.*
 
-Every round attempts one current-head snapshot. When CI is a reviewer-dispatch
-prerequisite, pending, missing, rate-limited, or transient status enters the
-60-minute budget below; expiry publishes the status report and stops without
-dispatch. When CI may remain pending, record that status and continue the
-current review path. A known conflict, required CI completed without success,
-or terminal query failure still takes its transition.
-
-A reviewer-dispatch CI prerequisite spends up to a 60-minute status budget
-before dispatch. Every third round, and any merge or readiness goal, may use the
-same bound. Every sixth round uses that budget, but fresh green current-head
-`ci-required` and positive mergeability remain prerequisites for the next-block
-approval prompt. Measure the budget from the first scheduled wait and publish
-`status-deadline=<UTC>`.
+Every round attempts one current-head snapshot. At rounds not divisible by
+three, pending, missing, rate-limited, or transient status does not block
+reviewer dispatch: record it and continue the current review path. Every third
+round, and any merge or readiness goal, instead enters a status budget of up to
+60 minutes; expiry publishes the status report and stops without dispatch or
+goal completion. Every sixth round uses that budget, but fresh green
+current-head `ci-required` and positive mergeability remain prerequisites for
+the next-block approval prompt. A known conflict, required CI completed without
+success, or terminal query failure still takes its transition. Measure the
+budget from the first scheduled wait and publish `status-deadline=<UTC>`.
 
 Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
