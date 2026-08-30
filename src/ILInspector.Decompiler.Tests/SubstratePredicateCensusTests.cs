@@ -12,6 +12,8 @@ public class SubstratePredicateCensusTests
             "Pass-local composition of PlaceIdentity.SameVariable and SameStackSlot for the null-tested value accepted by boolean folding.",
         [new("ConstructorCallDiagnosticsPass.cs", "SameDefinition")] =
             "Constructor diagnostics compare the declaring type with the current/base type; this is diagnostic routing, not a reusable rewrite gate.",
+        [new("ClassicAsyncReconstructionPass.cs", "SameStateTransitionValue")] =
+            "Classic-async guard authentication compares one adjacent protocol local/field transition; this pass-owned constant-or-stack-slot shape is not reusable place identity.",
         [new("EhStructuringPass.cs", "SameZone")] =
             "Control-flow legality check over EH constructs and branch offsets, not a place/member identity predicate.",
         [new("IncrementDecrementPass.cs", "SameField")] =

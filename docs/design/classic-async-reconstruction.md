@@ -237,7 +237,12 @@ The component must not:
 
 Kickoff IR may confirm that the handoff uses the state-machine identity supplied
 by Metadata. Disagreement produces a typed decline or input failure; it never
-selects another candidate.
+selects another candidate. The kickoff local must carry the exact owner-selected
+MVID and TypeDef row, not only the same metadata name. Every state, builder,
+parameter, and receiver field used by the handoff must name that same exact
+definition. The symbolic declaring type used for exact `MoveNext` import is the
+validated owner-selected machine type; same-name provenance cannot substitute
+for it.
 
 ## `ClassicAsyncMachine`
 
@@ -257,6 +262,7 @@ ClassicAsyncMachine
   Completion
   ExceptionCompletion
   HoistedValues[]
+  ParameterBindings[]
   UserRegions[]
   SupportMethods[]
 
@@ -339,7 +345,11 @@ types, and ordered children; this preserves already accepted constants,
 conversions, element access, and other cloned operand forms instead of
 narrowing reconstruction to calls over parameters. Await order is global
 within the root function, and nested-function awaits cannot be silently counted
-as part of that root realization.
+as part of that root realization. For a reused awaiter local, each `GetResult`
+is paired with exactly one non-resume `GetAwaiter` store after the preceding
+`GetResult` on that local. Competing definitions, including alternate
+predecessor stores, decline; tree traversal order is not reaching-definition
+evidence.
 
 The first predicate realization gate covers the accepted conditional recipe.
 Only a condition carrying the field-to-kickoff-parameter mapping required by
@@ -355,10 +365,15 @@ recipe. The input effect must be one direct call under the exact compiler
 finally-state guard; the guard itself remains protocol structure, not a user
 predicate. That guard has no else arm, uses the unique local seeded from the
 exact machine's `<>1__state` field, and has no user-derived reaching
-assignment. The call is remapped to kickoff parameters and paired with one
-call in the reconstructed `finally` by global guarded-effect position and
-exact typed call identity. A nested user guard or non-call effect remains a
-decline.
+assignment. A later state-local transition is accepted only when the next
+statement writes the same constant or stack-slot value to the exact machine's
+`<>1__state` field; stack-slot definitions must themselves be recognized and
+cycle-free. The accepted recipe has exactly the initial field seed, suspension
+state `0`, and resumption state `-1`, in that order. Extra or uncorrelated state
+assignments do not authenticate the guard. The call is remapped to kickoff
+parameters and paired with one call in the reconstructed `finally` by global
+guarded-effect position and exact typed call identity. A nested user guard or
+non-call effect remains a decline.
 
 ## Planning and stage application
 
@@ -456,9 +471,19 @@ state-machine instance and belongs to the compiler handoff:
 - no unexplained call, store, branch, or return.
 
 Required statements occur exactly once. Optional parameter copies are matched
-to source parameters, not accepted by field-name resemblance. A local,
-address-of local, or field use that cannot be mapped to the same machine makes
-the kickoff non-narrow.
+to source parameters, not accepted merely because their values are valid source
+arguments. Planning issues one immutable field-to-argument map from the
+validated stores. Each entry records the exact-machine field name and type plus
+the source argument slot, name, type, and dynamic facts. Target fields and
+source arguments are each unique, and a user-parameter field must receive its
+corresponding declared parameter; swapped, duplicate, or foreign copies make
+the kickoff non-narrow. A missing copy makes reconstruction decline when the
+execution body requires that binding. Awaited operands, predicates, guarded
+effects, and reconstructed calls all use this map rather than independently
+matching fields by name. A local, address-of local, or field use that cannot be
+mapped to the same machine makes the kickoff non-narrow. The map records
+`<>4__this` for kickoff ownership, but the current recipes do not realize
+instance receivers and therefore still decline when execution requires it.
 
 When the decline is about the handoff itself and the kickoff is proven narrow,
 application may replace it with one `UnsupportedNode` carrying
@@ -608,7 +633,7 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | --- | --- | --- |
 | Focused owner boundary | `ClassicAsyncArchitectureTests` source inventory | Classic code scans Metadata relationships, imports by name/ordinal, defines physical diff/Research/CLI/harness policy, or references #4716–#4719 implementation types |
 | Owner-result preservation | Metadata fixture adapters over every #4669 result arm | A complete negative relationship loses its typed reason before decline; an acquisition/budget/decode failure becomes decline; or either becomes empty success or a guessed candidate |
-| Exact host identity | Kickoff/execution/support fixtures with same-name, same-token, and byte-distinct same-MVID/same-row decoys | Planning or application drops the owner guard, changes the requested host role, or uses another acquired module or MethodDef |
+| Exact host identity | Kickoff/execution/support fixtures with same-name, same-token, and byte-distinct same-MVID/same-row decoys, plus `KickoffLocalWithoutExactDefinitionIdentityDeclines` | Planning or application drops the owner guard, changes the requested host role, accepts a same-name foreign machine local, or uses another acquired module or MethodDef |
 | Planning totality | Healthy classic, non-classic, owner-failure, import-failure, and injected planner-failure fixtures | A request has no terminal result; failure becomes decline; or classic health is inferred from rendered text |
 | Stage-neutral plan | Raised/Lowered fixtures in both request orders | Recognition runs twice; decisions differ by request order; a plan retains stage-owned nodes/locals; or stage snapshots alias |
 | Registered pipeline preservation | Independent exact pass-list baselines plus accepted classic fixtures | The registered `IrPasses.Default` or `IrPasses.Lowered` sequence or required relative order changes without an intentional baseline update |
@@ -617,7 +642,9 @@ Every asserted property below names its enforcing gate. Tests run in Release.
 | Plan-region partition | Accepted compiler fixtures plus injected extra-region, external-entry, duplicate-consumption, overlap, and unconsumed-use negatives | A physical kickoff/execution region is neither consumed nor preserved, appears in both sets, is consumed twice, has an unmodeled entry/use, or is rewritten while preserved |
 | User-region realization | `CheckedRegionHasOnePrimaryRealization`, `AwaitedOperandsHaveOnePrimaryRealization`, `PredicateRegionHasOnePrimaryRealization`, `GuardedEffectRegionHasOnePrimaryRealization`, and the `RegionLedgerRejects*` negatives | A modeled user region has no realization or more than one, its typed semantics or position changes, or preserved physical material supplies reconstructed semantics |
 | Decline honesty | Narrow and non-narrow classic kickoff fixtures for every decline category | A healthy decline lacks a marker/reason; a narrow handoff survives; a non-narrow statement changes or disappears; or a failure fabricates a marker-only success |
-| Narrow ownership non-vacuity | One-machine positives plus mixed-local, extra-call/store/return, duplicate-step, and unmapped-address negatives | Shape resemblance establishes ownership without complete correlation |
+| Narrow ownership non-vacuity | One-machine and `GenericContainingTypeAndMethodMapFieldTypeParameters` positives plus mixed-local, extra-call/store/return, duplicate-step, unmapped-address, and `SwappedKickoffParameterCopiesDecline` negatives | Shape resemblance or a set of valid source arguments establishes ownership without an exact field-to-argument correlation |
+| Await source uniqueness | Sequential compiler positives plus `CompetingAwaiterDefinitionsDecline` | A `GetResult` selects a source by tree order, accepts zero or multiple candidate definitions in its local interval, or rejects ordinary sequential reuse |
+| Finally-state transition correlation | Compiler-produced `AwaitInTryFinally` positives plus `FinallyStateGuardRequiresExactMachineStateAndNoElse` | A guard accepts a foreign state field, else arm, user assignment, direct constant assignment, or uncoupled stack-slot transition |
 | Support preservation | Classic, runtime, iterator, custom-builder, and unrelated support-like methods | An Execution/Support host is not `NotApplicable`, broad builder-name recognition edits a method, or any support body/local changes |
 | Declaration disposition | Reconstructed, declined, not-applicable, owner/import/planner failure matrix | Reconstructed omits `IncludeAsync`, declined does not return `OmitAsync`, or a non-decision invents classic modifier policy |
 | Declaration disposition wiring | `ClassicAsyncDeclarationDispositionFlowsThroughDecompilerBodyResults` over direct member and whole-type production | `DecompilerResult` or `MemberBodyProductionResult` drops the value; either body path rederives a decided classic modifier from Metadata; or the final Decompiler body fact disagrees |

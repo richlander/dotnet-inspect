@@ -142,6 +142,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         if (!TryGetKickoff(
                 kickoffFunction,
+                resolved.Relationship.StateMachineType,
                 resolved.Relationship.StateMachineName,
                 out var kickoff,
                 out var declineReason,
@@ -226,6 +227,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             kickoff.BuilderStorage,
             ClassicAsyncStorageSet.Create(
                 AwaiterStorages(moveNext)),
+            kickoff.ParameterBindings,
             evidence.AcquisitionGuard);
         var plan = new ClassicAsyncPlan(
             machine,
@@ -356,13 +358,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             _ => throw new ArgumentOutOfRangeException(nameof(reason)),
         };
 
-    sealed record Kickoff(
+    internal sealed record Kickoff(
         TypeRef StateMachineType,
         int StateMachineLocal,
         int SourceOffset,
         bool IsNarrow,
         ClassicAsyncStorage StateStorage,
         ClassicAsyncStorage BuilderStorage,
+        ClassicAsyncParameterBindingSet ParameterBindings,
         IReadOnlyList<IrNode> HandoffStatementSlots);
 
     enum ReconstructionResult
@@ -421,8 +424,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
     }
 
-    static bool TryGetKickoff(
+    internal static bool TryGetKickoff(
         IrFunction function,
+        MetadataTypeDefinitionAddress expectedStateMachineAddress,
         MetadataTypeDefinitionName expectedStateMachine,
         out Kickoff kickoff,
         out ClassicAsyncDeclineReason declineReason,
@@ -485,17 +489,22 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     ? definition
                     : stateMachineType;
         if (stateMachineDefinition.DefinitionName
-            != expectedStateMachine)
+                != expectedStateMachine
+            || !IsExactDefinition(
+                stateMachineDefinition,
+                expectedStateMachineAddress))
         {
             declineReason =
                 ClassicAsyncDeclineReason.KickoffMachineMismatch;
             return false;
         }
 
-        narrowHandoff = IsNarrowKickoff(
+        narrowHandoff = TryGetNarrowKickoffBindings(
             function,
             block,
-            stateMachineAddress.Index);
+            stateMachineType,
+            stateMachineAddress.Index,
+            out ClassicAsyncParameterBindingSet parameterBindings);
         if (function.Signature.ReturnType is
             {
                 Namespace: "System",
@@ -527,10 +536,23 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             new(
                 builderStore.Field.Name,
                 builderStore.Field.Type),
+            parameterBindings,
             narrowHandoff
                 ? [.. block.Children]
                 : []);
         return true;
+    }
+
+    static bool IsExactDefinition(
+        TypeRef type,
+        MetadataTypeDefinitionAddress expected)
+    {
+        TypeRef definition = DefinitionType(type);
+        return definition.DefinitionModuleVersionId
+                == expected.ModuleVersionId
+            && !definition.DefinitionHandle.IsNil
+            && MetadataTokens.GetToken(definition.DefinitionHandle)
+                == expected.Definition.Value;
     }
 
     static IEnumerable<ClassicAsyncStorage> AwaiterStorages(
@@ -553,16 +575,20 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
     }
 
-    static bool IsNarrowKickoff(
+    static bool TryGetNarrowKickoffBindings(
         IrFunction function,
         Block block,
-        int stateMachineLocal)
+        TypeRef stateMachineType,
+        int stateMachineLocal,
+        out ClassicAsyncParameterBindingSet parameterBindings)
     {
         int builderCreates = 0;
         int stateInitializations = 0;
         int starts = 0;
         int returns = 0;
         var copiedArguments = new HashSet<int>();
+        var copiedFields = new HashSet<string>(StringComparer.Ordinal);
+        var bindings = new List<ClassicAsyncParameterBinding>();
 
         foreach (IrNode statement in block.Children)
         {
@@ -577,7 +603,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         Callee.Name: "Create",
                         Arguments.Count: 0,
                     },
-                } when builderTarget.Index == stateMachineLocal:
+                } builderStore
+                    when builderTarget.Index == stateMachineLocal
+                    && IsMachineField(
+                        builderStore.Field,
+                        stateMachineType):
                     builderCreates++;
                     break;
 
@@ -586,17 +616,30 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     Field.Name: "<>1__state",
                     Instance: LoadLocalAddress stateTarget,
                     Value: Constant { Value: -1 },
-                } when stateTarget.Index == stateMachineLocal:
+                } stateStore
+                    when stateTarget.Index == stateMachineLocal
+                    && IsMachineField(
+                        stateStore.Field,
+                        stateMachineType):
                     stateInitializations++;
                     break;
 
                 case StoreField
                 {
+                    Field: var targetField,
                     Instance: LoadLocalAddress copyTarget,
                     Value: LoadArgument argument,
                 } when copyTarget.Index == stateMachineLocal
-                    && IsSourceArgument(function, argument)
-                    && copiedArguments.Add(argument.Index):
+                    && IsMachineField(targetField, stateMachineType)
+                    && TryCreateParameterBinding(
+                        function,
+                        stateMachineType,
+                        targetField,
+                        argument,
+                        out ClassicAsyncParameterBinding binding)
+                    && copiedArguments.Add(binding.ArgumentIndex)
+                    && copiedFields.Add(binding.FieldName):
+                    bindings.Add(binding);
                     break;
 
                 case ExpressionStatement
@@ -608,14 +651,16 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         [
                             LoadFieldAddress
                             {
-                                Field.Name: "<>t__builder",
+                                Field: var builderField,
                                 Instance: LoadLocalAddress builderOwner,
                             },
                             LoadLocalAddress machine,
                         ],
                     },
                 } when builderOwner.Index == stateMachineLocal
-                    && machine.Index == stateMachineLocal:
+                    && machine.Index == stateMachineLocal
+                    && builderField.Name == "<>t__builder"
+                    && IsMachineField(builderField, stateMachineType):
                     starts++;
                     break;
 
@@ -626,12 +671,14 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         PropertyName: "Task",
                         Instance: LoadFieldAddress
                         {
-                            Field.Name: "<>t__builder",
+                            Field: var builderField,
                             Instance: LoadLocalAddress builderOwner,
                         },
                         IndexArguments.Count: 0,
                     },
-                } when builderOwner.Index == stateMachineLocal:
+                } when builderOwner.Index == stateMachineLocal
+                    && builderField.Name == "<>t__builder"
+                    && IsMachineField(builderField, stateMachineType):
                     returns++;
                     break;
 
@@ -645,33 +692,98 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     break;
 
                 default:
+                    parameterBindings =
+                        ClassicAsyncParameterBindingSet.Create([]);
                     return false;
             }
         }
 
-        return builderCreates == 1
+        bool isNarrow = builderCreates == 1
             && stateInitializations == 1
             && starts == 1
             && returns == 1;
+        parameterBindings = ClassicAsyncParameterBindingSet.Create(
+            isNarrow
+                ? bindings
+                : []);
+        return isNarrow;
     }
 
-    static bool IsSourceArgument(
+    static bool TryCreateParameterBinding(
         IrFunction function,
-        LoadArgument argument)
+        TypeRef stateMachineType,
+        FieldRef targetField,
+        LoadArgument argument,
+        out ClassicAsyncParameterBinding binding)
     {
+        TypeRef fieldType = StateMachineFieldType(
+            targetField.Type,
+            stateMachineType);
         int parameterIndex = function.Signature.HasThis
             ? argument.Index - 1
             : argument.Index;
         if (parameterIndex == -1)
         {
-            return argument.Type.Equals(function.DeclaringType);
+            if (targetField.Name != "<>4__this"
+                || argument.Name != "this"
+                || !argument.Type.Equals(function.DeclaringType)
+                || !fieldType.Equals(function.DeclaringType))
+            {
+                binding = null!;
+                return false;
+            }
+
+            binding = new(
+                targetField.Name,
+                fieldType,
+                argument.Index,
+                argument.Name,
+                argument.Type,
+                argument.IsDynamic,
+                argument.ArrayElementIsDynamic);
+            return true;
         }
 
-        return parameterIndex >= 0
-            && parameterIndex < function.Signature.Parameters.Length
-            && argument.Type.Equals(
-                function.Signature.Parameters[parameterIndex].Type);
+        if (parameterIndex < 0
+            || parameterIndex >= function.Signature.Parameters.Length)
+        {
+            binding = null!;
+            return false;
+        }
+
+        Parameter parameter =
+            function.Signature.Parameters[parameterIndex];
+        if (targetField.Name != parameter.Name
+            || argument.Name != parameter.Name
+            || !argument.Type.Equals(parameter.Type)
+            || !fieldType.Equals(parameter.Type)
+            || argument.IsDynamic != parameter.IsDynamic
+            || argument.ArrayElementIsDynamic
+                != parameter.ArrayElementIsDynamic)
+        {
+            binding = null!;
+            return false;
+        }
+
+        binding = new(
+            targetField.Name,
+            fieldType,
+            argument.Index,
+            parameter.Name,
+            parameter.Type,
+            parameter.IsDynamic,
+            parameter.ArrayElementIsDynamic);
+        return true;
     }
+
+    static TypeRef StateMachineFieldType(
+        TypeRef fieldType,
+        TypeRef stateMachineType)
+        => fieldType.Instantiate(
+            stateMachineType.Kind == TypeRefKind.GenericInstance
+                ? stateMachineType.TypeArguments
+                : [],
+            []);
 
     static ReconstructionResult TryReconstruct(
         IrFunction moveNext,
@@ -692,7 +804,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var localBuilder = new LocalBuilder();
         if (!TryBuildStatements(
                 moveNext,
-                kickoff,
+                kickoffModel,
                 localBuilder,
                 out var statements,
                 out bool recipeHasUnconsumedStore,
@@ -717,6 +829,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (!TryBuildRegionLedger(
                 kickoff,
                 moveNext,
+                kickoffModel,
                 kickoffAddress,
                 executionAddress,
                 kickoffModel.HandoffStatementSlots,
@@ -735,6 +848,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool TryBuildRegionLedger(
         IrFunction kickoff,
         IrFunction moveNext,
+        Kickoff kickoffModel,
         MetadataMethodAddress kickoffAddress,
         MetadataMethodAddress executionAddress,
         IReadOnlyList<IrNode> consumedKickoffSlots,
@@ -766,7 +880,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 out var consumedExecution)
             || !TryCaptureUserRegions(
                 moveNext,
-                kickoff,
+                kickoffModel,
                 executionAddress,
                 out var regions))
         {
@@ -975,7 +1089,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryCaptureUserRegions(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoffModel,
         MetadataMethodAddress executionAddress,
         out List<ClassicAsyncUserRegion> regions)
     {
@@ -1028,7 +1142,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         {
             if (!TryGetAwaitedOperandRegion(
                     moveNext,
-                    kickoff,
+                    kickoffModel,
                     getResult,
                     out IrNode source,
                     out string discriminator)
@@ -1060,7 +1174,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             if (condition is null
                 || !TryGetInputPredicateDiscriminator(
                     condition,
-                    kickoff,
+                    kickoffModel,
                     out IrExpression source,
                     out string discriminator))
             {
@@ -1108,7 +1222,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
             Call? normalized = CloneAndRemap<Call>(
                 effect,
-                kickoff);
+                kickoffModel);
             if (normalized is null
                 || !TryGetSemanticExpressionKey(
                     normalized,
@@ -1280,7 +1394,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryGetInputPredicateDiscriminator(
         IrExpression condition,
-        IrFunction kickoff,
+        Kickoff kickoffModel,
         out IrExpression source,
         out string discriminator)
     {
@@ -1291,10 +1405,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .OfType<LoadField>()
             .Any(field =>
                 field.Instance is LoadArgument { Index: 0 }
-                && TryGetParameter(
-                    kickoff,
-                    field.Field.Name,
-                    out _,
+                && TryGetParameterBinding(
+                    kickoffModel,
+                    field.Field,
                     out _));
         if (!usesUserParameter)
             return false;
@@ -1302,7 +1415,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         source = condition is LogicalNot not
             ? not.Operand
             : condition;
-        IrExpression? normalized = CloneAndRemap(source, kickoff);
+        IrExpression? normalized = CloneAndRemap(
+            source,
+            kickoffModel);
         return normalized is not null
             && TryGetSemanticExpressionKey(
                 normalized,
@@ -1311,7 +1426,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryGetAwaitedOperandRegion(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoffModel,
         Call getResult,
         out IrNode source,
         out string discriminator)
@@ -1342,7 +1457,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                         {
                             Array: LoadField
                             {
-                                Field.Name: var collectionName,
+                                Field: var collectionField,
                                 Instance: LoadArgument { Index: 0 },
                             },
                             Index: LoadField
@@ -1357,6 +1472,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 return false;
             }
 
+            string collectionName = collectionField.Name;
             if (collectionName.StartsWith(
                     "<>7__wrap",
                     StringComparison.Ordinal))
@@ -1378,17 +1494,30 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 ];
                 if (collectionStores is not
                     [
-                        {
-                            Value: LoadField
-                            {
-                                Field.Name: var sourceCollectionName,
-                            },
-                        },
+                        { Value: LoadField sourceCollection },
                     ])
                 {
                     return false;
                 }
-                collectionName = sourceCollectionName;
+                if (!TryGetParameterBinding(
+                        kickoffModel,
+                        sourceCollection.Field,
+                        out ClassicAsyncParameterBinding binding))
+                {
+                    return false;
+                }
+                collectionName = binding.ArgumentName;
+            }
+            else if (!TryGetParameterBinding(
+                    kickoffModel,
+                    collectionField,
+                    out ClassicAsyncParameterBinding binding))
+            {
+                return false;
+            }
+            else
+            {
+                collectionName = binding.ArgumentName;
             }
 
             source = element;
@@ -1401,7 +1530,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         IrExpression? normalized =
-            CloneAndRemap(awaitedOperand, kickoff);
+            CloneAndRemap(
+                awaitedOperand,
+                kickoffModel);
         if (normalized is null
             || !TryGetSemanticExpressionKey(
                 normalized,
@@ -1827,7 +1958,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryBuildStatements(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoff,
         LocalBuilder locals,
         out List<IrNode> statements,
         out bool hasUnconsumedStore,
@@ -1958,7 +2089,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryBuildSingleAwaitReturn(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
         out Return ret,
@@ -1981,7 +2112,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (HasUnexpectedStore(moveNext, store))
             return false;
 
-        var value = CloneWithAwaitsAndRemap(store.Value, moveNext, kickoff);
+        var value = CloneWithAwaitsAndRemap(
+            store.Value,
+            moveNext,
+            kickoff);
         if (value is null)
             return false;
 
@@ -1999,7 +2133,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryBuildSingleAwaitVoid(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
         out List<IrNode> statements,
@@ -2012,7 +2146,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (HasHoistedUserState(moveNext))
             return false;
 
-        var awaited = AwaitForGetResult(moveNext, kickoff, getResults[0]);
+        var awaited = AwaitForGetResult(
+            moveNext,
+            kickoff,
+            getResults[0]);
         if (awaited is null)
             return false;
         var getResultStatement = getResults[0].Parent as ExpressionStatement;
@@ -2036,7 +2173,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryBuildSequentialVoid(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
         LocalBuilder locals,
@@ -2064,7 +2201,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         var firstName = ExtractSourceName(firstStore.Field.Name);
         var firstIndex = locals.Add(firstType, firstName);
-        var firstAwait = AwaitForGetResult(moveNext, kickoff, getResults[0]);
+        var firstAwait = AwaitForGetResult(
+            moveNext,
+            kickoff,
+            getResults[0]);
         if (firstAwait is null)
             return false;
         statements.Add(new StoreLocal(firstIndex, firstType, firstAwait));
@@ -2079,7 +2219,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 ? moveNext.LocalNames[secondStore.Index]
                 : null;
         var secondIndex = locals.Add(secondStore.Type, secondName);
-        var secondAwait = AwaitForGetResult(moveNext, kickoff, getResults[1]);
+        var secondAwait = AwaitForGetResult(
+            moveNext,
+            kickoff,
+            getResults[1]);
         if (secondAwait is null)
             return false;
         statements.Add(new StoreLocal(secondIndex, secondStore.Type, secondAwait));
@@ -2111,7 +2254,11 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             [firstStore.Field.Name] = (firstIndex, firstType),
         };
         var replacements = new Dictionary<int, (int Index, TypeRef Type)> { [secondStore.Index] = (secondIndex, secondStore.Type) };
-        var mapped = CloneAndRemap(call, kickoff, hoisted, replacements);
+        var mapped = CloneAndRemap(
+            call,
+            kickoff,
+            hoisted,
+            replacements);
         if (mapped is null)
             return false;
         if (!ownership.Claim(
@@ -2154,7 +2301,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryBuildConditional(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
         out Return ret,
@@ -2220,8 +2367,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (HasUnexpectedStore(moveNext, awaitStore, zeroStore, finalStore))
             return false;
 
-        var condition = CloneAndRemap((IrExpression)flag, kickoff);
-        var awaited = AwaitForGetResult(moveNext, kickoff, getResults[0]);
+        var condition = CloneAndRemap(
+            (IrExpression)flag,
+            kickoff);
+        var awaited = AwaitForGetResult(
+            moveNext,
+            kickoff,
+            getResults[0]);
         if (condition is null || awaited is null)
             return false;
         if (!ownership.Claim(
@@ -2245,7 +2397,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryBuildLoop(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoff,
         Call setResult,
         LocalBuilder locals,
         out List<IrNode> statements,
@@ -2351,7 +2503,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 new LoadLocal(sumIndex, sumType),
                 awaited)));
 
-        var collection = CloneAndRemap((IrExpression)tasksField, kickoff);
+        var collection = CloneAndRemap(
+            (IrExpression)tasksField,
+            kickoff);
         if (collection is null)
             return false;
         if (!ownership.Claim(
@@ -2436,7 +2590,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
     static bool TryBuildTryFinally(
         IrFunction moveNext,
-        IrFunction kickoff,
+        Kickoff kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
         out TryFinally tryFinally,
@@ -2461,7 +2615,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             .LastOrDefault(store => store.Index == result.Index && ContainsNode(store.Value, getResults[0]));
         if (resultStore is null)
             return false;
-        var resultValue = CloneWithAwaitsAndRemap(resultStore.Value, moveNext, kickoff);
+        var resultValue = CloneWithAwaitsAndRemap(
+            resultStore.Value,
+            moveNext,
+            kickoff);
         if (resultValue is null)
             return false;
 
@@ -2483,7 +2640,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (HasUnexpectedExpressionStatement(moveNext, finallyStatement))
             return false;
 
-        var mappedFinally = CloneAndRemap(finallyStatement, kickoff);
+        var mappedFinally = CloneAndRemap(
+            finallyStatement,
+            kickoff);
         if (mappedFinally is null)
             return false;
         if (HasUnexpectedStore(moveNext, resultStore))
@@ -2538,37 +2697,118 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         int stateLocal)
     {
         TypeRef machine = DefinitionType(moveNext.DeclaringType);
-        return moveNext.Descendants
-            .OfType<StoreLocal>()
-            .Where(store => store.Index == stateLocal)
-            .All(store => IsRecognizedStateValue(
-                moveNext,
-                machine,
-                store.Value,
-                []));
-    }
-
-    static bool IsRecognizedStateValue(
-        IrFunction moveNext,
-        TypeRef machine,
-        IrExpression value,
-        HashSet<int> visitingSlots)
-    {
-        if (value is Constant { Value: int } constant)
-            return IsInt32(constant.Type);
-        if (value is LoadField
+        StoreLocal[] assignments =
+        [
+            .. moveNext.Descendants
+                .OfType<StoreLocal>()
+                .Where(store => store.Index == stateLocal),
+        ];
+        return assignments is
+            [var seed, var suspension, var resumption]
+            && IsInt32(seed.Type)
+            && seed.Value is LoadField
             {
                 Field.Name: "<>1__state",
-                Field: var field,
+                Field: var seedField,
                 Instance: LoadArgument { Index: 0 },
+            }
+            && IsInt32(seedField.Type)
+            && IsMachineField(seedField, machine)
+            && IsRecognizedStateTransition(
+                moveNext,
+                machine,
+                suspension,
+                expectedState: 0)
+            && IsRecognizedStateTransition(
+                moveNext,
+                machine,
+                resumption,
+                expectedState: -1);
+    }
+
+    static bool IsRecognizedStateTransition(
+        IrFunction moveNext,
+        TypeRef machine,
+        StoreLocal store,
+        int expectedState)
+    {
+        if (!IsInt32(store.Type)
+            || store.Parent is not Block block
+            || !TryGetStateTransitionConstant(
+                moveNext,
+                store.Value,
+                [],
+                out int state)
+            || state != expectedState)
+        {
+            return false;
+        }
+
+        for (int i = 0; i + 1 < block.Children.Count; i++)
+        {
+            if (!ReferenceEquals(block.Children[i], store))
+                continue;
+            return block.Children[i + 1] is StoreField
+            {
+                Field.Name: "<>1__state",
+                Field: var stateField,
+                Instance: LoadArgument { Index: 0 },
+                Value: var stateValue,
+            }
+                && IsInt32(stateField.Type)
+                && IsMachineField(stateField, machine)
+                && SameStateTransitionValue(
+                    store.Value,
+                    stateValue);
+        }
+
+        return false;
+    }
+
+    static bool SameStateTransitionValue(
+        IrExpression localValue,
+        IrExpression fieldValue)
+        => localValue switch
+        {
+            Constant localConstant
+                when fieldValue is Constant fieldConstant
+                => Equals(
+                        localConstant.Value,
+                        fieldConstant.Value)
+                    && localConstant.Type.Equals(
+                        fieldConstant.Type),
+            LoadStackSlot localSlot
+                when fieldValue is LoadStackSlot fieldSlot
+                => localSlot.Slot == fieldSlot.Slot
+                    && Equals(
+                        localSlot.ResultType,
+                        fieldSlot.ResultType),
+            _ => false,
+        };
+
+    static bool TryGetStateTransitionConstant(
+        IrFunction moveNext,
+        IrExpression value,
+        HashSet<int> visitingSlots,
+        out int state)
+    {
+        if (value is Constant
+            {
+                Value: int constant,
+                Type: var constantType,
             })
         {
-            return IsInt32(field.Type)
-                && IsMachineField(field, machine);
+            state = constant;
+            return IsInt32(constantType);
         }
-        if (value is not LoadStackSlot load
+        if (value is not LoadStackSlot
+            {
+                ResultType: { } resultType,
+            } load
+            || !IsInt32(resultType)
             || !visitingSlots.Add(load.Slot))
         {
+            state = 0;
             return false;
         }
 
@@ -2578,23 +2818,40 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 .OfType<StoreStackSlot>()
                 .Where(store => store.Slot == load.Slot),
         ];
-        bool recognized = definitions.Length > 0
-            && definitions.All(store => IsRecognizedStateValue(
-                moveNext,
-                machine,
-                store.Value,
-                visitingSlots));
+        int? candidate = null;
+        bool recognized = definitions.Length > 0;
+        foreach (StoreStackSlot definition in definitions)
+        {
+            if (!TryGetStateTransitionConstant(
+                    moveNext,
+                    definition.Value,
+                    visitingSlots,
+                    out int definitionState)
+                || candidate is { } previous
+                    && previous != definitionState)
+            {
+                recognized = false;
+                break;
+            }
+            candidate = definitionState;
+        }
         visitingSlots.Remove(load.Slot);
+        state = candidate ?? 0;
         return recognized;
     }
 
-    static AwaitExpression? AwaitForGetResult(IrFunction moveNext, IrFunction kickoff, Call getResult)
+    static AwaitExpression? AwaitForGetResult(
+        IrFunction moveNext,
+        Kickoff kickoff,
+        Call getResult)
     {
         var awaitedOperand = AwaitedOperandForGetResult(moveNext, getResult);
         if (awaitedOperand is null)
             return null;
 
-        var operand = CloneAndRemap(awaitedOperand, kickoff);
+        var operand = CloneAndRemap(
+            awaitedOperand,
+            kickoff);
         return operand is null
             ? null
             : new AwaitExpression(
@@ -2614,7 +2871,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 ? awaitedOperand
                 : null;
 
-    static bool TryGetAwaitSource(
+    internal static bool TryGetAwaitSource(
         IrFunction moveNext,
         Call getResult,
         out StoreLocal awaiterStore,
@@ -2625,16 +2882,32 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
             return false;
 
-        var nodes = moveNext.Descendants.ToList();
+        var nodes =
+            moveNext.DescendantsOutsideNestedFunctions.ToList();
         var getResultPosition = nodes.IndexOf(getResult);
         if (getResultPosition < 0)
             return false;
 
-        StoreLocal? candidateStore = null;
-        for (var i = 0; i < getResultPosition; i++)
+        int segmentStart = 0;
+        for (int i = 0; i < getResultPosition; i++)
+        {
+            if (nodes[i] is Call
+                {
+                    Callee.Name: "GetResult",
+                    Arguments: [LoadLocalAddress previousAwaiter],
+                }
+                && previousAwaiter.Index == awaiterAddress.Index)
+            {
+                segmentStart = i + 1;
+            }
+        }
+
+        var candidateStores = new List<StoreLocal>();
+        for (int i = segmentStart; i < getResultPosition; i++)
         {
             if (nodes[i] is StoreLocal { Index: var index, Value: Call { Callee.Name: "GetAwaiter" } call } store
                 && index == awaiterAddress.Index
+                && store.Type.Equals(awaiterAddress.Type)
                 && call.Arguments.Count == 1)
             {
                 if (store.Value is Call { Arguments: [LoadField { Field.Name: var maybeAwaiterField }] }
@@ -2642,11 +2915,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 {
                     continue;
                 }
-                candidateStore = store;
+                candidateStores.Add(store);
             }
         }
 
-        if (candidateStore?.Value is not Call
+        if (candidateStores is not [var candidateStore]
+            || candidateStore.Value is not Call
             {
                 Arguments: [var candidateOperand],
             })
@@ -2772,7 +3046,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     if (allowedSet.Contains(store))
                         continue;
                     if (stateLocal is { } state && store.Index == state
-                        && store.Value is Constant or LoadStackSlot or LoadField { Field.Name: "<>1__state" })
+                        && store.Value is Constant
+                            or LoadStackSlot
+                            or LoadField { Field.Name: "<>1__state" })
                         continue;
                     if (store.Value is Call { Callee.Name: "GetAwaiter" }
                         || store.Value is LoadField { Field.Name: var fieldName } && fieldName.StartsWith("<>u__", StringComparison.Ordinal))
@@ -2834,7 +3110,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     static bool IsWrap3Load(IrExpression expression)
         => expression is LoadField { Field.Name: "<>7__wrap3", Instance: LoadArgument { Index: 0 } };
 
-    static IrExpression? CloneWithAwaitsAndRemap(IrExpression expression, IrFunction moveNext, IrFunction kickoff)
+    static IrExpression? CloneWithAwaitsAndRemap(
+        IrExpression expression,
+        IrFunction moveNext,
+        Kickoff kickoff)
     {
         var clone = (IrExpression)expression.Clone();
         var originalGetResults = expression.Descendants.Prepend(expression).OfType<Call>()
@@ -2849,7 +3128,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrExpression? rootReplacement = null;
         for (var i = 0; i < originalGetResults.Count; i++)
         {
-            var awaited = AwaitForGetResult(moveNext, kickoff, originalGetResults[i]);
+            var awaited = AwaitForGetResult(
+                moveNext,
+                kickoff,
+                originalGetResults[i]);
             if (awaited is null)
                 return null;
             if (ReferenceEquals(clonedGetResults[i], clone))
@@ -2859,45 +3141,74 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         var result = rootReplacement ?? clone;
-        return RemapInPlace(result, kickoff) ? result : null;
+        return RemapInPlace(
+            result,
+            kickoff)
+                ? result
+                : null;
     }
 
-    static IrExpression? CloneAndRemap(IrExpression expression, IrFunction kickoff)
+    static IrExpression? CloneAndRemap(
+        IrExpression expression,
+        Kickoff kickoff)
     {
         var clone = (IrExpression)expression.Clone();
         if (clone is LoadField { Instance: LoadArgument { Index: 0, Name: "this" }, Field: var field }
-            && TryGetParameter(kickoff, field.Name, out var argIndex, out var parameter))
+            && TryGetParameterBinding(
+                kickoff,
+                field,
+                out ClassicAsyncParameterBinding binding))
         {
-            return ParameterLoad(argIndex, parameter);
+            return ParameterLoad(binding);
         }
         if (clone is LoadFieldAddress { Instance: LoadArgument { Index: 0, Name: "this" }, Field: var addressField }
-            && TryGetParameter(kickoff, addressField.Name, out var addressArgIndex, out var addressParameter))
+            && TryGetParameterBinding(
+                kickoff,
+                addressField,
+                out ClassicAsyncParameterBinding addressBinding))
         {
-            return ParameterLoad(addressArgIndex, addressParameter);
+            return ParameterLoad(addressBinding);
         }
 
-        return RemapInPlace(clone, kickoff) ? clone : null;
+        return RemapInPlace(
+            clone,
+            kickoff)
+                ? clone
+                : null;
     }
 
-    static T? CloneAndRemap<T>(T node, IrFunction kickoff) where T : IrNode
+    static T? CloneAndRemap<T>(
+        T node,
+        Kickoff kickoff)
+        where T : IrNode
     {
         var clone = (T)node.Clone();
-        return RemapInPlace(clone, kickoff) ? clone : null;
+        return RemapInPlace(
+            clone,
+            kickoff)
+                ? clone
+                : null;
     }
 
     static Call? CloneAndRemap(
         Call call,
-        IrFunction kickoff,
+        Kickoff kickoff,
         IReadOnlyDictionary<string, (int Index, TypeRef Type)> hoisted,
         IReadOnlyDictionary<int, (int Index, TypeRef Type)> locals)
     {
         var clone = (Call)call.Clone();
-        return RemapInPlace(clone, kickoff, hoisted, locals) ? clone : null;
+        return RemapInPlace(
+            clone,
+            kickoff,
+            hoisted,
+            locals)
+                ? clone
+                : null;
     }
 
     static bool RemapInPlace(
         IrNode node,
-        IrFunction kickoff,
+        Kickoff kickoff,
         IReadOnlyDictionary<string, (int Index, TypeRef Type)>? hoisted = null,
         IReadOnlyDictionary<int, (int Index, TypeRef Type)>? localReplacements = null)
     {
@@ -2924,13 +3235,25 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             switch (current)
             {
                 case LoadField { Instance: LoadArgument { Index: 0 }, Field: var field }:
-                    if (hoisted is not null && hoisted.TryGetValue(field.Name, out var local))
+                    if (!IsMachineField(
+                            field,
+                            kickoff.StateMachineType))
+                    {
+                        ok = false;
+                    }
+                    else if (hoisted is not null
+                        && hoisted.TryGetValue(
+                            field.Name,
+                            out var local))
                     {
                         swaps.Add((current, new LoadLocal(local.Index, local.Type)));
                     }
-                    else if (TryGetParameter(kickoff, field.Name, out var argIndex, out var parameter))
+                    else if (TryGetParameterBinding(
+                        kickoff,
+                        field,
+                        out ClassicAsyncParameterBinding binding))
                     {
-                        swaps.Add((current, ParameterLoad(argIndex, parameter)));
+                        swaps.Add((current, ParameterLoad(binding)));
                     }
                     else
                     {
@@ -2938,9 +3261,12 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                     }
                     return;
                 case LoadFieldAddress { Instance: LoadArgument { Index: 0 }, Field: var field }:
-                    if (TryGetParameter(kickoff, field.Name, out var addressArgIndex, out var addressParameter))
+                    if (TryGetParameterBinding(
+                        kickoff,
+                        field,
+                        out ClassicAsyncParameterBinding addressBinding))
                     {
-                        swaps.Add((current, ParameterLoad(addressArgIndex, addressParameter)));
+                        swaps.Add((current, ParameterLoad(addressBinding)));
                     }
                     else
                     {
@@ -2960,29 +3286,42 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
     }
 
-    static LoadArgument ParameterLoad(int index, Parameter parameter)
-        => new(index, parameter.Name, parameter.Type)
+    static LoadArgument ParameterLoad(
+        ClassicAsyncParameterBinding binding)
+        => new(
+            binding.ArgumentIndex,
+            binding.ArgumentName,
+            binding.ArgumentType)
         {
-            IsDynamic = parameter.IsDynamic,
-            ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,
+            IsDynamic = binding.IsDynamic,
+            ArrayElementIsDynamic = binding.ArrayElementIsDynamic,
         };
 
-    static bool TryGetParameter(IrFunction kickoff, string fieldName, out int index, out Parameter parameter)
+    static bool TryGetParameterBinding(
+        Kickoff kickoff,
+        FieldRef field,
+        out ClassicAsyncParameterBinding binding)
     {
-        var argumentBase = kickoff.Signature.HasThis ? 1 : 0;
-        for (var i = 0; i < kickoff.Signature.Parameters.Length; i++)
+        if (IsMachineField(field, kickoff.StateMachineType))
         {
-            var candidate = kickoff.Signature.Parameters[i];
-            if (candidate.Name == fieldName)
+            foreach (ClassicAsyncParameterBinding candidate
+                in kickoff.ParameterBindings.Items)
             {
-                index = argumentBase + i;
-                parameter = candidate;
-                return true;
+                // Receiver realization remains outside the accepted recipes.
+                if (candidate.FieldName != "<>4__this"
+                    && candidate.FieldName == field.Name
+                    && candidate.FieldType.Equals(
+                        StateMachineFieldType(
+                            field.Type,
+                            kickoff.StateMachineType)))
+                {
+                    binding = candidate;
+                    return true;
+                }
             }
         }
 
-        index = -1;
-        parameter = null!;
+        binding = null!;
         return false;
     }
 

@@ -104,6 +104,38 @@ public class ClassicAsyncReconstructionPassTests
     }
 
     [Fact]
+    public void GenericContainingTypeAndMethodMapFieldTypeParameters()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = Assert.IsType<IrFunction>(
+            IrImporter.Import(
+                source,
+                "ILInspector.Decompiler.Fixtures.ClassicAsync.GenericAsyncFixtures`1",
+                "AwaitGeneric"));
+
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+
+        Assert.IsType<ClassicAsyncOutcome.Reconstructed>(
+            function.ClassicAsyncOutcome);
+        ClassicAsyncParameterBinding binding = Assert.Single(
+            Assert.IsType<ClassicAsyncDecision.Reconstruct>(
+                PublishedDecision(
+                    Assert.IsType<ClassicAsyncRelationshipEvidence>(
+                        function.ClassicAsyncRelationship)))
+                .Plan.Machine.ParameterBindings.Items);
+        Assert.Equal("value", binding.FieldName);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            binding.FieldType.TypeArguments[0].Kind);
+        Assert.Equal(0, binding.FieldType.TypeArguments[0]
+            .GenericParameterIndex);
+    }
+
+    [Fact]
     public void AsyncVoid_DeclinesAsUnsupportedBuilder()
     {
         using var source = OpenClassicFixture();
@@ -254,6 +286,177 @@ public class ClassicAsyncReconstructionPassTests
         Assert.Null(IrImporter.Import(
             source,
             requested with { Name = "SetStateMachine" }));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void KickoffLocalWithoutExactDefinitionIdentityDeclines(
+        bool differentModule)
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(source, "AwaitVoid");
+        var context = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
+        RunBeforeClassicAsync(function, context);
+        StoreField builderStore = Assert.Single(
+            function.Descendants.OfType<StoreField>(),
+            static store => store.Field.Name == "<>t__builder");
+        var machineAddress = Assert.IsType<LoadLocalAddress>(
+            builderStore.Instance);
+        TypeRef machine = function.Locals[machineAddress.Index];
+        Assert.NotNull(machine.DefinitionName);
+        Assert.NotNull(machine.DefinitionModuleVersionId);
+        TypeRef foreign = TypeRef.DefinitionWithResolution(
+            machine.Assembly,
+            machine.Namespace,
+            machine.Name,
+            machine.ValueTypeHint,
+            machine.InlineArray,
+            machine.EnclosingType,
+            machine.DefinitionName,
+            machine.ResolutionAssembly,
+            definitionHandle: differentModule
+                ? machine.DefinitionHandle
+                : MetadataTokens.TypeDefinitionHandle(
+                    MetadataTokens.GetRowNumber(
+                        machine.DefinitionHandle)
+                    + 1),
+            definitionModuleVersionId: differentModule
+                ? Guid.NewGuid()
+                : machine.DefinitionModuleVersionId);
+        function.ResetLocals(
+            function.Locals.SetItem(
+                machineAddress.Index,
+                foreign),
+            function.LocalNames);
+        var evidence = Assert.IsType<
+            ClassicAsyncRelationshipEvidence>(
+                function.ClassicAsyncRelationship);
+        var resolved = Assert.IsType<
+            StateMachineRelationshipResult.Resolved>(
+                evidence.Relationship);
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.TryGetKickoff(
+                function,
+                resolved.Relationship.StateMachineType,
+                resolved.Relationship.StateMachineName,
+                out _,
+                out ClassicAsyncDeclineReason reason,
+                out bool narrow));
+        Assert.Equal(
+            ClassicAsyncDeclineReason.KickoffMachineMismatch,
+            reason);
+        Assert.False(narrow);
+    }
+
+    [Fact]
+    public void SwappedKickoffParameterCopiesDecline()
+    {
+        using var source = OpenClassicFixture();
+        IrFunction function = ImportClassicFixture(
+            source,
+            "TwoSequentialAwaits");
+        var context = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
+        RunBeforeClassicAsync(function, context);
+        StoreField first = Assert.Single(
+            function.Descendants.OfType<StoreField>(),
+            static store => store.Field.Name == "a");
+        StoreField second = Assert.Single(
+            function.Descendants.OfType<StoreField>(),
+            static store => store.Field.Name == "b");
+        var firstSource = Assert.IsType<LoadArgument>(first.Value);
+        var secondSource = Assert.IsType<LoadArgument>(second.Value);
+        firstSource.ReplaceWith(new LoadArgument(
+            secondSource.Index,
+            secondSource.Name,
+            secondSource.Type)
+        {
+            IsDynamic = secondSource.IsDynamic,
+            ArrayElementIsDynamic =
+                secondSource.ArrayElementIsDynamic,
+        });
+        secondSource.ReplaceWith(new LoadArgument(
+            firstSource.Index,
+            firstSource.Name,
+            firstSource.Type)
+        {
+            IsDynamic = firstSource.IsDynamic,
+            ArrayElementIsDynamic =
+                firstSource.ArrayElementIsDynamic,
+        });
+        var evidence = Assert.IsType<
+            ClassicAsyncRelationshipEvidence>(
+                function.ClassicAsyncRelationship);
+        var resolved = Assert.IsType<
+            StateMachineRelationshipResult.Resolved>(
+                evidence.Relationship);
+
+        Assert.True(
+            ClassicAsyncReconstructionPass.TryGetKickoff(
+                function,
+                resolved.Relationship.StateMachineType,
+                resolved.Relationship.StateMachineName,
+                out _,
+                out _,
+                out bool narrow));
+        Assert.False(narrow);
+    }
+
+    [Fact]
+    public void CompetingAwaiterDefinitionsDecline()
+    {
+        using var source = OpenClassicFixture();
+        MethodRef request = CaptureMoveNextRequest(
+            source,
+            "TwoSequentialAwaits");
+        IrFunction moveNext = Assert.IsType<IrFunction>(
+            IrImporter.Import(source, request));
+        var context = PassContext.ForImport(
+            method => IrImporter.Import(source, method));
+        IrPasses.Run(
+            moveNext,
+            IrPasses.ForReconstruction<
+                ClassicAsyncReconstructionPass>(),
+            context);
+        List<StoreLocal> awaiterStores =
+        [
+            .. moveNext.Descendants
+                .OfType<StoreLocal>()
+                .Where(static store => store.Value is Call
+                {
+                    Callee.Name: "GetAwaiter",
+                }),
+        ];
+        Assert.True(awaiterStores.Count >= 2);
+        StoreLocal first = awaiterStores[0];
+        StoreLocal second = awaiterStores[1];
+        var thenArm = new Block(0);
+        thenArm.Add((StoreLocal)first.Clone());
+        var elseArm = new Block(0);
+        elseArm.Add(new StoreLocal(
+            first.Index,
+            first.Type,
+            (IrExpression)second.Value.Clone()));
+        first.ReplaceWith(new IfStatement(
+            new Constant(
+                true,
+                TypeRef.CoreLib("System", "Boolean")),
+            thenArm,
+            elseArm));
+        Call getResult = moveNext.Descendants
+            .OfType<Call>()
+            .First(static call =>
+                call.Callee.Name == "GetResult");
+
+        Assert.False(
+            ClassicAsyncReconstructionPass.TryGetAwaitSource(
+                moveNext,
+                getResult,
+                out _,
+                out _));
     }
 
     [Theory]
@@ -505,6 +708,20 @@ public class ClassicAsyncReconstructionPassTests
             storage => storage.Name.StartsWith(
                 "<>u__",
                 StringComparison.Ordinal));
+        Assert.Collection(
+            reconstruct.Plan.Machine.ParameterBindings.Items,
+            first =>
+            {
+                Assert.Equal("a", first.FieldName);
+                Assert.Equal("a", first.ArgumentName);
+                Assert.Equal(0, first.ArgumentIndex);
+            },
+            second =>
+            {
+                Assert.Equal("b", second.FieldName);
+                Assert.Equal("b", second.ArgumentName);
+                Assert.Equal(1, second.ArgumentIndex);
+            });
     }
 
     [Fact]
@@ -1416,9 +1633,13 @@ public class ClassicAsyncReconstructionPassTests
                 : ExecutionAddress,
             path);
 
-    static MethodRef CaptureMoveNextRequest(MetadataSource source)
+    static MethodRef CaptureMoveNextRequest(
+        MetadataSource source,
+        string methodName = "AwaitVoid")
     {
-        IrFunction function = ImportClassicFixture(source, "AwaitVoid");
+        IrFunction function = ImportClassicFixture(
+            source,
+            methodName);
         var context = PassContext.ForImport(
             method => IrImporter.Import(source, method));
 

@@ -144,11 +144,58 @@ internal sealed record ClassicAsyncMachine(
     ClassicAsyncStorage StateStorage,
     ClassicAsyncStorage BuilderStorage,
     ClassicAsyncStorageSet AwaiterStorages,
+    ClassicAsyncParameterBindingSet ParameterBindings,
     object AcquisitionGuard);
 
 internal sealed record ClassicAsyncStorage(
     string Name,
     TypeRef Type);
+
+internal sealed record ClassicAsyncParameterBinding(
+    string FieldName,
+    TypeRef FieldType,
+    int ArgumentIndex,
+    string ArgumentName,
+    TypeRef ArgumentType,
+    bool IsDynamic,
+    MetadataFactState ArrayElementIsDynamic);
+
+internal sealed class ClassicAsyncParameterBindingSet
+    : IEquatable<ClassicAsyncParameterBindingSet>
+{
+    readonly ImmutableArray<ClassicAsyncParameterBinding> _items;
+
+    ClassicAsyncParameterBindingSet(
+        ImmutableArray<ClassicAsyncParameterBinding> items)
+        => _items = items;
+
+    internal IReadOnlyList<ClassicAsyncParameterBinding> Items
+        => _items;
+
+    internal static ClassicAsyncParameterBindingSet Create(
+        IEnumerable<ClassicAsyncParameterBinding> items)
+        => new(
+            [.. items
+                .OrderBy(static item => item.ArgumentIndex)
+                .ThenBy(
+                    static item => item.FieldName,
+                    StringComparer.Ordinal)]);
+
+    public bool Equals(ClassicAsyncParameterBindingSet? other)
+        => other is not null
+            && _items.SequenceEqual(other._items);
+
+    public override bool Equals(object? obj)
+        => obj is ClassicAsyncParameterBindingSet other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (ClassicAsyncParameterBinding item in _items)
+            hash.Add(item);
+        return hash.ToHashCode();
+    }
+}
 
 internal sealed class ClassicAsyncStorageSet
     : IEquatable<ClassicAsyncStorageSet>

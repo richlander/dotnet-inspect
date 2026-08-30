@@ -522,3 +522,10 @@ public static class AsyncFixtures
     }
 #pragma warning restore CS1998
 }
+
+public static class GenericAsyncFixtures<TContainer>
+{
+    public static async Task<TMethod> AwaitGeneric<TMethod>(
+        Task<TMethod> value)
+        => await value;
+}

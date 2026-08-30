@@ -141,6 +141,18 @@ public class ClassicAsyncReconstructionHonestyTests
                 machine,
                 hasElse: false,
                 reassignFromUser: true);
+        (IrFunction constantFunction, IfStatement constantGuard) =
+            BuildFinallyGuard(
+                machine,
+                machine,
+                hasElse: false,
+                reassignConstant: true);
+        (IrFunction stackFunction, IfStatement stackGuard) =
+            BuildFinallyGuard(
+                machine,
+                machine,
+                hasElse: false,
+                reassignFromStack: true);
 
         Assert.True(
             ClassicAsyncReconstructionPass
@@ -162,6 +174,16 @@ public class ClassicAsyncReconstructionHonestyTests
                 .IsCompilerFinallyStateGuard(
                     reassignedFunction,
                     reassignedGuard));
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .IsCompilerFinallyStateGuard(
+                    constantFunction,
+                    constantGuard));
+        Assert.False(
+            ClassicAsyncReconstructionPass
+                .IsCompilerFinallyStateGuard(
+                    stackFunction,
+                    stackGuard));
     }
 
     [Theory]
@@ -382,7 +404,9 @@ public class ClassicAsyncReconstructionHonestyTests
         TypeRef machine,
         TypeRef stateFieldOwner,
         bool hasElse,
-        bool reassignFromUser = false)
+        bool reassignFromUser = false,
+        bool reassignConstant = false,
+        bool reassignFromStack = false)
     {
         TypeRef int32 = TypeRef.CoreLib("System", "Int32");
         var entry = new Block(0);
@@ -395,12 +419,31 @@ public class ClassicAsyncReconstructionHonestyTests
                     "<>1__state",
                     int32),
                 new LoadArgument(0, "this", machine))));
+        AddStateTransition(0);
+        AddStateTransition(-1);
         if (reassignFromUser)
         {
             entry.Add(new StoreLocal(
                 0,
                 int32,
                 new LoadArgument(1, "value", int32)));
+        }
+        if (reassignConstant)
+        {
+            entry.Add(new StoreLocal(
+                0,
+                int32,
+                new Constant(0, int32)));
+        }
+        if (reassignFromStack)
+        {
+            entry.Add(new StoreStackSlot(
+                0,
+                new Constant(0, int32)));
+            entry.Add(new StoreLocal(
+                0,
+                int32,
+                new LoadStackSlot(0, int32)));
         }
         var guard = new IfStatement(
             new Comparison(
@@ -424,6 +467,21 @@ public class ClassicAsyncReconstructionHonestyTests
             [],
             body);
         return (function, guard);
+
+        void AddStateTransition(int state)
+        {
+            entry.Add(new StoreLocal(
+                0,
+                int32,
+                new Constant(state, int32)));
+            entry.Add(new StoreField(
+                new FieldRef(
+                    machine,
+                    "<>1__state",
+                    int32),
+                new LoadArgument(0, "this", machine),
+                new Constant(state, int32)));
+        }
     }
 
     static StoreField Store(TypeRef declaringType)
