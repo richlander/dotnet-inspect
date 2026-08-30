@@ -171,7 +171,8 @@ static class TsTypeMapper
         TsBindGenDiagnostics? diagnostics = null,
         string? location = null,
         IReadOnlySet<string>? blockedAliases = null,
-        JsExportDelegateParameter? delegateParameter = null)
+        JsExportDelegateParameter? delegateParameter = null,
+        string? containingAssemblyName = null)
     {
         string trimmed = csharpType.Trim();
         return delegateParameter is null
@@ -188,7 +189,8 @@ static class TsTypeMapper
                 recordNames,
                 diagnostics,
                 location,
-                blockedAliases);
+                blockedAliases,
+                containingAssemblyName);
     }
 
     public static string MapJsonWireType(
@@ -396,7 +398,8 @@ static class TsTypeMapper
         IReadOnlySet<string> recordNames,
         TsBindGenDiagnostics? diagnostics,
         string? location,
-        IReadOnlySet<string>? blockedAliases)
+        IReadOnlySet<string>? blockedAliases,
+        string? containingAssemblyName)
     {
         bool nullable = csharpType.EndsWith("?", StringComparison.Ordinal);
         string delegateType = RemoveGlobalPrefix(
@@ -424,6 +427,7 @@ static class TsTypeMapper
             delegateParameter.ParameterTypes.Count
             + (delegateParameter.ReturnType is null ? 0 : 1);
         if (!recognized
+            || delegateParameter.ParameterTypes.Count > 3
             || genericArguments.Count != expectedGenericArguments
             || (delegateParameter.Kind == JsExportDelegateKind.Action
                 && delegateParameter.ReturnType is not null)
@@ -452,7 +456,8 @@ static class TsTypeMapper
             if (!MatchesAuthenticatedType(
                     genericArguments[index],
                     delegateParameter.ParameterTypes[index],
-                    recordNames))
+                    recordNames,
+                    containingAssemblyName))
             {
                 diagnostics?.ReportUnmappedType(
                     location ?? csharpType,
@@ -464,7 +469,8 @@ static class TsTypeMapper
             && !MatchesAuthenticatedType(
                 genericArguments[^1],
                 delegateParameter.ReturnType,
-                recordNames))
+                recordNames,
+                containingAssemblyName))
         {
             diagnostics?.ReportUnmappedType(
                 location ?? csharpType,
@@ -502,7 +508,8 @@ static class TsTypeMapper
     static bool MatchesAuthenticatedType(
         string displayType,
         TypeRef authenticatedType,
-        IReadOnlySet<string> recordNames)
+        IReadOnlySet<string> recordNames,
+        string? containingAssemblyName)
     {
         string trimmed = RemoveGlobalPrefix(displayType.Trim());
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
@@ -522,7 +529,8 @@ static class TsTypeMapper
                 return MatchesAuthenticatedType(
                     inner,
                     nullableArgument,
-                    recordNames);
+                    recordNames,
+                    containingAssemblyName);
             }
 
             if (IsKnownValueTypeDefinition(authenticatedType))
@@ -531,7 +539,8 @@ static class TsTypeMapper
             return MatchesAuthenticatedType(
                 inner,
                 authenticatedType,
-                recordNames);
+                recordNames,
+                containingAssemblyName);
         }
 
         if (authenticatedType is
@@ -544,7 +553,8 @@ static class TsTypeMapper
                 && MatchesAuthenticatedType(
                     trimmed[..^2],
                     arrayElement,
-                    recordNames);
+                    recordNames,
+                    containingAssemblyName);
         }
 
         if (authenticatedType is
@@ -560,7 +570,9 @@ static class TsTypeMapper
                     out IReadOnlyList<string> displayArguments)
                 || !MatchesDefinitionName(
                     displayDefinition!,
-                    genericDefinition)
+                    genericDefinition,
+                    recordNames,
+                    containingAssemblyName)
                 || displayArguments.Count
                     != authenticatedArguments.Length)
             {
@@ -574,7 +586,8 @@ static class TsTypeMapper
                 if (!MatchesAuthenticatedType(
                         displayArguments[index],
                         authenticatedArguments[index],
-                        recordNames))
+                        recordNames,
+                        containingAssemblyName))
                 {
                     return false;
                 }
@@ -584,20 +597,15 @@ static class TsTypeMapper
         }
 
         if (authenticatedType.Kind != TypeRefKind.Definition
-            || !MatchesDefinitionName(trimmed, authenticatedType))
+            || !MatchesDefinitionName(
+                trimmed,
+                authenticatedType,
+                recordNames,
+                containingAssemblyName))
         {
             return false;
         }
-
-        string displayLastSegment = LastSegment(trimmed);
-        if (!recordNames.Contains(trimmed)
-            && !recordNames.Contains(displayLastSegment))
-        {
-            return true;
-        }
-
-        return recordNames.Contains(
-            authenticatedType.ToQualifiedDisplayString());
+        return true;
     }
 
     static bool IsAsyncManagedType(TypeRef type)
@@ -631,11 +639,24 @@ static class TsTypeMapper
 
     static bool MatchesDefinitionName(
         string displayName,
-        TypeRef authenticatedType)
+        TypeRef authenticatedType,
+        IReadOnlySet<string> recordNames,
+        string? containingAssemblyName)
     {
         displayName = RemoveGlobalPrefix(displayName.Trim());
-        if (authenticatedType.Assembly == TypeRef.CoreLibrary
-            && authenticatedType.Namespace == "System")
+        string simpleName = authenticatedType.Name;
+        int arity = simpleName.IndexOf('`');
+        if (arity >= 0)
+            simpleName = simpleName[..arity];
+
+        bool nameMatches =
+            displayName == simpleName
+            || displayName
+                == $"{authenticatedType.Namespace}.{simpleName}"
+            || displayName == authenticatedType.ToDisplayString()
+            || displayName
+                == authenticatedType.ToQualifiedDisplayString();
+        if (authenticatedType.Namespace == "System")
         {
             string? alias = authenticatedType.Name switch
             {
@@ -658,19 +679,89 @@ static class TsTypeMapper
                 _ => null,
             };
             if (displayName == alias)
-                return true;
+                nameMatches = true;
         }
 
-        string simpleName = authenticatedType.Name;
-        int arity = simpleName.IndexOf('`');
-        if (arity >= 0)
-            simpleName = simpleName[..arity];
-        return displayName == simpleName
-            || displayName
-                == $"{authenticatedType.Namespace}.{simpleName}"
-            || displayName == authenticatedType.ToDisplayString()
-            || displayName
-                == authenticatedType.ToQualifiedDisplayString();
+        if (!nameMatches)
+            return false;
+
+        if (IsFrameworkMappingIdentity(authenticatedType))
+            return IsAuthenticFrameworkMapping(authenticatedType);
+
+        string displayLastSegment = LastSegment(displayName);
+        if (!recordNames.Contains(displayName)
+            && !recordNames.Contains(displayLastSegment))
+        {
+            return true;
+        }
+
+        return containingAssemblyName is not null
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                authenticatedType.Assembly,
+                containingAssemblyName)
+            && recordNames.Contains(
+                authenticatedType.ToQualifiedDisplayString());
+    }
+
+    static bool IsFrameworkMappingIdentity(TypeRef type) =>
+        type.Namespace switch
+        {
+            "System" => type.Name is
+                "Void"
+                or "String"
+                or "Boolean"
+                or "Char"
+                or "Byte"
+                or "SByte"
+                or "Int16"
+                or "UInt16"
+                or "Int32"
+                or "UInt32"
+                or "Int64"
+                or "UInt64"
+                or "Single"
+                or "Double"
+                or "Decimal"
+                or "Object"
+                or "Nullable`1",
+            "System.Threading.Tasks" => type.Name is
+                "Task"
+                or "Task`1"
+                or "ValueTask"
+                or "ValueTask`1",
+            "System.Collections.Generic" => type.Name is
+                "Dictionary`2"
+                or "IReadOnlyDictionary`2",
+            "System.Text.Json" => type.Name == "JsonElement",
+            "System.Runtime.InteropServices.JavaScript" =>
+                type.Name == "JSObject",
+            _ => false,
+        };
+
+    static bool IsAuthenticFrameworkMapping(TypeRef type)
+    {
+        if (!type.TrustedFrameworkAssembly)
+            return false;
+
+        return type.Namespace switch
+        {
+            "System" or "System.Threading.Tasks" =>
+                type.Assembly == TypeRef.CoreLibrary,
+            "System.Collections.Generic" =>
+                type.Assembly == TypeRef.CoreLibrary
+                || StringComparer.OrdinalIgnoreCase.Equals(
+                    type.Assembly,
+                    "System.Collections"),
+            "System.Text.Json" =>
+                StringComparer.OrdinalIgnoreCase.Equals(
+                    type.Assembly,
+                    "System.Text.Json"),
+            "System.Runtime.InteropServices.JavaScript" =>
+                StringComparer.OrdinalIgnoreCase.Equals(
+                    type.Assembly,
+                    "System.Runtime.InteropServices.JavaScript"),
+            _ => false,
+        };
     }
 
     static bool IsType(

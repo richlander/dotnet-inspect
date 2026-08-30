@@ -71,18 +71,26 @@ accept Promise-returning functions. Delegate-looking C# text without the
 corresponding body-authenticated `JsExportDelegateParameter` fact remains
 diagnosed `unknown`; TypeScript does not reconstruct publication authority from
 display text. Every display argument must also correlate structurally with its
-authenticated `TypeRef`; display text contributes nullable spelling only after
-that check, and cannot replace payload identity or hide an authenticated async
-return. `MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
+authenticated `TypeRef`, including framework trust and the containing assembly
+for emitted records; display text contributes nullable spelling only after that
+check, and cannot replace payload identity, exceed the SDK callback arity, or
+hide an authenticated async return.
+`MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
 `MapParameterType_MapsAuthenticatedFuncInManagedOrder`,
 `MapParameterType_AcceptsCorrelatedQualifiedDelegateTypes`,
+`MapParameterType_AcceptsCorrelatedLocalRecordIdentity`,
+`MapParameterType_RejectsDelegateFactsBeyondSdkArity`,
+`MapParameterType_RejectsFrameworkLookalikeIdentities`,
+`MapParameterType_RejectsSameRecordFromDifferentAssembly`,
 `MapParameterType_RejectsAuthenticatedIdentityMismatch`,
 `MapParameterType_RejectsUnqualifiedRecordAliasMismatch`,
 `MapParameterType_RejectsPromiseReturningDelegate`,
 `MapParameterType_DoesNotTrustDelegateLookingText`, and
-`Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes` gate the
-projection. Promise-returning delegates remain unsupported by the SDK source
-generator and by hand-composed mapper inputs.
+`Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes`,
+`Emit_MapsDelegateRecordFromContainingAssembly`, and
+`Emit_RejectsDelegateRecordFromDifferentAssembly` gate the projection.
+Promise-returning delegates remain unsupported by the SDK source generator and
+by hand-composed mapper inputs.
 
 Generated JSON-wire interfaces are producer-owned snapshots: their properties
 are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use

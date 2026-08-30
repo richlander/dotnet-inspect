@@ -171,6 +171,74 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_MapsDelegateRecordFromContainingAssembly()
+    {
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Local",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction("Local"),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register("
+                + "callback: (arg0: Payload | null) => undefined): void;",
+            DtsEmitter.Emit(surface),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_RejectsDelegateRecordFromDifferentAssembly()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            AssemblyIdentity = new ApiAssemblyIdentity(
+                "Local",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            Records =
+            [
+                new ApiType
+                {
+                    Namespace = "Mine",
+                    Name = "Payload",
+                },
+            ],
+            Functions =
+            [
+                DelegateRecordFunction("Other"),
+            ],
+        };
+
+        Assert.Contains(
+            "export declare function register(callback: unknown): void;",
+            DtsEmitter.Emit(surface, diagnostics),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Register.Callback"
+                && diagnostic.CSharpType
+                    == "System.Action<Mine.Payload?>");
+    }
+
+    [Fact]
     public void Emit_LeavesDirectInteropArraysMutable()
     {
         string dts = EmitFixtureDts();
@@ -184,6 +252,37 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
     }
+
+    static JsExportFunction DelegateRecordFunction(string assemblyName) =>
+        new()
+        {
+            DeclaringType = "Exports",
+            Name = "Register",
+            ReturnType = "void",
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "Callback",
+                    Type = "System.Action<Mine.Payload?>",
+                },
+            ],
+            DelegateParameters =
+            [
+                new JsExportDelegateParameter
+                {
+                    ParameterIndex = 0,
+                    Kind = JsExportDelegateKind.Action,
+                    ParameterTypes =
+                    [
+                        TypeRef.Definition(
+                            assemblyName,
+                            "Mine",
+                            "Payload"),
+                    ],
+                },
+            ],
+        };
 
     [Fact]
     public void Emit_MapsPrimitiveArrayAndClosedGenericWireRoots()

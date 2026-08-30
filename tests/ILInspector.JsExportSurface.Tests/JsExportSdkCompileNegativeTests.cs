@@ -58,10 +58,13 @@ public sealed class JsExportSdkCompileNegativeTests
             lines,
             line =>
                 line.Contains(
+                    "TooManyDelegateArgumentsExports.cs",
+                    StringComparison.Ordinal)
+                && line.Contains(
                     "error SYSLIB1072",
                     StringComparison.Ordinal)
                 && line.Contains(
-                    "System.Action<int, int, int, int>",
+                    "up to 3 arguments",
                     StringComparison.Ordinal));
     }
 

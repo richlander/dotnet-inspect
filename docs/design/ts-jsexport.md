@@ -766,8 +766,9 @@ The target remains unverified until all of these gates exist:
 - TypeScript mapping tests prove that only those authenticated facts become
   synchronous function types, preserving callback parameter order,
   nullability, primitive payload types, and return type after every display
-  type is correlated with its authenticated identity; unauthenticated,
-  mismatched, or async-disguising display text remains a diagnosed `unknown`;
+  type is correlated with its authenticated assembly and type identity;
+  unauthenticated, untrusted-framework, mismatched, over-arity, or
+  async-disguising evidence remains a diagnosed `unknown`;
 - an SDK compile-negative fixture requires method-scoped `SYSLIB1072` for a
   Promise-returning `Func<..., Task<T>>` callback and a callback with more than
   three parameters without assuming either is the build's only cascading

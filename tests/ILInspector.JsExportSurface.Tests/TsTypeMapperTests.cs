@@ -195,6 +195,139 @@ public sealed class TsTypeMapperTests
     }
 
     [Fact]
+    public void MapParameterType_AcceptsCorrelatedLocalRecordIdentity()
+    {
+        var signature = new JsExportDelegateParameter
+        {
+            ParameterIndex = 0,
+            Kind = JsExportDelegateKind.Action,
+            ParameterTypes =
+            [
+                TypeRef.Definition(
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "WidgetDto"),
+            ],
+        };
+
+        Assert.Equal(
+            "(arg0: WidgetDto | null) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<"
+                    + "ILInspector.JsExportSurface.Fixtures.WidgetDto?>",
+                RecordNames,
+                delegateParameter: signature,
+                containingAssemblyName:
+                    "ILInspector.JsExportSurface.Fixtures"));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsDelegateFactsBeyondSdkArity()
+    {
+        TypeRef intType = TypeRef.CoreLib("System", "Int32");
+
+        AssertDelegateRejected(
+            "System.Action<int, int, int, int>",
+            new JsExportDelegateParameter
+            {
+                ParameterIndex = 0,
+                Kind = JsExportDelegateKind.Action,
+                ParameterTypes =
+                [
+                    intType,
+                    intType,
+                    intType,
+                    intType,
+                ],
+            });
+        AssertDelegateRejected(
+            "System.Func<int, int, int, int, int>",
+            new JsExportDelegateParameter
+            {
+                ParameterIndex = 0,
+                Kind = JsExportDelegateKind.Func,
+                ParameterTypes =
+                [
+                    intType,
+                    intType,
+                    intType,
+                    intType,
+                ],
+                ReturnType = intType,
+            });
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsFrameworkLookalikeIdentities()
+    {
+        AssertDelegateRejected(
+            "System.Action<System.Int32>",
+            ActionParameter(
+                TypeRef.Definition(
+                    "Other.Assembly",
+                    "System",
+                    "Int32")));
+        AssertDelegateRejected(
+            "System.Action<int>",
+            ActionParameter(
+                TypeRef.Definition(
+                    "System.Runtime",
+                    "System",
+                    "Int32",
+                    trustedFrameworkAssembly: false)));
+        AssertDelegateRejected(
+            "System.Action<"
+                + "System.Collections.Generic."
+                + "IReadOnlyDictionary<string, string>>",
+            ActionParameter(
+                TypeRef.GenericInstance(
+                    TypeRef.Definition(
+                        "Other.Assembly",
+                        "System.Collections.Generic",
+                        "IReadOnlyDictionary`2"),
+                    [
+                        TypeRef.CoreLib("System", "String"),
+                        TypeRef.CoreLib("System", "String"),
+                    ])));
+    }
+
+    [Fact]
+    public void MapParameterType_RejectsSameRecordFromDifferentAssembly()
+    {
+        AssertDelegateRejected(
+            "System.Action<"
+                + "ILInspector.JsExportSurface.Fixtures.WidgetDto>",
+            ActionParameter(
+                TypeRef.Definition(
+                    "Other.Assembly",
+                    "ILInspector.JsExportSurface.Fixtures",
+                    "WidgetDto")),
+            containingAssemblyName:
+                "ILInspector.JsExportSurface.Fixtures");
+    }
+
+    [Fact]
+    public void MapParameterType_PreservesAuthenticatedOpaqueJsObject()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "(arg0: unknown) => undefined",
+            TsTypeMapper.MapParameterType(
+                "System.Action<"
+                    + "System.Runtime.InteropServices.JavaScript.JSObject>",
+                RecordNames,
+                diagnostics,
+                "Register.callback",
+                delegateParameter: ActionParameter(
+                    TypeRef.Definition(
+                        "System.Runtime.InteropServices.JavaScript",
+                        "System.Runtime.InteropServices.JavaScript",
+                        "JSObject"))));
+        Assert.Empty(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
     public void MapParameterType_RejectsAuthenticatedIdentityMismatch()
     {
         var diagnostics = new TsBindGenDiagnostics();
@@ -483,5 +616,36 @@ public sealed class TsTypeMapperTests
                 Assert.Equal("QueryEvent.Sink", diagnostic.Location);
                 Assert.Equal(csharpType, diagnostic.CSharpType);
             });
+    }
+
+    static JsExportDelegateParameter ActionParameter(TypeRef parameterType) =>
+        new()
+        {
+            ParameterIndex = 0,
+            Kind = JsExportDelegateKind.Action,
+            ParameterTypes = [parameterType],
+        };
+
+    static void AssertDelegateRejected(
+        string displayType,
+        JsExportDelegateParameter signature,
+        string? containingAssemblyName = null)
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+
+        Assert.Equal(
+            "unknown",
+            TsTypeMapper.MapParameterType(
+                displayType,
+                RecordNames,
+                diagnostics,
+                "Register.callback",
+                delegateParameter: signature,
+                containingAssemblyName: containingAssemblyName));
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "Register.callback"
+                && diagnostic.CSharpType == displayType);
     }
 }

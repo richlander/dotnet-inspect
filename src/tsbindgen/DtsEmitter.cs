@@ -97,6 +97,7 @@ static class DtsEmitter
                 function,
                 knownTypeNames,
                 knownTypeIdentities,
+                surface.AssemblyIdentity?.Name,
                 diagnostics);
 
         return sb.ToString();
@@ -652,6 +653,7 @@ static class DtsEmitter
         JsExportFunction function,
         IReadOnlySet<string> knownTypeNames,
         IReadOnlySet<ApiTypeReferenceIdentity> knownTypeIdentities,
+        string? containingAssemblyName,
         TsBindGenDiagnostics? diagnostics)
     {
         string returnType = function.ReturnWireType is { } returnWireType
@@ -689,7 +691,8 @@ static class DtsEmitter
                     knownTypeIdentities),
                 function.DelegateParameters.SingleOrDefault(
                     delegateParameter =>
-                        delegateParameter.ParameterIndex == index))}");
+                        delegateParameter.ParameterIndex == index),
+                containingAssemblyName)}");
 
         sb.Append("export declare function ")
           .Append(CamelCase.FromPascalCase(function.Name))

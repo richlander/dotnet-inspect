@@ -259,6 +259,8 @@ SDK source generator itself rejects a Promise-returning
 `Func<..., Task<T>>` callback and callbacks with more than three parameters
 with method-scoped `SYSLIB1072`;
 `UnsupportedDelegateShapes_AreRejectedBySdkGenerator` gates that boundary.
+Consumers independently reject over-arity hand-composed delegate facts;
+`MapParameterType_RejectsDelegateFactsBeyondSdkArity` gates that containment.
 
 `[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
 rejects for a different reason: the descriptor is real and the wrapper is
