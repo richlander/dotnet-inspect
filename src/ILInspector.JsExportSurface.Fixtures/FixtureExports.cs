@@ -117,6 +117,42 @@ public static partial class FixtureExports
     public static byte[] EchoBytes(byte[] value) => value;
 
     [JSExport]
+    public static void ReportValue(
+        [JSMarshalAs<JSType.Function<JSType.Number>>]
+        Action<int> callback) =>
+        callback(42);
+
+    [JSExport]
+    public static void ReportValueAgain(
+        [JSMarshalAs<JSType.Function<JSType.Number>>]
+        Action<int> callback) =>
+        callback(43);
+
+    [JSExport]
+    public static void ReportNullableText(
+        [JSMarshalAs<JSType.Function<JSType.String>>]
+        Action<string?> callback) =>
+        callback(null);
+
+    [JSExport]
+    public static bool TransformValue(
+        [JSMarshalAs<JSType.Function<
+            JSType.Number,
+            JSType.String,
+            JSType.Boolean>>]
+        Func<int, string, bool> callback) =>
+        callback(42, "answer");
+
+    [JSExport]
+    public static void ObserveValues(
+        [JSMarshalAs<JSType.Function<
+            JSType.Number,
+            JSType.String,
+            JSType.Boolean>>]
+        Action<int, string, bool> callback) =>
+        callback(42, "answer", true);
+
+    [JSExport]
     public static string GetRegisteredString(string value) =>
         JsonSerializer.Serialize(value, FixtureJsonContext.Default.String);
 

@@ -36,6 +36,22 @@ dotnet run \
   --runtime-module ./dotnet.js \
   --output "$scratch/facade.ts"
 
+cat > "$scratch/callback-usage.ts" <<'TS'
+import { observeValue, transformValue } from "./facade.js";
+
+const observed: number[] = [];
+const observe = (value: number): undefined => {
+  observed.push(value);
+  return undefined;
+};
+observeValue(observe);
+
+const transformed: boolean = transformValue(
+  (value, text) => value === 42 && text === "answer",
+);
+void transformed;
+TS
+
 cat > "$scratch/tsconfig.json" <<'JSON'
 {
   "compilerOptions": {
@@ -52,7 +68,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "types": [],
     "verbatimModuleSyntax": true
   },
-  "include": ["facade.ts"]
+  "include": ["facade.ts", "callback-usage.ts"]
 }
 JSON
 cp "$dotnet_dts" "$scratch/dotnet.d.ts"
@@ -117,5 +133,39 @@ expect_compile_failure \
   'getAssemblyExports' \
   'missingGetAssemblyExports' \
   'const exports: unknown'
+
+expect_callback_compile_failure() {
+  local name=$1
+  local expression=$2
+  local replacement=$3
+  local mutation="$scratch/$name"
+  mkdir "$mutation"
+  cp \
+    "$scratch/dotnet.d.ts" \
+    "$scratch/tsconfig.json" \
+    "$scratch/facade.ts" \
+    "$mutation/"
+  sed -E "s/$expression/$replacement/" \
+    "$scratch/callback-usage.ts" > "$mutation/callback-usage.ts"
+  if cmp -s \
+      "$scratch/callback-usage.ts" \
+      "$mutation/callback-usage.ts"; then
+    echo "$name mutation did not change callback usage." >&2
+    exit 1
+  fi
+  if "$tsc" -p "$mutation/tsconfig.json" >/dev/null 2>&1; then
+    echo "$name callback mutation unexpectedly compiled." >&2
+    exit 1
+  fi
+}
+
+expect_callback_compile_failure \
+  async-action-callback \
+  'const observe = \(value: number\): undefined =>' \
+  'const observe = async (value: number): Promise<void> =>'
+expect_callback_compile_failure \
+  void-action-callback \
+  'const observe = \(value: number\): undefined =>' \
+  'const observe = (value: number): void =>'
 
 echo "ts-jsexport TypeScript compiler gates passed."

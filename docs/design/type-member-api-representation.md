@@ -214,12 +214,73 @@ the unpatched control still publishes.
 | `TypeReferenceOrigin`, `ResolvableTypeReference` | One decoded named type | Exact metadata lookup name and the assembly/current-assembly/core-library/module origin that supplied it | Resolution without the source candidate or structural `TypeRef` equality |
 | `CallerScopeReachabilityPlan`, `CallerResolutionPlan` | One direct-caller query | Which scope candidates can reach the target and how decoded call-site types correspond to its definition | Transitive graph identity or cross-query persistence |
 | `MethodIdentity`, `MemberRef` | Body and call-site evidence | Which physical method body or decoded call site supplied evidence | API selector spelling or cross-version API identity |
+| `CatalogMethodDefinitionCorrespondencePlan` and `CatalogMethodDefinitionCorrespondenceOutcome` | One already-selected source/target acquisition pair and one source MethodDef | Which target `MetadataMethodAddress` has the same complete open member identity, or whether selection is missing, ambiguous, or unavailable | Source/runtime asset selection, platform forwarding, PDB acquisition, CLI policy, or durable API identity |
 | `ResolvedValueSource`, `ResolvedValueSet` | One evaluation-stack value | Which proven producers — call/`newobj` result, `int32`/string literal, `ldnull`, static/instance field load or address, argument, or `ldtoken` — can reach that value | Anything about a value whose producers Analysis could not prove; `IsResolved` is false and `Sources` is empty |
 | `FieldStoreFact`, `FieldLoadFact` | One direct field store, load, or address instruction | Which field the instruction touches, whether its receiver is an argument, whether an access takes its address, whether the block is reachable, and (for stores) the resolved stored value | Whether an escaped address is later written; consumers requiring stable value provenance must reject the escape |
 | `FieldIdentity` | One resolved field access in one body index | Which exact reader-local field two accesses name, canonicalizing a local `MemberRef` to its `FieldDef` whatever its parent encoding; non-local fields retain declaring-type origin and name | Cross-image persistence; an unresolved or ambiguous local reference yields no identity |
 | `MethodReturnFlow` | One non-void method body | The union of proven producers across every reachable `ret`, recovered through control-flow merges | Anything about a body with one unproven reachable return or reachable `jmp` completion; `IsResolved` is false and `Sources` is empty |
 | `AsyncStateMachineFieldResultSource` | One authenticated compiler async `MethodResultSink` in a complete unscoped body census | Which exact local state-machine field carried direct call results from one store dominating the initial suspension to the corresponding load after every authenticated suspension without a control-flow path to that load, with one exact matching framework builder field across suspension and completion | Scoped or incomplete censuses, custom or spoofed async builders, mismatched task/builder families or result types, unauthenticated or fall-through suspensions, conservative finally-flow joins, ambiguous or non-call stores, possible-alias stores or address escapes outside the physical body, loops, initially non-dominating paths, cleanup that can re-enter the load, foreign or unresolved fields, and unknown reachability |
 | `SpanArgumentElements` | One `ReadOnlySpan<T>` argument built by a recognized compiler lowering | The resolved element values in order | Spans built by any other lowering; `IsResolved` is false there |
+
+Exact API-to-runtime MethodDef correspondence is demand-scoped. Its caller
+supplies source and target `ResolvedAssemblyReference` descriptors, their
+owner-issued `AssemblyImageSnapshot` values, one source `MethodIdentity`, and
+the target MethodDefs. The plan considers only exact same-name candidates and
+reuses `CatalogMemberCorrespondencePlan` for complete open-member identity,
+including canonical signature headers, generic arity, required vararg
+parameters, multidimensional-array sizes and lower bounds, modifiers, and
+recursive function-pointer payloads. Named leaves retain the signature's
+class-versus-value-type discriminator when known. A resolved catalog definition
+fills an unspecified owner-side discriminator only when its kind was
+authenticated; an `Unknown` kind leaves it unspecified so partial resolution
+closure does not split otherwise corresponding members. The result is one
+closed choice: `Exact`, `Missing`, `Ambiguous`, or `Unavailable`.
+
+The selected pair establishes one narrow correspondence between the source and
+target root type definitions. Recursive named types still correspond only
+through the frozen Metadata catalog. A `TypeDef` versus `TypeRef` encoding is
+therefore irrelevant after both resolve to the established roots, but equal
+display text without resolved definition evidence is insufficient. The root
+bridge applies only to the plans' exact declaring-type request pair, never to
+independently defined same-name parameter or return types. Every same-name
+candidate must project completely before uniqueness can be claimed.
+Ownership mismatch, stale MVID, invalid MethodDef token, unresolved or
+indeterminate projection, duplicate exact candidates, and bounded-work
+exhaustion all fail visibly instead of authorizing token reuse, overload
+ordinal, name-only, or display-signature fallback.
+
+`ReorderedMethodDefs_SelectExactTargetInsteadOfReusingSourceRid` is the
+non-vacuity gate: the compiler-produced surface token addresses a different
+method in the runtime image, while the exact arm selects runtime `Transform`.
+`SameNameSignatureNearMiss_DoesNotCorrespond`,
+`FunctionPointerCallingConvention_IsIdentityBearing`, and
+`TypeDefAndTypeRefAddressing_ResolveThroughSelectedRoots` gate complete member
+identity; `RecursiveSameNameDefinitions_AreNotSelectedRootCorrespondence` and
+`SelectedRootClassAndValueType_DoNotCorrespond` gate the root boundary, while
+`MultidimensionalArrayBounds_AreIdentityBearing` and
+`MalformedArrayBounds_AreUnavailable` gate exact and malformed array shapes.
+`DerivedValueTypeKind_RejectsExplicitClassEncoding` and
+`UnknownDefinitionKind_DiscardsUnverifiedSignatureKind` gate effective
+class/value-type projection, while
+`EqualUnknownKindProjection_DoesNotOverrideContradictoryPlannedRawKinds`
+ensures pairwise MethodDef correspondence still rejects two known contradictory
+signature bytes when an unauthenticated catalog kind normalizes their projected
+keys. `PlanCacheIdentityPreservesArrayBoundsAndRawTypeKind` gates the graph
+plan-cache input so distinct exact shapes cannot reuse one correspondence plan.
+`DuplicateExactTargetCandidates_ReportAmbiguous`,
+`TargetGenerationMismatch_IsUnavailable`,
+`SnapshotFromAnotherRegistration_IsUnavailable`,
+`InvalidSourceMethodDefToken_IsUnavailable`,
+`ContextWithDifferentTargetGeneration_IsUnavailable`,
+`UnresolvedNominalTypes_AreUnavailableRatherThanUnique`, and
+`SameNameCandidateLimit_FailsClosed` gate the visible non-success boundaries.
+This currency does not choose acquisitions, resolve platform forwarders,
+acquire PDBs, select CLI overloads, or authorize Decompiler consumption.
+It trusts the supplied `MethodIdentity` values as owner-issued Analysis
+evidence produced from the named snapshots: it validates their registration,
+MVID, MethodDef table kind, row bounds, and frozen-context generation, but does
+not defend against an intra-stack caller fabricating different signature
+fields for a valid row.
 
 `ResolvedValueSet` is a **new union alongside** `CallArgumentSource.IsComplete`
 and `MethodResultSink.SourceCallOffsets`, not a reinterpretation of them. The
@@ -348,6 +409,8 @@ into a display string or a durable identifier.
 | `CatalogMemberCorrespondencePlan` | One source member's open signature | Which distinct type-resolution requests and recursive shapes are required to project member correspondence without traversing the signature again | A frozen answer, graph storage identity, or rendering |
 | `CatalogMemberJoinKey` and `CatalogTypeShape` | One frozen catalog generation | Hashable member correspondence across the open declaring type, member kind, canonical signature header, vararg required-parameter prefix, method generic arity, instance/static shape, parameters, return, modifiers, and function pointers | Physical graph storage, persistence, display, or use after its catalog generation |
 | `CatalogMemberJoinProjection` | One plan projected through one frozen context | Exact or indeterminate join currency, duplicate/unresolved evidence, or typed incomplete reasons including expansion and stale generation | Permission to drop an incomplete graph node or edge |
+| `CatalogMethodDefinitionCorrespondencePlan` | One selected source/target acquisition pair | Which same-name target MethodDefs need catalog projection and which selected-root definition pair may correspond | Acquisition selection, name-only fallback, or a result before projection through one frozen context |
+| `CatalogMethodDefinitionCorrespondenceOutcome` | One plan projected through one frozen context | One exact target `MetadataMethodAddress`, or typed missing, ambiguous, and unavailable evidence | Permission to reuse a source token in the target image |
 | `GraphNodeStorageKey` | One physical graph occurrence | Total definition or call-site storage identity from acquisition registration, MVID, metadata token, and call-site coordinates | Logical member correspondence, display, or persistence |
 | `GraphNodeIdentity` | One graph projection domain | A closed choice of physical storage, catalog correspondence, stable artifact member, scope-local detached catalog, or typed structural fallback identity | A string key or permission to mix domains |
 | `GraphNodeEvidence` and `GraphEdgeEvidence` | One retained graph generation, or a detached tree after generation correspondence is removed | Which physical occurrences support a logical node/edge and, while attached, whether correspondence was exact, indeterminate, or incomplete | A reason to discard unavailable evidence or count call sites as logical nodes |
@@ -370,6 +433,7 @@ into a display string or a durable identifier.
 | --- | --- | --- | --- |
 | `AssemblyAcquisitionRegistration` | One acquisition-owner selection | Which repeated selections are the same registered acquisition | Artifact equality, persistence, or descriptor reconstruction |
 | `ResolvedAssemblyReference` | One registered acquisition | How to open the selected image and which identity and provenance evidence its owner supplied | Catalog membership or successful readability |
+| `AssemblyImageSnapshot` | One successfully opened registered acquisition | Which immutable bytes, assembly identity, MVID, and registration produced the actual reader-independent image | Cross-acquisition member correspondence or permission to substitute another descriptor |
 | `AssemblyResolutionProvenance` | One registered acquisition | Whether package, platform, project, or local ownership selected the image | Candidate identity or binding policy |
 | `AssemblyCatalogId` | One inspection catalog | Which local key space owns candidates | Stable identity across catalogs or processes |
 | `ResolvedAssemblyCandidate` | One catalog | Which catalog-local descriptor identifies the candidate whose inventory and session state the catalog owns | Durable artifact identity outside the catalog |
@@ -381,7 +445,7 @@ into a display string or a durable identifier.
 | --- | --- | --- | --- |
 | `TypeResolutionCatalog` | One inspection and its progressive generations | Which acquisition, declaration, stable-policy binding, and resolution-recipe caches generations share | A frozen answer set or ownership by one context |
 | `TypeResolutionContext` | One frozen catalog generation | Which manifested bindings and type requests may execute without policy or source work | Requests absent from the manifest or answers after catalog disposal |
-| `AssemblyBindingRequest`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which structured target policy selected and whether it resolved, missed, was unavailable, ambiguous, rejected, or requires expansion | Type lookup or hidden fallback probing |
+| `AssemblyBindingRequest`, `AssemblyBindingSelection`, and `AssemblyBindingOutcome` | One source-relative or global binding question | Which structured target policy selected and, for a miss, whether it proved no name owner, reported a name-owned mismatch, or retained an undifferentiated legacy result | Type lookup or hidden fallback probing |
 | `TypeResolutionRequest` | One resolution operation | Which typed start candidate/binding target and exact name to resolve | Decoded provenance or reusable identity |
 | `TypeResolutionRequestComparer` | One request manifest | Whether separately constructed requests occupy the same frozen manifest entry | Type correspondence, outcome equality, or cross-generation reuse |
 | `TypeResolutionOutcome` | One frozen catalog generation | The complete resolution verdict, non-success evidence, and ordered hops | Definition equality or a nullable success result |
@@ -434,6 +498,8 @@ Conversions are operations with an owner, not implicit casts:
 | Source candidate plus `ResolvableTypeReference` | `TypeResolutionRequest` | Analysis's `CallerResolutionPlan` adapts decoder provenance through Metadata's native request factories; Metadata validates and executes the request |
 | Source member plus decoded open signature | `CatalogMemberCorrespondencePlan` | Analysis traverses the signature once, retains unsupported-shape evidence, and exposes requests compared by Metadata's manifest comparer |
 | `CatalogMemberCorrespondencePlan` plus frozen context | `CatalogMemberJoinProjection` | Analysis resolves each distinct request through the context and constructs shapes only from catalog-issued definition or unresolved-binding currency |
+| Selected source/target descriptors and snapshots plus source and target `MethodIdentity` values | `CatalogMethodDefinitionCorrespondencePlan` | Analysis validates physical ownership and generation, then plans complete open-signature correspondence for all same-name target MethodDefs |
+| `CatalogMethodDefinitionCorrespondencePlan` plus frozen context | `CatalogMethodDefinitionCorrespondenceOutcome` | Analysis returns one exact target `MetadataMethodAddress`, or typed missing, ambiguous, and unavailable evidence; source-token reuse is forbidden |
 | `TypeResolutionOutcome.Resolved` | `ResolvedTypeDefinition` parts | Metadata returns the opaque key for correspondence and address for durable re-location; consumers do not reconstruct either |
 | `ResolvedTypeDefinitionKey` pair | `DefinitionCorrespondence` | Only the issuing catalog compares keys |
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
