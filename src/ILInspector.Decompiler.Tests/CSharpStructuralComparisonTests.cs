@@ -1740,6 +1740,36 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void IssueCorrespondence_DoesNotTreatCommentParenthesesAsCalleeRewrite()
+    {
+        // Close negative (round-10 review, reviewer A): an argument-only
+        // edit where a `//` line comment inside the invocation's own text
+        // contains a misleading '(' character must still decline callee
+        // comparison. Scanning backward, the comment's '(' is reached
+        // *before* its own leading '/' characters, so checking for the
+        // disqualifying character only as the scan reaches it (rather than
+        // as a dedicated upfront pass over the whole text) would let this
+        // paren reach depth zero and return a wrong "match" before the scan
+        // ever saw the '/' that should have disqualified it. The callee
+        // ("Log") is unchanged, so this must not license an unrelated
+        // declaration.
+        var before = TrustedDocument(
+            "Log(1 // (\n);",
+            new NodeSpec("InvocationExpression", "Log(1 // (\n)", [0x10]));
+        var after = TrustedDocument(
+            "Log(2 // (\n);\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "Log(2 // (\n)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+
+        Assert.Single(issued.Matches);
+        var declaration = Assert.Single(issued.UnmatchedAfter);
+        Assert.Equal(CSharpUnmatchedNodeReason.Unsupported, declaration.Reason);
+        Assert.False(CSharpBodyDiff.CompareStructure(issued).IsCorrespondenceComplete);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWhenMultipleCandidatesShareScope()
     {
         // Close negative: two new local-function declarations with no IL

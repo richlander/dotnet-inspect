@@ -926,18 +926,28 @@ public static partial class CSharpBodyDiff
     // parenthesized cast receiver (`((IFoo)x).Old()`) or a call-returning
     // receiver (`GetReceiver().Old()`).
     //
-    // The scan declines (returns false) rather than guess as soon as it
-    // sees a quote, apostrophe, or comment-start character (round-9 review,
-    // reviewers A and B): a string/char literal or a comment can itself
-    // contain unbalanced or misleading parentheses (e.g. `Log("(")`), which
-    // would otherwise make a plain paren-depth count misidentify the
-    // argument list's true boundary -- either by stopping at a paren inside
-    // literal text, or by never finding a balanced match at all and falling
-    // back to comparing the full invocation text (reintroducing the exact
-    // argument-only false positive round 7 fixed). This is not a full C#
-    // lexer; it simply refuses to trust the scan once literal/comment
-    // content becomes possible, which is a strictly narrower, always-safe
-    // subset of "confidently found the true split".
+    // The scan declines (returns false) rather than guess whenever a quote,
+    // apostrophe, or comment-start character is present anywhere in the
+    // text (round-9 review, reviewers A and B): a string/char literal or a
+    // comment can itself contain unbalanced or misleading parentheses (e.g.
+    // `Log("(")`), which would otherwise make a plain paren-depth count
+    // misidentify the argument list's true boundary -- either by stopping
+    // at a paren inside literal text, or by never finding a balanced match
+    // at all and falling back to comparing the full invocation text
+    // (reintroducing the exact argument-only false positive round 7
+    // fixed). This is not a full C# lexer; it simply refuses to trust the
+    // scan once literal/comment content becomes possible, which is a
+    // strictly narrower, always-safe subset of "confidently found the true
+    // split".
+    //
+    // This disqualifying check is a dedicated upfront pass over the whole
+    // text, not interleaved into the backward paren scan below (round-10
+    // review, reviewer A): a `//` line comment's content is scanned
+    // *before* its own leading `/` characters in backward order, so a
+    // misleading paren inside a comment (e.g. `Log(1 // (\n)`) could
+    // otherwise reach depth zero and return a wrong "match" before the
+    // scan ever reached the disqualifying `/`. Checking the full text
+    // first closes that ordering gap.
     static bool TryGetInvocationCalleeText(
         AnnotatedSourceDocument document, AnnotatedSourceNode node, out ReadOnlySpan<char> calleeText)
     {
@@ -947,13 +957,16 @@ public static partial class CSharpBodyDiff
         if (text.Length == 0 || text[^1] != ')')
             return false;
 
+        foreach (char guard in text)
+        {
+            if (guard is '"' or '\'' or '/')
+                return false;
+        }
+
         int depth = 0;
         for (int index = text.Length - 1; index >= 0; index--)
         {
             char current = text[index];
-            if (current is '"' or '\'' or '/')
-                return false;
-
             if (current == ')')
             {
                 depth++;
