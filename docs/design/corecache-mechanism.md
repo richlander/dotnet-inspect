@@ -926,9 +926,15 @@ the task being waited on) has already returned, which can itself block
 indefinitely on the unbounded generation-restart drain described above; an
 invalid timeout does not bound or bypass that pending drain, only the
 subsequent cancel/wait step. A caller who passes a rejected timeout observes
-a non-canceling progress read — once any pending generation-restart drain
-has finished — that looks identical to any other best-effort outcome, not a
-timeout error.
+a non-canceling *destructive* progress drain — once any pending
+generation-restart drain has finished — that looks identical to any other
+best-effort outcome, not a
+timeout error: `WaitForMaintenance` always calls `progress.TakeSnapshot()`
+with `consumeProgress: true`, which resets both counters via
+`Interlocked.Exchange(..., 0)`, regardless of whether the wait, the cancel,
+or neither actually ran — so the rejected-timeout path still consumes and
+resets the recorded progress, changing what a subsequent drain reports,
+even though it performed neither the requested wait nor cancellation.
 
 **Every** `Clear` call — not only `Clear(category:
 null)` — unconditionally waits (`Timeout.InfiniteTimeSpan`) for the current
@@ -962,17 +968,28 @@ return `false` both when the directory genuinely does not exist and when an
 error occurs determining whether it exists. So an authorization or other
 filesystem error surfacing between `Clear`'s initial existence check and the
 measurement step can still be silently absorbed as "0 bytes" rather than
-propagating, even though `Clear` had already begun measuring. Before that point, `Clear` calls `Directory.Exists(targetPath)`
+propagating — but unlike the other two existence checks below, this one
+does not itself cause `Clear` to return early: `Clear` still proceeds from
+an undercounted (possibly `0`) measurement straight into
+`Directory.Delete`, so a filesystem error absorbed here changes only the
+*measured size*, not whether `Clear` returns successfully — a subsequent
+`Directory.Delete` failure (for example, the same underlying authorization
+error recurring) still propagates normally. Before that point, `Clear` calls `Directory.Exists(targetPath)`
 and returns early (reporting only the maintenance byte counter, no tree
 size) when it reports `false` — the same ambiguous-`false` caveat applies
-here too, and also to the `DirectoryNotFoundException when
+here too, and this initial check *does* cause an early, successful return —
+and also to the `DirectoryNotFoundException when
 !Directory.Exists(targetPath)` filter around the delete call: that filter's
 own `Directory.Exists` re-check cannot definitively prove another process
 completed the deletion, only that the directory is not currently observable,
-for whatever reason. An authorization or other
-filesystem error at any of these existence checks is therefore indistinguishable from
-"nothing to clear" (or "already deleted") and returns successfully with an undercounted result,
-rather than propagating like an enumeration or delete failure does. `Clear`'s `long` return
+for whatever reason, and this check likewise causes `Clear` to return
+successfully (by suppressing the exception) rather than propagate. Of the
+three existence checks, then, only the initial probe and the
+delete-exception filter can turn a filesystem error into
+"nothing to clear" (or "already deleted") and a successful, undercounted
+return; the measurement-step check in the middle only undercounts the
+returned size and does not by itself prevent a later delete failure from
+propagating. `Clear`'s `long` return
 value is not a confirmed bytes-freed count: it is the tree size *measured
 before deletion*, plus (for `Clear(null)` only) the consumed maintenance byte
 counter. That
