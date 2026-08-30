@@ -172,10 +172,14 @@ navigated. A complete audit view needs three related answers:
 1. **Inner-unsafe census.** Identify every method with positive evidence that
    its body used an inner unsafe context. This is the method population that
    directly accepts an audit obligation. Under v2, a context-requiring call or
-   operation in a compiled body proves that source had to establish an inner
-   unsafe block or expression. This is a semantic census, not a census of empty
-   or otherwise behavior-free lexical blocks. Missing or incomplete body
-   evidence remains unknown rather than safe.
+   operation proves that source had to establish an inner unsafe block or
+   expression when the member contract does not establish that operation's
+   context. The constructor-initializer segment is the exception: an unsafe
+   instance-constructor contract already establishes that segment's context, so
+   its operations alone are not positive inner-unsafe evidence. This is a
+   semantic census, not a census of empty or otherwise behavior-free lexical
+   blocks. Missing, incomplete, or origin-ambiguous body evidence remains
+   unknown rather than safe.
 2. **Safe-boundary census.** Identify every v2 inner-unsafe method that does
    not propagate unsafe. Safe boundaries are unsafe users, despite being
    callable from safe code, and carry the heaviest audit burden: they claim to
@@ -411,7 +415,7 @@ dotnet-inspect evidence plane.
 | Did this project request updated enforcement? | Declared or evaluated `LangVersion`, `Features`, and future supported model property | Not currently answered. The `project` command reads `project.assets.json`, not these project properties. |
 | Were unsafe regions and modifiers permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
 | Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, and the correct v2 attribute carrier | Metadata exposes `ApiMember.IsUnsafe` and Analysis exposes method `CallerUnsafeMode`; both are currently model-incomplete, and neither provides complete field/accessor coverage. |
-| Which methods establish inner unsafe? | Context-requiring operations plus source/build evidence where binary semantics are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet expose a model-aware, completeness-qualified inner-unsafe census. |
+| Which methods establish inner unsafe? | Model-aware context-requiring operations, including constructor initializer/body origin, plus source/build evidence where binary semantics are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet expose a model-aware, completeness-qualified inner-unsafe census. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive inner-unsafe evidence | Not currently exposed as a composed census. |
 | How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities. It can expose a conflating `MethodSignals.Unsafe` cue, but no current query composes the separate propagation, inner-use, and safe-boundary roles onto paths. |
 | How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
