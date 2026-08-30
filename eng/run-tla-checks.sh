@@ -103,7 +103,12 @@ for root in "${MODEL_ROOTS[@]}"; do
       tla_files+=("$file")
     done < <(find "$dir" -maxdepth 1 -iname "*.tla" -print0 | sort -z)
 
-    if [ "${#tla_files[@]}" -eq 0 ]; then
+    cfg_files=()
+    while IFS= read -r -d '' file; do
+      cfg_files+=("$file")
+    done < <(find "$dir" -maxdepth 1 -iname "*.cfg" -print0 | sort -z)
+
+    if [ "${#tla_files[@]}" -eq 0 ] && [ "${#cfg_files[@]}" -eq 0 ]; then
       continue
     fi
 
@@ -120,10 +125,19 @@ for root in "${MODEL_ROOTS[@]}"; do
       CHECKED_MODULES=$((CHECKED_MODULES + 1))
     done
 
-    cfg_files=()
-    while IFS= read -r -d '' file; do
-      cfg_files+=("$file")
-    done < <(find "$dir" -maxdepth 1 -iname "*.cfg" -print0 | sort -z)
+    if [ "${#tla_files[@]}" -eq 0 ]; then
+      # A directory with .cfg files but no .tla module: every .cfg here is
+      # orphaned and must fail loud rather than silently go unchecked (a
+      # bare `continue` before this point, without also considering
+      # cfg_files, would let a PR delete the sole module out from under
+      # its configs and still report success).
+      for cfg in "${cfg_files[@]}"; do
+        echo "::error::$dir/$(basename "$cfg") has no .tla module in $dir to check it against." >&2
+        FAILURES=$((FAILURES + 1))
+      done
+      echo "::endgroup::"
+      continue
+    fi
 
     for cfg in "${cfg_files[@]}"; do
       cfg_name=$(basename "$cfg" .cfg)
