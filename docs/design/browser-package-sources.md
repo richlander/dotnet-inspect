@@ -97,7 +97,6 @@ id
 display name
 kind
 endpoint, when the kind requires one
-enabled state
 ```
 
 Credentials, resolved resources, response caches, and runtime health are not
@@ -1016,11 +1015,12 @@ Its limitations remain visible:
 - endpoint changes can make the implementation unavailable until the built-in
   source is updated.
 
-The Gallery source is the browser default. Desktop configuration may continue
-to represent NuGet.org through its canonical v3 service index while sharing the
-same producer provenance label. Package composition determines whether their
-configured authorities are equivalent. Transport strategy is a host capability,
-not a second visible producer.
+The Gallery source is the browser's initial selected source. This is bootstrap
+state, not an ongoing `Default feed` preference. Desktop configuration may
+continue to represent NuGet.org through its canonical v3 service index while
+sharing the same producer provenance label. Package composition determines
+whether their configured authorities are equivalent. Transport strategy is a
+host capability, not a second visible producer.
 
 Both transports use the owner-issued canonical NuGet.org producer constant. Its
 safe display is `https://api.nuget.org/v3/index.json`; its key follows the
@@ -1086,6 +1086,126 @@ import and never overwrite an existing descriptor implicitly. Display-name
 collisions are allowed only when every UI and output projection disambiguates
 custom sources with their redacted canonical endpoint, including the path that
 distinguishes feeds on a shared host.
+
+### Default-feed decision
+
+The browser has no persisted `Default feed` or source-preference field. The
+selected source set already defines which configured sources are active for a
+new operation. Adding one preferred source would create undeclared precedence
+among peer HTTP feeds: it could change which bytes satisfy an exact coordinate
+without narrowing package source mapping or the selected authority set.
+
+The built-in Gallery source instead supplies one behavior-safe bootstrap:
+
+```text
+BrowserInitialSourcePolicy
+  RegisteredSourceIds  gallery
+  EnabledSourceIds     gallery
+  SelectedSourceIds    gallery
+```
+
+The host applies that policy only when no persisted browser source-registry
+record exists. A persisted empty selected set is an intentional no-source
+configuration, not absence, and never re-enables Gallery. Resetting package
+sources explicitly removes the persisted registry record; the next
+initialization may then apply the bootstrap again.
+
+The persisted registry record has exactly this version-1 envelope:
+
+```json
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "id": "gallery",
+      "kind": "nuget-gallery"
+    },
+    {
+      "id": "corp",
+      "kind": "nuget-v3",
+      "name": "Corporate mirror",
+      "url": "https://packagefeedproxy.microsoft.io/nuget/v3/index.json"
+    }
+  ],
+  "enabled": [
+    "gallery",
+    "corp"
+  ],
+  "selected": [
+    "gallery",
+    "corp"
+  ]
+}
+```
+
+`sources` is the sole registry of descriptors; enablement is represented only
+by the top-level `enabled` IDs. All three arrays are required, unique, and
+ordered by ordinal source ID. Every `enabled` ID must resolve to one source,
+and every `selected` ID must resolve to one enabled source. The canonical
+built-in Gallery descriptor occurs exactly once and cannot be replaced;
+custom descriptors follow the admission rules above.
+
+Version 1 has no default or preference member. Duplicate or unknown properties
+at any depth, unsupported versions, duplicate or dangling IDs,
+selected-but-disabled IDs, noncanonical array order, and partially written or
+malformed records produce a typed configuration failure with an empty active
+set and a visible reset action. They are not treated as first run. A future
+format must define an explicit migration before its fields are accepted.
+
+There is no implemented legacy browser default-feed record to migrate: the
+current browser has no persisted package-source policy. If storage or a source
+bundle nevertheless contains `default`, `defaultFeed`, `preferredSource`, or
+any other unknown preference field, strict version-1 decoding rejects the
+whole value rather than ignoring or honoring hidden precedence.
+
+After bootstrap, source registration and the selected set are the complete
+browser policy. Search, latest, wildcard, version enumeration, and range
+operations use every selected capable source that is eligible for the package
+ID. Exact payload acquisition follows the package owner's candidate, mapping,
+cache-authority, and failover contract without a browser preference. If one
+producer must be authoritative, the caller must select only that source or use
+package source mapping or an equivalent host policy. Source order and the
+built-in status of Gallery do not decide.
+
+The browser-to-package-owner handoff contains the selected configured
+authorities and no default, preferred-source, or source-order signal. Package
+composition #4797 may apply its owner-documented local-versus-HTTP tiers,
+authority composition, transport selection, and failover, but it must not
+derive browser precedence from registry insertion order, source ID, display
+name, built-in status, or the first element of the selected set.
+
+Settings therefore exposes the package-source owner's enablement and
+multi-selection descriptors but no `Default feed` action. Its explanatory text
+states that every selected source participates subject to capability and
+package-ID eligibility. Feed tabs and in-workspace source switching remain
+outside this contract.
+
+Portable source bundles already carry the complete selected source set and add
+no default or preference field. A confirmed import writes the previewed
+selection exactly; declining leaves the existing registry untouched. Importing
+an empty selection does not restore Gallery, and importing a selected custom
+source does not grant it precedence. Strict bundle decoding rejects unknown
+preference fields under the same closed-shape rule; it never strips them and
+continues.
+
+For example, suppose Gallery and `Corporate mirror` are selected. Searching for
+`dotnet-inspect` queries both. If Gallery reports `0.18.0` and the mirror
+reports only `0.16.0`, latest selects `0.18.0` by semantic version. If both
+authorized sources report `Foo@1.2.3`, payload acquisition retains whichever
+authorized producer actually supplies the bytes; the browser does not call
+either one default. Mapping `Foo` only to Gallery excludes the mirror.
+
+These semantics are unverified pending
+`BrowserPackageSourcePolicyTests.FirstRunSelectsGallery`,
+`PersistedEmptySelectionDoesNotRestoreGallery`,
+`MalformedOrUnsupportedPolicyFailsWithoutBootstrap`,
+`EnabledAndSelectedIdsAreCanonicalResolvedSubsets`,
+`UnknownPreferenceFieldIsRejected`,
+`ResetRemovesPolicyBeforeGalleryBootstrap`,
+`SelectedSourcesHaveNoDefaultOrPreference`,
+`PackageOwnerHandoffHasNoBrowserPrecedenceSignal`,
+`SelectedSourcesRemainMultiSource`, and
+`PortableBundleRejectsPreferenceAndPreservesEmptySelection`.
 
 ## Multi-source resolution
 
@@ -1381,8 +1501,8 @@ An illustrative payload is:
 ```
 
 Base64 is an encoding, not a secrecy mechanism. A bundle may contain only
-portable HTTPS descriptors and selected source IDs. It has no credential
-fields and must not contain:
+portable HTTPS descriptors and selected source IDs. It has no default or
+source-preference field and no credential fields. It must not contain:
 
 - credentials, PATs, API keys, or authorization headers;
 - local paths or `file://` URLs;
@@ -1803,7 +1923,8 @@ should:
 3. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
 4. Replace the browser's singleton `default versus mirror` state with a source
-   registry and selected source set.
+   registry and selected source set; bootstrap Gallery only when no persisted
+   registry record exists.
 
 The product libraries must own these contracts. A browser harness may present
 configuration and cancellation, but it must not reconstruct package resolution,
@@ -1823,6 +1944,15 @@ Implementation is not complete until gates prove:
   fetch targets;
 - v3 resource discovery remains source-relative;
 - multi-source latest selection retains every reporting source;
+- first-run bootstrap selects Gallery only when no persisted registry record
+  exists, while an explicitly empty selection remains empty across reload;
+- malformed, unsupported, partial, or preference-bearing persisted records
+  fail visibly without being reinterpreted as first run;
+- no browser default or preference changes multi-source search, semantic
+  version selection, package source mapping, actual producer provenance, or
+  partial-source reporting;
+- portable bundles preserve their explicit selected set without carrying or
+  reconstructing a default source, and reject unknown preference fields;
 - when package-owner composition establishes one configured authority,
   selecting Gallery and canonical NuGet.org v3 transports reports one producer,
   succeeds when either applicable transport succeeds, and fails only when both
