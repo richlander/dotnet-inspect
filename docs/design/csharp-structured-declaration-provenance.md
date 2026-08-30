@@ -17,7 +17,7 @@ A structured C# declaration is composed only from explicitly classified input
 slots. Every slot selects exactly one class from the closed
 [slot value taxonomy](#slot-value-classes): raw identifier, qualified-name
 spelling, namespace identity, type declaration name, type expression, bound
-generic reference, type-binding evidence, validated declaration evidence,
+generic reference, type-binding evidence, declaration admission evidence,
 closed syntax, rendered fragment, raw literal value, composite subplan, or
 opaque compatibility.
 
@@ -45,11 +45,12 @@ model-free lexical grammars and identifier policy.
 
 The current adjacent handoffs also lack admission evidence required by this
 target. Metadata classifies an `op_` prefix as an operator without retaining
-validated `SpecialName`, staticness, and signature-form evidence.
+one neutral candidate fact containing `SpecialName`, staticness, and complete
+signature-shape evidence for CSharp to validate.
 `ApiSignature.Accessors` lists only projected C# accessors, so the list does not
 prove that metadata `raise`/`Other` associations were absent. The type printer
 also supplies flattened declared-type names as binding context. None of those
-current shapes can admit `Structured`; the target requires the typed evidence
+current shapes can admit `Representable`; the target requires the typed evidence
 cataloged below. Metadata issue
 [#5164](https://github.com/richlander/dotnet-inspect/issues/5164)
 owns the missing operator and complete accessor-aggregate handoff.
@@ -96,8 +97,9 @@ of the target is pending on
 Structured punctuation comes only from fixed product syntax. Rendered fragments
 must arrive under a typed fragment contract or remain compatibility input.
 
-`CSharpDeclarationProvenanceTests.StructuredOutputContainsTheMetadataConfusionFixture`,
-`CompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`, and the
+`CSharpDeclarationProvenanceTests.RepresentableOutputContainsTheMetadataConfusionFixture`,
+`FallbackCompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`,
+and the
 slot-collision gates in [Verification](#verification) are the planned
 enforcement. The invariant is unverified until those gates exist.
 
@@ -137,7 +139,7 @@ void I<class>.Map();
 ```
 
 That example and its gate remain pending on #5114; combined dotted text is
-`Compatibility` until the handoff lands.
+`FallbackRequired` with subordinate compatibility text until the handoff lands.
 
 A neighboring provenance case must keep a primitive and a same-spelled generic
 parameter distinct:
@@ -148,8 +150,7 @@ void Pair<@int>(int primitive, @int parameter);
 
 The final example and its gate remain pending on the additional type provenance
 tracked by #5076. Until that currency exists, CSharp reports the affected
-declaration as `Compatibility` or `Unavailable` rather than claiming structured
-fidelity.
+declaration as `FallbackRequired` rather than claiming representability.
 
 ## Immediate boundaries
 
@@ -185,13 +186,27 @@ would require a separately approved exception.
 
 ### Outputs
 
-The target public result is a closed `CSharpDeclarationResult` with two arms:
+The target public `CSharpDeclarationResult` preserves the four-arm
+representability outcome required by Metadata's owning design:
 
-- **Rendered** carries `CSharpDeclarationText`, any required exact whole
-  namespace identities, a `CSharpDeclarationReceipt`, a `Structured` or
-  `Compatibility` mode, and diagnostics.
-- **Unavailable** carries a stable reason and diagnostics, but no
-  success-shaped empty declaration.
+- **Representable** carries `CSharpDeclarationText`, any required exact whole
+  namespace identities, a `CSharpDeclarationReceipt`, and diagnostics.
+- **FallbackRequired** carries a stable reason and the complete
+  `ContainedTypeDeclaration` or `ContainedMemberDeclaration`. It may also carry
+  subordinate `CSharpCompatibilityText`, its namespace requirements, and its
+  opaque-boundary receipt for display, but that text is not authoritative C#.
+- **Degraded** carries the signature status, bounded nonauthoritative evidence,
+  and diagnostics, but no `CSharpDeclarationText` or metadata fallback.
+- **Unavailable** carries the Metadata declaration failure and diagnostics, but
+  no success-shaped empty declaration.
+
+`CSharpCompatibilityText` is contained presentation currency for a legacy
+declaration spelling. It does not claim C# representability and cannot replace
+the complete contained fallback facts.
+
+Any artifact-authored text inside bounded degradation evidence is an
+`InertString` prepared under `TextPolicy.Field`; an ordinary string cannot carry
+that evidence across the CSharp boundary.
 
 `CSharpDeclarationReceipt` is an immutable public receipt for the exact
 declaration plan. It contains one entry for every consumed slot occurrence,
@@ -203,12 +218,13 @@ kind to exactly one value class. An entry carries no raw artifact payload and
 is never reconstructed from text or output offsets. Repeated slots therefore
 remain independently observable.
 
-The result constructor validates mode against the receipt and catalog.
-`Structured` requires the complete expected occurrence set for the selected
-form plan and no opaque entry. `Compatibility` requires the complete expected
-occurrence set for its plan, including every opaque boundary that replaces an
-unavailable structured subtree, and at least one opaque entry. Text, mode, and
-receipt cannot be supplied as unrelated assertions.
+The result constructor validates its arm against the receipt and catalog.
+`Representable` requires the complete expected occurrence set for the selected
+form plan and no opaque entry. Subordinate compatibility text on
+`FallbackRequired` requires the complete expected occurrence set for its plan,
+including every opaque boundary that replaces an unavailable structured
+subtree, and at least one opaque entry. Text, outcome, and receipt cannot be
+supplied as unrelated assertions.
 
 An exact whole namespace identity preserves an owner-issued namespace string;
 it does not claim segment identity. Typed Metadata evidence or an explicitly
@@ -220,7 +236,9 @@ selected abbreviation requires an exact namespace.
 The required namespace set is ordinal, duplicate-free, and exact for the
 selected qualification mode:
 
-- `Qualified` returns an empty set because every reference remains qualified;
+- `Qualified` returns an empty set because every reference remains qualified,
+  including synthesized attribute references that the compatibility path
+  currently shortens;
 - `ShortWithUsings` returns every non-containing exact namespace, and only those
   namespaces, whose references were actually shortened; and
 - `ContextualShort` returns the exact subset of caller-supplied, non-containing
@@ -229,14 +247,14 @@ selected qualification mode:
 
 `CSharpDeclarationText` is contained presentation currency, not a string
 identity. Its construction is restricted to the CSharp composer and means that
-no artifact-controlled display control remains active. That containment
-guarantee applies to both rendered modes.
+no artifact-controlled display control remains active. The same containment
+guarantee applies to subordinate `CSharpCompatibilityText`.
 
-`Structured` additionally means that every artifact-derived value reached the
-output through a complete declared slot plan. `Compatibility` means that one or
-more opaque fragments crossed explicitly contained compatibility boundaries;
-it does not claim internal slot provenance. Neither mode means the declaration
-compiles, corresponds to a body, or identifies a metadata row.
+`Representable` additionally means that every artifact-derived value reached
+the output through a complete declared slot plan. `FallbackRequired` preserves
+the authoritative contained declaration even when optional compatibility text
+crosses one or more explicitly contained opaque boundaries. Neither arm means
+the declaration compiles, corresponds to a body, or identifies a metadata row.
 
 Diagnostics carry a closed `CSharpDeclarationDiagnosticReason` and optional
 `InertString Detail` constructed under the shared `TextPolicy.Field` policy.
@@ -245,11 +263,13 @@ string, and this design does not create another scalar policy.
 
 Existing string-returning formatter methods may remain compatibility adapters
 during migration. New consumers that require the structured guarantee consume
-`CSharpDeclarationResult`; they do not infer success or mode from text.
-`CSharpFormatter.FormatTypeUnit` is also a current compatibility surface; its
-complete-unit result does not acquire the target guarantee from this document.
-Issue #5142 owns its replacement or migration together with
-`CSharpTypePrinter` aggregation.
+`CSharpDeclarationResult`; they do not infer representability from text.
+`CSharpFormatOptions.NamespacePolicy`,
+`CSharpFormatter.FormatMemberUnit`, and `CSharpFormatter.FormatTypeUnit` are
+current unit-composition compatibility surfaces; their namespace-wrapped
+results do not acquire the target guarantee from this document. Issue #5142
+owns their replacement or migration together with `CSharpTypePrinter`
+aggregation.
 
 ### Adjacent owners
 
@@ -283,18 +303,18 @@ contain child catalog entries; they do not combine classes in one entry.
 | Type expression | Model-bound type spelling plus all available type/generic-reference evidence | Render or lex within this slot; apply qualification, alias, and identifier policy without inspecting neighboring slots |
 | Bound generic reference | Generic owner plus ordinal and raw declared name | Spell the bound declaration name as an identifier; equal text alone cannot construct this class |
 | Type-binding evidence | Owner-issued exact type-definition identity plus its declared or imported binding context | Use only to decide binding and qualification; a full-name or display string cannot construct this class |
-| Validated declaration evidence | Owner-issued identity, association, or shape evidence whose completeness admits one declaration form | Validate the typed evidence before planning; a name, prefix, loose Boolean, or display spelling cannot stand in for it |
+| Declaration admission evidence | Owner-issued identity, association, or shape evidence whose completeness lets CSharp decide one declaration form | Validate the typed evidence in CSharp before planning; a name, prefix, loose Boolean, or display spelling cannot stand in for it |
 | Closed syntax | Enum, Boolean, or other bounded choice owned by product code | Map to a fixed keyword, modifier, punctuation, or empty choice; artifact text cannot enter |
 | Rendered fragment | Producer-issued C# expression or attribute fragment whose internal provenance is no longer available | Preserve its syntax and contain it under its fragment contract; never search it for declaration identifiers |
 | Raw literal value | Artifact value that CSharp itself places in a C# literal | Escape according to the selected literal form before composition |
 | Composite subplan | Ordered child slots for a parameter, accessor, constraint, or other repeated declaration structure | Validate and prepare every child before joining them with fixed syntax |
-| Opaque compatibility | Historical declaration text with no complete slot map | Keep on the compatibility path; bounded model-free repair is allowed, but the result cannot be labeled `Structured` |
+| Opaque compatibility | Historical declaration text with no complete slot map | Keep on the fallback compatibility path; bounded model-free repair is allowed, but the result cannot be `Representable` |
 
 A bare `string` does not establish any of these classes. The declaration plan
 records the class at construction so later code cannot silently promote an
 opaque value by passing it to a different helper. Missing evidence is not a
-value class: it selects a fixed omitted/default syntax, `Compatibility`, or
-`Unavailable` according to the declaration form.
+value class: it selects a fixed omitted/default syntax, `FallbackRequired`,
+`Degraded`, or `Unavailable` according to the declaration form.
 
 ## Normative slot inventory
 
@@ -308,6 +328,7 @@ enter composition without a catalog entry and handler.
 | --- | --- | --- |
 | Type declaration name | Type declaration name | `ApiType.DefinitionName`, `IntroducedTypeParameterCounts`, and `TypeParameters` |
 | Type declaration placement | Closed syntax | caller-issued root or exact parent identity; never inferred by comparing `Name`, `MetadataName`, or rendered text |
+| Variance inclusion | Closed syntax | public `CSharpFormatter.FormatTypeName` `includeVariance` selector |
 | Type kind | Closed syntax | `ApiType.Kind` |
 | Type accessibility | Closed syntax | `ApiType.Accessibility` |
 | Static type modifier | Closed syntax | `ApiType.IsStatic` |
@@ -360,9 +381,9 @@ options" handler does not satisfy the catalog.
 | Return attribute | Rendered fragment | `ApiSignature.ReturnAttributes` |
 | Member declaration kind | Closed syntax | `ApiMember.Kind`, constructor name, and exact finalizer discriminator |
 | Signature degradation status | Closed syntax | `ApiMember.SignatureDecodeStatus`; null means no degradation was reported, while `Degraded` refuses rendering |
-| Operator admission and spelling | Validated declaration evidence | Metadata-issued operator evidence containing exact method identity and name, `SpecialName`, staticness, and validated signature form/arity; CSharp maps the admitted name through its bounded operator catalog, including checked and conversion variants |
+| Operator admission and spelling | Declaration admission evidence | neutral Metadata-issued operator candidate containing exact method identity and name, `SpecialName`, staticness, and complete signature shape; CSharp validates form/arity and maps the admitted name through its bounded operator catalog, including checked and conversion variants |
 | Indexer token selection | Closed syntax | owner-issued `ApiSignature.MemberName == "this[]"` sentinel after property-form validation; literal punctuation in a raw metadata name cannot select it |
-| Complete accessor aggregate | Validated declaration evidence | Metadata-issued aggregate containing every associated semantic role and method identity; only complete get/set/init or add/remove aggregates admit structured C# accessor syntax |
+| Complete accessor aggregate | Declaration admission evidence | Metadata-issued aggregate containing every associated semantic role and method identity; only complete get/set/init or add/remove aggregates admit representable C# accessor syntax |
 | Member accessibility | Closed syntax | `ApiMember.Accessibility` |
 | Constant modifier | Closed syntax | `ApiMember.IsConst` |
 | Static member modifier | Closed syntax | `ApiMember.IsStatic` |
@@ -396,21 +417,22 @@ options" handler does not satisfy the catalog.
 | Accessor return attribute | Rendered fragment | `ApiAccessor.ReturnAttributes` |
 | Accessor accessibility | Closed syntax | `ApiAccessor.Accessibility` |
 | Accessor kind | Closed syntax | `ApiAccessor.Kind` |
-| Standalone accessor selection | Validated declaration evidence | typed caller selection bound to one exact child of the member's complete accessor aggregate; an arbitrary `string kind` cannot establish this slot |
+| Standalone accessor selection | Declaration admission evidence | typed caller selection bound to one exact child of the member's complete accessor aggregate; an arbitrary `string kind` cannot establish this slot |
 | Finalizer spelling mode | Closed syntax | `SuppressFinalizerSpelling` body-fidelity choice |
 | Synthesized-obsolete presence | Closed syntax | `ApiMember.IsObsolete` |
 | Obsolete message | Raw literal value | `ApiMember.ObsoleteMessage` |
 | Enum-member name | Raw identifier | exact enum field name |
 | Fixed-buffer declaration kind | Closed syntax | validated fixed-buffer form rather than an ordinary field |
-| Fixed-buffer evidence | Validated declaration evidence | Metadata-issued source-field identity and decoded `FixedBufferAttribute` evidence |
+| Fixed-buffer evidence | Declaration admission evidence | Metadata-issued source-field identity and decoded `FixedBufferAttribute` evidence |
 | Fixed-buffer element type | Type expression | typed element-type evidence from the validated fixed-buffer form |
 | Fixed-buffer name | Raw identifier | exact source-field name |
 | Fixed-buffer length | Raw literal value | validated positive fixed-buffer length |
 
 ### Compatibility slots
 
-Every compatibility path has an explicit opaque slot. A declaration cannot
-become `Compatibility` merely because a structured handler declined it.
+Every subordinate compatibility path has an explicit opaque slot. A declaration
+cannot become `FallbackRequired` merely because a structured handler declined
+it; the arm also requires the complete contained declaration.
 
 | Slot | Value class | Current source |
 | --- | --- | --- |
@@ -418,6 +440,8 @@ become `Compatibility` merely because a structured handler declined it.
 | Opaque member declaration | Opaque compatibility | `ApiMember.Signature` when no complete structured signature can be formed |
 | Combined explicit-interface name | Opaque compatibility | combined `ApiMember.Name` or `ApiSignature.MemberName` pending #5114 |
 | Display-derived type-binding context | Opaque compatibility | legacy declared/imported type full-name strings without exact definition identities |
+| Legacy operator declaration | Opaque compatibility | pre-#5164 bounded operator rewrite over compatibility signature and name text |
+| Legacy projected accessor list | Opaque compatibility | pre-#5164 `ApiSignature.Accessors` without complete semantic-association evidence |
 | Unstructured type constraint | Opaque compatibility | a `TypeParameter.Constraints` entry without structured constraint evidence |
 | Unstructured method constraint | Opaque compatibility | a method `TypeParameter.Constraints` entry without structured constraint evidence |
 
@@ -432,15 +456,15 @@ become `Compatibility` merely because a structured handler declined it.
 | Finalizer with destructor spelling suppressed | Closed body-fidelity selector plus structured `void Finalize()` method head |
 | Ordinary or extension method | Return type, simple name, method generic parameters, parameters, and constraints; extension `this` is closed syntax |
 | Explicit-interface method | Separate qualifier type expression and simple member name; pending #5114, a combined dotted string is compatibility input |
-| Property | Property type, simple name, complete accessor aggregate, and accessor children |
-| Property or indexer head with accessors omitted | The corresponding property/indexer head slots, complete accessor aggregate, and a closed omission choice; accessor child slots are deliberately absent |
-| Indexer | Property type, closed `this` token, index parameters, complete accessor aggregate, and accessor children |
-| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, complete accessor aggregate, and accessor children; structured mode is pending #5114 |
-| Event | Event type, simple name, complete accessor aggregate, and optional explicit-interface qualifier; structured explicit forms are pending #5114 |
+| Property | Property type, simple name, complete accessor aggregate, and accessor children; a representable outcome is pending #5164 |
+| Property or indexer head with accessors omitted | The corresponding property/indexer head slots, complete accessor aggregate, and a closed omission choice; accessor child slots are deliberately absent and a representable outcome is pending #5164 |
+| Indexer | Property type, closed `this` token, index parameters, complete accessor aggregate, and accessor children; a representable outcome is pending #5164 |
+| Explicit-interface property or indexer | Separate qualifier, simple name or closed `this` token, parameters, complete accessor aggregate, and accessor children; a representable outcome is pending #5114 and #5164 |
+| Event | Event type, simple name, complete accessor aggregate, and optional explicit-interface qualifier; a representable outcome is pending #5164, and explicit forms also require #5114 |
 | Field or constant | Field type and simple name |
 | Enum member | Exact member name; initializer and trailing comma are separate composer children |
 | Fixed-buffer field | Validated fixed-buffer evidence, closed `fixed` form, typed element type, exact field name, and validated length |
-| Unary, binary, conversion, or checked operator | Metadata-issued operator evidence validated from `SpecialName`, staticness, and signature form/arity, then mapped through a closed CSharp catalog with typed return/conversion target and parameters |
+| Unary, binary, conversion, or checked operator | Neutral Metadata-issued operator candidate with exact identity, name, flags, and complete signature shape; CSharp validates `SpecialName`, staticness, form/arity, and its closed token catalog; a representable outcome is pending #5164 |
 | Delegate | Return type, exact type declaration name, typed root or parent/child placement, generic parameters, parameters, and constraints |
 | Standalone accessor head | Typed selection of one exact child in the complete aggregate, accessor return attributes, accessor-specific accessibility, and closed accessor kind |
 | Abbreviated member declaration | The selected member head plus a closed abbreviation choice; omitted parameter-name, default, and accessor child slots are not treated as consumed |
@@ -458,15 +482,16 @@ and member grouping remain with #5142's complete-source composer.
 1. Build the declaration plan from known fields and explicit typed handoffs.
    The plan records each slot's semantic position and value class.
 2. Validate the form before rendering. Missing structure selects
-   `Compatibility` or `Unavailable`; it never manufactures a boundary.
+   `FallbackRequired`, `Degraded`, or `Unavailable`; it never manufactures a
+   boundary.
 3. Prepare every slot independently. Raw identities remain untouched in the
    source model.
 4. Compose prepared values only with CSharp-owned fixed syntax and layout.
 5. Issue `CSharpDeclarationText` only after every emitted artifact-derived value
    has crossed either a structured slot handler or the contained compatibility
-   boundary. Label the result `Structured` only when the complete form plan used
-   structured slots. Seal the same plan's occurrence receipt into the result;
-   no separate pass may attest which slots were consumed.
+   boundary. Return `Representable` only when the complete form plan used
+   non-opaque slots. Seal the same plan's occurrence receipt into the result; no
+   separate pass may attest which slots were consumed.
 The structured path therefore forbids:
 
 - applying identifier substitutions to the complete declaration;
@@ -497,40 +522,50 @@ may themselves contain punctuation, and equal text does not establish whether a
 generic argument is a primitive, named type, or generic parameter.
 
 Until an adjacent producer supplies the two values separately, these forms are
-`Compatibility`. Metadata issue
+`FallbackRequired` and any legacy spelling remains subordinate compatibility
+text. Metadata issue
 [#5114](https://github.com/richlander/dotnet-inspect/issues/5114)
 owns that prerequisite. This design does not specify its extraction or
 persistence mechanics.
 
-## Compatibility and migration
+## Fallback and compatibility migration
 
 `ApiMember.Signature` remains useful for older serialized surfaces and
-declaration forms whose structured facts are incomplete. Compatibility output
-may retain the current bounded lexical repairs, but it has four restrictions:
+declaration forms whose representability facts are incomplete. Subordinate
+compatibility text may retain the current bounded lexical repairs, but it has
+five restrictions:
 
-- it is explicitly labeled `Compatibility`;
+- it appears only on `FallbackRequired`;
+- it cannot replace or discard the complete contained declaration;
 - its complete output and diagnostics satisfy the same display-containment
-  invariant as structured output;
-- it cannot be converted to `Structured` after rescanning; and
+  invariant as representable output;
+- it cannot be converted to `Representable` after rescanning; and
 - consumers requiring compile-back or a structured containment claim reject it
   or surface the degradation.
 
 Migration proceeds by declaration form, not by adding another whole-string
 pass:
 
-1. introduce the result, text currency, slot catalog, and compatibility mode;
-2. route currently structured type, constructor, ordinary method, property,
-   event, field, enum-member, fixed-buffer, parameter, constraint, and accessor
-   paths through plans;
-3. consume #5114's owner-issued explicit-interface handoff before promoting
+1. introduce the four result arms, text currencies, receipt, and slot catalog;
+2. route currently structured type, constructor, ordinary method, field,
+   enum-member, fixed-buffer, parameter, and constraint paths through plans;
+3. retain pre-#5164 operator and accessor-bearing declarations as
+   `FallbackRequired` with explicit legacy opaque boundaries, then consume
+   #5164's neutral operator candidate and complete accessor aggregate before
+   promoting operator, property, indexer, event, or standalone-accessor forms
+   to `Representable`;
+4. consume #5114's owner-issued explicit-interface handoff before promoting
    those forms;
-4. remove a compatibility repair only after its final form has structured
+5. remove a compatibility repair only after its final form has representable
    coverage and close negative cases; and
-5. address #5076 separately before claiming primitive/generic alias fidelity.
+6. address #5076 separately before claiming primitive/generic alias fidelity.
 
-Existing caller-visible text remains unchanged for ordinary metadata unless a
-change is explicitly demonstrated and approved. Mode and diagnostics add
-evidence; they do not silently replace output with an empty string.
+Existing caller-visible text remains unchanged for ordinary metadata except for
+one explicit target correction: under `Qualified`, synthesized attribute
+references such as `System.Obsolete` become qualified rather than relying on an
+unreported namespace. All other changes require separate demonstration and
+approval. Outcomes, receipts, and diagnostics add evidence; they do not
+silently replace output with an empty string.
 
 ## Failure and degradation
 
@@ -548,26 +583,35 @@ Stable reasons include at least:
 - invalid closed syntax value; and
 - unsupported rendered fragment.
 
-`SignatureDecodeStatus.Degraded` always selects `Unavailable` with the degraded
-metadata signature reason. Neither a populated `ApiSignature` containing
-placeholder types nor `ApiMember.Signature` may turn it into `Structured` or
-`Compatibility`. Null status carries no degradation assertion, including for
-older persisted models, so the remaining structured or opaque evidence decides
-the outcome normally.
+Neither a populated `ApiSignature` containing placeholder types nor
+`ApiMember.Signature` may turn `SignatureDecodeStatus.Degraded` into
+`Representable` or `FallbackRequired`. Null status carries no degradation
+assertion, including for older persisted models, so the remaining structured or
+opaque evidence decides the outcome normally.
 
-An `op_` method name without validated operator evidence remains an ordinary
-method name when its ordinary method facts are representable; it never selects
-operator syntax. An aggregate containing `raise`, `Other`, an unbound semantic
-method, or a synthesized accessor is not a complete representable C# accessor
-aggregate. It may select `Compatibility` only when Metadata supplied the
-complete contained fallback and CSharp has an explicit opaque declaration
-boundary; otherwise it selects `Unavailable`. A well-formed typed standalone
-accessor selector that does not bind one exact aggregate child likewise selects
-`Unavailable`; an undefined selector enum remains a programmer error.
+An `op_` method without Metadata `SpecialName` evidence remains an ordinary
+method when its ordinary method facts are representable; its name never selects
+operator syntax. A `SpecialName` operator candidate that fails CSharp catalog,
+staticness, arity, or conversion-shape validation selects `FallbackRequired`
+rather than being relabeled as an ordinary method. An aggregate containing
+`raise`, `Other`, an unbound semantic method, or a synthesized accessor is not a
+complete representable C# accessor aggregate. It selects `FallbackRequired`
+with the complete contained declaration and every associated semantic identity.
+A well-formed typed standalone accessor selector that does not bind one exact
+aggregate child likewise selects `FallbackRequired` when the contained
+declaration is complete, or `Unavailable` only when Metadata reports an actual
+declaration failure; an undefined selector enum remains a programmer error.
 
-An `Unavailable` result is not an exception-shaped success and not an empty
-declaration. Programmer errors such as an undefined enum remain argument
-errors. Artifact-caused incompleteness is a typed result or diagnostic.
+`SignatureDecodeStatus.Degraded` selects `Degraded` and preserves the bounded
+nonauthoritative evidence allowed by the Metadata design. It never carries
+`CSharpDeclarationText`, subordinate compatibility text, or a metadata
+fallback. `Unavailable` is reserved for a Metadata declaration failure,
+including a persisted compatibility input that carries such a failure.
+
+Neither `FallbackRequired`, `Degraded`, nor `Unavailable` is an
+exception-shaped success or an empty declaration. Programmer errors such as an
+undefined enum remain argument errors. Artifact-caused incompleteness is a typed
+outcome or diagnostic.
 
 ## Verification
 
@@ -584,18 +628,19 @@ properties remain unverified:
   declaration head, or cataloged declaration subplan. It requires each to map
   to a cataloged slot or an explicit non-composer exclusion and fails when a
   convenience adapter bypasses the target result. Slot-local lexical helpers,
-  constructor-initializer fragments, and `FormatTypeUnit` aggregation are
-  enumerated exclusions rather than silently absent methods.
-- `CSharpDeclarationSlotCatalogTests.RenderedModeRequiresExactConsumedSlotSet`
+  constructor-initializer fragments, `CSharpFormatOptions.NamespacePolicy`,
+  `FormatMemberUnit`, and `FormatTypeUnit` unit composition are enumerated
+  exclusions rather than silently absent inputs.
+- `CSharpDeclarationSlotCatalogTests.ResultArmsRequireExactConsumedSlotSet`
   derives the expected slots for every form from that catalog, compares them
   with the slots actually consumed by the public composition path, and fails
   for missing, duplicate, stale, or bypassed handlers and occurrence paths.
   It asserts the same exact set through the public
-  `CSharpDeclarationReceipt`. `Structured` requires no opaque slot;
-  `Compatibility` requires every used opaque boundary to appear in the receipt
-  and at least one such boundary. Catalog/handler self-consistency alone cannot
-  issue either rendered mode.
-- `CSharpDeclarationProvenanceTests.StructuredCompositionDoesNotRescanFinalText`
+  `CSharpDeclarationReceipt`. `Representable` requires no opaque slot;
+  subordinate compatibility text on `FallbackRequired` requires every used
+  opaque boundary to appear in the receipt and at least one such boundary.
+  Catalog/handler self-consistency alone cannot issue either arm.
+- `CSharpDeclarationProvenanceTests.RepresentableCompositionDoesNotRescanFinalText`
   uses colliding identifiers inside a default literal, attribute argument,
   return type, qualifier, and member name to prove substitutions stay in their
   slots.
@@ -606,13 +651,14 @@ properties remain unverified:
   is the #5076 gate and remains pending until that issue supplies provenance;
   it covers type- and method-owned references in bases, interfaces, constraints,
   fields, returns, and parameters.
-- `CSharpDeclarationProvenanceTests.EveryDeclarationFormHasExpectedModeAndNeighborCases`
+- `CSharpDeclarationProvenanceTests.EveryDeclarationFormHasExpectedOutcomeAndNeighborCases`
   derives every row of the form inventory and verifies its expected
-  `Structured`, `Compatibility`, or `Unavailable` outcome, including
-  every type kind and root/nested placement, constructors, properties, indexers,
-  events, operators, fields, both finalizer spellings, bases, interfaces,
-  constraints, standalone accessor heads, enum-member and fixed-buffer heads,
-  abbreviated/head-only declarations, and terminated declarations.
+  `Representable`, `FallbackRequired`, `Degraded`, or `Unavailable` outcome,
+  including every type kind and root/nested placement, constructors,
+  properties, indexers, events, operators, fields, both finalizer spellings,
+  bases, interfaces, constraints, standalone accessor heads, enum-member and
+  fixed-buffer heads, abbreviated/head-only declarations, and terminated
+  declarations.
 - `CSharpDeclarationProvenanceTests.ClosedSyntaxSelectorsHaveNeighborCoverage`
   varies each formatter option and metadata discriminator independently,
   including required-member presence, inherited `TypeParameter.TypeKind`,
@@ -620,19 +666,22 @@ properties remain unverified:
   synthesized-obsolete presence and inclusion, operator and indexer selection,
   signature degradation, body-required and forced modifiers, abbreviation,
   accessor omission, standalone accessor selection, attribute inclusion,
-  enum-member and fixed-buffer form selection, and termination;
+  variance inclusion, enum-member and fixed-buffer form selection, and
+  termination;
   each pair must change only its declared slot set and output syntax.
-- `CSharpDeclarationProvenanceTests.OperatorAdmissionRequiresValidatedMetadataEvidence`
+- `CSharpDeclarationProvenanceTests.OperatorAdmissionValidatesMetadataCandidate`
   remains pending on #5164, then
   uses otherwise identical operator names with and without `SpecialName`,
-  staticness, valid arity, and valid conversion shape. Only Metadata-issued
-  validated evidence can select operator syntax; an `op_` prefix never can.
+  staticness, valid arity, and valid conversion shape. Metadata supplies neutral
+  candidate evidence; only CSharp validation can select operator syntax, and an
+  `op_` prefix never can.
 - `CSharpDeclarationProvenanceTests.AccessorAggregateMustBeCompleteAndRepresentable`
   remains pending on #5164, then
   pairs ordinary getter/setter and add/remove aggregates with metadata
   `raise`/`Other`, missing association identities, and synthesized fallback
-  accessors. Unsupported or incomplete aggregates select the owning
-  compatibility/degradation outcome rather than structured property or event
+  accessors. Unsupported but complete aggregates select `FallbackRequired`
+  with every contained association; degraded or failed aggregates preserve
+  their owning outcome rather than emitting representable property or event
   syntax.
 - `CSharpDeclarationProvenanceTests.StandaloneAccessorSelectionBindsExactChild`
   proves that each typed selection resolves to one aggregate child and that an
@@ -652,9 +701,9 @@ properties remain unverified:
   declaration context selects an exact child leaf while mismatched parent
   identity, namespace, or segment depth and an unsupported standalone nested
   request return `Unavailable`.
-- `CSharpDeclarationProvenanceTests.LegacyFlattenedTypeNameWithLiteralPunctuationIsNotStructured`
+- `CSharpDeclarationProvenanceTests.LegacyFlattenedTypeNameWithLiteralPunctuationIsNotRepresentable`
   proves that `ApiType.Name` cannot stand in for exact definition-name segments.
-- `CSharpDeclarationProvenanceTests.TypeNameArityOwnershipIsRequiredForStructuredNestedGenerics`
+- `CSharpDeclarationProvenanceTests.TypeNameArityOwnershipIsRequiredForRepresentableNestedGenerics`
   exercises exact nested segments, per-segment parameter ownership, malformed
   arity, and the legacy fallback.
 - `CSharpDeclarationProvenanceTests.NamespaceSpellingDoesNotClaimMetadataSegments`
@@ -666,14 +715,25 @@ properties remain unverified:
   covers zero, one, duplicate, missing, and stale namespace requirements under
   `Qualified`, `ShortWithUsings`, and `ContextualShort`, and compares the exact
   returned set with every reference the public declaration path shortened.
+- `CSharpDeclarationProvenanceTests.QualifiedSynthesizedAttributesRemainQualified`
+  demonstrates the intentional compatibility-path change from `[Obsolete]` to
+  `[System.Obsolete]`, verifies an empty required-namespace set, and covers a
+  neighboring explicitly imported attribute under the shortening modes.
 - `CSharpDeclarationProvenanceTests.MissingStructureIsVisible`
-  proves that each target failure selects `Compatibility` or `Unavailable`,
-  never `Structured` or success-shaped empty output.
-- `CSharpDeclarationProvenanceTests.DegradedSignatureNeverRenders`
+  proves that each target failure selects `FallbackRequired`, `Degraded`, or
+  `Unavailable`, never `Representable` or success-shaped empty output, and that
+  fallback and degradation payloads retain the Metadata-owned facts.
+- `CSharpDeclarationProvenanceTests.MetadataRepresentabilityOutcomeIsLossless`
+  exercises all four source outcomes through the public CSharp boundary,
+  asserts set equality for every contained fallback fact, preserves the exact
+  degradation status and bounded evidence, and proves that only an actual
+  Metadata declaration failure becomes `Unavailable`.
+- `CSharpDeclarationProvenanceTests.DegradedSignaturePreservesEvidenceWithoutRendering`
   pairs null and `Degraded` status with otherwise identical populated
   structured and opaque signatures, proving that only the null neighbor may
-  render and that degraded placeholders always return `Unavailable`.
-- `CSharpDeclarationProvenanceTests.StructuredOutputContainsTheMetadataConfusionFixture`
+  render and that degraded placeholders return `Degraded` with bounded
+  evidence but no declaration or compatibility text.
+- `CSharpDeclarationProvenanceTests.RepresentableOutputContainsTheMetadataConfusionFixture`
   remains pending on #5134's scalar policy, then
   resolves the immutable version named by
   `PackageFixtures.proj`'s `MetadataConfusionFixtureVersion` property and runs
@@ -682,16 +742,17 @@ properties remain unverified:
   cross-slot literal-collision specimen IDs, and the gate asserts those IDs
   before checking inert, single-declaration output. #5114 adds
   explicit-interface specimens in its owner effort.
-- `CSharpDeclarationProvenanceTests.CompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`
+- `CSharpDeclarationProvenanceTests.FallbackCompatibilityOutputAndDiagnosticsContainTheMetadataConfusionFixture`
   remains pending on #5134, then forces opaque compatibility declarations and
-  artifact-derived diagnostics and verifies that both are inert and line-safe.
+  artifact-derived diagnostics, verifies that both are inert and line-safe,
+  and asserts the complete contained fallback independently.
 - `CSharpDeclarationProvenanceTests.DiagnosticsUseClosedReasonsAndInertDetails`
   proves independently of #5134 that every diagnostic reason is a closed enum,
   every optional detail is an `InertString` constructed under
   `TextPolicy.Field`, and no raw artifact name enters an ordinary message
   string.
 - `CSharpDeclarationProvenanceTests.FinalizerSpellingModePreservesBodyFidelity`
-  covers destructor syntax and the structured literal-`Finalize` alternative
+  covers destructor syntax and the representable literal-`Finalize` alternative
   selected when body fidelity suppresses destructor reconstruction.
 - `CSharpDeclarationProvenanceTests.BodyRequiredModifiersHaveIndependentReceipts`
   varies body-required and formatter-forced `async`/`unsafe` independently and
@@ -728,5 +789,6 @@ This owner does not define:
 The full scalar-containment policy is likewise not defined here; #5134 owns it.
 
 It also does not promise that every ECMA-335 declaration is representable in
-C#. `Compatibility` and `Unavailable` are intentional outcomes where the input
-does not support the structured claim.
+C#. `FallbackRequired`, `Degraded`, and `Unavailable` are intentional,
+evidence-preserving outcomes where the input does not support authoritative
+CSharp declaration text.

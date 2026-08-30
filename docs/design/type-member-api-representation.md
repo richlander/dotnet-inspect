@@ -90,7 +90,7 @@ binding is unverified pending
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | Current `CSharpFormattedDeclaration` and formatter string results | One model-bound declaration request | Current C# display text, namespace imports, and available diagnostics | Metadata identity, slot provenance, structured-versus-compatibility fidelity, or body correspondence |
-| Target `CSharpDeclarationResult`, `CSharpDeclarationReceipt`, and `CSharpDeclarationText` | One declaration plan | Whether CSharp rendered classified slots, emitted compatibility text, or refused; rendered outcomes carry final presentation text, exact namespace requirements, and typed occurrence receipts | Metadata extraction, identity, API serialization, call-graph correspondence, or proof that the declaration compiles |
+| Target `CSharpDeclarationResult`, `CSharpDeclarationReceipt`, `CSharpDeclarationText`, and `CSharpCompatibilityText` | One declaration plan | The required `Representable`, `FallbackRequired`, `Degraded`, or `Unavailable` outcome; representable declarations carry final text, exact namespace requirements, and typed occurrence receipts, while fallback preserves contained facts before optional compatibility text | Metadata extraction, identity, API serialization, call-graph correspondence, or proof that the declaration compiles |
 
 The target currencies and their slot inventory are owned by
 [C# structured declaration provenance](csharp-structured-declaration-provenance.md).
