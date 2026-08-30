@@ -556,6 +556,21 @@ jobs:
               exit 1
             fi
           done
+          negative_results="$RUNNER_TEMP/ts-jsexport-negative-tests.xml"
+          dotnet run --project tests/ILInspector.JsExportSurface.Tests \
+            -c Release --no-build -- \
+            -method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
+            -method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
+            -xml "$negative_results"
+          for method in \
+            Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
+            Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling
+          do
+            if ! grep -Fq "method=\"$method\"" "$negative_results"; then
+              echo "::error::ts-jsexport negative gate '$method' did not run." >&2
+              exit 1
+            fi
+          done
 
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
