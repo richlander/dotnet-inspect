@@ -91,12 +91,16 @@ keeps both closable.
 
 ## Keep specifications readable; model interactions
 
-Design specifications own detailed requirements, component boundaries, and
-policies. Keep them readable as prose and typed contracts; do not turn them
-into unconventional EBNF-like descriptions of operational behavior. When a
-feature's correctness depends on significant stateful, concurrent, distributed,
-or scheduling interactions, use a small TLA+ model that states the relevant
-safety and liveness properties, and model-check it before implementation. (See
+Design documents state the smallest contract needed to guide implementation and
+review: the owner's boundary, observable obligations, invariants, failure
+semantics, and non-claims. They do not narrate current fields, methods, branches,
+or execution steps, and they prescribe an implementation only when that choice
+is itself part of the contract. Code implements the contract; do not duplicate
+it in words.
+
+When correctness depends on significant stateful, concurrent, distributed, or
+scheduling interactions, use a small TLA+ model that states the relevant safety
+and liveness properties, and model-check it before implementation. (See
 [`docs/runbooks/tla-plus-setup.md`](runbooks/tla-plus-setup.md) for installing
 and pinning the TLA+ tools and Java, and
 [`docs/tla-plus-methodology.md`](tla-plus-methodology.md) for modeling

@@ -232,12 +232,12 @@ Full mechanics, the composition-document rules, TLA+ modeling guidance, and the
 over-broad-design recovery procedure live in
 [`docs/design-scope.md`](docs/design-scope.md). The binding rules:
 
-- Default every design effort to exactly one architectural owner with a named
-  owning document. A focused design may reference an adjacent owner's types but
-  must not redefine that owner's construction, validation, identity, lifetime,
-  or failure semantics. One bounded exception allows a single-claim transfer of
-  one cohesive responsibility between two owners; any other cross-owner change
-  needs two focused efforts connected by a thin composition map.
+- Default every design effort to one named architectural owner. A focused design
+  may reference adjacent owner-issued types but must not redefine another
+  owner's contract; beyond the single-claim transfer exception, cross-owner
+  normative changes need focused efforts joined by a thin composition map.
+- State boundaries and contracts as simply as possible. Never translate
+  implementation into prose or prescribe it; code implements the contract.
 - A **broad design** normatively specifies multiple independently owned
   components (outside that one exception) or sweeps an end-to-end lifecycle.
   Do not start or broaden into one without the user's explicit request or
