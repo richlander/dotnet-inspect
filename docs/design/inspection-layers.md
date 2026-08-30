@@ -78,14 +78,15 @@ body-signal comparison, unsafe-evidence, top-leverage, resource-triage,
 Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, group-scoped PDB-mapped-or-decompiled type/member source, immutable
-package-manifest facts, bounded package-prefix profiles, and product-owned
-nuspec package-query facets. Package dependency selection, package-prefix
-profiles, and package-query facets consume the same validated manifest-facts
-query. The package-query contract owns ordered opaque facet descriptors, typed
-selection validation, ANDed evaluation, inert evidence, distinct candidate and
-match bounds, and typed completion without choosing a renderer. This contract
-is gated by `PackageQueryTests` and the
+slices, seeded structural-clone retrieval, group-scoped
+PDB-mapped-or-decompiled type/member source, immutable package-manifest facts,
+bounded package-prefix profiles, and product-owned nuspec package-query facets.
+Package dependency selection, package-prefix profiles, and package-query facets
+consume the same validated manifest-facts query. The package-query contract
+owns ordered opaque facet descriptors, typed selection validation, ANDed
+evaluation, inert evidence, distinct candidate and match bounds, and typed
+completion without choosing a renderer. This contract is gated by
+`PackageQueryTests` and the
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` consumer canary. The
 profile's L2 `Packages` section owns package/dependency row grain, schema,
 projection, and visible failure or truncation evidence; `find` retains only
