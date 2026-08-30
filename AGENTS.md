@@ -24,10 +24,9 @@ documentation.
   push, and open its PR without separate approval. Once eligible, round 1 and
   replacements inside the current six-round block dispatch automatically; only
   a new block requires approval. Merge remains separately authorized.
-- **Review normally runs alongside CI.** Every round attempts one current-head
-  status snapshot; ordinary rounds continue when status is unavailable, every
-  third may wait up to 60 minutes, and every sixth requires green CI and
-  mergeability before approval. Markdown-only rounds never wait for CI.
+- **Review normally runs alongside CI.** Normally each round tries status;
+  ordinary rounds continue if unavailable, every third may wait 60 minutes, and
+  every sixth needs green CI/mergeability. Markdown-only review never waits.
 - **Complicated features need extraordinary evidence and pre-work** before
   code is written: corpus evidence, an established oracle, a TLA+ model, or a
   spec developed with close user input are examples of high-value levers.
@@ -380,8 +379,9 @@ the replacement head. These are the binding invariants; the rest of this
 section and [round orchestration](docs/round-orchestration.md) explain them.
 
 1. **One frozen head per round.** The lock begins at the push and ends only
-   when the round closes (reconciled *and* green) or recovery supersedes the
-   attempt. Do not edit a locked head; fixes belong to the next cycle.
+   when the round closes (reconciled, local gates green, and status cadence
+   satisfied) or recovery supersedes the attempt. Do not edit a locked head;
+   fixes belong to the next cycle.
 2. **A candidate includes its effective base.** Integrate twice before pushing
    — once before fixing, once after — because the fix window is long enough for
    `main` to move.
@@ -392,14 +392,14 @@ section and [round orchestration](docs/round-orchestration.md) explain them.
 5. **Never claim merge readiness from label state alone.** Confirm current-head
    CI and GitHub's live mergeability immediately before every merge attempt,
    even when `review-clean` is present.
-6. **A round closes only when reconciled and its applicable gates are green.**
-   Every round attempts current-head status. Known-red `ci-required` blocks;
-   pending, missing, rate-limited, or transient status does not block an
-   ordinary round. Every third round follows
+6. **A round closes only when reconciled, its applicable local gates are green,
+   and its status cadence is satisfied.** Absent a standing adjustment, every
+   round tries current-head status. Required CI failure blocks; unresolved
+   status does not block ordinary closure. Every third round follows
    [Bounded status waiting](docs/round-orchestration.md#bounded-status-waiting).
    At non-boundary rounds, a Markdown-only PR's gate is pre-commit
-   `markdownlint`; do not wait for CI before review. A gate failure requiring an
-   author change restarts the *same* round.
+   `markdownlint`; its final CI gate follows the detailed transition. A gate
+   failure requiring an author change restarts the *same* round.
 7. **Six rounds, then stop** and ask for another block.
 8. **Never merge without explicit user authorization** for that specific PR.
    Auto-merge armed at the user's direction is that authorization; see
@@ -413,7 +413,7 @@ definition live in
 essentials: integrate the effective base, make the change, run the focused
 gate, integrate again, push to lock the head, satisfy the eligibility row,
 dispatch reviewers, reconcile publicly, and close only when reconciliation and
-the applicable gates are green.
+the applicable local gates and status cadence are satisfied.
 
 ### Recovery transitions
 
@@ -555,9 +555,9 @@ Put it under `## Demo` above validation in the PR body.
   changes; see [GitHub API operations](docs/github-api-operations.md) for the
   exact commands and the `-F`/`-f` distinction that matters for PR bodies.
 - For non-Markdown-only PRs, run the focused gate, push promptly, and start
-  eligible local suites and CI concurrently. Attempt one status snapshot before
-  reviewer dispatch; pending or unavailable status does not block an ordinary
-  round, while every third round uses the bounded wait. Follow
+  eligible local suites and CI concurrently. Follow the round's status cadence:
+  pending or unavailable status does not block an ordinary round, while every
+  third round uses the bounded wait. Follow
   [GitHub status queries](docs/github-status-queries.md) instead of polling. If
   an hour passes without an authored change while an independent gate hasn't
   started, fix the sequencing or record the blocker.

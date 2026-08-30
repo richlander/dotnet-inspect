@@ -51,7 +51,7 @@ or the work appears to need multiple normative owners.
 | --- | --- | --- |
 | First attempt at round 1 | Pushed settled head, recorded effective base, focused gate, one status attempt, and no observed conflict | CI and mergeability |
 | Ordinary subsequent round | First-attempt requirements, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
-| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
+| Conflict-recovery attempt | Resolution head pushed, one status attempt, round number authorized, and no observed conflict | Post-push local gates, CI, mergeability |
 | Failed-gate restart | Required fix pushed, one status attempt, and no observed conflict | CI and mergeability subject to [Bounded status waiting](#bounded-status-waiting) |
 | Six-round boundary approval | Fresh green current-head `ci-required` and definite positive mergeability | Nothing |
 
@@ -164,16 +164,17 @@ values.
 
 *This section defines repository policy, not GitHub timing guarantees.*
 
-Every round attempts one current-head snapshot. At rounds not divisible by
-three, pending, missing, rate-limited, or transient status does not block
-reviewer dispatch: record it and continue the current review path. Every third
-round, and any merge or readiness goal, instead enters a status budget of up to
-60 minutes; expiry publishes the status report and stops without dispatch or
-goal completion. Every sixth round uses that budget, but fresh green
-current-head `ci-required` and positive mergeability remain prerequisites for
-the next-block approval prompt. A known conflict, required CI completed without
-success, or terminal query failure still takes its transition. Measure the
-budget from the first scheduled wait and publish `status-deadline=<UTC>`.
+Absent a standing adjustment in `AGENTS.md`, every round attempts one
+current-head snapshot. At rounds not divisible by three, pending, missing,
+rate-limited, or transient status does not block reviewer dispatch or round
+closure: record it and continue. Every third round, and any merge or readiness
+goal, instead enters a status budget of up to 60 minutes; expiry publishes the
+status report and stops without dispatch or goal completion. Every sixth round
+uses that budget, but fresh green current-head `ci-required` and positive
+mergeability remain prerequisites for the next-block approval prompt. A known
+conflict, required CI completed without success, or terminal query failure
+still takes its transition. Measure the budget from the first scheduled wait
+and publish `status-deadline=<UTC>`.
 
 Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
