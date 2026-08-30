@@ -417,6 +417,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             try
             {
                 int read = inner.Read(buffer, offset, count);
+                ThrowIfCallerDisposed();
                 ThrowIfDeadlineExpired();
                 if (read == 0 && count > 0)
                 {
@@ -444,6 +445,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             try
             {
                 int read = inner.Read(buffer);
+                ThrowIfCallerDisposed();
                 ThrowIfDeadlineExpired();
                 if (read == 0 && !buffer.IsEmpty)
                 {
@@ -489,6 +491,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                     .ConfigureAwait(false);
                 if (cancellationToken.IsCancellationRequested)
                     throw new OperationCanceledException(cancellationToken);
+                ThrowIfCallerDisposed();
                 await ThrowIfDeadlineExpiredAsync().ConfigureAwait(false);
                 if (read == 0 && !buffer.IsEmpty)
                 {
@@ -555,6 +558,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
             try
             {
                 int value = inner.ReadByte();
+                ThrowIfCallerDisposed();
                 ThrowIfDeadlineExpired();
                 if (value < 0)
                 {
@@ -782,8 +786,7 @@ internal sealed class NuGetOperationDeadline : IDisposable
                 or IOException
                 or HttpRequestException
                 or TimeoutException
-            || exception is ObjectDisposedException
-                && Volatile.Read(ref _disposeStarted) != 0
+                or ObjectDisposedException
             || IsDeadlineExpired()
                 && NuGetOperationDeadline.IsDeadlineAbort(exception);
 

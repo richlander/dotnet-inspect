@@ -1310,6 +1310,9 @@ The implementation gates are:
 - `PackageSourceClientTests.PayloadCallerCancellationDoesNotRetainTransportFailure`;
 - `PackageSourceClientTests.PayloadDisposalFailureRetainsSafeSourceIdentity`;
 - `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesOutstandingRead`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalEofTranslatesOutstandingRead`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesSynchronousEof`;
+- `PackageSourceClientTests.PayloadObjectDisposedFailureRetainsSafeSourceIdentity`;
 - `PackageSourceClientTests.PayloadReadAfterDisposalRemainsObjectDisposed`;
   and
 - `PackageSourceClientTests.PayloadAsyncDisposalFailureRetainsSafeSourceIdentity`.

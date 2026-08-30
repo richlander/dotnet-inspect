@@ -4509,6 +4509,144 @@ public sealed class PackageSourceClientTests
         Assert.Null(error.InnerException);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PayloadConcurrentDisposalEofTranslatesOutstandingRead(
+        bool disposeAsync)
+    {
+        var inner = new DisposalReturnsEofPayloadStream();
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(inner),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        Stream content = payload.Content;
+        Task<int> read = content.ReadAsync(
+                new byte[1],
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await inner.ReadStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        if (disposeAsync)
+            await content.DisposeAsync();
+        else
+            content.Dispose();
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => read);
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.Null(error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PayloadConcurrentDisposalTranslatesSynchronousEof(
+        bool disposeAsync)
+    {
+        var inner = new DisposalReturnsEofPayloadStream();
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(inner),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        Stream content = payload.Content;
+        Task<int> read = Task.Run(
+            () => content.Read(new byte[1], 0, 1),
+            TestContext.Current.CancellationToken);
+        await inner.ReadStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        if (disposeAsync)
+            await content.DisposeAsync();
+        else
+            content.Dispose();
+
+        PackageSourceStreamException error =
+            await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => read);
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.Null(error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PayloadObjectDisposedFailureRetainsSafeSourceIdentity(
+        bool readAsync)
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryPackage,
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new ObjectDisposedPayloadStream()),
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await using Stream content = payload.Content;
+
+        PackageSourceStreamException error;
+        if (readAsync)
+        {
+            error = await Assert.ThrowsAsync<PackageSourceStreamException>(
+                () => content.ReadAsync(
+                    new byte[1],
+                    TestContext.Current.CancellationToken).AsTask());
+        }
+        else
+        {
+            error = Assert.Throws<PackageSourceStreamException>(
+                () => content.ReadByte());
+        }
+
+        Assert.Equal(runtime.Identity, error.Producer);
+        Assert.Equal(runtime.Kind, error.TransportKind);
+        Assert.Equal(PackageSourceFailureKind.Transport, error.Kind);
+        Assert.Null(error.Timeout);
+        Assert.False(error.CleanupFailed);
+        Assert.Null(error.InnerException);
+        Assert.DoesNotContain(
+            "secret.example",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PayloadReadAfterDisposalRemainsObjectDisposed()
     {
@@ -5272,6 +5410,100 @@ public sealed class PackageSourceClientTests
                 _disposed.TrySetResult();
             base.Dispose(disposing);
         }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class DisposalReturnsEofPayloadStream : Stream
+    {
+        private readonly TaskCompletionSource _disposed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReadStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count)
+        {
+            ReadStarted.TrySetResult();
+            _disposed.Task.GetAwaiter().GetResult();
+            return 0;
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            ReadStarted.TrySetResult();
+            await _disposed.Task;
+            return 0;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _disposed.TrySetResult();
+            base.Dispose(disposing);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class ObjectDisposedPayloadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new ObjectDisposedException(
+                "https://secret.example/package");
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(
+                new ObjectDisposedException(
+                    "https://secret.example/package"));
 
         public override void Flush() => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) =>
