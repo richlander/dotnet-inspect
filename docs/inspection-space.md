@@ -481,10 +481,13 @@ throwing compatibility behavior. New retained or shared hosts instead use an
 explicit asynchronous construction path whose close is awaitable and reports
 every terminal result.
 
-`DisposeAsync` awaits the same close completion and exposes its report through
-the workspace rather than throwing expected cleanup failures that could replace
-a primary exception from an `await using` body. Callers that need to branch on
-cleanup use `CloseAsync` and inspect its returned report.
+On an asynchronous workspace, `DisposeAsync` awaits the same close completion
+and exposes its report through the workspace rather than throwing expected
+cleanup failures that could replace a primary exception from an `await using`
+body. On a synchronous-compatibility workspace, `DisposeAsync` performs the
+same release request as `Dispose()` so generic asynchronous disposal remains
+compatible. Callers that need to branch on cleanup use `CloseAsync` and inspect
+its returned report.
 
 Lifetime-mode enforcement is fail-before-mutation. A
 synchronous-compatibility workspace rejects construction that requires an
@@ -514,46 +517,48 @@ abstract completions; their internal contracts remain owned by
 [`AssemblyContextGroupLifecycle.tla`](models/assembly-context-group-lifecycle/AssemblyContextGroupLifecycle.tla).
 The model checks the target design, not current implementation conformance.
 
-The current implementation is narrower. `InspectionWorkspace` is synchronous
-`IDisposable`, stores raw groups in one list, and directly disposes every
-registered group. `PackageAssemblyContextRoles` independently disposes the
-same role groups. Group creation checks workspace state before and after
-construction, but a group completed after disposal is immediately disposed and
-cannot join an awaited cleanup result. There is no admission ticket, shared
-release completion, asynchronous workspace report, or coordinated-release
-exclusion. The existing group-internal callback quiescence remains valid; this
-gap is the workspace-level composition above it.
+The direct-group foundation is implemented. The parameterless constructor
+retains synchronous compatibility. `CreateAsynchronous()` selects the awaited
+lifetime before admission, `CloseAsync()` returns one shared
+`Task<InspectionWorkspaceCloseReport>`, `DisposeAsync()` awaits that task, and
+`CloseReport` exposes the same immutable report after completion. Each direct
+group has one release completion. An asynchronous workspace captures cleanup
+failure as `InspectionWorkspaceGroupCloseResult.Failure`; synchronous
+compatibility continues to throw the same cleanup failure while requesting the
+same group-owned release.
 
-The target is unverified until Release gates prove:
+The direct implementation is enforced by these Release gates:
 
 - `WorkspaceClose_RejectsAdmissionAndRoutesLateGroupToRelease` closes admission
-  atomically and prevents a construction result from publishing after close;
-- `WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce` proves that
-  direct and coordinated paths converge on one terminal authority without
-  independent workspace disposal of a coordinated group;
-- `WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease`
-  proves a lease holder can start and finish group work after workspace close
-  begins and that release remains unavailable until the lease returns;
-- `WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport`
-  proves explicit adjacent-owner close can remove a coordinated group from
-  active workspace use before workspace close while preserving its historical
-  registration and terminal result;
-- `WorkspaceClose_NoGroupFailureSettlesAdmissionWithoutCleanupEntry` proves
-  failed or canceled construction after admission cannot strand close and does
-  not invent a group cleanup record;
+  atomically, prevents a late construction result from publishing, and retains
+  its cleanup result;
+- `WorkspaceClose_NoGroupFailureSettlesAdmissionWithoutCleanupEntry` proves a
+  construction failure after admission cannot strand close or invent a group
+  cleanup record;
 - `WorkspaceClose_AwaitsAllGroupCompletionsAndReportsEveryFailure` proves
   callback/group quiescence, attempt-all cleanup, stable ordering, and complete
-  typed failure retention;
+  failure retention;
 - `WorkspaceClose_ConcurrentCallersShareCompletionAndReportInstance` proves
-  repeated and concurrent close calls join one completion and receive the same
+  repeated and concurrent close calls join one task and receive the same
   immutable report object;
-- `WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority` proves the
-  synchronous package-role adapter requests the same owner-issued completion,
-  never independently disposes the group, and preserves fail-before-mutation
-  rejection for asynchronous-only construction; and
+- `WorkspaceDispose_CompatibilityUsesSharedReleaseAuthority` proves
+  asynchronous `Dispose()` rejection is fail-before-mutation and synchronous
+  compatibility retains its throwing behavior through the group-owned release
+  completion; and
 - `WorkspaceClose_BrowserWasmUsesAwaitedProgressWithoutThreadBlocking` proves
-  the supported single-threaded host path reaches terminal close without a
-  blocking wait or background-thread requirement.
+  close rejects new work immediately, preserves an already-admitted callback,
+  and reaches terminal close through awaited progress without a blocking wait
+  or background-thread requirement.
+
+Coordinated package-role adoption remains unverified. The current
+`PackageAssemblyContextRoles` path independently disposes its role groups and
+does not yet supply the owner-issued participation and completion contracts
+required above. These remaining Release gates belong to that adjacent
+composition:
+
+- `WorkspaceClose_DirectAndCoordinatedGroupsReleaseExactlyOnce`;
+- `WorkspaceClose_ExistingCoordinatedLeaseRemainsUsableUntilOwnerRelease`; and
+- `WorkspaceClose_OwnerFirstReleaseDeactivatesRegistrationAndRetainsReport`.
 
 This contract does not define package admission keys, cache policy, package
 selection, role planning, participant projection, package cleanup-record shape,
