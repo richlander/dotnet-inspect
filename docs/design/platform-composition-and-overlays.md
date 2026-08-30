@@ -549,22 +549,33 @@ Unrelated package, project, sibling, discovered, or other name-owning tiers and
 their typed failures remain outside this arbitration and cannot be bypassed by
 a role-bearing candidate.
 
-A delegated policy can join this composition only with a closed candidate
-registration domain and exact `AssemblyBindingPolicyVersion` captured at
-policy formation. Every registration in that domain must already be present in
-the sealed group and role snapshot; otherwise formation rejects the policy as
-incomplete role evidence. The captured delegate version and domain contribute
-to the outer `AssemblyBindingPolicyVersion`, so replacing a delegate, changing
-its version, or changing its domain requires a new outer version.
+Policy formation captures the exact mapping from each participant registration
+to its delegated policy and `AssemblyBindingPolicyVersion`. That mapping
+contributes to the outer `AssemblyBindingPolicyVersion`, so replacing a
+delegate, reassigning it to another participant, or changing its version
+requires a new outer version before any delegated answer can change.
 
-A delegated result cannot add a registration after sealing or acquire
-authority from its provenance. Returning a registration outside the captured
-domain produces a stable per-request
-`InvalidRoleEvidence(UndeclaredRegistration)` result with no selection, shadow,
-registration, or group mutation. It does not retroactively revoke the outer
-policy version: the failure is the deterministic answer under that captured
-delegate version. The delegated policy's existing `Unavailable` and `Rejected`
-outcomes remain authoritative and cannot be bypassed by role precedence.
+A selected or ambiguous result from the requesting participant's delegated
+policy joins designated/platform arbitration only when every returned candidate
+identifies a registration in the sealed group and carries one of those roles in
+the snapshot. Those in-group registrations are classified from the snapshot,
+never from provenance.
+
+When any returned candidate is outside the group or has no designated/platform
+role, the delegated result remains an adjacent-policy outcome in full. It is
+not reclassified, added to the group, or recorded as an inactive shadow, and
+its selection or ambiguity is not bypassed by an in-group role candidate.
+Returning an outside-group candidate is not invalid role evidence because the
+adjacent policy owns that candidate. The delegated policy's existing
+`Unavailable` and `Rejected` outcomes likewise remain authoritative. A
+delegated `Missing` result contributes no candidate and does not prevent
+otherwise eligible in-group role arbitration.
+
+Preserving an adjacent result does not authorize it as designated or platform
+in this group. A target delegated policy that performs its own
+designated/platform arbitration must consume its own owner-issued role
+snapshot; a provenance-based legacy delegate remains migration input only and
+cannot contribute authority to this policy.
 
 Existing #4593 fixtures that construct a designated or platform delegated
 candidate outside the initial participant array must declare and admit that
@@ -583,10 +594,10 @@ enumeration cannot change the selected registration, shadows, ambiguity, or
 failure.
 
 The policy version is binding-consistent with exactly that group, role
-snapshot, and set of captured delegate versions and domains. Repeated equal
-requests under the version return the same selection instance. A different
-group, context generation, registration set, role set, delegate version, or
-delegate domain requires a different policy version; evidence cannot be
+snapshot, and registration-to-delegate-version mapping. Repeated equal requests
+under the version return the same selection instance. A different group,
+context generation, registration set, role set, delegate assignment, or
+delegate version requires a different policy version; evidence cannot be
 rebound or mixed across versions.
 
 ### Migration boundary
@@ -625,17 +636,21 @@ authority-bearing field to it.
   absent-snapshot, foreign-generation, stale-generation, ended-generation,
   wrong-group, missing-registration, extra-registration, duplicate-input,
   altered-role-set, and contradictory evidence cases and proves no policy
-  version, selection, shadow, or provenance fallback survives.
-- `WorkspaceRoleBinding_DelegateVersionsAndDomainsAreCaptured` proves each
-  delegate version and closed candidate domain contributes to the outer policy
-  version and cannot change while that version remains active.
-- `WorkspaceRoleBinding_UndeclaredDelegateResultFailsWithoutMutation` proves a
-  result outside the captured delegate domain returns the stable typed failure
-  without selection, shadows, registration, group mutation, or fallback.
+  version, selection, shadow, group mutation, or provenance fallback survives.
+- `WorkspaceRoleBinding_DelegateVersionsAreCaptured` proves every delegated
+  policy assignment and version contributes to the outer policy version and
+  cannot change while that outer version remains active.
+- `WorkspaceRoleBinding_DelegatedOutcomesPreserveAdjacentPolicy` covers
+  selected and ambiguous results containing in-group role registrations,
+  outside-group registrations, and in-group registrations without an authority
+  role. Only an all-role-bearing in-group result joins arbitration; every other
+  result and every typed delegated failure remains the adjacent policy's exact
+  outcome without group mutation, role translation, or inactive-shadow
+  promotion.
 - `WorkspaceRoleBinding_PolicyVersionBindsExactGroupAndRoleSnapshot` proves
   one immutable snapshot returns stable answers and any group, generation,
-  registration, role, delegate-version, or delegate-domain change requires a
-  new version.
+  registration, role, delegate-assignment, or delegate-version change requires
+  a new version.
 - `WorkspaceRoleBinding_LegacyAndRoleFixturesProduceEquivalentOutcomes`
   runs every #4593 precedence and failure fixture against the replacement
   policy, using the current implementation only as a test oracle.
@@ -653,11 +668,12 @@ authority-bearing field to it.
 The
 [platform overlay resolution model](models/platform-overlay-resolution/README.md)
 explores role-snapshot formation and validation, candidate registration order,
-captured delegate domains and results, designated/platform arbitration,
-unruled ties, shadow evidence, incidental version equality, and attributed
-compatibility failure at traversal. Source provenance is absent from the
-model's selection inputs. Its assumptions, bounds, checked properties, and
-mutation controls are recorded beside the executable specification.
+designated/platform arbitration, unruled ties, shadow evidence, incidental
+version equality, and attributed compatibility failure at traversal. Source
+provenance is absent from the model's selection inputs. Delegated-policy
+composition remains an implementation-boundary gate. The model's assumptions,
+bounds, checked properties, and mutation controls are recorded beside the
+executable specification.
 
 TLC results are evidence about the model, not the implementation. Formal
 model-to-implementation correspondence remains unverified.

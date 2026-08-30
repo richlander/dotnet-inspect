@@ -19,13 +19,11 @@ CONSTANTS
     NoCandidate,
     SelectionMode,
     TraversalMode,
-    RoleValidationMode,
-    DelegateValidationMode
+    RoleValidationMode
 
 Candidates == {DesignatedOne, DesignatedTwo, Platform, Unentitled}
 CanonicalDesignatedCandidates == {DesignatedOne, DesignatedTwo}
 CanonicalPlatformCandidates == {Platform}
-DelegatedCandidate == DesignatedTwo
 References == {ExactReference, SkewedReference}
 Members == {AvailableMember, UnavailableMember}
 TraversalRequests == References \X Members
@@ -54,10 +52,8 @@ ASSUME
         {"Policy", "RejectSkew", "SuppressFailure"}
     /\ RoleValidationMode \in
         {"Policy", "IgnoreOwnerProjection", "LegacyFallback"}
-    /\ DelegateValidationMode \in {"Policy", "IgnoreDomain"}
 
-Phases ==
-    {"Registering", "Snapshotted", "Loaded", "Resolved", "Traversed"}
+Phases == {"Registering", "Loaded", "Resolved", "Traversed"}
 ResolutionFailures ==
     {"Pending", "None", "NoMatch", "Ambiguous", "InvalidRoleEvidence"}
 TraversalOutcomes ==
@@ -159,8 +155,6 @@ VARIABLES
     roleGeneration,
     roleDomain,
     roleAssignments,
-    delegateDomain,
-    delegateResult,
     loadWarning,
     selection,
     shadowed,
@@ -169,8 +163,8 @@ VARIABLES
 
 vars ==
     <<phase, registration, roleEvidenceMode, roleGroup, roleGeneration,
-      roleDomain, roleAssignments, delegateDomain, delegateResult,
-      loadWarning, selection, shadowed, resolutionFailure, traversal>>
+      roleDomain, roleAssignments, loadWarning, selection, shadowed,
+      resolutionFailure, traversal>>
 
 RoleEvidenceStructurallyValid ==
     RoleEvidenceValidAt(
@@ -211,36 +205,11 @@ PlatformCandidatesFor(sequence) ==
 EntitledCandidatesFor(sequence) ==
     DesignatedCandidatesFor(sequence) \union PlatformCandidatesFor(sequence)
 
-DirectCandidates(sequence) ==
-    RegisteredSet(sequence) \ {DelegatedCandidate}
-
-DelegateResultValidAt(domain, result, sequence) ==
-    /\ domain \subseteq RegisteredSet(sequence)
-    /\ domain \subseteq {DelegatedCandidate}
-    /\ result = NoCandidate \/ result \in domain
-
-DelegateResultStructurallyValid ==
-    DelegateResultValidAt(delegateDomain, delegateResult, registration)
-
-DelegateResultAccepted ==
-    IF DelegateValidationMode = "Policy"
-    THEN DelegateResultStructurallyValid
-    ELSE TRUE
-
-ActiveCandidatesAt(sequence, domain, result) ==
-    DirectCandidates(sequence)
-        \union
-        IF result = NoCandidate THEN {} ELSE {result}
-
-ActiveCandidates(sequence) ==
-    ActiveCandidatesAt(sequence, delegateDomain, delegateResult)
-
 \* Every modeled candidate has the requested name and can bind under the
 \* adjacent identity policy. Authority comes only from the accepted snapshot.
 EligibleFor(sequence, reference) ==
-    {candidate \in ActiveCandidates(sequence):
+    {candidate \in RegisteredSet(sequence):
         /\ RoleEvidenceAccepted
-        /\ DelegateResultAccepted
         /\ candidate \in EntitledCandidatesFor(sequence)
         /\ reference \in References}
 
@@ -301,7 +270,7 @@ CandidateFor(sequence, reference) ==
             VersionSensitiveCandidate(sequence, reference)
 
 FailureFor(sequence, reference) ==
-    IF ~RoleEvidenceAccepted \/ ~DelegateResultAccepted
+    IF ~RoleEvidenceAccepted
     THEN "InvalidRoleEvidence"
     ELSE
         IF CandidateFor(sequence, reference) # NoCandidate
@@ -318,35 +287,20 @@ ShadowedFor(sequence, reference) ==
         THEN {}
         ELSE EligibleFor(sequence, reference) \ {selected}
 
-KnownSkewAt(
-        sequence,
-        reference,
-        roleDomainValue,
-        assignments,
-        delegateDomainValue,
-        delegateResultValue) ==
-    LET active ==
-            ActiveCandidatesAt(
-                sequence,
-                delegateDomainValue,
-                delegateResultValue)
-    IN
+KnownSkewAt(sequence, reference, domain, assignments) ==
     /\ reference = SkewedReference
-    /\ {candidate \in active:
-            CallerDesignated
-                \in RolesAt(roleDomainValue, assignments, candidate)}
+    /\ {candidate \in RegisteredSet(sequence):
+            CallerDesignated \in RolesAt(domain, assignments, candidate)}
         # {}
-    /\ {candidate \in active:
-            PlatformAuthorized
-                \in RolesAt(roleDomainValue, assignments, candidate)}
+    /\ {candidate \in RegisteredSet(sequence):
+            PlatformAuthorized \in RolesAt(domain, assignments, candidate)}
         # {}
 
 KnownSkewFor(sequence, reference) ==
     /\ RoleEvidenceAccepted
-    /\ DelegateResultAccepted
     /\ reference = SkewedReference
-    /\ ActiveCandidates(sequence) \cap DesignatedCandidatesFor(sequence) # {}
-    /\ ActiveCandidates(sequence) \cap PlatformCandidatesFor(sequence) # {}
+    /\ DesignatedCandidatesFor(sequence) # {}
+    /\ PlatformCandidatesFor(sequence) # {}
 
 AvailableInPlatform(member) ==
     member = AvailableMember
@@ -364,8 +318,6 @@ Init ==
     /\ roleDomain = {}
     /\ roleAssignments =
         [candidate \in Candidates |-> {}]
-    /\ delegateDomain = {}
-    /\ delegateResult = NoCandidate
     /\ loadWarning = [reference \in References |-> FALSE]
     /\ selection = [reference \in References |-> NoCandidate]
     /\ shadowed = [reference \in References |-> {}]
@@ -380,23 +332,31 @@ Register(candidate) ==
     /\ registration' = Append(registration, candidate)
     /\ UNCHANGED
         <<phase, roleEvidenceMode, roleGroup, roleGeneration, roleDomain,
-          roleAssignments, delegateDomain, delegateResult, loadWarning,
-          selection, shadowed,
+          roleAssignments, loadWarning, selection, shadowed,
           resolutionFailure, traversal>>
 
 FinishLoadWith(mode, group, generation, domain, assignments) ==
     /\ phase = "Registering"
-    /\ phase' = "Snapshotted"
+    /\ phase' = "Loaded"
     /\ roleEvidenceMode' = mode
     /\ roleGroup' = group
     /\ roleGeneration' = generation
     /\ roleDomain' = domain
     /\ roleAssignments' = assignments
     /\ loadWarning' =
-        [reference \in References |-> FALSE]
+        [reference \in References |->
+            IF RoleEvidenceValidAt(
+                mode,
+                group,
+                generation,
+                domain,
+                assignments,
+                registration)
+            THEN KnownSkewAt(
+                registration, reference, domain, assignments)
+            ELSE FALSE]
     /\ UNCHANGED
-        <<registration, delegateDomain, delegateResult, selection, shadowed,
-          resolutionFailure, traversal>>
+        <<registration, selection, shadowed, resolutionFailure, traversal>>
 
 FinishLoad ==
     \/ FinishLoadWith(
@@ -462,39 +422,6 @@ FinishLoad ==
                 RegisteredSet(registration),
                 ContradictoryRoleAssignments(witness))
 
-FinishDelegateWith(domain, result) ==
-    /\ phase = "Snapshotted"
-    /\ phase' = "Loaded"
-    /\ delegateDomain' = domain
-    /\ delegateResult' = result
-    /\ loadWarning' =
-        [reference \in References |->
-            IF /\ RoleEvidenceStructurallyValid
-               /\ DelegateResultValidAt(domain, result, registration)
-            THEN KnownSkewAt(
-                registration,
-                reference,
-                roleDomain,
-                roleAssignments,
-                domain,
-                result)
-            ELSE FALSE]
-    /\ UNCHANGED
-        <<registration, roleEvidenceMode, roleGroup, roleGeneration,
-          roleDomain, roleAssignments, selection, shadowed,
-          resolutionFailure, traversal>>
-
-FinishDelegate ==
-    \/ FinishDelegateWith({}, NoCandidate)
-    \/ /\ DelegatedCandidate \in RegisteredSet(registration)
-       /\ FinishDelegateWith({DelegatedCandidate}, NoCandidate)
-    \/ /\ DelegatedCandidate \in RegisteredSet(registration)
-       /\ FinishDelegateWith(
-            {DelegatedCandidate},
-            DelegatedCandidate)
-    \/ /\ DelegatedCandidate \in RegisteredSet(registration)
-       /\ FinishDelegateWith({}, DelegatedCandidate)
-
 Resolve ==
     /\ phase = "Loaded"
     /\ phase' = "Resolved"
@@ -509,8 +436,7 @@ Resolve ==
             FailureFor(registration, reference)]
     /\ UNCHANGED
         <<registration, roleEvidenceMode, roleGroup, roleGeneration, roleDomain,
-          roleAssignments, delegateDomain, delegateResult, loadWarning,
-          traversal>>
+          roleAssignments, loadWarning, traversal>>
 
 TraversalFor(reference, member) ==
     IF resolutionFailure[reference] # "None"
@@ -540,14 +466,12 @@ Traverse ==
             TraversalFor(request[1], request[2])]
     /\ UNCHANGED
         <<registration, roleEvidenceMode, roleGroup, roleGeneration, roleDomain,
-          roleAssignments, delegateDomain, delegateResult, loadWarning,
-          selection, shadowed,
+          roleAssignments, loadWarning, selection, shadowed,
           resolutionFailure>>
 
 Next ==
     (\/ \E candidate \in Candidates : Register(candidate))
     \/ FinishLoad
-    \/ FinishDelegate
     \/ Resolve
     \/ Traverse
 
@@ -555,7 +479,6 @@ Spec ==
     /\ Init
     /\ [][Next]_vars
     /\ WF_vars(FinishLoad)
-    /\ WF_vars(FinishDelegate)
     /\ WF_vars(Resolve)
     /\ WF_vars(Traverse)
 
@@ -568,8 +491,6 @@ TypeOK ==
         {CurrentGeneration, ForeignGeneration, StaleGeneration, NoGeneration}
     /\ roleDomain \subseteq Candidates
     /\ roleAssignments \in [Candidates -> SUBSET WorkspaceRoles]
-    /\ delegateDomain \subseteq Candidates
-    /\ delegateResult \in Candidates \union {NoCandidate}
     /\ loadWarning \in [References -> BOOLEAN]
     /\ selection \in [References -> Candidates \union {NoCandidate}]
     /\ shadowed \in [References -> SUBSET Candidates]
@@ -581,7 +502,6 @@ SelectedCandidatesAreEntitled ==
         selection[reference] # NoCandidate =>
             /\ selection[reference] \in EntitledCandidatesFor(registration)
             /\ selection[reference] \in RegisteredSet(registration)
-            /\ selection[reference] \in ActiveCandidates(registration)
 
 SelectedCandidatesUseSnapshotRoles ==
     phase \in {"Resolved", "Traversed"} =>
@@ -606,16 +526,6 @@ InvalidRoleEvidenceIsRejected ==
                     /\ shadowed[reference] = {}
                     /\ resolutionFailure[reference] =
                         "InvalidRoleEvidence")
-
-UndeclaredDelegateResultIsRejected ==
-    (/\ phase \in {"Resolved", "Traversed"}
-     /\ ~DelegateResultStructurallyValid)
-    =>
-        \A reference \in References:
-            /\ selection[reference] = NoCandidate
-            /\ shadowed[reference] = {}
-            /\ resolutionFailure[reference] =
-                "InvalidRoleEvidence"
 
 SelectionMatchesFailure ==
     phase \in {"Resolved", "Traversed"} =>
