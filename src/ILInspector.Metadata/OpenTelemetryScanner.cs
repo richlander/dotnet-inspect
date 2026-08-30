@@ -10,7 +10,14 @@ namespace ILInspector.Metadata;
 public record OpenTelemetrySignalInfo(
     string Kind,
     string Name,
-    string Shape = IntegrationSignalShape.Type);
+    string Shape = IntegrationSignalShape.Type)
+{
+    public IntegrationConceptDescriptor GetConcept() =>
+        IntegrationConceptCatalog.OpenTelemetry;
+
+    public IntegrationProducerPolicyDescriptor GetProducerPolicy() =>
+        IntegrationConceptCatalog.OpenTelemetryObserved;
+}
 
 /// <summary>
 /// Scans assembly metadata for OpenTelemetry packages and .NET diagnostics primitives.

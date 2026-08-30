@@ -18,8 +18,14 @@ internal static class EcosystemIntegrationPresenceBuilder
         };
 
         var signals = EcosystemIntegrationProjection.Scan(reader);
-        foreach (var integration in signals.Select(signal => signal.Integration).Distinct(StringComparer.Ordinal))
-            MarkIntegrationPresence(presence, integration);
+        foreach (IntegrationConceptDescriptor concept in signals
+            .Select(signal => signal.GetConcept())
+            .OfType<IntegrationConceptDescriptor>()
+            .Distinct<IntegrationConceptDescriptor>(
+                ReferenceEqualityComparer.Instance))
+        {
+            MarkIntegrationPresence(presence, concept);
+        }
 
         presence.IntegrationCount = signals
             .Select(signal => signal.Integration)
@@ -47,21 +53,27 @@ internal static class EcosystemIntegrationPresenceBuilder
         ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(signals);
 
-        string[] integrations =
+        EcosystemIntegrationSignalInfo[] materialized = [.. signals];
+        IntegrationConceptDescriptor[] concepts =
         [
-            .. signals
-                .Select(static signal => signal.Integration)
-                .Distinct(StringComparer.Ordinal),
+            .. materialized
+                .Select(static signal => signal.GetConcept())
+                .OfType<IntegrationConceptDescriptor>()
+                .Distinct<IntegrationConceptDescriptor>(
+                    ReferenceEqualityComparer.Instance),
         ];
         var presence = new MutablePresence
         {
             HasOpenTelemetrySupport = hasOpenTelemetrySupport
         };
-        foreach (string integration in integrations)
-            MarkIntegrationPresence(presence, integration);
+        foreach (IntegrationConceptDescriptor concept in concepts)
+            MarkIntegrationPresence(presence, concept);
 
         presence.IntegrationCount =
-            integrations.Length
+            materialized
+                .Select(signal => signal.Integration)
+                .Distinct(StringComparer.Ordinal)
+                .Count()
             + (hasOpenTelemetrySupport ? 1 : 0);
 
         if (MetadataFormatAdmission.AdmitImage(peReader))
@@ -83,47 +95,34 @@ internal static class EcosystemIntegrationPresenceBuilder
         return presence.ToImmutable();
     }
 
-    private static void MarkIntegrationPresence(MutablePresence presence, string integration)
+    private static void MarkIntegrationPresence(
+        MutablePresence presence,
+        IntegrationConceptDescriptor concept)
     {
-        switch (integration)
-        {
-            case EcosystemIntegrationNames.AI:
-                presence.HasAISupport = true;
-                break;
-            case EcosystemIntegrationNames.AspNetCore:
-                presence.HasAspNetCoreSupport = true;
-                break;
-            case EcosystemIntegrationNames.Aspire:
-                presence.HasAspireSupport = true;
-                break;
-            case EcosystemIntegrationNames.Authentication:
-                presence.HasAuthenticationSupport = true;
-                break;
-            case EcosystemIntegrationNames.Configuration:
-                presence.HasConfigurationSupport = true;
-                break;
-            case EcosystemIntegrationNames.DependencyInjection:
-                presence.HasDependencyInjectionSupport = true;
-                break;
-            case EcosystemIntegrationNames.Logging:
-                presence.HasLoggingSupport = true;
-                break;
-            case EcosystemIntegrationNames.OpenAPI:
-                presence.HasOpenApiSupport = true;
-                break;
-            case EcosystemIntegrationNames.Options:
-                presence.HasOptionsSupport = true;
-                break;
-            case EcosystemIntegrationNames.Hosting:
-                presence.HasHostingSupport = true;
-                break;
-            case EcosystemIntegrationNames.HealthChecks:
-                presence.HasHealthChecksSupport = true;
-                break;
-            case EcosystemIntegrationNames.HttpClient:
-                presence.HasHttpClientSupport = true;
-                break;
-        }
+        if (ReferenceEquals(concept, IntegrationConceptCatalog.AI))
+            presence.HasAISupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.AspNetCore))
+            presence.HasAspNetCoreSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.Aspire))
+            presence.HasAspireSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.Authentication))
+            presence.HasAuthenticationSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.Configuration))
+            presence.HasConfigurationSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.DependencyInjection))
+            presence.HasDependencyInjectionSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.Logging))
+            presence.HasLoggingSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.OpenAPI))
+            presence.HasOpenApiSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.Options))
+            presence.HasOptionsSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.Hosting))
+            presence.HasHostingSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.HealthChecks))
+            presence.HasHealthChecksSupport = true;
+        else if (ReferenceEquals(concept, IntegrationConceptCatalog.HttpClient))
+            presence.HasHttpClientSupport = true;
     }
 
     private static void MarkTypePresence(MutablePresence presence, string typeName)
