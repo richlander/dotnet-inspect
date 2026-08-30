@@ -1385,6 +1385,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         // nothing, so the later type covers both rows on its own and
         // coverage alone accepts a MethodList column that is not a
         // partition. Only the range-length check rejects this image.
+        Assert.Equal(
+            [-1, 2],
+            MeasureMethodRangeLengths(image));
+
         var failed = Assert.IsType<
             AssemblyContextStructuralCloneRetrievalResult.Failed>(
                 Execute(
@@ -1569,6 +1573,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         // range-length check accepts the column and coverage is the only
         // thing that rejects it. Ordering is a joint property of the two
         // checks; this pins the half that the length check cannot see.
+        Assert.Equal(
+            [0, 1],
+            MeasureMethodRangeLengths(image));
+
         var failed = Assert.IsType<
             AssemblyContextStructuralCloneRetrievalResult.Failed>(
                 Execute(
@@ -3319,8 +3327,9 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
 
     /// <summary>
     /// Builds an assembly whose module TypeDef starts after the type
-    /// that follows it, so its range descends and SRM reports it as
-    /// empty while the later type still covers every MethodDef row.
+    /// that follows it, so its range descends. SRM reports that range
+    /// with a negative length while enumerating nothing, which is why
+    /// the later type can still cover every MethodDef row on its own.
     /// </summary>
     static byte[] BuildDescendingMethodListAssembly()
     {

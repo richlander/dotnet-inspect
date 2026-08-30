@@ -325,14 +325,14 @@ The
 `Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection`, and
 `Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` gates cover those
 boundaries.
-Removing the range-length check fails the three descending cases and the
-start-past-projected-table case, though not in the same way: the descending
-cases are then *accepted* as `Available`, which is the silent-acceptance
-failure the check exists to prevent, while the start-past-projected-table case
-is still rejected by coverage under a different message. The range-length
-check's unique safety contribution therefore rests on the descending cases; the
-start-past-projected-table case exists to reach the end of the derived bound,
-not to show an otherwise-silent acceptance. Removing
+Removing the range-length check fails five cases, though not in the same way:
+the three descending cases are then *accepted* as `Available`, which is the
+silent-acceptance failure the check exists to prevent, while the
+start-past-projected-table and null-after-populated-run cases are still
+rejected by coverage under a different message. The range-length
+check's unique safety contribution therefore rests on the descending cases;
+the other two exist to reach the end of the derived bound and to pin the
+leading-null restriction, not to show an otherwise-silent acceptance. Removing
 coverage fails the start-past-row-1 case; removing the `MethodPtr` row-count
 and TypeDef-presence guards each fails one more.
 
