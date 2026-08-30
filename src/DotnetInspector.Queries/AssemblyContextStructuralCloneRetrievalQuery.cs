@@ -581,13 +581,21 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
             matches++;
         }
 
+        // A rejected sibling cannot be shown to decode to a different
+        // anchor, so a single healthy match does not establish
+        // uniqueness. Surface the metadata failure rather than return a
+        // confident result that a successful decode might have made
+        // ambiguous.
+        if (rejected is not null)
+        {
+            throw new BadImageFormatException(
+                "A MethodDef could not be inspected while resolving "
+                    + "the exact seed member.",
+                rejected);
+        }
+
         return matches switch
         {
-            0 when rejected is not null =>
-                throw new BadImageFormatException(
-                    "A MethodDef could not be inspected while resolving "
-                        + "the exact seed member.",
-                    rejected),
             0 => SeedResolution.Failed(
                     StructuralCloneQueryFailureKind.SeedMemberNotFound,
                     "The exact seed member does not exist in the selected seed type."),
@@ -832,10 +840,38 @@ public static class AssemblyContextStructuralCloneRetrievalQuery
     /// valid <c>MethodPtr</c> table is itself a permutation of the
     /// MethodDef rows.
     /// </para>
+    /// <para>
+    /// The projection alone does not prove that permutation, because a
+    /// <c>MethodPtr</c> row that no TypeDef range covers is never
+    /// projected and so is never checked. An unreachable row still
+    /// changes what SRM reports for a reachable method, because
+    /// declaring-type lookup scans <c>MethodPtr</c> for the first row
+    /// naming a MethodDef and can land on the uncovered row. Requiring
+    /// equal row counts closes that gap: with every projected row
+    /// distinct, in range, and covering the MethodDef table, equal
+    /// counts leave no <c>MethodPtr</c> row uncovered.
+    /// </para>
     /// </remarks>
     static void ValidateMethodOwnership(MetadataReader reader)
     {
+        if (reader.GetTableRowCount(TableIndex.TypeDef) == 0)
+        {
+            throw new BadImageFormatException(
+                "The image declares no TypeDef rows, so it lacks the "
+                    + "module pseudo-type that owns module-wide "
+                    + "methods.");
+        }
+
         int methodRows = reader.GetTableRowCount(TableIndex.MethodDef);
+        int methodPtrRows =
+            reader.GetTableRowCount(TableIndex.MethodPtr);
+        if (methodPtrRows != 0 && methodPtrRows != methodRows)
+        {
+            throw new BadImageFormatException(
+                "The MethodPtr table is not a permutation of the "
+                    + "MethodDef table.");
+        }
+
         var owned = new HashSet<MethodDefinitionHandle>();
         foreach (TypeDefinitionHandle type in reader.TypeDefinitions)
         {

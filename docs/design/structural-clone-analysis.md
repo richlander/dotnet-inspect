@@ -314,9 +314,28 @@ The
 `Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection`,
 `Execute_OutOfRangeMethodProjectionIsAVisibleRejection`,
 `Execute_DuplicateProjectionSeedMemberIsAMetadataRejection`,
-`Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection`, and
-`Execute_MalformedMethodRangeIsAVisibleRejection` gates cover those
-boundaries. Removing the ownership check fails all seven.
+`Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection`,
+`Execute_MalformedMethodRangeIsAVisibleRejection`,
+`Execute_UncoveredMethodPtrRowIsAVisibleRejection`, and
+`Execute_TypeDeflessImageIsAVisibleRejection` gates cover those boundaries.
+Removing the ownership check fails seven of them; removing the `MethodPtr`
+row-count and TypeDef-presence guards each fails one more.
+
+Covering the MethodDef table does not by itself prove the `MethodPtr` table is
+a permutation of it, because a row that no TypeDef range reaches is never
+projected and so is never checked. Such a row still changes what the reader
+reports for a reachable method, since declaring-type lookup scans `MethodPtr`
+for the first row naming a MethodDef and can land on the uncovered row.
+Requiring equal row counts closes that gap: with every projected row distinct,
+in range, and covering the MethodDef table, equal counts leave no `MethodPtr`
+row uncovered.
+
+Resolving the exact seed member has a matching obligation. A sibling MethodDef
+whose anchor cannot be decoded is not evidence that it names a different
+member, so a lone healthy match does not establish uniqueness and must not be
+reported as resolved. `Execute_RejectedSeedSiblingIsAVisibleRejection` gates
+that a rejected sibling surfaces as a metadata failure rather than a confident
+result that a successful decode might have made ambiguous.
 
 ## Correspondence and automorphisms
 

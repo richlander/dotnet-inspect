@@ -912,10 +912,12 @@ repeated-container-attribute, and rejected-TypeSpec-attribute cases gate the
 pre-retrieval work ceilings and visible metadata-failure boundary. Its
 type-name decode-failure case gates the decode-failure ceiling, paired with a
 below-ceiling case that proves isolated malformed neighbors remain tolerable.
-Seven cases gate whole-image method ownership across the type-scoped,
+Nine cases gate whole-image method ownership across the type-scoped,
 whole-assembly same-image, whole-assembly cross-image, and member-seed paths,
 covering duplicate, out-of-range, cross-type aliased, and silently empty
-projections.
+projections, an uncovered `MethodPtr` row, and metadata declaring no TypeDef
+rows. A tenth case gates uniqueness of the exact seed member, which a rejected
+sibling leaves unproven.
 
 Other domain catalogs, query authorization, concurrent execution, and broader
 command migration remain later slices.

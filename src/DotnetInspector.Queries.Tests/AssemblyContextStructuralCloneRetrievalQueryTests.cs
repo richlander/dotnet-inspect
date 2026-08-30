@@ -1329,6 +1329,135 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     }
 
     [Fact]
+    public void Execute_UncoveredMethodPtrRowIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildUncoveredMethodPtrAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // The projected rows still cover MethodDef exactly once, so
+        // coverage alone accepts an image carrying MethodPtr rows that
+        // no TypeDef range reaches.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation.Type(
+                            TypeName("N.Fixture")))));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "not a permutation",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_TypeDeflessImageIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildTypeDeflessAssembly());
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // Empty ranges over an empty MethodDef table satisfy coverage
+        // vacuously, so the seed would otherwise read as merely absent.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed
+                            .MethodDefinitionToken(
+                                MetadataTokens.GetToken(
+                                    MetadataTokens
+                                        .MethodDefinitionHandle(1))),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Contains(
+            "no TypeDef rows",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
+    public void Execute_RejectedSeedSiblingIsAVisibleRejection()
+    {
+        ImmutableArray<byte> image =
+            ImmutableCollectionsMarshal.AsImmutableArray(
+                BuildBrokenSiblingAssembly());
+        using var peReader = new PEReader(image);
+        MetadataReader reader = peReader.GetMetadataReader();
+        MemberAnchor anchor =
+            ApiMemberIdentity.CreateMethodAnchorInfo(
+                reader,
+                MetadataTokens.TypeDefinitionHandle(2),
+                reader.GetMethodDefinition(
+                    MetadataTokens.MethodDefinitionHandle(1)),
+                isExtensionMethod: false).Anchor;
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            Group(workspace, image, policy);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        // The healthy method matches, but the rejected sibling might
+        // have decoded to the same anchor, so a single match does not
+        // establish uniqueness and must not read as resolved.
+        var failed = Assert.IsType<
+            AssemblyContextStructuralCloneRetrievalResult.Failed>(
+                Execute(
+                    new(
+                        group,
+                        participant,
+                        group,
+                        participant,
+                        new StructuralCloneQuerySeed.Member(
+                            TypeName("C"),
+                            anchor),
+                        new StructuralCloneQueryPopulation
+                            .WholeAssembly())));
+
+        Assert.Equal(
+            StructuralCloneQueryFailureKind.MetadataInspectionFailed,
+            failed.Failure.Kind);
+        Assert.Equal(
+            StructuralCloneQueryParticipantRole.Seed,
+            failed.Failure.Role);
+        Assert.Contains(
+            "could not be inspected",
+            failed.Failure.Detail);
+    }
+
+    [Fact]
     public void Execute_MalformedSeedImageIsAVisibleSeedRejection()
     {
         ImmutableArray<byte> candidateImage =
@@ -2068,6 +2197,9 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     static byte[] BuildMethodPtrAssembly(
         ushort firstRow,
         ushort secondRow)
+        => BuildMethodPtrAssembly([firstRow, secondRow]);
+
+    static byte[] BuildMethodPtrAssembly(ushort[] rows)
     {
         var metadata = new MetadataBuilder();
         var bodies = new BlobBuilder();
@@ -2120,10 +2252,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
         pe.Serialize(image);
-        return InsertMethodPtrTable(
-            image.ToArray(),
-            firstRow,
-            secondRow);
+        return InsertMethodPtrTable(image.ToArray(), rows);
     }
 
     /// <summary>
@@ -2134,9 +2263,10 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     /// </summary>
     static byte[] InsertMethodPtrTable(
         byte[] image,
-        ushort firstRow,
-        ushort secondRow)
+        ushort[] rows)
     {
+        int growth = 4 + (2 * rows.Length);
+        Assert.Equal(0, growth % 4);
         int metadataStart;
         int metadataSize;
         using (var peReader = new PEReader(
@@ -2203,13 +2333,12 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
 
         contents["#~"] = GrowTablesWithMethodPtr(
             contents["#~"],
-            firstRow,
-            secondRow);
+            rows);
         byte[] originalUserStrings = contents["#US"];
         Assert.True(
-            originalUserStrings.Length >= 12,
+            originalUserStrings.Length >= growth + 4,
             "#US is too small to reclaim padding from.");
-        var trimmed = new byte[originalUserStrings.Length - 8];
+        var trimmed = new byte[originalUserStrings.Length - growth];
         Array.Copy(
             originalUserStrings,
             trimmed,
@@ -2264,8 +2393,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
     /// </summary>
     static byte[] GrowTablesWithMethodPtr(
         byte[] tables,
-        ushort firstRow,
-        ushort secondRow)
+        ushort[] rows)
     {
         Assert.Equal(0, tables[6] & 0x07);
         ulong valid = ReadUInt64At(tables, 8);
@@ -2309,7 +2437,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
                 MethodPtrFixtureRowSize(table, counts) * counts[table];
         }
 
-        var grown = new byte[tables.Length + 8];
+        var grown = new byte[tables.Length + 4 + (2 * rows.Length)];
         Array.Copy(tables, 0, grown, 0, 24);
         WriteUInt64At(
             grown,
@@ -2321,7 +2449,7 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
         {
             if (i == insertAt)
             {
-                WriteInt32At(grown, write, 2);
+                WriteInt32At(grown, write, rows.Length);
                 write += 4;
             }
 
@@ -2334,20 +2462,23 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
 
         if (insertAt == present.Count)
         {
-            WriteInt32At(grown, write, 2);
+            WriteInt32At(grown, write, rows.Length);
             write += 4;
         }
 
         int source = 24 + (4 * present.Count);
         Array.Copy(tables, source, grown, write, methodDefStart);
         int inserted = write + methodDefStart;
-        WriteUInt16At(grown, inserted, firstRow);
-        WriteUInt16At(grown, inserted + 2, secondRow);
+        for (int i = 0; i < rows.Length; i++)
+        {
+            WriteUInt16At(grown, inserted + (2 * i), rows[i]);
+        }
+
         Array.Copy(
             tables,
             source + methodDefStart,
             grown,
-            inserted + 4,
+            inserted + (2 * rows.Length),
             tables.Length - source - methodDefStart);
         return grown;
     }
@@ -2814,6 +2945,97 @@ public sealed class AssemblyContextStructuralCloneRetrievalQueryTests
             metadata.GetOrAddBlob(signature),
             body,
             MetadataTokens.ParameterHandle(1));
+    }
+
+    /// <summary>
+    /// Builds an assembly whose MethodPtr table carries more rows than
+    /// the MethodDef table, so a row no TypeDef range covers escapes
+    /// projection while the projected rows still cover MethodDef.
+    /// </summary>
+    static byte[] BuildUncoveredMethodPtrAssembly() =>
+        BuildMethodPtrAssembly([1, 2, 1, 2]);
+
+    /// <summary>
+    /// Builds metadata with no TypeDef rows at all, so it lacks the
+    /// mandatory module pseudo-type.
+    /// </summary>
+    static byte[] BuildTypeDeflessAssembly()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "TypeDefless",
+            new Guid("6B1C0A55-2E4D-4F0A-9C77-13D8E5A96C42"));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    /// <summary>
+    /// Builds a type holding one healthy method and one sibling whose
+    /// signature blob cannot be decoded, so the seed scan sees a match
+    /// and a rejection in the same type.
+    /// </summary>
+    static byte[] BuildBrokenSiblingAssembly()
+    {
+        MetadataBuilder metadata = CreateMetadata(
+            "BrokenSibling",
+            new Guid("D2F4A0E7-88B3-4C6E-9A15-7C0E3B45D918"));
+        var bodies = new BlobBuilder();
+        var encoder = new MethodBodyStreamEncoder(bodies);
+        MethodDefinitionHandle healthy =
+            AddSyntheticMethod(metadata, encoder, "Seed");
+
+        var code = new BlobBuilder();
+        code.WriteByte(0x2A);
+        int body = encoder.AddMethodBody(
+            new InstructionEncoder(code),
+            maxStack: 0);
+
+        // A method signature that claims one parameter and then ends,
+        // so decoding the sibling throws while the healthy method above
+        // still matches the seed anchor.
+        var malformed = new BlobBuilder();
+        malformed.WriteByte(0x00);
+        malformed.WriteByte(0x01);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Broken"),
+            metadata.GetOrAddBlob(malformed),
+            body,
+            MetadataTokens.ParameterHandle(1));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: healthy);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Class | TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: healthy);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     sealed class TestBindingPolicy : IAssemblyBindingPolicy
