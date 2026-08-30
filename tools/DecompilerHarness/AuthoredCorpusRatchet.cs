@@ -1094,11 +1094,11 @@ static class AuthoredCorpusExitContract
     ///
     /// <para>All three are named because they produce identical-looking exit codes and
     /// a caller can otherwise select one by accident. That is not hypothetical: the
-    /// weekly lane was first wired with no baseline in order to get an integrity-only
+    /// scheduled lane was first wired with no baseline in order to get an integrity-only
     /// gate, and silently got <see cref="Perfection"/> instead — a contract the corpus
-    /// cannot satisfy, so the job would have failed every week forever and filed an
-    /// issue each time. Permanently red reports exactly as much as permanently green.
-    /// Making the choice explicit is what stops the next caller repeating it.</para>
+    /// cannot satisfy, so every scheduled run would have failed forever and filed an
+    /// issue. Permanently red reports exactly as much as permanently green. Making the
+    /// choice explicit is what stops the next caller repeating it.</para>
     /// </summary>
     internal enum QualityContract
     {
@@ -1118,7 +1118,7 @@ static class AuthoredCorpusExitContract
         /// <summary>
         /// The caller asked for measurement integrity only, so the exit code makes no
         /// quality claim whatsoever. Legitimate for a lane that cannot yet ratchet
-        /// (see the weekly caller and #3353), and reported in the run output and JSON
+        /// (see the scheduled caller and #3353), and reported in the run output and JSON
         /// so a green result cannot be misread as a quality pass.
         /// </summary>
         NotJudged,
@@ -1155,10 +1155,10 @@ static class AuthoredCorpusExitContract
     /// <para>A skip is not evidence of a regression — but it is not evidence of
     /// anything else either, and exiting 0 on it would rebuild the exact defect this
     /// file exists to remove: a gate that reports success having compared nothing. The
-    /// weekly caller makes that concrete. Its pool is resolved from current top-N
-    /// package versions, so it <em>will</em> drift from the recorded manifest; on a
-    /// green skip the job would then pass forever while measuring nothing, and the
-    /// silence would look exactly like health.</para>
+    /// scheduled caller makes that concrete. Its pool and corpus identities are
+    /// explicit, so an unrecorded pin or methodology refresh can leave it without a
+    /// comparable row; on a green skip the job would then pass forever while measuring
+    /// nothing, and the silence would look exactly like health.</para>
     ///
     /// <para>So passing <c>--ratchet-baseline</c> is a demand for a verdict, and "I
     /// could not produce one" is a failure of that demand. The remedy is a corpus
