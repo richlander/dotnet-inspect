@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -1799,7 +1800,24 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     evidence.Integration);
                 Assert.Same(
                     IntegrationConceptCatalog.AI,
-                    evidence.Concept);
+                    evidence.GetConcept());
+                evidence.Deconstruct(
+                    out _,
+                    out _,
+                    out string integration,
+                    out _);
+                Assert.Equal(EcosystemIntegrationNames.AI, integration);
+                Assert.Same(
+                    IntegrationConceptCatalog.Logging,
+                    (evidence with
+                    {
+                        Integration = EcosystemIntegrationNames.Logging,
+                    }).GetConcept());
+                string json = JsonSerializer.Serialize(evidence);
+                Assert.Contains(
+                    $"\"Integration\":\"{EcosystemIntegrationNames.AI}\"",
+                    json);
+                Assert.DoesNotContain("\"Concept\":", json);
                 Assert.Equal(
                     "AsIChatClient",
                     evidence.Member.MemberName);
@@ -1849,6 +1867,30 @@ public sealed class InspectionGraphIntegrationsQueryTests
         Assert.Equal(
             "Azure.AI.OpenAI.AzureOpenAIClient",
             TypeName(opportunityOccurrence.SourceSubject));
+        var opportunityEvidence =
+            Assert.IsType<InspectionGraphOpportunityEvidence>(
+                opportunityOccurrence.Evidence);
+        Assert.Same(
+            IntegrationConceptCatalog.AI,
+            opportunityEvidence.GetConcept());
+        opportunityEvidence.Deconstruct(
+            out _,
+            out _,
+            out string opportunityIntegration,
+            out _);
+        Assert.Equal(
+            EcosystemIntegrationNames.AI,
+            opportunityIntegration);
+        Assert.Null((opportunityEvidence with
+        {
+            Integration = "External Integration",
+        }).GetConcept());
+        string opportunityJson = JsonSerializer.Serialize(
+            opportunityEvidence);
+        Assert.Contains(
+            $"\"Integration\":\"{EcosystemIntegrationNames.AI}\"",
+            opportunityJson);
+        Assert.DoesNotContain("\"Concept\":", opportunityJson);
         Assert.DoesNotContain(
             document.Edges,
             edge => edge.Relationship.Id == "call");

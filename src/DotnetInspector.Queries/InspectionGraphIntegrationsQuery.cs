@@ -193,7 +193,9 @@ public static class InspectionGraphIntegrationsCatalog
                     new NamedTypeOccurrenceIdentity(
                         integration.Registration,
                         integration.Member,
-                        integration.Concept,
+                        RequireConcept(
+                            integration.Integration,
+                            integration.GetConcept()),
                         integration.TargetType),
                 InspectionGraphReferenceEvidence reference =>
                     new ReferenceOccurrenceIdentity(
@@ -203,12 +205,21 @@ public static class InspectionGraphIntegrationsCatalog
                     (
                         opportunity.SourceRegistration,
                         opportunity.SourceType,
-                        opportunity.Concept,
+                        RequireConcept(
+                            opportunity.Integration,
+                            opportunity.GetConcept()),
                         opportunity.Target),
                 _ => throw new ArgumentException(
                     "Unsupported Integration graph occurrence evidence.",
                     nameof(occurrence)),
             };
+
+        static IntegrationConceptDescriptor RequireConcept(
+            string integration,
+            IntegrationConceptDescriptor? concept) =>
+            concept
+            ?? throw new InspectionQueryException(
+                $"Integration evidence '{integration}' is not configured.");
 
         sealed class NamedTypeOccurrenceIdentity :
             IEquatable<NamedTypeOccurrenceIdentity>
@@ -385,14 +396,49 @@ public sealed record InspectionGraphExtensionEvidence(
 public sealed record InspectionGraphIntegrationEvidence(
     AssemblyAcquisitionRegistration Registration,
     MemberAnchor Member,
-    IntegrationConceptDescriptor Concept,
+    string Integration,
     MetadataNamedTypeReference TargetType)
     : IInspectionGraphOccurrenceEvidence
 {
-    public string Integration => Concept.DisplayLabel;
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
+
+    internal InspectionGraphIntegrationEvidence(
+        AssemblyAcquisitionRegistration registration,
+        MemberAnchor member,
+        IntegrationConceptDescriptor concept,
+        MetadataNamedTypeReference targetType)
+        : this(
+            registration,
+            member,
+            concept.DisplayLabel,
+            targetType)
+    {
+        _concept = concept;
+    }
+
+    public IntegrationConceptDescriptor? GetConcept() => _concept;
 
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.IntegrationEvidence;
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 }
 
 /// <summary>Typed evidence for one direct metadata assembly reference.</summary>
@@ -409,14 +455,49 @@ public sealed record InspectionGraphReferenceEvidence(
 public sealed record InspectionGraphOpportunityEvidence(
     AssemblyAcquisitionRegistration SourceRegistration,
     MetadataTypeDefinitionName SourceType,
-    IntegrationConceptDescriptor Concept,
+    string Integration,
     IntegrationOpportunityTarget Target)
     : IInspectionGraphOccurrenceEvidence
 {
-    public string Integration => Concept.DisplayLabel;
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
+
+    internal InspectionGraphOpportunityEvidence(
+        AssemblyAcquisitionRegistration sourceRegistration,
+        MetadataTypeDefinitionName sourceType,
+        IntegrationConceptDescriptor concept,
+        IntegrationOpportunityTarget target)
+        : this(
+            sourceRegistration,
+            sourceType,
+            concept.DisplayLabel,
+            target)
+    {
+        _concept = concept;
+    }
+
+    public IntegrationConceptDescriptor? GetConcept() => _concept;
 
     public InspectionGraphEvidenceDescriptor Descriptor =>
         InspectionGraphIntegrationsCatalog.OpportunityEvidence;
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 }
 
 /// <summary>Why available workspace evidence could not enter the graph.</summary>

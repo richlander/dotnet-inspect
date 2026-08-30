@@ -408,7 +408,10 @@ existing Finding, JSON, selector, and display contracts. Labels are
 presentation and never become candidate identity. A compatibility record
 constructed with an unknown label has no configured descriptor; product
 composition that requires configured Integration identity rejects that state
-instead of minting identity from the label.
+instead of minting identity from the label. Its positional label and retained
+descriptor stay synchronized across record cloning, while descriptor access is
+non-positional and does not expose the cyclic catalog through default JSON
+serialization.
 
 Structural discovery lists every configured concept even when the selected
 universe yields no candidate for it. Request capability separately validates

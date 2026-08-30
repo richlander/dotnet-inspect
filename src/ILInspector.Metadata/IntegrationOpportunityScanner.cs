@@ -25,12 +25,18 @@ public record IntegrationOpportunityInfo(
     string IntegrationType,
     string LookFor)
 {
-    readonly IntegrationConceptDescriptor? _concept =
-        IntegrationConceptCatalog.TryGetByDisplayLabel(
-            Integration,
-            out IntegrationConceptDescriptor? concept)
-            ? concept
-            : null;
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
 
     internal IntegrationOpportunityInfo(
         IntegrationConceptDescriptor concept,
@@ -63,6 +69,14 @@ public record IntegrationOpportunityInfo(
                 ? policy
                 : null;
     }
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 
     // Preserve the original four-field row contract. Structured source and
     // target evidence is derived from the same policy and metadata.

@@ -118,6 +118,56 @@ public class EcosystemIntegrationScannerTests
     }
 
     [Fact]
+    public void CompatibilityRecords_WithMutationKeepsConceptIdentitySynchronized()
+    {
+        var ecosystemSignal = new EcosystemIntegrationSignalInfo(
+            EcosystemIntegrationNames.AI,
+            "Chat",
+            "ChatClient") with
+        {
+            Integration = EcosystemIntegrationNames.Logging,
+        };
+        var opportunity = new IntegrationOpportunityInfo(
+            EcosystemIntegrationNames.AI,
+            "ChatClient",
+            "AI",
+            "IChatClient") with
+        {
+            Integration = EcosystemIntegrationNames.Configuration,
+        };
+
+        Assert.Equal(
+            EcosystemIntegrationNames.Logging,
+            ecosystemSignal.Integration);
+        Assert.Same(
+            IntegrationConceptCatalog.Logging,
+            ecosystemSignal.GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.EcosystemObserved,
+            ecosystemSignal.GetProducerPolicy());
+        Assert.Equal(
+            EcosystemIntegrationNames.Configuration,
+            opportunity.Integration);
+        Assert.Same(
+            IntegrationConceptCatalog.Configuration,
+            opportunity.GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.Opportunity,
+            opportunity.GetProducerPolicy());
+
+        var externalSignal = ecosystemSignal with
+        {
+            Integration = "External Integration",
+        };
+        Assert.Null(externalSignal.GetConcept());
+        Assert.Null(externalSignal.GetProducerPolicy());
+        Assert.Null((opportunity with
+        {
+            Integration = EcosystemIntegrationNames.Logging,
+        }).GetProducerPolicy());
+    }
+
+    [Fact]
     public void Scan_SkipsExtensionMethodWithoutReceiver()
     {
         using var stream = BuildDependencyInjectionExtensionAssembly(

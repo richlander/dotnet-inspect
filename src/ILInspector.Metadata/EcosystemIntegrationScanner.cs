@@ -36,12 +36,18 @@ public record EcosystemIntegrationSignalInfo(
     string Name,
     string Shape = IntegrationSignalShape.Type)
 {
-    readonly IntegrationConceptDescriptor? _concept =
-        IntegrationConceptCatalog.TryGetByDisplayLabel(
-            Integration,
-            out IntegrationConceptDescriptor? concept)
-            ? concept
-            : null;
+    string _integration = Integration;
+    IntegrationConceptDescriptor? _concept = ResolveConcept(Integration);
+
+    public string Integration
+    {
+        get => _integration;
+        init
+        {
+            _integration = value;
+            _concept = ResolveConcept(value);
+        }
+    }
 
     internal EcosystemIntegrationSignalInfo(
         IntegrationConceptDescriptor concept,
@@ -82,6 +88,14 @@ public record EcosystemIntegrationSignalInfo(
                 ? policy
                 : null;
     }
+
+    static IntegrationConceptDescriptor? ResolveConcept(string? integration) =>
+        integration is not null
+        && IntegrationConceptCatalog.TryGetByDisplayLabel(
+            integration,
+            out IntegrationConceptDescriptor? concept)
+                ? concept
+                : null;
 
     // Preserve the original four-field signal contract. Structured evidence is
     // derived from the same metadata and intentionally does not affect row
