@@ -693,7 +693,9 @@ issue references below.
   `ILInspector.TypeScriptGeneration`;
 - `eng/generate-inspect-web-engine-facade.sh --check` regenerates inspect-web's
   checked-in TypeScript source, compiles its `.js` and `.d.ts` artifacts against
-  the SDK-owned `dotnet.d.ts`, and proves all three files are current;
+  the SDK-owned `dotnet.d.ts` from the engine's MSBuild-resolved Browser/Wasm
+  runtime pack with host-independent LF output, and proves all three files are
+  current;
 - `verify-engine-facade-runtime.ts` executes the compiler-derived JavaScript
   without a `window` global, proves initialization performs no managed
   operation or entry-point call, and then exercises explicit host

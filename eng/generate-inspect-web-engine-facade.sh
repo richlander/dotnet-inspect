@@ -13,22 +13,34 @@ js_output_file="$repo_root/prototypes/inspect-web/engine/wwwroot/inspect-web-eng
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
-dotnet_root=${DOTNET_ROOT:-$(dirname "$(command -v dotnet)")}
-dotnet_dts=$(
-  find "$dotnet_root/packs/Microsoft.NETCore.App.Runtime.Mono.browser-wasm" \
-    -path '*/runtimes/browser-wasm/native/dotnet.d.ts' \
-    -print \
-    | sort -V \
-    | tail -n 1
-)
-if [[ -z "$dotnet_dts" ]]; then
-  echo "SDK-owned browser dotnet.d.ts was not found under $dotnet_root/packs." >&2
-  exit 1
-fi
-
 tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
 if [[ ! -x "$tsc" ]]; then
   echo "TypeScript compiler not found at $tsc; run npm ci in prototypes/inspect-web." >&2
+  exit 1
+fi
+
+dotnet build "$engine_csproj" -c Release >&2
+runtime_pack_directory=$(
+  dotnet msbuild \
+    "$engine_csproj" \
+    -nologo \
+    -target:ProcessFrameworkReferences \
+    -getItem:RuntimePack \
+  | node -e '
+const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const matches = (data.Items?.RuntimePack ?? []).filter(
+  pack => pack.Identity === "Microsoft.NETCore.App.Runtime.Mono.browser-wasm");
+if (matches.length !== 1 || !matches[0].PackageDirectory) {
+  console.error(
+    `Expected one resolved browser-wasm runtime pack; found ${matches.length}.`);
+  process.exit(1);
+}
+process.stdout.write(matches[0].PackageDirectory);
+'
+)
+dotnet_dts="$runtime_pack_directory/runtimes/browser-wasm/native/dotnet.d.ts"
+if [[ ! -f "$dotnet_dts" ]]; then
+  echo "SDK-owned browser dotnet.d.ts was not found in resolved runtime pack $runtime_pack_directory." >&2
   exit 1
 fi
 
@@ -41,7 +53,6 @@ cat > "$scratch/header" <<'EOF'
 
 EOF
 
-dotnet build "$engine_csproj" -c Release >&2
 dotnet run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
@@ -64,6 +75,7 @@ cat > "$scratch/tsconfig.json" <<'JSON'
     "lib": ["DOM", "ES2022"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "newLine": "lf",
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
     "outDir": "out",

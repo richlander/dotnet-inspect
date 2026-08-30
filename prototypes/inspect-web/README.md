@@ -656,8 +656,9 @@ boundary.
 `eng/generate-inspect-web-engine-facade.sh` generates
 `engine/inspect-web-engine.ts` from the engine's `[JSExport]` surface. That
 native TypeScript file is the authoritative checked-in handoff. The script
-compiles it against the matching SDK-owned `dotnet.d.ts` into the checked-in
-`src/inspect-web-engine.d.ts` consumer declaration and
+compiles it against the SDK-owned `dotnet.d.ts` from the Browser/Wasm runtime
+pack selected for the engine build, with LF compiler output on every host, into
+the checked-in `src/inspect-web-engine.d.ts` consumer declaration and
 `engine/wwwroot/inspect-web-engine.js` publish artifact; `--check` fails when
 any of the three drifts. The SDK declaration is a compile-time input copied
 only into a temporary workspace and is never published.

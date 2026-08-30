@@ -1009,6 +1009,11 @@ test("the generated engine TypeScript uses its SDK-owned compiler gate", () => {
   assert.match(
     generationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
+  assert.match(
+    generationScript,
+    /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
+  assert.doesNotMatch(generationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(generationScript, /"newLine": "lf"/);
   assert.match(generationScript, /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
 });
 
