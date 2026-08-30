@@ -70,8 +70,8 @@ not fallbacks.
 The selected framework's manifests are authoritative:
 
 - `<family>.runtimeconfig.json`, when present, defines direct shared-framework
-  dependencies; only a definitive not-found result establishes a
-  dependency-free leaf;
+  dependencies; a valid configuration with no framework references or a
+  definitive not-found result establishes a dependency-free leaf;
 - `<family>.deps.json` is required and defines the exact managed members under
   the target named by `runtimeTarget.name`: every `runtime` asset plus the
   historical `native` asset whose projected leaf is exactly
@@ -179,8 +179,14 @@ authority. Absolute paths, handles, streams, openers, and mutable buffers do not
 cross this boundary.
 
 Frameworks are ordered dependency-first with ordinal family tie-breaking.
-Members are ordered by canonical assembly identity and owner-issued coordinate.
-Ordering is descriptive only and never resolves ambiguity.
+Members are ordered by canonical assembly identity's normalized
+`Name`, numeric `Version`, normalized `Culture`, and normalized
+`PublicKeyToken`, in that order, followed by the complete owner-issued
+coordinate. Text comparisons are ordinal ignore-case except for the ordinal
+coordinate tie-break; absent identity components sort before present ones.
+Equivalent identities and repeated coordinates reject before ordering, so this
+comparison is total over a successful result. Ordering is descriptive only and
+never resolves ambiguity.
 
 The
 [explicit assembly-context owner](artifact-acquisition-and-workspaces.md#explicit-localdesignatedplatform-assembly-context)
@@ -263,7 +269,7 @@ rules are owned by their rejection gates.
 | Claim | Named gate |
 | --- | --- |
 | Exact root and transitive framework closure | `InstalledPlatformRealization_ExactRootNeverRollsForward`, `InstalledPlatformRealization_AspNetCoreIncludesTransitiveCoreClosure`, `InstalledPlatformRealization_CoreRootUsesOnlyItsTransitiveClosure`, `InstalledPlatformRealization_CoreMembershipMatchesIndependentOracle` |
-| Dependency-free leaf compatibility | `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf`, `InstalledPlatformRealization_RuntimeConfigAccessFailuresDoNotBecomeLeaf` |
+| Dependency-free leaf compatibility | `InstalledPlatformRealization_PresentRuntimeConfigWithoutFrameworkReferencesIsValidLeaf`, `InstalledPlatformRealization_MissingRuntimeConfigIsValidLeaf`, `InstalledPlatformRealization_RuntimeConfigAccessFailuresDoNotBecomeLeaf` |
 | Host-compatible dependency resolution | `InstalledPlatformRealization_FrameworkResolutionMatchesHostFxrOracle`, `InstalledPlatformRealization_ReconcilesConvergingFrameworkReferences`, `InstalledPlatformRealization_RejectsEqualPrecedenceReferenceAmbiguity`, `InstalledPlatformRealization_PropagatesLatestVersionPolicyToDependencies`, `InstalledPlatformRealization_PreservesReleaseAndPrereleaseSelection` |
 | Replacement and termination behavior | `InstalledPlatformRealization_LateReferenceReplacesPriorExpansion`, `InstalledPlatformRealization_LaterRestrictionRebuildsWithoutStaleDependency`, `InstalledPlatformRealization_OutcomesBudgetsAndCancellationRemainDistinct` |
 | Manifest authority and deterministic membership | `InstalledPlatformRealization_ManifestRuntimeAssetsAreExact`, `InstalledPlatformRealization_LegacyCoreMembershipMatchesIndependentOracle`, `InstalledPlatformRealization_LegacyRuntimeAssetProjectsToInstalledLeaf`, `InstalledPlatformRealization_ProjectedMemberCoordinateCollisionRejectsAtomically`, `InstalledPlatformRealization_ResolutionAndMembersAreOrderIndependent`, `InstalledPlatformRealization_IgnoresUnreferencedFamilies` |
