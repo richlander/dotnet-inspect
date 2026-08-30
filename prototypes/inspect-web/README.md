@@ -949,15 +949,21 @@ chunks are only fetched for the diagram kinds a page renders.
 
 Moving them into the lockfile is what makes them auditable. A version in a CDN
 URL is checked against nothing; a version in `package-lock.json` is checked
-against the advisory database. Installing these three unchanged surfaced 21
-advisories that had been invisible for as long as they were CDN URLs -- 19 of
-them against the pinned DOMPurify build, several of which defeat sanitization
-outright. The code comment asserting that DOMPurify makes package Markdown safe
-had been resting on that build. CI now runs `npm audit --omit=dev
---audit-level=moderate`, so a future advisory against shipped code fails the
-build instead of waiting to be noticed. The audit is scoped to production
-dependencies deliberately: a build tool's advisory does not reach a browser, and
-failing unrelated pull requests over one trains people to ignore the signal.
+against the advisory database. Auditing the three versions those CDN URLs
+pinned reports two vulnerable packages carrying 24 advisories between them --
+19 against that DOMPurify build, several of which defeat sanitization outright,
+and 5 against that mermaid build. The code comment asserting that DOMPurify
+makes package Markdown safe had been resting on that build. None of it was
+hidden; nothing was in a position to look.
+
+CI now runs `npm audit --omit=dev --audit-level=moderate`. Both parts of that
+are deliberate. Scoping to production dependencies keeps a build tool's
+advisory -- which never reaches a browser -- from failing unrelated pull
+requests, because a gate that cries wolf gets ignored. The `moderate` threshold
+is not a default worth inheriting silently: every one of those 24 advisories is
+rated moderate, so `--audit-level=high` returns success on all of them,
+including all 19 sanitizer bypasses. The stricter-sounding threshold would have
+produced a gate that passes precisely when it matters.
 
 What remains on a CDN is the three Prism scripts in `index.html`. Those are
 markup, they carry digests, and the freshness check reads them -- so the
