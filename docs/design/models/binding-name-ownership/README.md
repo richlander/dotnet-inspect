@@ -1,0 +1,139 @@
+# Binding name-ownership model
+
+This TLA+ model is the executable interaction companion to
+[Structured type-forwarding resolution](../../type-forwarding-resolution.md#binding-miss-name-ownership).
+It checks how one binding policy composes two already-issued tier results and
+then freezes the selected result for Metadata-owned reuse.
+
+The model answers four focused questions:
+
+- Can any result other than `NoNameOwner` invoke the next tier?
+- Does `NameOwnedNoMatch` remain authoritative?
+- Does an undifferentiated legacy miss fail closed?
+- Can a composite report `NoNameOwner` before exhausting its complete
+  request-eligible tier chain?
+- Does Metadata preserve the exact miss disposition when it freezes the
+  result?
+
+## Relationship to the product
+
+Each initial state chooses a complete request-eligible chain of one or two
+ordered policy tiers and one result for each tier: `NoNameOwner`,
+`NameOwnedNoMatch`, `Undifferentiated`, `Selected`, `Ambiguous`, `Unavailable`,
+or `Rejected`. The policy mode advances only after `NoNameOwner`; every other
+result is terminal. A composite can report `NoNameOwner` only after evaluating
+every tier in the complete chain and receiving that result from each. A second
+transition freezes the result without changing it.
+
+The two-tier bound is sufficient for the composition rule: any longer policy
+chain is repeated application of the same current-tier/next-tier decision.
+TLC explores every one-tier result and all 49 two-tier result pairs rather than
+relying on selected scenarios.
+
+## Assumptions and non-claims
+
+The model assumes each policy owner has already issued a valid result for the
+exact request under one stable policy version. It does not model how package,
+project, sibling, platform, or local owners decide name ownership; identity
+matching; candidate acquisition; platform precedence; complete eligible
+candidate domains; or workspace lifecycle.
+
+Atomic association between an answer and its governing policy version belongs
+to #5213 and is outside this model. The #5214 composition handoff may consume
+`NoNameOwner`, but its candidate-domain semantics are also outside this model.
+TLC results establish properties of this bounded state machine, not of the
+shipped implementation. Formal model-to-implementation correspondence is
+unverified.
+
+## Checked configurations
+
+| Configuration | Purpose |
+| --- | --- |
+| `BindingNameOwnershipSafety.cfg` | Explores every one- and two-tier result assignment and checks type safety, exclusive no-owner fallthrough, complete exhaustion, terminal owned and legacy misses, all-no-owner preservation, terminal success/failure behavior, and exact frozen disposition. |
+| `BindingNameOwnershipLiveness.cfg` | Checks that every complete chain and result assignment reaches a frozen terminal result under weak fairness. |
+| `BindingNameOwnershipBrokenOwnedFallthrough.cfg` | Permits `NameOwnedNoMatch` to invoke the next tier. It must violate `NameOwnedNoMatchStops`. |
+| `BindingNameOwnershipBrokenLegacyFallthrough.cfg` | Permits `Undifferentiated` to invoke the next tier. It must violate `UndifferentiatedStops`. |
+| `BindingNameOwnershipBrokenExhaustion.cfg` | Reports `NoNameOwner` before exhausting a two-tier eligible chain. It must violate `CompositeNoNameOwnerRequiresCompleteExhaustion`. |
+| `BindingNameOwnershipBrokenFreeze.cfg` | Collapses every frozen miss to `Undifferentiated`. It must violate `FrozenDispositionPreserved`. |
+
+All configurations disable TLC's deadlock check because `Frozen` is an
+intentional terminal phase. The temporal specification permits stuttering in
+that state.
+
+## Running TLC
+
+Follow the repository
+[TLA+ setup runbook](../../../runbooks/tla-plus-setup.md) for the pinned
+toolchain. Run configurations sequentially because concurrent TLC processes
+using `-cleanup` can remove one another's metadata.
+
+```bash
+TLA_TOOLS_JAR=/path/to/tla2tools.jar
+cd docs/design/models/binding-name-ownership
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers auto -cleanup -coverage 1 \
+  -config BindingNameOwnershipSafety.cfg \
+  BindingNameOwnership.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers auto -cleanup -coverage 1 \
+  -config BindingNameOwnershipLiveness.cfg \
+  BindingNameOwnership.tla
+```
+
+The mutation configurations are expected to exit unsuccessfully:
+
+```bash
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config BindingNameOwnershipBrokenOwnedFallthrough.cfg \
+  BindingNameOwnership.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config BindingNameOwnershipBrokenLegacyFallthrough.cfg \
+  BindingNameOwnership.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config BindingNameOwnershipBrokenExhaustion.cfg \
+  BindingNameOwnership.tla
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 1 -cleanup -noGenerateSpecTE \
+  -config BindingNameOwnershipBrokenFreeze.cfg \
+  BindingNameOwnership.tla
+```
+
+## Recorded result
+
+The positive configurations completed with no errors:
+
+| Configuration | Generated states | Distinct states | Maximum depth | Result |
+| --- | ---: | ---: | ---: | --- |
+| Safety | 301 | 301 | 4 | All eight invariants passed. |
+| Liveness | 301 | 301 | 4 | `SelectionConverges` passed. |
+
+The safety graph covers all 49 tier-result pairs for both one- and two-tier
+eligible chains. It executed 105 `Evaluate` transitions and 98 `Freeze`
+transitions, including seven paths that advanced from the first tier after
+`NoNameOwner`.
+
+Each mutation exited with TLC status 12 on its intended invariant:
+
+| Configuration | Generated / distinct | Maximum depth | Counterexample |
+| --- | ---: | ---: | --- |
+| Broken owned fallthrough | 212 / 212 | 3 | A first-tier `NameOwnedNoMatch` advanced to the second tier, violating `NameOwnedNoMatchStops`. |
+| Broken legacy fallthrough | 226 / 226 | 3 | A first-tier `Undifferentiated` result advanced to the second tier, violating `UndifferentiatedStops`. |
+| Broken complete exhaustion | 100 / 100 | 2 | A two-tier chain reported `NoNameOwner` after evaluating only its first tier, violating `CompositeNoNameOwnerRequiresCompleteExhaustion`. |
+| Broken frozen preservation | 197 / 197 | 3 | A frozen explicit miss became `Undifferentiated`, violating `FrozenDispositionPreserved`. |
+
+The runs used the repository-pinned TLA+ v1.8.0 tools, TLC build
+`2026.08.21.155922` revision `9787e65`. The checked
+`tla2tools.jar` SHA-256 was
+`eabd140a70f49eb9305a3bd3f3df944eddf87e5a90d329789085f8953a80533a`.
+The available runtime was OpenJDK `21.0.12`; the runbook's preferred Java 25
+runtime was not installed on this shared host. Java 21 satisfies the tool's
+Java 11-or-later requirement, so the machine configuration was left unchanged
+and the runtime deviation is recorded here.
