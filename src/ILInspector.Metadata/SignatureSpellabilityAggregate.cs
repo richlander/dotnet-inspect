@@ -902,6 +902,8 @@ internal sealed class SignatureOccurrenceProvider
         _chargeChainWalk =
             chainLength => _workBudget.ChargeMetadataWork(chainLength);
 
+    internal long ConsumedMetadataWork => _workBudget.ConsumedMetadataWork;
+
     public SignatureTypeOccurrences GetPrimitiveType(
         PrimitiveTypeCode typeCode)
     {
@@ -1315,6 +1317,15 @@ internal sealed class SignatureOccurrenceProvider
         int _remainingNodes = MetadataSafetyPolicy.MaxSignatureTypeNodes;
         int _remainingMaterializationWork = MaxMaterializationWork;
         long _remainingMetadataWork = MaxMetadataWork;
+
+        // Observation point for the budget gates. The chain charges can never
+        // exhaust MaxMetadataWork on their own -- that headroom is the point of
+        // the design -- so no input can turn a missing chain charge into a
+        // visible rejection. Without a reading of what was actually charged,
+        // the only testable evidence is the source text, and syntax cannot
+        // express whether a charge executes.
+        internal long ConsumedMetadataWork =>
+            MaxMetadataWork - _remainingMetadataWork;
 
         internal void ChargeNode()
         {
