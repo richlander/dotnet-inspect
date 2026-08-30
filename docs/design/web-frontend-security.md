@@ -32,6 +32,11 @@ static host. It does not redefine them.
 - Any product path outside `prototypes/inspect-web`.
 - Application behavior, presentation, or interaction, which
   [Inspect Web UI](inspect-web-ui.md) and the component designs own.
+- Whether sanitizing rendered Markdown is the right strategy. The reject-versus-
+  sanitize question belongs to
+  [Untrusted data threat model](untrusted-data-threat-model.md). This document
+  records that the front-end sanitizes and where the sanitizer comes from; it
+  does not ratify that choice.
 - Any guarantee. This is a description of posture and reasoning, not a promise
   that the front-end is secure.
 
@@ -68,8 +73,12 @@ preset; keep a bespoke check only where it supplies something a preset
 structurally cannot, such as failing closed on the unrecognized.
 
 Where a preset is genuinely too noisy to adopt, record the measurement rather
-than the impression: `stylelint`'s `standard` preset reports 939 findings
-against this codebase and has not been adopted for that reason.
+than the impression, and record it as dated evidence so a later reader can tell
+whether it still holds. `stylelint` 17.14.1 with `stylelint-config-standard`
+40.0.0 reported 996 findings against `prototypes/inspect-web/**/*.css` on
+2026-08-30, and has not been adopted for that reason. That measurement was 939
+when first taken against an earlier preset; an undated count silently stops
+being true.
 
 What is configured today:
 
@@ -105,6 +114,14 @@ Making the libraries ordinary npm dependencies bundled by Vite replaced the
 question "did the gate recognize this reference?" with "there is no such
 reference." That is the preferred shape: containment by construction, with the
 build system as the boundary.
+
+The honest limit of that claim: it describes the three libraries that were
+converted, not a boundary the build system enforces against future additions.
+Vite preserves a dynamic import of a constructed URL when it is marked
+`@vite-ignore`, and nothing in the lint configuration or the tests rejects one.
+So this is containment achieved, not containment guaranteed — a distinction
+principle 3 requires be stated rather than glossed. It is recorded as a gap
+below rather than closed with a bespoke rule, for the reason principle 6 gives.
 
 ### 3. A claim must name its gate, and must not outrun it
 
@@ -199,19 +216,51 @@ carrying the burden of keeping it current.
 Review feedback proposing a protection beyond common practice is a scope
 proposal, not a defect. Record it, decline it, and say why.
 
+"Common practice" needs enough definition to settle a disagreement. A proposed
+protection qualifies when at least one of the following is true, and the
+evidence is cited rather than asserted:
+
+- it is enabled by default in a standard preset of an established tool;
+- a platform, standards body, or browser vendor recommends it for this class of
+  application; or
+- it is independently implemented by multiple mainstream, maintained projects.
+
+A scenario a reviewer can construct, a rule that exists but is off by default,
+and a protection that only this repository would have are not evidence.
+
+This principle does not override principle 1's narrow allowance for a bespoke
+check. That allowance is for a *property* no preset can structurally supply —
+failing closed on the unrecognized. Principle 6 governs whether to pursue a
+property at all; principle 1 governs how to implement one already judged worth
+having. Where a preset covers a property incompletely, prefer reporting the gap
+upstream and recording it here over hand-writing a local substitute.
+
 ## What is enforced today
 
 | Protection | Enforced by | Notes |
 | --- | --- | --- |
 | Script-capable HTML rejected unless classified inert | Bespoke fail-closed gate in `test/toolchain.test.ts` | Fails on unrecognized elements and attributes |
-| HTML validity, accessibility, SRI on cross-origin subresources | `html-validate` in `npm run lint` | Standard presets plus `require-sri` |
+| HTML validity and accessibility | `html-validate` in `npm run lint` | `standard`, `document`, and `a11y` presets |
+| SRI on cross-origin subresources | `html-validate` `require-sri` | Covers the URL spellings `require-sri` recognizes; see Known gaps |
 | TypeScript correctness and unsafe-value rules | `oxlint`, type-aware | `correctness` and `suspicious` as errors |
 | Unused files, exports, dependencies | `knip` | |
-| Runtime library provenance | npm lockfile plus Vite bundling | No cross-origin runtime `import()` |
+| Every registry artifact pinned with integrity metadata | `test/toolchain.test.ts` | Lockfile carries an integrity hash per artifact |
+| No source path escapes type checking or linting | `test/toolchain.test.ts` | Symlink, stray-JavaScript, and suppression checks fail closed |
+| Every file the bundler reads is linted and typechecked | `test/toolchain.test.ts` | Bundler has no unread path into shipped output |
+| Runtime libraries resolve from the lockfile, not a CDN | npm dependencies plus Vite bundling | mermaid, marked, and DOMPurify are bundled; not a gate against new cross-origin imports, see Known gaps |
 | Known advisories in shipped dependencies | `npm audit --audit-level=info` in CI | Fails on any advisory at any severity |
-| Markdown sanitization | DOMPurify with an explicit allow list | Config in `src/data.ts` |
+| Provenance of the Markdown sanitizer | Same lockfile and audit gate as any dependency | Sanitization *policy* is not owned here; see below |
 | Response headers | `staticwebapp.config.json` `globalHeaders` | `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Strict-Transport-Security` |
 | Pinned subresource staleness | Weekly `inspect-web-sri.yml` | A staleness check, not a security control |
+
+The front-end renders package-supplied Markdown through DOMPurify with an
+explicit allow list, configured in `src/data.ts`. That is a *sanitizing* path,
+and [Untrusted data threat model](untrusted-data-threat-model.md) — which owns
+the strategy question — states the opposite general rule: reject, do not
+sanitize. This document does not resolve that tension, and does not claim
+authority to. It records that browser rendering currently takes the sanitizing
+path, and that whether that is a justified exception belongs to the owning
+threat model. Tracked as #5238.
 
 ## Known gaps
 
@@ -219,9 +268,20 @@ Recorded so they are not rediscovered as findings:
 
 - **No Content-Security-Policy.** This is the most significant gap: nothing
   contains an injection that gets past sanitization.
+- **`require-sri` does not recognize every browser-equivalent URL spelling.** A
+  cross-origin subresource written `https:\\host/path` passes the lint, though a
+  browser resolves it to the same origin as `https://host/path`; the bespoke gate
+  does not catch it either. No such spelling is in the tree, and the markup is
+  not attacker-controlled, so this is gate coverage rather than a live exposure.
+  Per principles 1 and 6, the response is to report it upstream rather than to
+  hand-write a URL normalizer. Tracked as #5239.
+- **Nothing prevents a *new* cross-origin runtime `import()`.** Vite preserves a
+  dynamic import of a constructed URL when marked `@vite-ignore`, and no linter
+  rule or test rejects one. Today's bundling is a convention, not a boundary.
+  Tracked as #5240.
 - **Response headers do not apply to `/api/*`.** The static host does not apply
   `globalHeaders` to API routes. Tracked as #5119.
-- **`stylelint` is not adopted**, at 939 findings against the `standard` preset.
+- **`stylelint` is not adopted**, at the measurement recorded in principle 1.
 
 ## Conventions for changing this posture
 
