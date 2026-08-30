@@ -702,6 +702,63 @@ public sealed class AnalysisRequestTests
     }
 
     [Fact]
+    public void AnalysisPlanningResults_AreClosedToOwnerIssuedCases()
+    {
+        Type resultType = typeof(AnalysisRequestPlanResult);
+        Type[] cases = resultType
+            .GetNestedTypes(BindingFlags.Public)
+            .OrderBy(type => type.Name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(resultType.IsAbstract);
+        Assert.All(
+            resultType.GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance),
+            constructor => Assert.True(constructor.IsPrivate));
+        Assert.Equal(
+            [
+                typeof(AnalysisRequestPlanResult.Accepted),
+                typeof(AnalysisRequestPlanResult.Rejected),
+            ],
+            cases);
+        Assert.All(cases, type => Assert.True(type.IsSealed));
+        Assert.All(
+            cases,
+            type => Assert.Empty(
+                type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)));
+    }
+
+    [Fact]
+    public void AnalysisPlanningResults_PayloadsAreNonNullByConstruction()
+    {
+        Fixture fixture = new();
+        AnalysisRequestPlanResult.Accepted accepted =
+            Assert.IsType<AnalysisRequestPlanResult.Accepted>(
+                fixture.Catalog.Plan(fixture.Request(), fixture.Environment));
+        AnalysisRequestPlanResult.Rejected rejected =
+            Assert.IsType<AnalysisRequestPlanResult.Rejected>(
+                fixture.Catalog.Plan(
+                    fixture.Request(
+                        universe: fixture.Universe(
+                            new UniverseIdentity("unbounded"),
+                            new Boundary("unbounded"),
+                            isFinite: false)),
+                    fixture.Environment));
+
+        Assert.NotNull(accepted.Plan);
+        Assert.NotNull(rejected.Rejection);
+        Assert.False(
+            typeof(AnalysisRequestPlanResult.Accepted)
+                .GetProperty(nameof(AnalysisRequestPlanResult.Accepted.Plan))!
+                .CanWrite);
+        Assert.False(
+            typeof(AnalysisRequestPlanResult.Rejected)
+                .GetProperty(nameof(AnalysisRequestPlanResult.Rejected.Rejection))!
+                .CanWrite);
+        AssertConstructorRejectsNull(typeof(AnalysisRequestPlanResult.Accepted));
+        AssertConstructorRejectsNull(typeof(AnalysisRequestPlanResult.Rejected));
+    }
+
+    [Fact]
     public void AnalysisPlan_RetainsExactRequestFieldsAndDescriptorRequirements()
     {
         Fixture fixture = new();
@@ -724,6 +781,15 @@ public sealed class AnalysisRequestTests
         Assert.Equal(fixture.Analysis.HostRequirements, plan.HostRequirements);
         Assert.Equal(InspectionCost.Unbounded, plan.Cost);
         Assert.Equal(0, fixture.ProducerExecutions);
+    }
+
+    static void AssertConstructorRejectsNull(Type type)
+    {
+        ConstructorInfo constructor = Assert.Single(
+            type.GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance));
+        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(
+            () => constructor.Invoke([null]));
+        Assert.IsType<ArgumentNullException>(exception.InnerException);
     }
 
     [Fact]
