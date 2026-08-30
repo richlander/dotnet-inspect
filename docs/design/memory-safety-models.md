@@ -164,6 +164,40 @@ inside its implementation instead of imposing it on callers. A v2 member with
 `RequiresUnsafeAttribute` is a propagator whether or not its body contains
 unsafe operations.
 
+### V2 audit and identification scenarios
+
+The updated model is useful only if its method roles can be identified and
+navigated. A complete audit view needs three related answers:
+
+1. **Inner-unsafe census.** Identify every method with positive evidence that
+   its body established an inner unsafe context. This is the method population
+   that directly accepts an audit obligation. Source can confirm the lexical
+   context; binary analysis can infer it from operations that require such a
+   context under the selected language semantics. A binary-only result must
+   preserve unknowns and must not claim that an erased or empty lexical block
+   could be recovered.
+2. **Safe-boundary census.** Identify every v2 inner-unsafe method that does
+   not propagate unsafe. Safe boundaries are unsafe users, despite being
+   callable from safe code, and carry the heaviest audit burden: they claim to
+   discharge every remaining callee obligation before returning control to
+   their safe callers.
+3. **Bidirectional call paths.** Starting from either safe or unsafe method
+   roles, traverse callers or callees across multiple steps and assemblies.
+   The result must support both safe-caller to unsafe-callee paths and
+   unsafe-caller to safe-callee paths. Traversal direction must not reverse the
+   semantic edge: every retained edge remains caller to callee.
+
+Graph nodes must retain propagation, inner-unsafe use, and safe-boundary status
+as separate facts. In particular, a safe boundary is both safe-callable and an
+unsafe user, while a propagator may have no body-unsafety evidence. A single
+safe/unsafe Boolean would erase the transitions the audit is meant to reveal.
+
+The graph is bounded by an explicit finite assembly context, depth, and node
+budget. Acquisition failures, unresolved dispatch, incomplete analysis,
+correspondence ambiguity, and traversal truncation remain visible. A bounded
+path is evidence of reachability; absence is conclusive only when the relevant
+direction reports complete traversal.
+
 The metadata carrier and association depend on the member kind:
 
 | Contract surface | Current Roslyn emission and resolution |
@@ -377,8 +411,9 @@ dotnet-inspect evidence plane.
 | Did this project request updated enforcement? | Declared or evaluated `LangVersion`, `Features`, and future supported model property | Not currently answered. The `project` command reads `project.assets.json`, not these project properties. |
 | Were unsafe regions and modifiers permitted? | Declared or evaluated `AllowUnsafeBlocks` | Not currently answered. It cannot be inferred from the binary marker. |
 | Which members propagate unsafe? | Version-aware composition of the module model with callable signatures, field types, and the correct v2 attribute carrier | Metadata exposes `ApiMember.IsUnsafe` and Analysis exposes method `CallerUnsafeMode`; both are currently model-incomplete, and neither provides complete field/accessor coverage. |
-| Which methods use unsafe facilities? | Context-requiring operations plus source/build evidence where pointer declarations are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet separate pointer shape from proof that an unsafe context was established. |
-| Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive body-unsafety evidence | Not currently exposed as a composed query. |
+| Which methods establish inner unsafe? | Context-requiring operations plus source/build evidence where binary semantics are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet expose a model-aware, completeness-qualified inner-unsafe census. |
+| Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive inner-unsafe evidence | Not currently exposed as a composed census. |
+| How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities, but no current query composes memory-safety roles onto paths. |
 | How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
 | Is the project configured for the strongest default? | Updated project policy, unsafe-context permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
@@ -399,7 +434,8 @@ specified here:
 | JS-export admission | [#5258](https://github.com/richlander/dotnet-inspect/issues/5258) | After #5253 |
 | Research summaries | [#5259](https://github.com/richlander/dotnet-inspect/issues/5259) | After #5253 and #5254 |
 | Library Signals | [#5260](https://github.com/richlander/dotnet-inspect/issues/5260) | After #5252 |
-| Cross-evidence posture query | [#5262](https://github.com/richlander/dotnet-inspect/issues/5262) | After #5252, #5254, and #5256 |
+| V2 audit census and call paths | [#5270](https://github.com/richlander/dotnet-inspect/issues/5270) | After #5252 and #5254 |
+| Cross-evidence posture query | [#5262](https://github.com/richlander/dotnet-inspect/issues/5262) | After #5256 and #5270 |
 
 Each successor re-derives its own contract in the named owning document. This
 composition document owns only the vocabulary, evidence-plane boundaries, and
