@@ -572,6 +572,128 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void
+        Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension()
+    {
+        var (compilerSurface, compilerBodyIndex) =
+            BuildFixtureSurfaceWithWireContracts(
+                typeof(FixtureExports).Assembly.Location);
+        var (runtimeSurface, runtimeBodyIndex) =
+            BuildFixtureSurfaceWithWireContracts(
+                s_runtimeAsyncFixturePath);
+
+        const string exportName =
+            "GetWidgetSerializedBeforeAwait";
+        MethodIdentity compilerExport = Assert.Single(
+            compilerBodyIndex.DeclaredMethods,
+            method => method.Name == exportName);
+        MethodIdentity runtimeExport = Assert.Single(
+            runtimeBodyIndex.DeclaredMethods,
+            method => method.Name == exportName);
+        DirectCall compilerSerializer = Assert.Single(
+            compilerBodyIndex.DirectCalls,
+            call => call.Caller == compilerExport
+                && call.Callee.Name == "Serialize");
+        DirectCall runtimeSerializer = Assert.Single(
+            runtimeBodyIndex.DirectCalls,
+            call => call.Caller == runtimeExport
+                && call.Callee.Name == "Serialize");
+        MethodResultSink compilerResult = Assert.Single(
+            compilerBodyIndex.ResultSinks,
+            sink => sink.Caller == compilerExport
+                && sink.StateMachineFieldSource
+                    ?.SourceCallOffsets.Contains(
+                        compilerSerializer.ILOffset)
+                    == true);
+        MethodResultSink runtimeResult = Assert.Single(
+            runtimeBodyIndex.ResultSinks,
+            sink => sink.Caller == runtimeExport
+                && sink.SourceCallOffsets.Contains(
+                    runtimeSerializer.ILOffset));
+
+        Assert.False(compilerResult.IsComplete);
+        Assert.Empty(compilerResult.SourceCallOffsets);
+        Assert.Equal("MoveNext", compilerResult.EvidenceMethod.Name);
+        AsyncStateMachineFieldResultSource fieldSource =
+            compilerResult.StateMachineFieldSource!;
+        Assert.Equal(
+            compilerResult.EvidenceMethod.DeclaringType,
+            fieldSource.Field.DeclaringType);
+        Assert.True(fieldSource.StoreOffset < fieldSource.LoadOffset);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            compilerResult.AsyncBody?.Lowering);
+
+        Assert.True(runtimeResult.IsComplete);
+        Assert.Null(runtimeResult.StateMachineFieldSource);
+        Assert.Equal(runtimeExport, runtimeResult.EvidenceMethod);
+        Assert.Equal(
+            AsyncLoweringKind.Runtime,
+            runtimeResult.AsyncBody?.Lowering);
+
+        JsExportFunction compilerFunction = Assert.Single(
+            compilerSurface.Functions,
+            function => function.Name == exportName);
+        JsExportFunction runtimeFunction = Assert.Single(
+            runtimeSurface.Functions,
+            function => function.Name == exportName);
+        Assert.Equal(
+            System.Text.Json.JsonSerializer.Serialize(
+                compilerFunction),
+            System.Text.Json.JsonSerializer.Serialize(
+                runtimeFunction));
+        Assert.Equal(
+            FixtureNamespace + "WidgetDto",
+            compilerFunction.ReturnWireType);
+        Assert.Equal(
+            compilerFunction.ReturnWireType,
+            runtimeFunction.ReturnWireType);
+    }
+
+    [Fact]
+    public void
+        Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings()
+    {
+        var (compilerSurface, compilerBodyIndex) =
+            BuildFixtureSurfaceWithWireContracts(
+                typeof(FixtureExports).Assembly.Location);
+        var (runtimeSurface, _) =
+            BuildFixtureSurfaceWithWireContracts(
+                s_runtimeAsyncFixturePath);
+
+        const string exportName =
+            "GetWidgetConditionallySerializedBeforeAwait";
+        MethodIdentity compilerExport = Assert.Single(
+            compilerBodyIndex.DeclaredMethods,
+            method => method.Name == exportName);
+        DirectCall compilerSerializer = Assert.Single(
+            compilerBodyIndex.DirectCalls,
+            call => call.Caller == compilerExport
+                && call.Callee.Name == "Serialize");
+        Assert.Contains(
+            compilerBodyIndex.FieldStores,
+            store => store.Caller == compilerExport
+                && store.Value.Sources.Any(source =>
+                    source.Kind
+                        == ResolvedValueSourceKind.CallResult
+                    && source.ILOffset
+                        == compilerSerializer.ILOffset));
+        Assert.DoesNotContain(
+            compilerBodyIndex.ResultSinks,
+            sink => sink.Caller == compilerExport
+                && sink.StateMachineFieldSource is not null);
+
+        JsExportFunction compilerFunction = Assert.Single(
+            compilerSurface.Functions,
+            function => function.Name == exportName);
+        JsExportFunction runtimeFunction = Assert.Single(
+            runtimeSurface.Functions,
+            function => function.Name == exportName);
+        Assert.Null(compilerFunction.ReturnWireType);
+        Assert.Null(runtimeFunction.ReturnWireType);
+    }
+
+    [Fact]
     public void RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata()
     {
         MethodIdentity export = RuntimeAsyncMethod(

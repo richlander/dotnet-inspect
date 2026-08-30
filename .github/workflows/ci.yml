@@ -506,12 +506,24 @@ jobs:
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
             -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
+            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
+            -method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
             -method '*RuntimeAsync*' \
             -xml "$results"
           if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
             echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
             exit 1
           fi
+          for method in \
+            Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult \
+            Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension \
+            Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings
+          do
+            if ! grep -Fq "method=\"$method\"" "$results"; then
+              echo "::error::JSExport runtime-async wire gate '$method' did not run." >&2
+              exit 1
+            fi
+          done
 
       - name: Run runfaster tests
         run: dotnet run --project src/runfaster.Tests -c Release
