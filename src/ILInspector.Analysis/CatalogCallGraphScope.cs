@@ -126,9 +126,11 @@ public sealed class CatalogCallGraphScope : IDisposable
         {
             ArgumentNullException.ThrowIfNull(participant);
             ValidateParticipant(participant);
+            LibraryBodyModuleIdentity moduleIdentity =
+                participant.Index.ModuleIdentity;
             var artifact = (
-                participant.Assembly.Identity,
-                ModuleVersionId(participant.Index));
+                moduleIdentity.AssemblyIdentity!,
+                moduleIdentity.ModuleVersionId);
             if (artifacts.TryGetValue(
                     artifact,
                     out CatalogCallGraphParticipant? canonical))
@@ -302,23 +304,21 @@ public sealed class CatalogCallGraphScope : IDisposable
     static void ValidateParticipant(
         CatalogCallGraphParticipant participant)
     {
-        MethodIdentity? method =
-            participant.Index.DeclaredMethods.FirstOrDefault();
-        if (method is not null
-            && !string.Equals(
-                method.AssemblyName,
-                participant.Assembly.Identity.Name,
-                StringComparison.OrdinalIgnoreCase))
+        LibraryBodyModuleIdentity moduleIdentity =
+            participant.Index.ModuleIdentity;
+        if (moduleIdentity.AssemblyIdentity is not { } assemblyIdentity
+            || !assemblyIdentity.IsEquivalentTo(
+                participant.Assembly.Identity)
+            || participant.Assembly.Registration.ModuleVersionId
+                is { } registeredModuleVersionId
+            && registeredModuleVersionId
+                != moduleIdentity.ModuleVersionId)
         {
             throw new ArgumentException(
                 "The assembly descriptor does not describe the body index.",
                 nameof(participant));
         }
     }
-
-    static Guid ModuleVersionId(LibraryBodyIndex index) =>
-        index.DeclaredMethods.FirstOrDefault()?.ModuleVersionId
-            ?? Guid.Empty;
 
     sealed class ScopeGraph : IDisposable
     {
@@ -1128,8 +1128,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 $"method token 0x{rootMethodToken:X8}");
             var storage = GraphNodeStorageKey.Definition(
                 root.Assembly,
-                root.Index.DeclaredMethods.FirstOrDefault()
-                    ?.ModuleVersionId ?? Guid.Empty,
+                root.Index.ModuleIdentity.ModuleVersionId,
                 rootMethodToken);
             return (
                 member,
