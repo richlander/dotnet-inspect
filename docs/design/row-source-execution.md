@@ -159,11 +159,11 @@ The residual identity is opaque to the source. It names a residual request the
 caller already constructed and retained. The source never returns executable
 operations, edits a plan, chooses a cursor, or synthesizes a residual suffix.
 
-The permit-binding set may be empty for a row-handoff offer whose safe prefix
-delegates no owner operation. Such an acquisition-only handoff is selected by
+The permit-binding set may be empty whenever the caller-proven partition
+delegates no owner operation. An acquisition-only row handoff is selected by
 its source capability and retains the complete owner-operation plan in its
-residual. An exact-Count offer still covers its complete resolved plan as
-specified below.
+residual. A bare exact-Count offer may likewise cover a resolved plan containing
+no owner operation with zero permit bindings.
 
 An empty offer list means that no source delegation is available. Offer
 identities must be unique within one request; member identities and permit
@@ -486,7 +486,7 @@ named Release gates:
 | Gate | Contract |
 | --- | --- |
 | `RowSourceIdentitiesAreOwnerIssued` | Request, offer, input, group, member, capability, permit, completion-requirement, residual, and receipt identities use owner-issued token equality; display and structurally equal plans do not bind. Each permit identity binds one immutable owner-declared owner-observation value. |
-| `RowSourceRequestValidationIsAtomic` | Duplicate offer identities, duplicate members or permits within one offer, and unknown, missing, empty, scope-mismatched, or incompatible required identity tokens, singleton fields, member maps, permit classifications, requirements, residuals, or output contracts return the deterministic first `ContractValidationFailure` and probe no offer support. The permit-binding collection itself may be empty for an acquisition-only row handoff. Intentional reuse of the same input, group, capability, requirement, or residual identity across offers remains valid. A well-formed capability or permit that the source does not publish or cannot honor remains an unsupported offer. |
+| `RowSourceRequestValidationIsAtomic` | Duplicate offer identities, duplicate members or permits within one offer, and unknown, missing, empty, scope-mismatched, or incompatible required identity tokens, singleton fields, member maps, permit classifications, requirements, residuals, or output contracts return the deterministic first `ContractValidationFailure` and probe no offer support. The permit-binding collection itself may be empty when the caller-proven partition delegates no owner operation: an acquisition-only row handoff or an exact-Count offer over a zero-operation resolved plan. Intentional reuse of the same input, group, capability, requirement, or residual identity across offers remains valid. A well-formed capability or permit that the source does not publish or cannot honor remains an unsupported offer. |
 | `RowSourcePlanningIsPure` | Planning inspects only immutable capability declarations and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
 | `RowSourceSelectsFirstSupportedOffer` | After complete structural validation, offers are support-probed in declaration order; the first offer whose complete output contract, capability, permit set, owner-observation values, completion requirement, input, and member shape are supported is accepted, no later offer's support is probed, and an all-declined request performs no execution. |
 | `RowSourceDeclineAllowsReferenceFallback` | A pure all-offers decline permits the caller's retained reference strategy and is never reported as a source failure. |
