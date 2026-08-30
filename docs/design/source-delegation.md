@@ -301,9 +301,12 @@ the candidate is exactly the proven prefix.
    internally, but no logical success or partial result is published before
    one complete outcome exists, and published `RowValues` are fully
    acquired: no deferred source enumeration, acquisition, or source failure
-   remains to occur after publication, including inside residual
-   processing. `NotSatisfied`, an exception, or a defective result is
-   terminal for the accepted plan and never enters the residual.
+   remains to occur after publication, including inside residual processing.
+   Result member maps and each `RowValues` sequence are immutable snapshots of
+   membership and order; source-side collection mutation after construction
+   cannot change them. Opaque caller-owned row objects are not cloned.
+   `NotSatisfied`, an exception, or a defective result is terminal for the
+   accepted plan and never enters the residual.
 
 ## The result algebra
 
@@ -327,6 +330,8 @@ member disposition = NotSatisfiedMember(member, disposition,
 Results are constructed from the accepted plan's member list, so every member
 appears exactly once, in execution-group order, with its identity carried
 explicitly — by construction, not by validation.
+The member map and every `RowValues` sequence snapshot membership and order
+before publication; row values themselves remain opaque caller-owned objects.
 
 - **`RowHandoff`** is valid only for a row-handoff candidate. A `RowValues`
   entry is constructed only when the caller-owned completion requirement
@@ -340,7 +345,8 @@ explicitly — by construction, not by validation.
   that leaves one member's values unusable uses that member's `Unavailable`
   outcome rather than failing the whole candidate. The same cause may
   accompany `RowValues` when the completion requirement accepts the acquired
-  rows as usable with honest incompleteness disclosure.
+  rows as usable with honest incompleteness disclosure and the residual is
+  empty.
 - **`ExactCount`** is valid only for an exact-Count candidate. It contains
   one non-negative exact count with accepted completion evidence for every
   member. It cannot carry rows, publish a partial count map, or invent a
@@ -369,9 +375,9 @@ candidate — and one source-owned evidence basis:
   the caller's completion requirement; or
 - **incomplete stop** — a provider, page, work, time, memory, or acquisition
   bound, or cancellation, stopped execution without proving exact completion;
-  when the source claims `RowValues`, the evidence also carries an owner-issued
-  handoff-prefix witness proving that the acquired values are an ordered prefix
-  of the complete candidate values at the delegation boundary; or
+  the acquired values may still be Rows-usable for a row-handoff candidate with
+  no retained residual when its typed requirement accepts honest incomplete
+  rows; or
 - **unavailable source outcome** — an expected source failure or absent member
   or candidate domain prevented a usable or exact result. The accompanying
   owner-issued disposition carries the precise cause.
@@ -379,20 +385,20 @@ candidate — and one source-owned evidence basis:
 Logical exhaustion and requirement-witness evidence establish Rows usability
 or exact Count only when the typed completion requirement accepts the exact
 basis. An incomplete stop never establishes exact Count. It establishes Rows
-usability only when its handoff-prefix witness is accepted and the requirement
-proves the exact retained residual is **prefix-stable** for that witness:
-applying the residual to the witnessed prefix produces either the exact
-reference result or an honestly disclosed prefix of it, without inventing a
-semantic failure. Otherwise the member is `Unavailable`. An unavailable source
-outcome establishes neither. Logical exhaustion means that the candidate's
-named domain exists and was proven exhausted; absence is not exhaustion.
-Evidence referenced by a member entry is member-scoped by default; a member
-may reference one candidate-scoped value only when that basis establishes the
-member's own disposition, usability, or exactness claim. One candidate-scoped
-value may prove the same candidate-wide failure for every member, but
-exhaustion of one member proves nothing about another, and a group aggregate
-that cannot establish individual member values is insufficient for exact
-Count.
+usability only for a row-handoff candidate with an empty residual when the
+typed requirement accepts the returned values as honestly incomplete Rows for
+the complete candidate. An incomplete stop with any retained residual leaves
+the member `Unavailable`; this version does not attempt to prove incomplete
+input safe for later predicates, ordering, semantic stages, or owner
+observations. An unavailable source outcome establishes neither. Logical
+exhaustion means that the candidate's named domain exists and was proven
+exhausted; absence is not exhaustion. Evidence referenced by a member entry is
+member-scoped by default; a member may reference one candidate-scoped value
+only when that basis establishes the member's own disposition, usability, or
+exactness claim. One candidate-scoped value may prove the same candidate-wide
+failure for every member, but exhaustion of one member proves nothing about
+another, and a group aggregate that cannot establish individual member values
+is insufficient for exact Count.
 
 Evidence is never inferred from row or Count values. Returning exactly the
 requested number, returning fewer rows than a page size, receiving an empty
@@ -413,11 +419,11 @@ Rows usability and Count sufficiency are different conclusions:
 - `Unavailable` and `NotSatisfied` are neither.
 
 A row handoff may carry incomplete-stop evidence when the caller-formed Rows
-contract permits incomplete rows with disclosure, the evidence proves an
-ordered handoff prefix, and the residual is prefix-stable for that prefix. A
-residual `Tail`, `Top`, local reordering, or strict stage is not presumed
-prefix-stable; its owner or adoption must prove the property for the exact
-case, otherwise the member remains `Unavailable`. The same evidence is not
+contract permits incomplete rows with disclosure and the retained residual is
+empty. With any residual operation, the member remains `Unavailable` so
+incomplete acquisition cannot change selected rows, callback invocation,
+failure identity, or precedence. Supporting safe incomplete input for a
+non-empty residual is a separate focused extension. The same evidence is not
 thereby sufficient for Count: one insufficient, failed, or absent member
 forces `NotSatisfied`, and successful-looking counts for the other members do
 not escape.
@@ -490,7 +496,7 @@ the named Release gates below rather than by runtime identity policing.
 | --- | --- |
 | A result answers exactly one accepted plan | The result type is constructed from, and refers to, the accepted plan. |
 | Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. `SourceDelegationAcceptanceExecutesOnce` proves the implementation invokes and publishes once. |
-| Member maps are complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection; `SourceDelegationPartitionMatchesReference` proves exact candidate binding, and the three result-branch gates prove exact result binding. |
+| Member maps and row sequences are immutable, complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection and snapshot collection membership and order; `SourceDelegationPartitionMatchesReference` proves exact candidate binding, and the result-branch and atomic-publication gates prove exact immutable result binding. |
 | Evidence reaches the caller only inside a member entry | Evidence is carried by the entries it accompanies rather than as free-standing values; whether a referenced basis and scope establish each entry's claim remains the semantic check owned by `SourceDelegationCompletionEvidenceBasisIsAccepted`. |
 | The residual is caller-owned | The residual is a caller-held continuation; the candidate the source sees does not contain it. |
 | The source cannot rewrite the plan | No result branch carries operations, cursors, or plan fragments. |
@@ -535,17 +541,17 @@ shape, not checks.
 | `SourceDelegationDeclineAllowsReferenceFallback` | A pure all-candidates decline permits the caller's retained reference strategy and is never reported as a source failure. |
 | `SourceDelegationAcceptanceExecutesOnce` | One public invocation that accepts a candidate invokes source execution at most once, publishes at most one outcome, and exposes no accepted-plan handle that permits replay. |
 | `SourceDelegationAcceptedFailureNeverFallsBack` | After acceptance, no result or failure tries a later candidate or the reference path. Only a validated `RowHandoff` is eligible for its retained residual; the owning group and terminal composition may suppress all residual invocation. Within an admitted handoff, only Rows-usable entries are eligible, including entries carrying accepted incomplete-stop evidence; `Unavailable` entries are not, and `NotSatisfied`, exceptions, and defective results enter no residual. |
-| `SourceDelegationOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete outcome, and published row values retain no deferred source enumeration, acquisition, or source failure. |
+| `SourceDelegationOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete outcome, and published row values retain no deferred source enumeration, acquisition, or source failure. Result member maps and row sequences defensively snapshot membership and order; mutating any source collection after construction cannot change the published result, while individual opaque row objects are not cloned. |
 | `SourceDelegationPartitionMatchesReference` | The caller's adoption gate proves that candidate construction binds exactly the execution group's complete ordered member-identity sequence with no missing, extra, or duplicate member, and that every row-handoff member delegates one contiguous reference-order prefix (possibly empty) while retaining the exact disjoint suffix in its residual, with complete coverage and no duplicated operation; it rejects a malformed or non-prefix partition before planning, and the delegated prefix transported in the candidate is exactly the proven prefix. Every exact-Count candidate covers the complete resolved plan. |
 | `SourceClosedDeclarationsMatchOwnerContracts` | Each operation owner's gate proves its source-closed declaration against its reference failure and invocation contract; an operation is delegable only under its owner's current declaration. |
 | `OwnerObservationsRemainReferenceBarriers` | An operation not declared source-closed never enters delegated work; retained in the residual or reference path, it preserves exact invocation, failure identity, scope, all-or-failure behavior, and precedence. |
-| `SourceDelegationRowHandoffIsComplete` | `RowHandoff` occurs only for a row-handoff candidate and contains exactly one outcome for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member. Every outcome is exactly one `RowValues` or `Unavailable` entry; only `RowValues` carries fully acquired rows, and its disposition-and-evidence pair satisfies the typed completion requirement's Rows-usability rule for the exact accepted candidate and residual before residual admission. Caller-owned group or terminal composition may suppress every residual invocation. |
+| `SourceDelegationRowHandoffIsComplete` | `RowHandoff` occurs only for a row-handoff candidate and contains exactly one immutable outcome for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member. Every outcome is exactly one `RowValues` or `Unavailable` entry; only `RowValues` carries a fully acquired immutable row-sequence snapshot, and its disposition-and-evidence pair satisfies the typed completion requirement's Rows-usability rule for the exact accepted candidate and residual before residual admission. Caller-owned group or terminal composition may suppress every residual invocation. |
 | `SourceDelegationExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate and contains exactly one non-negative exact value with accepted completion evidence for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member. It carries no rows and publishes no partial map or invented total. |
 | `SourceDelegationNotSatisfiedCarriesEvidence` | An inexact accepted Count or a candidate-scoped row-handoff failure returns exactly one disposition-and-evidence entry for every accepted member in execution-group order, with no missing, extra, duplicate, or reordered member and no row or Count payload. The broader failure retains candidate scope through references to one canonical value, and a determinable member-scoped Rows failure remains `Unavailable` inside `RowHandoff`. |
-| `SourceDelegationCompletionEvidenceBasisIsAccepted` | Logical exhaustion and requirement-witness evidence establish Rows usability or exact Count only when the typed completion requirement accepts the basis. Incomplete-stop evidence never establishes Count and establishes Rows usability only when its owner-issued handoff-prefix witness is accepted and the requirement proves the exact residual prefix-stable; unavailable-outcome evidence establishes neither. A member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, absence is not exhaustion, and exact Count requires proof of every member value. |
+| `SourceDelegationCompletionEvidenceBasisIsAccepted` | Logical exhaustion and requirement-witness evidence establish Rows usability or exact Count only when the typed completion requirement accepts the basis. Incomplete-stop evidence never establishes Count and establishes Rows usability only for a row-handoff candidate with an empty residual whose typed requirement accepts honest incomplete Rows; with any residual, the member remains `Unavailable`. Unavailable-outcome evidence establishes neither. A member-referenced candidate-scoped value must establish that member's own claim, exhaustion of one member proves nothing about another, absence is not exhaustion, and exact Count requires proof of every member value. |
 | `OperationalBoundsNeverProveCompletion` | Provider, page, work, time, memory, acquisition, and cancellation bounds remain incomplete-stop evidence even when their numeric value equals a requested semantic bound or returned row count. |
-| `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff candidate may return Rows-usable values with incomplete-stop evidence only when its owner-issued witness proves an ordered handoff prefix and its typed requirement proves the exact residual prefix-stable, while the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. Close-negatives cover `Tail`, `Top`, local baseline ordering followed by `Head`, and strict `Window` residuals unless their exact case has separate prefix-stability proof; they remain `Unavailable` rather than returning wrong rows or producing a semantic failure. |
-| `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after any residuals admitted by the owning composition, matches the complete section-row reference result for surviving values or honestly disclosed prefixes, order, member identity, unavailable-member composition, source evidence, owner-observable invocation, and terminal failure. Fixtures exercise an accepted prefix-stable incomplete handoff, the non-prefix-stable close-negatives named by `RowsUsabilityAndCountSufficiencyStayDistinct`, a multi-member Count handoff whose unavailable companion suppresses all residual execution, an exact sentinel callback/comparer/resolver exception, and a case where both the semantic and callback failures are reachable with reference precedence preserved; none publishes partial rows. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
+| `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff candidate may return Rows-usable values with incomplete-stop evidence only when its retained residual is empty and its typed requirement accepts honest incomplete Rows, while the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. Every incomplete-stop handoff with a non-empty residual keeps the affected member `Unavailable`. |
+| `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after any residuals admitted by the owning composition, matches the complete section-row reference result for surviving values, order, member identity, unavailable-member composition, source evidence, every owner-observable invocation, and terminal failure identity, scope, and precedence. Fixtures exercise an accepted empty-residual incomplete handoff; incomplete-stop handoffs with predicate, baseline-order, `Head`, `Tail`, `Top`, and strict `Window` residuals that must remain unavailable; an omitted-tail callback invocation and callback failure that must remain unavailable; a multi-member Count handoff whose unavailable companion suppresses all residual execution; immutable result snapshots under mutation of every source collection; an exact sentinel callback/comparer/resolver exception; and a case where both the semantic and callback failures are reachable with reference precedence preserved. None publishes partial rows. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized Count path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
 | `SourceDelegationContractIsPresentationFree` | Protocol-owned fields of candidates, plans, results, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label; opaque caller-owned row values are outside this constraint. |
 
