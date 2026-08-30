@@ -112,16 +112,10 @@ public static class IntegrationOpportunityScanner
     public static List<IntegrationOpportunityInfo> Scan(PEReader peReader, IReadOnlySet<string> existingIntegrations)
     {
         ArgumentNullException.ThrowIfNull(existingIntegrations);
-        HashSet<IntegrationConceptDescriptor> concepts =
-        [
-            .. existingIntegrations.Select(integration =>
-                    IntegrationConceptCatalog.TryGetByDisplayLabel(
-                        integration,
-                        out IntegrationConceptDescriptor? concept)
-                        ? concept
-                        : null)
-                .OfType<IntegrationConceptDescriptor>(),
-        ];
+        HashSet<IntegrationConceptDescriptor> concepts = new(
+            IntegrationConceptCatalog.Concepts.Where(concept =>
+                existingIntegrations.Contains(concept.DisplayLabel)),
+            ReferenceEqualityComparer.Instance);
         return Scan(peReader, concepts);
     }
 

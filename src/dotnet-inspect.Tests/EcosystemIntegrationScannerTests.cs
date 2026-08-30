@@ -73,6 +73,29 @@ public class EcosystemIntegrationScannerTests
     }
 
     [Fact]
+    public void OpportunityScan_PreservesCompatibilitySetComparer()
+    {
+        using var stream = BuildCloudClientAssembly();
+        using var peReader = new PEReader(stream);
+        IReadOnlySet<string> existingIntegrations = new HashSet<string>(
+            [EcosystemIntegrationNames.DependencyInjection.ToLowerInvariant()],
+            StringComparer.OrdinalIgnoreCase);
+
+        List<IntegrationOpportunityInfo> opportunities =
+            IntegrationOpportunityScanner.Scan(peReader, existingIntegrations);
+
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity =>
+                opportunity.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.Contains(
+            opportunities,
+            opportunity =>
+                opportunity.Integration == EcosystemIntegrationNames.Aspire);
+    }
+
+    [Fact]
     public void SummarizePresence_PreservesUnknownCompatibilityLabelCount()
     {
         using var stream = BuildDependencyInjectionExtensionAssembly();
@@ -260,6 +283,24 @@ public class EcosystemIntegrationScannerTests
             method.SetCustomAttribute(extensionAttribute);
             method.GetILGenerator().Emit(OpCodes.Ret);
         }
+    }
+
+    private static MemoryStream BuildCloudClientAssembly()
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName("IntegrationOpportunityFixture"),
+            typeof(object).Assembly);
+        var module =
+            assemblyBuilder.DefineDynamicModule("IntegrationOpportunityFixture");
+        module.DefineType(
+                "Azure.Storage.SampleClient",
+                TypeAttributes.Public | TypeAttributes.Class)
+            .CreateType();
+
+        var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        stream.Position = 0;
+        return stream;
     }
 
     private static byte[] BuildAnchorOverBudgetExtensionAssembly()
