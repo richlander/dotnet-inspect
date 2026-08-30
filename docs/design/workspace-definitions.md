@@ -302,18 +302,18 @@ Field semantics:
   query-plan owner defines each payload shape, canonical codec, and validation,
   and must itself sit at or below the dependency boundary.
 - schema-version-1 `view` records — named view presets whose shape this note
-  pins (`lens`,
-  `type`, `memberAnchor` or `memberSignature`, `section`, and library scope —
-  each field individually optional; member selectors require `type`, and
-  `memberAnchor` and `memberSignature` are mutually exclusive). The singular
-  `library` string is the compatible representation for exactly one identity;
-  `libraries` is the unique, ascending-ordinal string array for two or more
-  identities. They are mutually exclusive, and both are omitted for an
-  unscoped view. Library scope is a view concern, because scoping is a lens on
-  a context, not a different context. Selection state uses portable identities:
-  `type` is a metadata type name, and members are
-  addressed by `memberAnchor` (a `MemberAnchor` fingerprint) or
-  `memberSignature` (a canonical signature), never by overload index.
+  pins (`lens`, `type`, `memberAnchor` or `memberSignature`, definition-only
+  `memberKey`, `section`, and library scope — each field individually optional;
+  member selectors require `type`, and `memberAnchor` and `memberSignature`
+  are mutually exclusive). The singular `library` string is the compatible
+  representation for exactly one legacy Browser Library key; `libraries` is
+  the unique, ascending-ordinal string array for two or more keys. They are
+  mutually exclusive, and both are omitted for an unscoped view. Library scope
+  is a view concern, because scoping is a lens on a context, not a different
+  context. These are compatibility selectors, not version-2 identities:
+  `type` may be an owner-issued Browser v1 Type key, members use an anchor,
+  signature, or definition-only group key, and Library values are assembly
+  filename stems. The legacy lowerer below owns their conversion.
 - `navigation` records — named ordered tab sets plus one focused tab id. Each
   tab has a record-local stable id and exactly one source: either a kinded
   acquisition coordinate or a group subscription. A group source also carries
@@ -367,7 +367,12 @@ the long-form shape:
       "navigation": "stj",
       "subject": {
         "kind": "member",
-        "library": "System.Text.Json",
+        "library": {
+          "name": "System.Text.Json",
+          "version": "10.0.0.0",
+          "culture": null,
+          "publicKeyToken": "cc7b13ffcd2ddd51"
+        },
         "type": "System.Text.Json.JsonSerializer",
         "memberAnchor": "74b6b4b321"
       },
@@ -424,10 +429,11 @@ Each state has these fields:
   refinement. A query owner supplies the closed payload, canonical
   serializer, and exact selector validation; Workspace Definitions does not
   reinterpret its fields.
-- `libraries` is an optional unique, ascending-ordinal list of exact acquired
-  Library identities used as query scope. It is not the active Library subject
-  and does not select one. It is valid only when the selected facet's execution
-  binding or one referenced query descriptor declares multi-Library scope.
+- `libraries` is an optional unique, canonically ordered list of
+  `PortableLibraryIdentity` values used as query scope. It is not the active
+  Library subject and does not select one. It is valid only when the selected
+  facet's execution binding or one referenced query descriptor declares
+  multi-Library scope.
 
 Every result-affecting committed value is therefore either structural state
 spelled here or typed query state. Presentation-only disclosure, focus, hover,
@@ -451,13 +457,44 @@ The `subject` object is a closed tagged union:
 | `type` | `library`, `type` | member selector | One exact Type |
 | `member` | `library`, `type`, exactly one of `memberAnchor` or `memberSignature` | the other member selector | One exact Member |
 
-`library` is the exact assembly identity resolved inside the state entry's
-own realized coordinate. `type` is an exact metadata definition name. A member
-selector resolves within that exact Library and Type. The scenario's selected
-context is not part of structural-subject identity: focus may be outside that
-context, and one coordinate may participate in several contexts. Display text,
-package ID alone, assembly filename, metadata token alone, list position, and
-Browser key are never subject identity.
+`library` is one closed `PortableLibraryIdentity`:
+
+```json
+{
+  "name": "System.Text.Json",
+  "version": "10.0.0.0",
+  "culture": null,
+  "publicKeyToken": "cc7b13ffcd2ddd51"
+}
+```
+
+The property order is exactly `name`, `version`, `culture`,
+`publicKeyToken`; all four are required. `name` is the assembly-definition
+name. `version` has exactly four unsigned 16-bit decimal components with no
+leading zero except the scalar `0`. `culture` is `null` for nil, empty, or
+`neutral` metadata culture and otherwise preserves the metadata scalar.
+`publicKeyToken` is `null` for an unsigned assembly and otherwise exactly 16
+lowercase hexadecimal digits. Parse resolves the complete value by
+`AssemblyReferenceIdentity` equivalence inside the state entry's own realized
+coordinate and canonical write emits the matched acquired identity's spelling.
+Zero or several matches are typed failure; alternate casing or neutral-culture
+spelling can resolve but makes the candidate a replacement.
+
+Lists of portable identities use ascending lexicographic order over
+`name`, parsed four-component `version`, `culture`, then `publicKeyToken`,
+with `null` before a string. Duplicate semantic identities are invalid even
+when their input spellings differ.
+
+This portable value is only the Metadata-owned assembly-definition identity
+component. It never serializes artifact identity or generation, acquisition
+registration or provenance, path, MVID, or the admission-scoped
+`ArtifactAssemblyProjection` that supplied the identity. `type` is an exact
+metadata definition name. A member selector resolves within that exact Library
+and Type. The scenario's selected context is not part of structural-subject
+identity: focus may be outside that context, and one coordinate may participate
+in several contexts. Display text, package ID alone, assembly filename,
+metadata token alone, list position, and Browser key are never subject
+identity.
 
 Resolution produces the exact
 `StructuralSubjectIdentity` consumed by Inspection Subject Navigation. A
@@ -898,12 +935,15 @@ The normative v1 decoded shape is:
 
 `f`, `t`, `g`, `a`, and `x` are required. `f` is the exact integer `1`.
 `v` (lens), `y` (type), `m` (member anchor), `s` (member signature), `c`
-(section), and `l` (library-identity array) are optional view fields; `m` and
-`s` are mutually exclusive and each requires `y`. `l` contains unique
-canonical identity strings in ascending ordinal order. Unknown properties and
-any other `l` order are invalid. The compact serializer emits properties in
-the order above, adding optional view fields in their listed order, with no
-insignificant whitespace. String values preserve their scalar sequence without
+(section), and `l` (legacy Browser Library-key array) are optional view fields;
+`m` and `s` are mutually exclusive and each requires `y`. `y` is the exact
+v1 Browser Type key, including its owner-issued assembly qualifier when the
+surface required one. `l` contains unique assembly-filename-stem keys in
+ascending ordinal order. These values are compatibility selectors, not
+version-2 identities. Unknown properties and any other `l` order are invalid.
+The compact serializer emits properties in the order above, adding optional
+view fields in their listed order, with no insignificant whitespace. String
+values preserve their scalar sequence without
 Unicode normalization, reject unpaired surrogates, escape only quote,
 backslash, and C0 controls, use `\b`, `\t`, `\n`, `\f`, and `\r` where
 defined, use lowercase `\u00xx` for other C0 controls, and emit every other
@@ -1052,7 +1092,12 @@ query payloads has this canonical decoded shape:
       "t": 1,
       "u": {
         "k": "member",
-        "l": "System.Text.Json",
+        "l": [
+          "System.Text.Json",
+          "10.0.0.0",
+          null,
+          "cc7b13ffcd2ddd51"
+        ],
         "y": "System.Text.Json.JsonSerializer",
         "m": "74b6b4b321"
       },
@@ -1076,14 +1121,17 @@ optional `l`:
 - `u` is the portable subject. Its closed property order is `k`, optional
   `l`, optional `y`, then exactly one optional `m` or `s`. `k` is `root`,
   `all-libraries`, `library`, `type`, or `member`; the remaining fields project
-  the corresponding long-form subject selector.
+  the corresponding long-form subject selector. `l` is the compact
+  `PortableLibraryIdentity` tuple `[name,version,culture,publicKeyToken]`; it
+  has exactly four slots with the same scalar grammar as the long form.
 - `f` is one exact View Facet Registry ID. Its absence preserves a
   recommendation basis; it never means a host-default facet.
 - `q` is a nonempty array of unique indexes into the query table, in ascending
   order.
-- `l` is a nonempty array of unique acquired-Library identities in ascending
-  ordinal order. The selected facet's execution binding or one referenced
-  query descriptor must explicitly accept multi-Library scope.
+- `l` is a nonempty array of unique compact `PortableLibraryIdentity` tuples
+  in ascending lexicographic order by their four canonical components, with
+  `null` sorting before a string. The selected facet's execution binding or
+  one referenced query descriptor must explicitly accept multi-Library scope.
 
 `q`, when present, is a table of packet-local query states. Each tuple is
 `[queryId,payload]`: `queryId` is the exact product query identity and
@@ -1176,17 +1224,26 @@ Registry aliases. Case variation, whitespace, labels, qualified Browser hash
 spellings such as `pkg:dependencies`, CLI aliases, and values absent from this
 table fail with `LegacyLoweringFailed`.
 
-Version 1 carries a Type name and optional member selector but does not require
-the exact acquired-Library identity that version 2 requires. Strict decode
-therefore produces an unresolved legacy subject plan rather than pretending it
-already contains a version-2 subject. After that plan's coordinate is realized,
-the lowerer resolves the exact metadata Type name against every acquired
-Library in that coordinate. Exactly one defining Library must match. Zero or
-several matches return `LegacyLoweringFailed` with missing or ambiguous
-evidence. For a Member plan, exactly one `memberAnchor` or `memberSignature`
-must then resolve inside that Library and Type. This is compatibility
-resolution owned by Workspace Definitions; it does not ask Navigation to
-recommend a substitute.
+Version 1 carries Browser-local selector currencies and does not require the
+exact Metadata identities that version 2 requires. Strict decode therefore
+preserves each selector and its source kind in an unresolved legacy plan rather
+than pretending it already contains a version-2 subject. After that plan's
+coordinate is realized, the compatibility adapter matches `type` against the
+exact v1 `BrowserTypeSurface.Id` values issued for that realized surface. An
+unqualified key corresponds to one metadata definition only while unique; a
+duplicate-name surface uses its issued assembly-qualified key. Exactly one Type
+and defining acquired Library must match. Zero or several matches return
+`LegacyLoweringFailed` with missing or ambiguous evidence. The output uses the
+matched metadata definition name and canonical `PortableLibraryIdentity`, not
+the legacy key.
+
+For a Member plan, exactly one `memberAnchor` or `memberSignature` must then
+resolve inside that Library and Type. A definition-only `memberKey` paired with
+that stable selector is validation evidence: it must equal the exact legacy
+group key issued for the resolved Member, then is discarded. A `memberKey`
+without an anchor or signature cannot mint a version-2 Member and returns
+`LegacyLoweringFailed`. This compatibility resolution does not ask Navigation
+to recommend a substitute.
 
 A `section` applicable to the resolved subject is the effective facet. An exact
 Member with absent `section` maps to `member.overview`, preserving the current
@@ -1194,9 +1251,16 @@ canonical Browser capture that omits its default Overview section. A
 simultaneously present `lens` must be the exact known parent-Type token and is
 discarded as legacy context; any other pair is contradictory and fails
 lowering. An exact Type with no `lens` or `section` preserves its subject and
-requests facet recommendation. Version-1 `library` or `libraries` values copy
-only to the version-2 view state's query scope and never infer the defining
-Library.
+requests facet recommendation. Version-1 `library` or `libraries` values
+contribute only to the version-2 view state's query scope and never infer the
+defining Library. Each is an exact legacy Browser Library key—an assembly
+filename stem, not an assembly identity. The adapter resolves every key
+independently inside the facet or query descriptor's declared
+coordinate/context input, requires
+exactly one acquired Library per key, and emits its canonical
+`PortableLibraryIdentity`. A missing key, two same-stem Libraries, or two keys
+resolving to one identity is `LegacyLoweringFailed`; no key is copied into
+version 2.
 
 A referenced version-1 query record is also an unresolved legacy plan. For a
 coordinate-backed scenario, its output attaches only to the state for `a`; for
@@ -1266,31 +1330,35 @@ One restoration attempt proceeds in this order:
    or publish the installed workspace, Navigation snapshot, query result, URL
    basis, or consumer state. A prepared fragment identifies the exact request
    and reports `Exact` or `Replacement` with its owner-issued reason.
-6. If every required participant is ready, compose one candidate and project
-   it canonically. An exact candidate may retain its format-1 basis; every
-   replacement candidate must successfully project as format 2 before commit.
+6. If every required participant is ready, compose one candidate and classify
+   its packet projection. A projectable exact packet candidate retains its
+   original canonical packet; other projectable candidates emit canonical
+   format 2. A valid definition candidate that exceeds packet grammar, codec,
+   or bounds is `NonProjectable` and remains eligible to commit session-local
+   state. Only malformed candidate state or a canonical writer failure is
+   `ProjectionFailed`.
 7. Compose one immutable `CompleteRestorationPublication` containing every
    prepared fragment, the focused Navigation snapshot, the complete dormant
-   view table, and the canonical location basis. Return that publication as the
-   one result of the same Navigation explicit operation. Navigation's existing
-   retained-session contract accepts it only for the current exact intent
-   token, installs its Navigation snapshot, and issues current effect authority;
-   the coordinator carries that authority opaquely with the complete
-   publication. No participant fragment is separately observable. This
-   contract does not prescribe Navigation's storage or locking implementation.
+   view table, the request basis, and the projectable or non-projectable
+   location evidence. Return that publication as the one result of the same
+   Navigation explicit operation. Navigation's existing retained-session
+   contract accepts it only for the current exact intent token, installs its
+   Navigation snapshot, and issues current effect authority; the coordinator
+   carries that authority opaquely with the complete publication. No
+   participant fragment is separately observable. This contract does not
+   prescribe Navigation's storage or locking implementation.
 8. If strict decode, legacy resolution, any participant, or final
-   canonicalization fails, abort every prepared fragment and retain the whole
-   prior installed snapshot and revision. If the attempt is superseded,
-   discard every fragment and publish no consumer result or authority. A late
-   ready or failed completion for a settled token is discarded and cannot
-   install.
+   projection fails, abort every prepared fragment and retain the whole prior
+   installed snapshot and revision. If the attempt is superseded, discard
+   every fragment and publish no consumer result or authority. A late ready or
+   failed completion for a settled token is discarded and cannot install.
 
 Owner-issued reconciliation is not partial success. A participant may prepare
 a complete replacement fragment, including Navigation's exact unavailable or
 reconciled snapshot and evidence. If all other participants prepare against
-that same replacement and the composed state is projectable, the coordinator
-may atomically commit it as `ReplacementInstalled`. The coordinator never
-turns a failure into a replacement itself.
+that same replacement, the coordinator may atomically commit it as
+`ReplacementInstalled` with either projectable or non-projectable location
+evidence. The coordinator never turns a failure into a replacement itself.
 
 Preparation validates and binds state; it is not permission to execute every
 inactive result eagerly. An inactive query participant produces an immutable
@@ -1305,48 +1373,68 @@ Failure remains source-identifying throughout the pipeline. Decode reports
 `InvalidPacket` or `UnsupportedFormat`; compatibility and legacy identity
 resolution report `LegacyLoweringFailed`; record and combination validation
 reports `InvalidDefinitionSet`; participant preparation reports its owner and
-exact unavailable or failed evidence; and final canonicalization reports
-`NonProjectableCandidate`. These are not interchangeable success-shaped empty
-states. Every submitted restoration has an admitted Navigation token before
-one of these outcomes can be produced; an obsolete outcome is discarded.
+exact unavailable or failed evidence; valid packet refusal reports
+`NonProjectable`; and malformed output or canonical-writer failure reports
+`ProjectionFailed`. These are not interchangeable success-shaped empty states.
+Every submitted restoration has an admitted Navigation token before one of
+these outcomes can be produced; an obsolete outcome is discarded.
 
 The owner-issued result is a closed union:
 
 ```text
 CompleteRestorationResult
   Published
+    IntentToken          opaque exact Navigation-issued token
     Relation             ExactRequested | ReplacementInstalled | PriorRetained
+    Outcome              Applied | Failed(RestorationFailure)
+    RequestBasis         PacketInput | DefinitionInput
     Snapshot             CompleteWorkspaceSnapshot?
-    Projection           Projectable | NonProjectable | Failed
-    NavigationResult     opaque owner-issued current result and authority
+    Projection           Projectable(CanonicalPacket) |
+                         NonProjectable(reason) | NoSnapshot
+    NavigationDisposition
+                         opaque current result-or-prerequisite-abort and authority
     ParticipantEvidence  ordered complete evidence
   Superseded
 ```
 
+`RestorationFailure` is a closed source-identifying union:
+`InvalidPacket`, `UnsupportedFormat`, `LegacyLoweringFailed`,
+`InvalidDefinitionSet`, `ParticipantNonSuccess(owner,evidence)`, or
+`ProjectionFailed`. It carries the exact owner-issued evidence for its arm.
+`ExactRequested` and `ReplacementInstalled` require `Applied`;
+`PriorRetained` requires `Failed(RestorationFailure)`.
+`RequestBasis` distinguishes the retained canonical packet input, when strict
+decode produced one, from the immutable definition request; it never invents
+packet bytes for a definition. Invalid input retains only its source kind and
+request correlation, not unbounded source text.
+
 `ParticipantEvidence` uses the coordinator's deterministic participant-plan
 order, not completion order. It retains every unavailable or failed result and
-the source owner that produced it. `Published` is the only arm that may carry
-an installable snapshot; `Superseded` produces no consumer value.
+the source owner that produced it; it may be empty when decode fails before a
+participant plan exists. `Published` is the only arm that may carry an
+installable snapshot; `Superseded` produces no consumer value.
 
-The consumer result has one relation:
+Each `Published` result has one relation:
 
 | Relation | Installed state | Canonical-location evidence |
 | --- | --- | --- |
-| `ExactRequested` | Complete candidate equal to the requested semantic state | Exact requested packet basis |
-| `ReplacementInstalled` | Complete owner-issued replacement candidate | Canonical format-2 packet for the installed snapshot |
+| `ExactRequested` | Complete candidate equal to the requested semantic state | Original packet when packet-sourced; derived format-2 packet or `NonProjectable` when definition-sourced |
+| `ReplacementInstalled` | Complete owner-issued replacement candidate | Canonical format-2 packet or `NonProjectable` for the installed snapshot |
 | `PriorRetained` | Prior complete snapshot, or explicit no-snapshot state on initial failure | Prior snapshot's projectable/non-projectable outcome and typed failure |
-| `Superseded` | No effect | No consumer result or authority |
 
 `ExactRequested`, `ReplacementInstalled`, and post-admission `PriorRetained`
 results each carry the complete installed snapshot when one exists, otherwise
-an explicit no-snapshot state, plus typed semantic outcome and participant
-evidence, projection classification, and current opaque Navigation authority.
-Decode and legacy-lowering failures are current `PriorRetained` publications,
-not uncorrelated preflight results. The relation is evidence for the UI
-location adapter, not a history command. Inspect Web alone maps exact
-restoration to adoption, replacement to its defined replace behavior, and
-retained failure to realignment with the prior canonical location.
-Explicit-action push versus replace policy remains outside this owner.
+an explicit no-snapshot state, plus exact request correlation, typed semantic
+outcome and participant evidence, source-aware projection classification, and
+current opaque Navigation disposition and authority. Decode and
+legacy-lowering failures are current `PriorRetained` publications, not
+uncorrelated preflight results. A valid `NonProjectable` exact or replacement
+publication installs but carries no packet; Inspect Web applies its existing
+session-local location behavior. The relation is evidence for the UI location
+adapter, not a history command. Inspect Web alone maps exact restoration to
+adoption, replacement to its defined replace behavior, and retained failure to
+realignment with the prior canonical location. Explicit-action push versus
+replace policy remains outside this owner.
 
 The coordinator state machine is specified by
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
@@ -1354,10 +1442,10 @@ Its attempt token abstracts the exact Navigation-issued intent token; it does
 not model a second authority source. The model admits each request before an
 explicit preflight phase, then covers three abstract participants, two
 requests, preflight success or failure, exact and replacement preparation,
-canonicalization failure, abort, supersession, stale completion, and atomic
-publication. Its finite checks establish evidence for this coordination
-protocol, not for the complete packet, identity, participant, authority, or UI
-contracts.
+projectable and non-projectable classification, projection failure, abort,
+supersession, stale completion, and atomic publication. Its finite checks
+establish evidence for this coordination protocol, not for the complete packet,
+identity, participant, authority, or UI contracts.
 
 ### Files and bundles
 
@@ -1508,7 +1596,11 @@ Implementation must add, at minimum:
   outside `g[x]` or reused by several contexts; query records deduplicate and
   sort by canonical semantic content rather than peer ID; and a valid
   unsupported query codec is `NonProjectable` while an invalid relationship is
-  `InvalidDefinitionSet`;
+  `InvalidDefinitionSet`. Portable Library identity cases must cover signed,
+  unsigned, neutral-culture, culture-specific, same-name/different-version,
+  alternate-equivalent spelling, malformed version/token, and duplicate
+  semantic identity inputs while proving that artifact identity, generation,
+  provenance, path, and MVID never serialize;
 - a packet-validity gate rejecting duplicate properties, tuples, contexts, or
   library identities, unsupported or absent format discriminator, malformed or
   non-canonical base64url, incomplete or trailing JSON, truncated or appended
@@ -1535,22 +1627,28 @@ Implementation must add, at minimum:
   transposer rather than a second packet implementation. Format-2 gates must
   cover its exact fixed vector, all subject arms, mixed format-1/format-2
   fields, view-table cardinality and order, query-table order and references,
-  owner-codec canonical byte equality, every outer and per-query bound, and
-  cancellation before each query bind;
+  owner-codec canonical byte equality, long and compact
+  `PortableLibraryIdentity` equality and canonical ordering, every outer and
+  per-query bound, and cancellation before each query bind;
 - a legacy-lowering gate derived from the closed mapping table, with one
   positive case for every row and close negatives for case variation,
   whitespace, Browser hash spellings, CLI aliases, contradictory lens/section
   pairs, wrong structural evidence, missing or ambiguous defining Library
   identity, and unknown tokens. It must include current Browser-produced
   Member Overview packets with absent `section`, exact Type and Member records
-  that omit Library identity, and referenced query presets with owner-accepted,
-  absent-identity, missing-migration, rejected, and facet-incompatible cases.
-  It must prove a v1 subject becomes exact only after one defining acquired
-  Library resolves, query migration attaches only to `a` for coordinate-backed
-  scenarios, Registry resolution is not called until lowering succeeds,
-  inactive format-1 coordinates become explicit recommendation states, exact
-  format-1 restoration retains its byte basis, and every changed or newly
-  captured state emits format 2 rather than a legacy token;
+  that omit Library identity, unqualified and assembly-qualified Browser Type
+  keys, same-stem/different-identity Libraries, and definition-only
+  `memberKey` both with and without a stable member selector. It must also
+  cover referenced query presets with owner-accepted, absent-identity,
+  missing-migration, rejected, and facet-incompatible cases. It must prove a
+  v1 subject becomes exact only after one Type and defining acquired Library
+  resolve, every legacy Library key resolves independently to one portable
+  identity, a paired `memberKey` agrees before being discarded, query
+  migration attaches only to `a` for coordinate-backed scenarios, Registry
+  resolution is not called until lowering succeeds, inactive format-1
+  coordinates become explicit recommendation states, exact format-1 packet
+  restoration retains its byte basis, and every changed or newly captured
+  state emits format 2 rather than a legacy token;
 - a session-closure gate asserting the packet grammar covers every
   interactively reachable format-2 committed state, including distinct
   inactive-coordinate views, all structural subjects, package-root facets,
@@ -1583,20 +1681,27 @@ Implementation must add, at minimum:
 - a view-facet registry gate proving version 2 submits only `ViewState.Facet`
   as an exact opaque Registry ID, never parses its prefix, and distinguishes
   unknown, inapplicable, unavailable, and failed outcomes. Version-1
-  `lens`/`section` values must reach only the legacy lowerer. A `library` name
-  is not a facet: it resolves against the loaded context's assemblies, with an
-  unknown name a typed outcome there;
+  `lens`/`section` values must reach only the legacy lowerer. A
+  `PortableLibraryIdentity` is not a facet: it resolves against the owning
+  coordinate's acquired assemblies, with missing or ambiguous identity a typed
+  outcome there;
 - a complete-restoration conformance gate with controllable workspace,
   Navigation, query, and canonical-projection participants. It must cover
-  token admission before decode or lowering begins, stale decode success and
-  failure after newer intent, out-of-order readiness, one failure after peers
-  become ready, exact and replacement commit, replacement projection failure,
-  supersession before and after all peers are ready, late completion, and an
-  initial failure with no prior snapshot. Every non-commit case retains the
-  complete prior snapshot and revision; a commit publishes every fragment in
-  one revision; the exact result retains the requested packet basis; the
-  replacement result contains the format-2 packet for the installed snapshot;
-  and only current opaque Navigation authority can reach the consumer;
+  a distinct token-admission transition before preflight starts, stale decode
+  success and failure after newer intent, out-of-order readiness, one failure
+  after peers become ready, exact and replacement commit, projectable and
+  validly non-projectable commit, projection failure, supersession before and
+  after all peers are ready, late completion, and an initial failure with no
+  prior snapshot. Every failure publication must carry its exact token,
+  source-identifying `RestorationFailure`, request kind, and current
+  Navigation prerequisite-abort or result disposition even when participant
+  evidence is empty. Every non-commit case retains the complete prior snapshot
+  and revision; a commit publishes every fragment in one revision; exact
+  packet restoration retains the requested packet basis; exact definition
+  restoration retains definition basis plus its derived projectable or
+  non-projectable outcome; replacement carries the installed snapshot's
+  projectable or non-projectable outcome; and only current opaque Navigation
+  authority can reach the consumer;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
@@ -1626,14 +1731,15 @@ Implementation must add, at minimum:
 The complete-restoration coordinator is model-checked by
 [`CompleteRestoration.tla`](models/workspace-definitions-restoration/CompleteRestoration.tla).
 Its positive configuration checks complete readiness, exact request
-correlation, admission-before-preflight, atomic publication, failure and
-non-projectability retention, supersession, stale completion, and per-attempt
-progress. Nine mutation configurations independently demonstrate that the
-named safety properties reject preflight without admission, early commit,
-partial commit, failed or superseded commit, abort mutation, stale
-installation, wrong exact/replacement relation, and cross-request publication.
-The model does not prove codec, Registry, query payload, Navigation, or UI
-implementation conformance; the gates above remain required.
+correlation, admission-before-preflight-start, projectable and non-projectable
+atomic publication, projection-failure retention, supersession, stale
+completion, and per-attempt progress. Nine mutation configurations
+independently demonstrate that the named safety properties reject preflight
+without admission, early commit, partial commit, failed or superseded commit,
+abort mutation, stale installation, wrong exact/replacement relation, and
+cross-request publication. The model does not prove codec, Registry, query
+payload, Navigation, or UI implementation conformance; the gates above remain
+required.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified

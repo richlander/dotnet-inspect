@@ -2,13 +2,13 @@
 (***************************************************************************)
 (* Design model of Workspace Definitions complete restoration coordination. *)
 (*                                                                         *)
-(* Navigation admits one opaque request before its preflight can start.      *)
-(* Successful preflight starts every required participant against that same *)
-(* immutable payload. Participant preparation is invisible. The coordinator *)
-(* builds and canonicalizes one complete candidate, then publishes every    *)
-(* participant fragment in one commit. Failure or non-projectability aborts *)
-(* without changing the installed snapshot. A newer request makes every     *)
-(* completion from an older attempt stale and discardable.                  *)
+(* Navigation admits one opaque request before a separate transition starts *)
+(* its preflight. Successful preflight starts every required participant     *)
+(* against that same immutable payload. Participant preparation is invisible.*)
+(* The coordinator builds and classifies one complete candidate, then        *)
+(* publishes every participant fragment in one commit. Projection failure    *)
+(* aborts without changing the installed snapshot; valid non-projectability  *)
+(* may commit. A newer request makes older completion stale and discardable. *)
 (*                                                                         *)
 (* The intent token abstracts the retained Navigation session's one token;  *)
 (* this coordinator does not introduce a second ordering authority.         *)
@@ -26,7 +26,7 @@ CONSTANTS
   PayloadB,
   NoPayload,
   NoToken,
-  AllowCanonicalizationFailure,
+  AllowProjectionFailure,
   Mutation
 
 Tokens == 1 .. MaxIntent
@@ -61,9 +61,11 @@ CandidateStates ==
   { "none",
     "builtExact",
     "builtReplacement",
-    "canonicalExact",
-    "canonicalReplacement",
-    "unprojectable" }
+    "projectableExact",
+    "projectableReplacement",
+    "nonprojectableExact",
+    "nonprojectableReplacement",
+    "projectionFailed" }
 ResultOutcomes == {"none", "committed", "aborted", "discarded"}
 ResultRelations == {"none", "exact", "replacement", "retained", "discarded"}
 
@@ -73,7 +75,7 @@ ASSUME
   /\ PayloadA # PayloadB
   /\ NoPayload \notin Payloads
   /\ NoToken \notin Tokens
-  /\ AllowCanonicalizationFailure \in BOOLEAN
+  /\ AllowProjectionFailure \in BOOLEAN
   /\ Mutation \in Mutations
 
 NoParticipantPreparation == [phase |-> "none", changed |-> FALSE]
@@ -220,17 +222,21 @@ AttemptFailed(t) ==
 AnyChanged(t) ==
   \E p \in Participants : preparation[t][p].changed
 
-CanonicalCandidate(t) ==
-  candidate[t] \in {"canonicalExact", "canonicalReplacement"}
+PublishableCandidate(t) ==
+  candidate[t] \in
+    { "projectableExact",
+      "projectableReplacement",
+      "nonprojectableExact",
+      "nonprojectableReplacement" }
 
 CommitGuardSatisfied(t) ==
   /\ t \in liveAttempts
   /\ t = intent
   /\ preflight[t] = "ready"
   /\ AllReady(t)
-  /\ CanonicalCandidate(t)
+  /\ PublishableCandidate(t)
 
-BeginRestoration(payload) ==
+AdmitRestoration(payload) ==
   /\ intent < MaxIntent
   /\ intent' = intent + 1
   /\ requests' =
@@ -242,7 +248,7 @@ BeginRestoration(payload) ==
               basePayload          |-> installed.sourcePayload,
               baseChanged          |-> installed.changed,
               baseParticipantToken |-> installed.participantToken ]]
-  /\ preflight' = [preflight EXCEPT ![intent + 1] = "working"]
+  /\ preflight' = [preflight EXCEPT ![intent + 1] = "none"]
   /\ preparation' = [preparation EXCEPT ![intent + 1] = NoPreparation]
   /\ liveAttempts' = liveAttempts \cup {intent + 1}
   /\ candidate' = [candidate EXCEPT ![intent + 1] = "none"]
@@ -250,6 +256,29 @@ BeginRestoration(payload) ==
   /\ UNCHANGED
        << results,
           installed,
+          failedAttempts,
+          staleCompletions,
+          commitGuardWitness,
+          requestCorrelationWitness,
+          relationWitness,
+          abortRetentionWitness,
+          staleCompletionWitness >>
+
+BeginPreflight(t) ==
+  /\ t \in liveAttempts
+  /\ t <= intent
+  /\ requests[t].payload # NoPayload
+  /\ preflight[t] = "none"
+  /\ preflight' = [preflight EXCEPT ![t] = "working"]
+  /\ UNCHANGED
+       << intent,
+          requests,
+          preparation,
+          liveAttempts,
+          candidate,
+          results,
+          installed,
+          supersededAttempts,
           failedAttempts,
           staleCompletions,
           commitGuardWitness,
@@ -300,11 +329,11 @@ PreflightFailed(t) ==
           abortRetentionWitness,
           staleCompletionWitness >>
 
-PreflightWithoutAdmission ==
+BeginPreflightWithoutAdmission ==
   /\ Mutation = PreflightBeforeAdmission
   /\ intent < MaxIntent
   /\ preflight[intent + 1] = "none"
-  /\ preflight' = [preflight EXCEPT ![intent + 1] = "ready"]
+  /\ preflight' = [preflight EXCEPT ![intent + 1] = "working"]
   /\ UNCHANGED
        << intent,
           requests,
@@ -392,15 +421,15 @@ BuildCandidate(t) ==
           abortRetentionWitness,
           staleCompletionWitness >>
 
-CanonicalizeCandidateSuccess(t) ==
+ProjectCandidate(t) ==
   /\ t \in liveAttempts
   /\ candidate[t] \in {"builtExact", "builtReplacement"}
   /\ candidate' =
        [candidate EXCEPT
           ![t] =
             IF candidate[t] = "builtReplacement"
-            THEN "canonicalReplacement"
-            ELSE "canonicalExact"]
+            THEN "projectableReplacement"
+            ELSE "projectableExact"]
   /\ UNCHANGED
        << intent,
           requests,
@@ -418,11 +447,37 @@ CanonicalizeCandidateSuccess(t) ==
           abortRetentionWitness,
           staleCompletionWitness >>
 
-CanonicalizeCandidateFailure(t) ==
-  /\ AllowCanonicalizationFailure
+ClassifyCandidateNonProjectable(t) ==
   /\ t \in liveAttempts
   /\ candidate[t] \in {"builtExact", "builtReplacement"}
-  /\ candidate' = [candidate EXCEPT ![t] = "unprojectable"]
+  /\ candidate' =
+       [candidate EXCEPT
+          ![t] =
+            IF candidate[t] = "builtReplacement"
+            THEN "nonprojectableReplacement"
+            ELSE "nonprojectableExact"]
+  /\ UNCHANGED
+       << intent,
+          requests,
+          preflight,
+          preparation,
+          liveAttempts,
+          results,
+          installed,
+          supersededAttempts,
+          failedAttempts,
+          staleCompletions,
+          commitGuardWitness,
+          requestCorrelationWitness,
+          relationWitness,
+          abortRetentionWitness,
+          staleCompletionWitness >>
+
+CandidateProjectionFailure(t) ==
+  /\ AllowProjectionFailure
+  /\ t \in liveAttempts
+  /\ candidate[t] \in {"builtExact", "builtReplacement"}
+  /\ candidate' = [candidate EXCEPT ![t] = "projectionFailed"]
   /\ UNCHANGED
        << intent,
           requests,
@@ -550,7 +605,7 @@ CommitWithoutRequiredGuard(t) ==
 Abort(t) ==
   /\ t \in liveAttempts
   /\ t = intent
-  /\ (AttemptFailed(t) \/ candidate[t] = "unprojectable")
+  /\ (AttemptFailed(t) \/ candidate[t] = "projectionFailed")
   /\ installed' =
        IF Mutation = AbortChangesInstalled
        THEN
@@ -656,9 +711,10 @@ ResolvePreflight(t) ==
   \/ PreflightReady(t)
   \/ PreflightFailed(t)
 
-CanonicalizeCandidate(t) ==
-  \/ CanonicalizeCandidateSuccess(t)
-  \/ CanonicalizeCandidateFailure(t)
+ClassifyCandidateProjection(t) ==
+  \/ ProjectCandidate(t)
+  \/ ClassifyCandidateNonProjectable(t)
+  \/ CandidateProjectionFailure(t)
 
 SettleAttempt(t) ==
   \/ Commit(t)
@@ -666,21 +722,23 @@ SettleAttempt(t) ==
   \/ DiscardSuperseded(t)
 
 Next ==
-  \/ \E payload \in Payloads : BeginRestoration(payload)
-  \/ PreflightWithoutAdmission
+  \/ \E payload \in Payloads : AdmitRestoration(payload)
+  \/ BeginPreflightWithoutAdmission
+  \/ \E t \in Tokens : BeginPreflight(t)
   \/ \E t \in Tokens : ResolvePreflight(t)
   \/ \E t \in Tokens, p \in Participants : ResolveParticipant(t, p)
   \/ \E t \in Tokens : BuildCandidate(t)
-  \/ \E t \in Tokens : CanonicalizeCandidate(t)
+  \/ \E t \in Tokens : ClassifyCandidateProjection(t)
   \/ \E t \in Tokens : SettleAttempt(t)
   \/ \E t \in Tokens : CommitWithoutRequiredGuard(t)
   \/ \E t \in Tokens, p \in Participants : ObserveStaleCompletion(t, p)
 
 Fairness ==
+  /\ \A t \in Tokens : WF_vars(BeginPreflight(t))
   /\ \A t \in Tokens : WF_vars(ResolvePreflight(t))
   /\ \A t \in Tokens, p \in Participants : WF_vars(ResolveParticipant(t, p))
   /\ \A t \in Tokens : WF_vars(BuildCandidate(t))
-  /\ \A t \in Tokens : WF_vars(CanonicalizeCandidate(t))
+  /\ \A t \in Tokens : WF_vars(ClassifyCandidateProjection(t))
   /\ \A t \in Tokens : WF_vars(SettleAttempt(t))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
@@ -689,7 +747,7 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 (* Safety.                                                                 *)
 (***************************************************************************)
 
-CommitRequiresEveryParticipantAndCanonicalCandidate == commitGuardWitness
+CommitRequiresEveryParticipantAndPublishableCandidate == commitGuardWitness
 
 PreflightRequiresAdmission ==
   \A t \in Tokens :
@@ -730,9 +788,9 @@ SupersededAttemptNeverCommits ==
   \A t \in Tokens :
     t \in supersededAttempts => results[t].outcome \in {"none", "discarded"}
 
-UnprojectableCandidateNeverCommits ==
+ProjectionFailureNeverCommits ==
   \A t \in Tokens :
-    candidate[t] = "unprojectable" =>
+    candidate[t] = "projectionFailed" =>
       results[t].outcome \in {"none", "aborted", "discarded"}
 
 PreparationIsInvisibleUntilCommit ==
