@@ -243,11 +243,35 @@ filled. One round evaluates one settled head with all required reviewers.
 
 ### Dispatch
 
-Give each reviewer the same self-contained prompt: exact base and head, design
-intent, relevant diff, concrete attack points, and required real-run evidence.
+Start every reviewer prompt with the complete contents of
+[`docs/adversarial-review-prompt.md`](adversarial-review-prompt.md).
+Read it directly before composing the prompt:
 
-State plainly that reporting CLEAN is an acceptable outcome. A prompt that only
-rewards findings will produce findings.
+```bash
+cat docs/adversarial-review-prompt.md
+```
+
+Do not summarize, paraphrase, reorder, or put candidate-specific instructions
+before the fixed prompt. Append the candidate's exact base and head, design
+intent, relevant diff, concrete properties under test, prior findings, and
+required real-run evidence. The appended material may narrow the review but
+must not weaken or broaden the prompt's trust model and finding-admission rules.
+Agents that prefer a structured composition aid may instead fill the optional
+[`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
+which includes the same fixed prompt followed by candidate placeholders.
+
+Do not dispatch with a generic or incoherent frame. The prompt must name one
+normative owner and exact claim, the supported actor or caller, the controlled
+or variable input, the boundary through which it reaches the claim, trusted
+parties and excluded scenarios, the observable consequence, and the evidence
+that would falsify the claim. For a correctness review without an untrusted
+actor, name the ordinary supported caller and input instead. If those fields
+cannot be filled, return to design or scope clarification before spending a
+review round.
+
+Give every seat the same completed prompt except for its worktree path. State
+candidate facts rather than rewarding findings; the canonical prompt already
+makes reporting CLEAN an explicit successful outcome.
 
 Isolate every reviewer in a separate linked review worktree under the primary
 checkout's `.worktrees/` directory or an operating-system temporary directory;
@@ -262,10 +286,11 @@ so reproduce the finding and measure it before accepting its severity.
 
 ### Wording the prompt
 
-Write the prompt as a description of the property under test. A prompt written
-as an attack brief can trip a model's content filter, and **that failure is
-silent**: the reviewer returns an empty or near-empty response with a clean
-worktree, which is indistinguishable from a broken model or a stalled harness.
+The canonical prompt requires a property description rather than an attack
+brief. An exploit-tutorial-style prompt can trip a model's content filter, and
+**that failure is silent**: the reviewer returns an empty or near-empty
+response with a clean worktree, which is indistinguishable from a broken model
+or a stalled harness.
 
 This has happened here, and it cost most of a day. A seat returned empty
 several times across two heads and was nearly reported to the user as a
