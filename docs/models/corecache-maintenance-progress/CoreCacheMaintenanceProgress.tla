@@ -3,7 +3,8 @@
 (* Models CoreCache.CacheMaintenanceProgress (src/DotnetInspector.Core/     *)
 (* CoreCache.cs), the counter object background maintenance tasks update   *)
 (* (RecordDeletion) and that CoreCache.CancelAndWaitForMaintenance reads    *)
-(* and resets, on a timed-out wait (Snapshot / TakeSnapshot).               *)
+(* and resets, on a timed-out wait (TakeSnapshot; the non-destructive       *)
+(* Snapshot is out of scope -- see the design doc and README).             *)
 (*                                                                         *)
 (* CoreCache.cs serializes every *control* operation (Register, Initialize, *)
 (* Clear, CancelAndWaitForMaintenance, RequestVersionedCategoryCleanupAsync) *)
@@ -28,8 +29,10 @@
 (* AllowTornRead = TRUE: CacheMaintenanceProgress.RecordDeletion performs   *)
 (*   Interlocked.Add(ref _bytesFreed, bytesFreed);                         *)
 (*   Interlocked.Increment(ref _directoriesDeleted);                       *)
-(* as two independent operations, and TakeSnapshot/Snapshot read the same   *)
-(* two fields with two independent Interlocked calls in the same order.    *)
+(* as two independent operations, and TakeSnapshot reads the same two      *)
+(* fields with two independent Interlocked.Exchange calls in the same      *)
+(* order (the non-destructive Snapshot() uses Interlocked.Read plus        *)
+(* Volatile.Read and is out of scope -- see the design doc and README).    *)
 (* CoreCache.WaitForMaintenance calls TakeSnapshot after only a *bounded*   *)
 (* wait for the in-flight maintenance task (task.Wait(timeout), then, on    *)
 (* timeout, a further 25ms grace period) -- not after a guaranteed-complete *)
@@ -49,16 +52,22 @@ CONSTANTS
     AllowTornRead
 
 ASSUME
-    /\ MaxDeletions \in Nat \ {0}
+    /\ MaxDeletions \in Nat
+    /\ MaxDeletions >= 2
     /\ AllowTornWrite \in BOOLEAN
     /\ AllowTornRead \in BOOLEAN
 
-(* Every .cfg here uses MaxDeletions = 2. A model of the isolated *)
-(* single-deletion race (a read starting when no deletion anywhere has *)
-(* pending work) needs at least two deletions so one already-completed *)
-(* deletion can open the SomePendingReport guard while a second deletion's *)
-(* own write races the read's two sub-steps; see the comment on *)
-(* SomePendingReport below. *)
+(* MaxDeletions >= 2 is required, not just conventional: a model of the *)
+(* isolated single-deletion race (a read starting when no deletion *)
+(* anywhere has pending work) needs at least two deletions so one *)
+(* already-completed deletion can open the SomePendingReport guard while *)
+(* a second deletion's own write races the read's two sub-steps; see the *)
+(* comment on SomePendingReport below. At MaxDeletions = 1 that guard *)
+(* prevents a read from ever starting until the sole deletion is fully *)
+(* recorded, which would make BrokenTornReadOnly.cfg pass vacuously -- a *)
+(* false result for a configuration whose whole point is that a second *)
+(* deletion can complete between a reader's two sub-steps. Every .cfg *)
+(* here uses MaxDeletions = 2.) *)
 Deletions == 1..MaxDeletions
 
 VARIABLES

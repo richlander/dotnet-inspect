@@ -35,9 +35,12 @@ The modeled interactions are:
 - a timed-out `CancelAndWaitForMaintenance` report reading and resetting the
   same two counters as two operations, matching `TakeSnapshot`'s
   `Interlocked.Exchange`-then-`Interlocked.Exchange` order; and
-- a proposed fix, toggled independently on the writer and the reader side, that
-  guards `CacheMaintenanceProgress`'s fields with a single lock so each
-  operation becomes one atomic step.
+- a proposed fix, toggled independently on the writer and the reader side. The
+  model idealizes each toggled side as one globally indivisible step -- a
+  stronger abstraction than a real single-sided lock, since a lock taken by
+  only one side cannot by itself make that side's memory effects atomic to an
+  unsynchronized reader. Only the configuration where both sides are toggled
+  (`Safety.cfg`) corresponds to an actual shared lock guarding both operations.
 
 `AllowTornWrite = TRUE` and `AllowTornRead = TRUE` together describe
 `CacheMaintenanceProgress` as implemented today. The model does not cover

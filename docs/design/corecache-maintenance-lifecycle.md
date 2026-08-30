@@ -27,10 +27,14 @@ publishing is a different owner; see
   *different* version, throws `InvalidOperationException`. A process may not
   change a versioned category's target version -- nor its exact spelling --
   after registering it once.
-- **Every registered category is scheduled at most once per generation.** A
-  generation is identified by the cache root, the category's prefix, and its
-  current version; CoreCache never runs two concurrent cleanup tasks for the
-  same (root, prefix, version).
+- **Every registered category has at most one live cleanup task at a time.**
+  Within one maintenance generation, CoreCache never runs two concurrent
+  cleanup tasks for the same (root, prefix, version) key -- a repeated
+  schedule request for a key already present in the current generation's task
+  map is a no-op. This key is a *within-generation* dedup key, not the
+  generation's identity: a cancellation-triggered generation restart replaces
+  the task map wholesale, so the very same (root, prefix, version) key can be
+  scheduled again as a fresh task in the new generation.
 - **`Initialize` and the internal aggregate-cleanup path re-schedule every
   currently-registered category.** An explicit `Initialize` call, and
   `RequestVersionedCategoryCleanupAsync`'s internal aggregate-scheduling pass,
@@ -66,10 +70,15 @@ publishing is a different owner; see
   up to approximately the moment of the call**, not a confirmed complete
   drain: it waits only a caller-supplied timeout, then proceeds after a
   further best-effort grace period regardless of whether background cleanup
-  has actually finished. **`Clear`'s reported byte count, in contrast,
-  reflects a complete drain**: it waits with an effectively unbounded timeout,
-  so it always observes every background task it triggered as finished before
-  reading the counters.
+  has actually finished. **`Clear()` (an all-cache clear)'s reported byte
+  count, in contrast, reflects a complete drain**: it waits with an
+  effectively unbounded timeout, so it always observes every background task
+  it triggered as finished before reading the counters, and includes the
+  drained maintenance bytes in its return value. **`Clear(category)` (a
+  single-category clear) also waits for the same unbounded drain, but its
+  return value excludes the drained maintenance byte count entirely** --
+  it reports only the measured size of the one category directory being
+  deleted, never the maintenance progress counters.
 - **The internal aggregate task returned by `RequestVersionedCategoryCleanupAsync`
   is a point-in-time snapshot.** A category registered after that call
   returns is not included in an already-obtained task reference; a caller
