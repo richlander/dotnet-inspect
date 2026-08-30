@@ -147,13 +147,18 @@ contracts resolved under different identities remain separate. Cohorts follow
 the position of their first participating declared row set, and row sets retain
 declaration order within a cohort.
 
-Each cohort receives one semantic named-sequence invocation. Resolver caching
-and named-sequence failure precedence therefore follow the semantic contract
-within that cohort. Across cohorts, the first semantic failure in cohort order
-wins. L2 completes each cohort invocation before starting the next one. A
-failure skips every later cohort; callbacks reached in earlier cohorts and
-before the failure in the failing cohort remain observable, and L2 neither
-replays nor rolls them back.
+During execution, a cohort is **entered** only when the current terminal admits
+at least one of its row-bearing members to residual shaping. Each entered cohort
+receives one semantic named-sequence invocation containing only those admitted
+members. A cohort with no admitted member receives no invocation, and a
+Count-blocking source outcome prevents every cohort from being entered.
+
+Resolver caching and named-sequence failure precedence therefore follow the
+semantic contract within each entered cohort. Across entered cohorts, the first
+semantic failure in cohort order wins. L2 completes each invocation before
+starting the next one. A failure skips every later cohort; callbacks reached in
+earlier cohorts and before the failure in the failing cohort remain observable,
+and L2 neither replays nor rolls them back.
 
 `RowSequenceKey` values remain unique across the complete shaping request even
 though semantic execution occurs per cohort. L2 reassembles successful cohort
@@ -252,11 +257,15 @@ Resolution is fail-fast in this total order:
       contract; and
    4. validate the terminal branch against the set's shape capabilities.
 8. Visit cohorts in first-participating-declaration order and require:
-   1. at least one participating row set;
-   2. every member to carry the cohort's schema and intent-binding identities;
+   1. every member to carry the cohort's schema and intent-binding identities;
       and
-   3. every participating row set and sequence key to occur exactly once in
+   2. every participating row set and sequence key to occur exactly once in
       the immutable forward and reverse result-binding maps.
+
+An empty cohort is unrepresentable by construction: step 7 mints an identity
+only at the first participating row set for its schema/intent-binding pair.
+Non-emptiness is therefore an invariant of construction, not a resolution
+failure.
 
 The first failure wins and no later category is evaluated. Its failure scope
 is:
@@ -361,22 +370,37 @@ resolved logical request never contributes zero and never disappears from a
 successful-looking aggregate. Exact zero means the available evidence proves
 that the logical request has no surviving rows.
 
+Without redefining the source owner's disposition or evidence taxonomy, L2
+consumes two independent typed facts for each participating set:
+
+- whether supplied row values are usable for the resolved **Rows** request and
+  may enter residual shaping; and
+- whether the evidence is sufficient for an exact **Count** result.
+
+A source result may be Rows-usable while carrying evidence that the underlying
+candidate set is incomplete and therefore Count-insufficient. Bare
+`package search` is the canonical case: its capped rows remain visible with
+their owner-issued incompleteness evidence, but the cap does not become
+semantic `Head` or prove an exact count. A failed, `Absent`, or otherwise
+Rows-unavailable result carries no row values into residual shaping.
+
 The execution and failure precedence after successful resolution is:
 
-1. Bind one owner-issued source disposition to every participating row set in
-   declaration order.
-2. For **Count**, any failed, `Absent`, or request-insufficient disposition
-   returns one source-failure result containing every participating set's
-   disposition. It invokes no residual row-query or semantic execution and
-   produces no Count. A proven semantic prefix may be request-complete without
-   corpus exhaustion; a work, page, time, memory, or acquisition cutoff is not.
-3. For **Row outcomes**, retain each failed, `Absent`, or request-insufficient
-   disposition as that set's typed outcome. Only request-complete sets enter
-   residual execution; one set's source disposition does not suppress healthy
-   companion sets.
-4. Visit cohorts containing request-complete sets in cohort order:
-   1. prepare those sets in declaration order through membership projection,
-      predicates, and effective baseline ordering;
+1. Bind one owner-issued source result and its completion evidence to every
+   participating row set in declaration order.
+2. For **Count**, any failed, `Absent`, or Count-insufficient result returns one
+   source-failure result containing every participating set's disposition. It
+   invokes no residual row-query or semantic execution and produces no Count.
+   A proven semantic prefix may be Count-sufficient without corpus exhaustion;
+   a work, page, time, memory, or acquisition cutoff is not.
+3. For **Row outcomes**, retain every source disposition and completion
+   evidence. A Rows-usable result enters residual execution with its supplied
+   row values; a failed, `Absent`, or otherwise Rows-unavailable result remains
+   a disposition-only outcome. One set's outcome does not suppress healthy or
+   incomplete-but-usable companion rows.
+4. Visit entered cohorts in cohort order:
+   1. prepare admitted row-bearing sets in declaration order through membership
+      projection, predicates, and effective baseline ordering;
    2. propagate an accessor, predicate, or baseline-order exception unchanged
       and skip every later row set and cohort; then
    3. invoke one named semantic-selection operation for the prepared cohort.
@@ -384,7 +408,8 @@ The execution and failure precedence after successful resolution is:
       cohort; resolver and comparer exceptions propagate unchanged.
 5. Only after every entered cohort succeeds does L2 publish a result:
    1. Count returns exact entries for every participating set; or
-   2. Row outcomes reassemble selected rows and retained source dispositions in
+   2. Row outcomes reassemble selected rows with their source dispositions and
+      completion evidence, plus disposition-only unavailable outcomes, in
       original participating row-set order.
 
 No partially assembled top-level result is published before step 5. Callbacks
@@ -401,7 +426,8 @@ The conceptual L2 result algebra is:
 
 ```text
 RowSetOutcome =
-    SelectedRows(declared row-set identity, rows, cell projection)
+    SelectedRows(declared row-set identity, rows, cell projection,
+                 owner-issued disposition and completion evidence)
   | SourceDisposition(declared row-set identity,
                       owner-issued disposition and completion evidence)
 
@@ -418,20 +444,22 @@ SectionRowResult =
 On non-exceptional completion, L2 returns exactly one typed result branch:
 
 - **Row outcomes** returns selected caller-owned values with validated cell
-  projection for request-complete sets and opaque source dispositions for
-  unavailable sets, all under their declared row-set identities.
+  projection plus opaque source disposition and completion evidence for
+  Rows-usable sets, and disposition-only outcomes for unavailable sets, all
+  under their declared row-set identities.
 - **Count** returns ordered row-set identities and exact cardinalities.
 - **Failure** binds a request-wide or row-set-scoped resolution failure,
   Count-blocking source outcomes, or one semantic failure to its explicit
   scope.
 
-Each source-disposition entry contains the declared row-set identity plus the
-opaque owner-issued disposition and completion evidence. L2 does not redefine
-their construction, reason taxonomy, or lifetime. A Row-outcomes result may
-therefore contain healthy companion rows alongside failed, incomplete, or
-absent source dispositions. A `SourceForCount` failure preserves one ordered
-entry per participating set and structurally contains neither row outcomes nor
-a Count payload.
+Each row-set outcome contains the declared row-set identity plus the opaque
+owner-issued disposition and completion evidence. L2 does not redefine their
+construction, reason taxonomy, or lifetime. A `SelectedRows` outcome may
+therefore carry incompleteness evidence beside the rows it discloses, while a
+failed, `Absent`, or Rows-unavailable outcome carries only its source
+disposition. A `SourceForCount` failure preserves one ordered entry per
+participating set and structurally contains neither row outcomes nor a Count
+payload.
 
 Selection position and `RowSequenceKey` are not promoted into row identity.
 Presentation labels, diagnostic sentences, rendered values, and exception text
@@ -502,16 +530,17 @@ The implementation must add these named Release gates:
 | `CountPreservesRowQueryObservations` | Count reflects predicate survivors and propagates the exact sentinel exception instance from a reached row accessor, predicate, or effective-baseline-order comparer over enough rows to exercise it; no Count-specific path bypasses row-query execution or turns its failure into a cardinality. |
 | `StrictWindowFailurePreemptsCount` | Closed, prefix, and suffix windows return their semantic failure rather than a partial cardinality when the required position is absent. |
 | `HeadCountAcceptsProvenPrefixCompletion` | N ordered applicable rows with proof sufficient for `Head(N) -> Count` return exact N without corpus exhaustion; fewer than N without proof that no later applicable row exists returns source failure rather than a count. |
-| `CountPreservesDeclaredRowSetScope` | One participating request-complete set produces one exact entry; multiple participating request-complete sets retain declaration order and identity; no total is invented unless the producer declared one aggregate set. |
+| `CountPreservesDeclaredRowSetScope` | One participating Count-sufficient set produces one exact entry; multiple participating Count-sufficient sets retain declaration order and identity; no total is invented unless the producer declared one aggregate set. |
 | `RowIntentBindingIdentityIsOwnerIssued` | Repeated use of one typed intent instance shares one request-local identity and structurally equal separately declared instances remain distinct. A malformed association, empty associated-row-set list, or unknown reference returns request-wide failure with its typed association/reference position; a duplicate or missing participating-set association returns row-set-scoped failure, all in the exact resolution order. |
 | `NoRowIntentUsesDefaultBinding` | A request with no row-intent associations assigns one default request-local identity to every participating set; each schema resolves empty predicates, its effective baseline order, and an empty semantic plan, and plain Rows and Count requests complete through the ordinary cohort path. |
-| `ShapingCohortIdentityIsOwnerIssued` | Exactly one cohort identity is minted per schema-identity/intent-binding-identity pair; sets sharing it reuse one resolved contract and named semantic invocation; no structural intent, plan, or catalog comparison participates. |
-| `HeterogeneousSchemasFormOrderedCohorts` | Different cohort identities follow first participating declaration; two schemas with different `Top` bindings use their own resolvers; a sentinel failure skips every later cohort without replaying or rolling back earlier callbacks; successful results reassemble in declared order. |
-| `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any participating source-failed, `Absent`, or request-insufficient set prevents every residual cohort and Count; source evidence sufficient for the request executes cohorts in order, and the first semantic cohort failure prevents every count entry. |
-| `EmptyFailedAndAbsentSetsStayDistinct` | A participating request-complete empty set produces exact zero after semantic success; a participating request-insufficient, failed, or owner-issued `Absent` disposition prevents Count and remains a typed source failure; an unrequested, undeclared, or projection-inapplicable set produces no entry. |
-| `RowsPreserveIndependentSourceOutcomes` | A Rows request returns healthy companion rows alongside ordered opaque source dispositions for failed, incomplete, or absent sets; only request-complete sets enter residual shaping. |
+| `ShapingCohortIdentityIsOwnerIssued` | Exactly one non-empty cohort identity is minted at the first participating set for each schema-identity/intent-binding-identity pair; sets sharing it reuse one resolved contract, and each entered cohort invokes semantic selection once over only its admitted row-bearing members; no structural intent, plan, or catalog comparison participates. |
+| `HeterogeneousSchemasFormOrderedCohorts` | Different cohort identities follow first participating declaration; cohorts with no admitted member invoke nothing; two entered schemas with different `Top` bindings use their own resolvers; a sentinel failure skips every later entered cohort without replaying or rolling back earlier callbacks; successful results reassemble in declared order. |
+| `CountFailurePrecedenceIsDeterministic` | Resolution failure prevents source execution; any participating source-failed, `Absent`, or Count-insufficient set prevents every residual cohort and Count; Count-sufficient evidence executes cohorts in order, and the first semantic cohort failure prevents every count entry. |
+| `EmptyFailedAndAbsentSetsStayDistinct` | A participating Count-sufficient empty set produces exact zero after semantic success; a Count-insufficient, failed, or owner-issued `Absent` disposition prevents Count and remains a typed source failure; an unrequested, undeclared, or projection-inapplicable set produces no entry. |
+| `RowsPreserveIndependentSourceOutcomes` | A Rows request shapes each Rows-usable set and binds its rows together with the exact owner-issued disposition and completion evidence; failed, `Absent`, or Rows-unavailable sets remain disposition-only outcomes and do not suppress usable companions. |
+| `IncompleteRowsRemainVisibleWithoutBecomingCount` | A capped Rows-usable source result produces its shaped rows plus incompleteness evidence, while the same Count-insufficient evidence under Count returns `SourceForCount`, enters no cohort, and never reports the cap as exact cardinality. |
 | `CountSourceFailureBindingPreservesOutcomes` | A Count-blocking source failure retains one ordered participating-set entry and each owner-issued success, failure, incompleteness, or absence disposition; it exposes no Row-outcomes or Count payload and invokes no residual shaping. |
-| `CohortExecutionFailureOrderIsDeterministic` | Cohorts execute in order; each prepares row sets in declaration order before its semantic invocation; competing row-query exceptions and semantic failures select the first reached cursor outcome and skip later work. |
+| `CohortExecutionFailureOrderIsDeterministic` | Entered cohorts execute in order; each prepares only its admitted row-bearing sets in declaration order before its one semantic invocation; competing row-query exceptions and semantic failures select the first reached cursor outcome and skip later work. |
 | `CrossCohortRowsAreAtomicOnExecutionFailure` | A successful earlier cohort followed by a later row-query exception or strict Window failure publishes no earlier Row-outcomes payload; exceptions propagate unchanged and semantic failure returns only its bound failure. |
 | `SectionRowResolutionIsAtomic` | Any invalid row-set, schema, projection, row-query, selection, or reduction binding returns one structured failure with explicit request-wide or declared-row-set scope and no partial executable request. |
 | `SectionRowResolutionFailureOrderIsDeterministic` | Simultaneous failures within and across request, row-set, projection, intent-binding, cohort, and result-map checks return the first exact step and request-wide or row-set scope above; the row-query substep preserves its owner's internal order. |

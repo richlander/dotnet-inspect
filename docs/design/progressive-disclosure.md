@@ -246,7 +246,9 @@ dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 11..20
   caps remain non-semantic, so Count requires exact completion evidence for the
   full candidate set rather than reporting `20`; an explicit `-n 20` is
   semantic `Head(20)` and may prove the exact result `20` without exhausting
-  the tail.
+  the tail. A Rows request may still render the capped search rows with their
+  bound incompleteness disclosure; that does not make the cap semantic or
+  Count-sufficient.
 - `-n N` and numeric shorthand such as `-6` limit declared items independently
   within each row set after filtering and ordering. Bare `package search` uses
   a default provider and global merged-row cap of 20; an explicit N sets both

@@ -247,15 +247,16 @@ already-bound typed result and owns only its place on the shape ladder and its
 presentation.
 
 - A successful Count result containing one exact declared-row-set entry
-  produces a culture-invariant decimal scalar. The scalar is the complete
-  payload in every format: JSON emits a JSON number and JSONL emits one numeric
-  record; text and tabular formats emit the same bare value.
+  produces a culture-invariant decimal scalar. Markdown, plain text, pretty
+  table, and TSV emit the same bare value; JSON emits one number; and JSONL
+  emits one numeric record.
 - A successful Count result containing multiple exact declared-row-set entries
   produces ordered row-set/count rows. Markdown, table, and plain text render
   those rows as their native table form; TSV emits two columns; JSONL emits one
   object per row; JSON emits an array of objects. JSON and JSONL counts are
-  numbers rather than numeric strings. Standalone Mermaid is rejected because
-  a count map is a table, not a graph.
+  numbers rather than numeric strings.
+- Standalone Mermaid rejects every Count result because neither a scalar nor a
+  count map is a graph.
 - An already-bound failure result produces no Scalar or count Table. Failure
   presentation belongs to the consuming output owner and is not encoded as a
   numeric value.
@@ -269,12 +270,15 @@ Target adoption must add the non-vacuous Release gate
 `TypedCountResultsRenderByShape`. It feeds already-bound typed results directly
 to the output layer and requires:
 
-- one exact entry to render as one bare text/tabular value, one JSON number,
-  and one numeric JSONL record;
+- one exact entry to exercise Markdown, plain-text, pretty-table, TSV, JSON,
+  JSONL, and Mermaid paths, rendering the specified bare numeric value in the
+  first four, one JSON number, one numeric JSONL record, and the Mermaid
+  rejection;
 - multiple entries to preserve identity, order, and numeric counts as a native
-  Markdown/table/plain-text table, two-column TSV, JSON array, and object-per-row
-  JSONL result, while standalone Mermaid rejects and the ordinary
-  single-input-table restriction does not reject the count result;
+  Markdown, plain-text, and pretty-table result, two-column TSV, JSON array,
+  and object-per-row JSONL result, while the separately exercised Mermaid path
+  rejects and the ordinary single-input-table restriction does not reject the
+  count result;
 - a bound failure to render through the failure path with no Scalar or count
   Table payload; and
 - fixtures to prove that no tested output path reconstructs cardinality from
