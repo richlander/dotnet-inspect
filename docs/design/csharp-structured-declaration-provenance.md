@@ -118,13 +118,37 @@ text.
 
 The typed carrier for one declaration attempt. Its arm consumes the
 authoritative outcome unchanged; this protocol constrains the CSharp payload.
+Every result also contains an immutable, path-keyed constituent-evidence
+envelope. The envelope records the result's own contribution and every selected
+subordinate contribution without turning any subordinate presentation text
+into whole-declaration text.
 
 | Arm | Meaning | Permitted payload |
 | --- | --- | --- |
 | `Representable` | CSharp proved a complete faithful declaration | contained declaration text, exact namespace requirements, and a complete receipt containing only faithfully admitted dispositions |
 | `FallbackRequired` | Metadata facts are complete but C# cannot faithfully represent them | stable reason, complete typed fallback facts, optional subordinate compatibility text, and an optional receipt that may contain compatibility or opaque entries |
 | `Degraded` | The owner-issued outcome reports degraded input | exact input status, bounded nonauthoritative typed evidence, and an optional partial receipt for attempted occurrences; no declaration-text or compatibility-text payload |
-| `Unavailable` | The owner-issued outcome reports Metadata declaration failure | one or more exact Metadata failures, bounded typed diagnostics, and an optional receipt for earlier attempted occurrences; no declaration-text or compatibility-text payload |
+| `Unavailable` | The owner-issued outcome reports Metadata declaration failure | one or more exact Metadata failures, bounded typed diagnostics, and an optional receipt for selected-subtree attempts; no declaration-text or compatibility-text payload |
+
+Each constituent record retains its semantic path, native arm, and required
+non-text evidence:
+
+- a representable contributor retains exact namespace requirements and its
+  receipt;
+- a fallback contributor retains its stable reason, complete typed fallback
+  facts, and any attempt receipt;
+- a degraded contributor retains its exact status, bounded typed evidence, and
+  any selected-subtree attempt receipt;
+- an unavailable contributor retains its exact Metadata failures, bounded
+  typed diagnostics, and any selected-subtree attempt receipt.
+
+The envelope is not another outcome and cannot be consumed separately from its
+result. It preserves lower-precedence evidence when a different arm dominates.
+Its receipts are text-free projections: they retain paths, value classes,
+dispositions, and child receipts, but no contained or compatibility fragment
+bytes. A dominant `FallbackRequired` result may expose compatibility text only
+through its arm payload; the corresponding receipt paths keep equal fragments
+distinct.
 
 The Metadata status and failure mapping is forwarded unchanged from
 `member-inspection-planning-and-metadata-projection.md`. CSharp does not infer
@@ -147,7 +171,7 @@ taxonomy distinguishes:
 - `CSharpSyntaxChoice`, including keywords and punctuation chosen by CSharp;
 - `ContainedFragment` returned by another admitted result;
 - inert `CompatibilityFragment`;
-- `OpaqueEvidence` retained only for fallback or degradation.
+- `OpaqueEvidence` retained only by a fallback or degraded constituent record.
 
 Adoption designs may propose a new class only when none of these classes can
 state its trust and composition rules. Adding a class changes the shared
@@ -176,10 +200,11 @@ The value class and disposition are separate closed axes. Each disposition
 accepts only the value classes and typed evidence compatible with its meaning:
 for example, `Escaped` requires `MetadataIdentifier`, `Composed` requires a
 successfully admitted `ContainedFragment` and carries its child receipt, and
-`CompatibilityContained` requires `CompatibilityFragment`. A `Composed` entry
-attests admission but does not copy or retain the fragment bytes; only a
-representable parent's declaration-text payload uses them. A combined
-class/disposition enum is not an equivalent receipt.
+`CompatibilityContained` requires an admitted `CompatibilityFragment` at the
+same semantic path. Receipt entries attest admission but do not copy or retain
+fragment bytes; only a representable declaration payload or dominant fallback
+compatibility payload uses them. A combined class/disposition enum is not an
+equivalent receipt.
 
 ## Result invariants
 
@@ -224,19 +249,19 @@ rule below.
 ### Degraded
 
 `Degraded` names the exact incomplete or ambiguous input status and bounds any
-nonauthoritative typed evidence. If admission began before the owner-issued
-degraded status was reached, a partial receipt preserves each attempted
-occurrence exactly once. It never carries a declaration-text or
-compatibility-text payload. Later composition cannot upgrade it by selecting
-the plausible parts.
+nonauthoritative typed evidence. A degraded leaf performs no CSharp admission
+over its incomplete own facts and therefore has no own attempt receipt. A
+composed degraded result preserves receipts from selected subtrees that already
+attempted admission. It never carries a declaration-text or compatibility-text
+payload. Later composition cannot upgrade it by selecting the plausible parts.
 
 ### Unavailable
 
 `Unavailable` retains every Metadata failure that prevented declaration facts
-from being produced. If another occurrence was attempted before that
-owner-issued failure was reached, its receipt remains attached without
-retaining a declaration-text payload. CSharp admission failure cannot
-manufacture this arm.
+from being produced. An unavailable leaf performs no CSharp admission and has
+no own attempt receipt. A composed unavailable result preserves receipts from
+any selected subtree regardless of when that subtree ran, without retaining a
+declaration-text payload. CSharp admission failure cannot manufacture this arm.
 
 ## Diagnostic containment
 
@@ -271,19 +296,30 @@ Composition follows the result algebra rather than string concatenation.
   and all-`Representable` selected children.
 
 This precedence is total for every mixture of the parent's own arm and child
-arms and cannot be overridden by selecting the most plausible payload. If the
-parent renders an occurrence from independently owner-issued facts instead of
-consuming a child result, that result is not a selected subordinate and
+arms and cannot be overridden by selecting the most plausible payload. The
+dominant arm carries the required whole-declaration payload, while the
+path-keyed constituent envelope retains every contributor's native non-text
+evidence; a higher-precedence arm never relabels or discards a lower one. If
+the parent renders an occurrence from independently owner-issued facts instead
+of consuming a child result, that result is not a selected subordinate and
 contributes nothing to the parent.
 
 Receipt path prefixing is structural and immutable. Composition rejects
-duplicate paths, missing planned paths, mismatched value classes, opaque
-or compatibility dispositions in a representable result, or namespace
-requirements detached from the qualification request. Every selected child
-receipt is propagated under its prefixed path. If any occurrence was attempted
-in the selected subtree, the parent has a receipt even when its final arm is
-not representable; completed `Composed` entries retain child receipts but not
-child fragment bytes.
+duplicate or unattempted paths, mismatched value classes, opaque or
+compatibility dispositions in a representable result, or namespace
+requirements detached from the qualification request. Representable receipts
+cover every planned path; other arms cover exactly the attempted paths and do
+not invent entries for unattempted slots. Every selected child receipt is
+propagated under its prefixed path. If any occurrence was attempted in the
+selected subtree, the parent has a receipt even when its final arm is not
+representable; completed `Composed` entries retain child receipts but not child
+fragment bytes.
+
+All selected representable children use the parent's qualification policy.
+Their exact namespace requirements are unioned with the parent's own
+requirements; no consumer derives the union by rescanning text. A child formed
+under another policy must be requested again under the parent policy or
+composition fails visibly.
 
 ## Adoption contract
 
@@ -353,8 +389,9 @@ itself:
   opaque, or compatibility entries.
 - `CSharpDeclarationProtocolTests.NonrepresentableReceiptsPreserveAttempts`
   proves every nonrepresentable arm omits its receipt only when zero
-  occurrences were attempted, propagates selected child receipts by prefixed
-  path, and retains neither composed fragment bytes nor invented occurrences.
+  occurrences were attempted, propagates selected child receipts independent
+  of failure order, validates exact attempted rather than planned paths, and
+  retains neither composed fragment bytes nor invented occurrences.
 - `CSharpDeclarationProtocolTests.EqualValuesRemainDistinctOccurrences` proves
   repeated equal values retain separate semantic paths.
 - `CSharpDeclarationProtocolTests.ReceiptSchemaIsClosedAndOffsetFree` derives
@@ -368,9 +405,13 @@ itself:
   complete fallback results.
 - `CSharpDeclarationProtocolTests.CompositionIsTotalAndMonotone` covers the
   cross product of parent-own and selected-child arms and proves a parent
-  cannot hide either source's fallback, degradation, or unavailability.
+  cannot hide either source's fallback, degradation, or unavailability; the
+  constituent envelope retains every native reason, fact, status, failure, and
+  text-free receipt under its prefixed path.
 - `CSharpDeclarationProtocolTests.QualificationOwnsNamespaceRequirements`
-  proves requirements come from the qualified request/result, not rescanning.
+  proves requirements come from one shared qualification policy, union every
+  selected representable child's requirements, and reject policy mismatch
+  without rescanning.
 - `CSharpDeclarationProtocolTests.DiagnosticsCannotSubstituteForFacts` proves
   diagnostics cannot satisfy a plan or produce success-shaped empty payloads;
   it derives the closed reason/evidence schema and rejects free-form or
