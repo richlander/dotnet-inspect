@@ -72,9 +72,11 @@ differently, but the difference is enforced for only one of them:
   key built from untrusted content — a package id, a URL, source text — can
   never produce a path outside the two-level hash bucket. The filesystem path
   is not `key`'s only sink, though: every telemetry event that *is* produced
-  (not every operation reaches telemetry — a read that fails before its own
-  telemetry call, or a write that fails before publication, produces no
-  event at all; see
+  (not every operation reaches telemetry — a non-`maxAge` read whose file
+  read fails before its own hit-telemetry call produces no event at all,
+  though the `maxAge` overloads normally still emit a miss event from that
+  same failure; a write that fails before publication likewise produces no
+  event; see
   [Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)
   below) carries
   the original, unhashed `key` to `CacheTelemetry.Record` — that is a second,
@@ -96,8 +98,10 @@ differently, but the difference is enforced for only one of them:
   the filesystem path — every telemetry event that *is* produced (the same
   caveat as `key`'s above) carries it (via
   `GetTelemetryCategory`, below) to `CacheTelemetry.Record` — but unlike
-  `key`, nothing contains or redacts it there; it is recorded exactly as
-  received.
+  `key`, nothing contains or redacts it there; it is normally recorded
+  exactly as received, except that `GetTelemetryCategory` itself rewrites a
+  case-insensitive `symbol-misses` match to `{category}/{extension}` before
+  it reaches `CacheTelemetry.Record` (see the remapping described below).
 - **`extension`** is concatenated verbatim after the hash suffix. Most call
   sites pass a literal (`"json"`, `"forbidden"`, `"miss"`, `"md"`, `"tsv"`),
   but `SymbolPackageDownloader.Storage.cs` passes a local variable selected
@@ -399,7 +403,12 @@ overwrite: true)` to publish it, then unconditionally attempts
 `File.Delete(tempPath)` in a `finally` block (a no-op after a successful
 move, since the temp path no longer exists). This is `CoreCache`'s own
 atomic single-file publication mechanism — a reader never observes a
-partially-written file — and is distinct from
+partially-written file, on a local filesystem with normal atomic
+rename/replace semantics (NTFS, APFS, ext4, or similar); a cache root
+redirected to a network, FUSE, or other unusual filesystem is limited by
+that filesystem's own rename and cache-coherency guarantees, as
+[`cache-concurrency.md`](cache-concurrency.md) notes for its own directory
+staging protocol — and is distinct from
 [`cache-concurrency.md`](cache-concurrency.md)'s package-*directory* staging
 protocol (stage into a temp directory, then `Directory.Move` the whole tree
 into place), which that document owns.
@@ -1034,7 +1043,12 @@ overload observed it:
   only the hit counter is incremented, not both.)
 - **`Set`/`SetBytes`:** the telemetry call is inside the method's own blanket
   `catch`, so a throwing subscriber is swallowed the same way any other write
-  failure is.
+  failure is — but not with the same outcome: the telemetry call happens
+  only after `WriteAtomically` has already published the new content via
+  `File.Move`, so a throwing subscriber here is swallowed *after* the write
+  has committed, and the method returns normally with the new content
+  already stored (there is no rollback of a successful publish because a
+  later telemetry call failed).
 
 This mechanism does not isolate telemetry from the operation it is
 recording; "fire-and-forget" describes the caller's intent, not an enforced
