@@ -536,13 +536,20 @@ version, and a non-null, sorted, duplicate-free `observedFeatures`. A manifest
 declares what someone expects to be enrolled; only a passing report with an
 evaluated inventory is evidence that a feature was ever observed, and ranking
 against declarations would report enrolled coverage as new.
+The report must also identify every enrolled file as Printer exact, track every
+file's sorted and duplicate-free observed features, and publish the exact union
+of those per-file features as `observedFeatures`; contradictory aggregate and
+per-file evidence is rejected.
 `SourceOracleCandidateLedgerTests.Baseline_RejectsUnverifiedReports`,
 `Baseline_RejectsALegacyReportWithNoManifest`,
 `Baseline_RejectsAManifestSuppliedInPlaceOfAReport`,
-`Baseline_RejectsUnsortedObservedFeatures`, and
-`Baseline_RejectsDuplicateObservedFeatures` are the named gates. The candidate
-report records the baseline's provenance, digest, and feature set — never its
-local path.
+`Baseline_RejectsUnsortedObservedFeatures`,
+`Baseline_RejectsDuplicateObservedFeatures`,
+`Baseline_RejectsMalformedPerFileFeatures`,
+`Baseline_RejectsAnIncompleteTrackedFileCount`, and
+`Baseline_RejectsObservedFeaturesThatContradictTheFileInventory` are the named
+gates. The candidate report records the baseline's provenance, digest, and
+feature set — never its local path.
 
 Qualified files are then ranked greedily and deterministically: starting from
 the baseline's observed features, repeatedly take the remaining qualified file
@@ -561,8 +568,10 @@ correlation mismatch, an invalid or unverified baseline report, or a run in
 which no checksum-identified file was evaluated at all.
 
 **Durable output.** The `--json` report carries identities, checksums, counts,
-typed reason codes, outcomes, feature names, and member identities only. It
-never carries an authored body, a Printer body, a diff, or a local path;
+typed reason codes, outcomes, feature names, and member identities only.
+Assembly provenance is content-derived; path-derived labels such as a parent
+directory interpreted as a target framework are excluded. The report never
+carries an authored body, a Printer body, a diff, or a local path;
 `Json_ExcludesAuthoredAndPrinterSourceTextAndLocalPaths` is the named
 serialization gate, and it is non-vacuous because the sentinels it searches for
 are the real authored body, Printer body, diff detail, and source path of a row

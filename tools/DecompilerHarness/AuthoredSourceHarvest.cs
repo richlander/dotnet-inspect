@@ -355,22 +355,10 @@ static class AuthoredSourceHarvest
                 SourceOracleCandidateLedger.CandidateReason.SourceAcquisitionFailed);
         }
 
-        if (authored.Mapping is null)
-        {
-            return HarvestAttempt.Rejected(
-                SourceOracleCandidateLedger.CandidateReason.NoPdbSourceMapping);
-        }
+        if (ClassifyUnavailableInspection(authored) is { } reason)
+            return HarvestAttempt.Rejected(reason);
 
-        if (authored.Text is not { } memberSource || memberSource.Length == 0)
-        {
-            // A member the PDB maps but whose document carries no immutable identity was
-            // never a whole-file candidate in the first place; saying so separately keeps
-            // "the network did not answer" from absorbing "there is nothing to pin to".
-            return HarvestAttempt.Rejected(
-                SourceOracleCandidateLedger.HasImmutableIdentity(authored.Document)
-                    ? SourceOracleCandidateLedger.CandidateReason.SourceUnavailable
-                    : SourceOracleCandidateLedger.CandidateReason.NoImmutableSourceIdentity);
-        }
+        string memberSource = authored.Text!;
 
         // Reduce the PDB line-span slice to the clean, disambiguated member body
         // the benchmark will compare the decompiler output against.
@@ -408,6 +396,27 @@ static class AuthoredSourceHarvest
                 : AuthoredSourceOracleManifest.PrinterComparisonVersion,
             Difficulty: evil ? candidate.Difficulty : null);
         return new HarvestAttempt(record, null);
+    }
+
+    internal static SourceOracleCandidateLedger.CandidateReason?
+        ClassifyUnavailableInspection(PdbMemberSourceInspection inspection)
+    {
+        if (inspection.Lines.Value is FindingInspection<string>.Failed)
+            return SourceOracleCandidateLedger.CandidateReason.SourceAcquisitionFailed;
+
+        if (inspection.Mapping is null)
+            return SourceOracleCandidateLedger.CandidateReason.NoPdbSourceMapping;
+
+        if (inspection.Text is not { Length: > 0 })
+        {
+            // A mapped document without immutable identity cannot become a whole-file
+            // candidate; keep it distinct from an unavailable identified source.
+            return SourceOracleCandidateLedger.HasImmutableIdentity(inspection.Document)
+                ? SourceOracleCandidateLedger.CandidateReason.SourceUnavailable
+                : SourceOracleCandidateLedger.CandidateReason.NoImmutableSourceIdentity;
+        }
+
+        return null;
     }
 
     internal static Guid ReadModuleVersionId(string assemblyPath)

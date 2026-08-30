@@ -1,5 +1,6 @@
 
 using ILInspector.DecompilerHarness;
+using ILInspector.Findings;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -491,8 +492,7 @@ public class SourceOracleCandidateLedgerTests
                         "Oracle",
                         "1.0.0.0",
                         Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                        new string('a', 64),
-                        "net11.0"),
+                        new string('a', 64)),
                 ],
                 [Mapped(member, FileA, eligible: true)],
                 [outcome]),
@@ -506,6 +506,7 @@ public class SourceOracleCandidateLedgerTests
         Assert.DoesNotContain(pathSentinel, json, StringComparison.Ordinal);
         Assert.DoesNotContain("authoredBody", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("printerBody", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"tfm\"", json, StringComparison.OrdinalIgnoreCase);
         // The evidence that is meant to be there still is, so the assertions above are
         // not passing because nothing was serialized.
         Assert.Contains("statement.return", json, StringComparison.Ordinal);
@@ -720,6 +721,86 @@ public class SourceOracleCandidateLedgerTests
         Assert.Contains("duplicate", error!, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Baseline_RejectsObservedFeaturesThatContradictTheFileInventory()
+    {
+        var report = Baseline();
+        string json = SerializeBaseline(report with
+        {
+            SourceOracleManifest = report.SourceOracleManifest! with
+            {
+                ObservedFeatures = ["statement.if"],
+            },
+        });
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(json, "digest", out _, out string? error));
+        Assert.Contains("union", error!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Baseline_RejectsAnIncompleteTrackedFileCount()
+    {
+        var report = Baseline();
+        string json = SerializeBaseline(report with
+        {
+            SourceOracleManifest = report.SourceOracleManifest! with
+            {
+                FilesInventoryTracked = 0,
+            },
+        });
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(json, "digest", out _, out string? error));
+        Assert.Contains("every enrolled file", error!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("blank")]
+    [InlineData("duplicate")]
+    [InlineData("unsorted")]
+    public void Baseline_RejectsMalformedPerFileFeatures(string kind)
+    {
+        IReadOnlyList<string> malformed = kind switch
+        {
+            "blank" => [""],
+            "duplicate" => ["statement.return", "statement.return"],
+            "unsorted" => ["statement.return", "expression.identifier-name"],
+            _ => throw new InvalidOperationException(),
+        };
+        var report = Baseline();
+        string json = SerializeBaseline(report with
+        {
+            SourceOracleManifest = report.SourceOracleManifest! with
+            {
+                FileInventory =
+                [
+                    new AuthoredSourceOracleManifest.FileInventoryEntry(
+                        FileA,
+                        PrinterExact: true,
+                        Features: malformed),
+                ],
+            },
+        });
+
+        Assert.False(
+            SourceOracleCandidateLedger.TryParseBaseline(json, "digest", out _, out string? error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
+    }
+
+    [Fact]
+    public void HarvestInspection_AFailedFetchIsAnAcquisitionFailureNotMissingMapping()
+    {
+        var inspection = DotnetInspector.Services.PdbSourceAcquisition
+            .MemberPdbAcquisitionFailed(
+                new FindingSubject("M~source", "N.T.M"),
+                new IOException("Could not fetch PDB source."));
+
+        Assert.Equal(
+            SourceOracleCandidateLedger.CandidateReason.SourceAcquisitionFailed,
+            AuthoredSourceHarvest.ClassifyUnavailableInspection(inspection));
+    }
+
     /// <summary>
     /// A source-oracle manifest is not a benchmark report, and accepting one would rank
     /// against declared expectations rather than observed evidence.
@@ -855,8 +936,7 @@ public class SourceOracleCandidateLedgerTests
             AuthoredSourceHarvest.ReadAssemblyIdentity(assemblyPath).Name,
             AuthoredSourceHarvest.ReadAssemblyIdentity(assemblyPath).Version,
             AuthoredSourceHarvest.ReadModuleVersionId(assemblyPath),
-            new string('a', 64),
-            AuthoredSourceHarvest.InferTfm(assemblyPath));
+            new string('a', 64));
 
         var syntheticUnmapped = targets[0] with { MetadataToken = 0x06FFFFFE };
         var targetsByToken = targets.ToDictionary(target => target.MetadataToken);
@@ -924,8 +1004,7 @@ public class SourceOracleCandidateLedgerTests
                         "Oracle",
                         "1.0.0.0",
                         Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                        new string('a', 64),
-                        "net11.0"),
+                        new string('a', 64)),
                 ],
                 members,
                 outcomes),

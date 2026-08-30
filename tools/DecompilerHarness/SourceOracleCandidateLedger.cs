@@ -82,8 +82,7 @@ static class SourceOracleCandidateLedger
         string Name,
         string Version,
         Guid ModuleVersionId,
-        string Sha256,
-        string Tfm);
+        string Sha256);
 
     // ------------------------------------------------------------------ outcomes
 
@@ -295,8 +294,7 @@ static class SourceOracleCandidateLedger
         [property: JsonRequired] string Name,
         [property: JsonRequired] string Version,
         [property: JsonRequired] string ModuleVersionId,
-        [property: JsonRequired] string Sha256,
-        [property: JsonRequired] string Tfm);
+        [property: JsonRequired] string Sha256);
 
     internal sealed record BaselineReport(
         [property: JsonRequired] string Digest,
@@ -486,8 +484,7 @@ static class SourceOracleCandidateLedger
                     assembly.Name,
                     assembly.Version,
                     assembly.ModuleVersionId.ToString(),
-                    assembly.Sha256,
-                    assembly.Tfm))
+                    assembly.Sha256))
                 .OrderBy(assembly => assembly.Name, StringComparer.Ordinal)
                 .ThenBy(assembly => assembly.ModuleVersionId, StringComparer.Ordinal)],
             input.Members.Count(member =>
@@ -859,6 +856,12 @@ static class SourceOracleCandidateLedger
             error = "Baseline source-oracle report does not identify every enrolled file.";
             return false;
         }
+        if (manifest.FilesInventoryTracked != manifest.FilesRegistered)
+        {
+            error = "Baseline source-oracle report did not track syntax inventory for "
+                + "every enrolled file.";
+            return false;
+        }
         if (fileInventory.Any(file =>
             !file.PrinterExact || string.IsNullOrWhiteSpace(file.SourceUrl)))
         {
@@ -873,6 +876,40 @@ static class SourceOracleCandidateLedger
             != enrolledSourceUrls.Length)
         {
             error = "Baseline source-oracle report contains a duplicate enrolled source URL.";
+            return false;
+        }
+
+        var fileFeatureUnion = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (AuthoredSourceOracleManifest.FileInventoryEntry file in fileInventory)
+        {
+            if (file.Features is not { } fileFeatures
+                || fileFeatures.Any(string.IsNullOrWhiteSpace))
+            {
+                error = "Baseline source-oracle report contains an enrolled file with "
+                    + "an absent or empty syntax feature.";
+                return false;
+            }
+            if (fileFeatures.Distinct(StringComparer.Ordinal).Count()
+                != fileFeatures.Count)
+            {
+                error = "Baseline source-oracle report contains duplicate per-file "
+                    + "syntax features.";
+                return false;
+            }
+            if (!fileFeatures.SequenceEqual(
+                    fileFeatures.Order(StringComparer.Ordinal),
+                    StringComparer.Ordinal))
+            {
+                error = "Baseline source-oracle report contains per-file syntax features "
+                    + "that are not ordinal-sorted.";
+                return false;
+            }
+            fileFeatureUnion.UnionWith(fileFeatures);
+        }
+        if (!features.SequenceEqual(fileFeatureUnion, StringComparer.Ordinal))
+        {
+            error = "Baseline observed features do not equal the union of enrolled-file "
+                + "syntax features.";
             return false;
         }
 
@@ -1064,7 +1101,7 @@ static class SourceOracleCandidateLedger
         output.WriteLine();
         output.WriteLine($"  assemblies scanned    : {report.Assemblies.Count}");
         foreach (var assembly in report.Assemblies)
-            output.WriteLine($"    {assembly.Name} {assembly.Version} [{assembly.Tfm}] {assembly.ModuleVersionId}");
+            output.WriteLine($"    {assembly.Name} {assembly.Version} {assembly.ModuleVersionId}");
         output.WriteLine($"  mapped members        : {report.MappedMembers}");
         output.WriteLine($"  eligible targets      : {report.EligibleTargets}");
         output.WriteLine($"  evaluated targets     : {report.EvaluatedTargets}");
@@ -1301,8 +1338,7 @@ static class SourceOracleCandidateLedger
                 name,
                 version,
                 AuthoredSourceHarvest.ReadModuleVersionId(assemblyPath),
-                Digest(await File.ReadAllBytesAsync(assemblyPath)),
-                AuthoredSourceHarvest.InferTfm(assemblyPath));
+                Digest(await File.ReadAllBytesAsync(assemblyPath)));
         }
         catch (Exception ex) when (ex is IOException
             or UnauthorizedAccessException
@@ -1371,7 +1407,7 @@ static class SourceOracleCandidateLedger
             assembly.Name,
             assembly.Version,
             assembly.ModuleVersionId,
-            assembly.Tfm);
+            AuthoredSourceHarvest.InferTfm(assemblyPath));
         var captured = new List<AuthoredSourceHarvest.CorpusRecord>();
         var capturedMembers = new List<(MemberIdentity Member, FileIdentity File)>();
 
