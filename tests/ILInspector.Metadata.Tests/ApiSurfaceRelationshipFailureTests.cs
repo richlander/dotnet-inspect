@@ -10,6 +10,85 @@ namespace ILInspector.Metadata.Tests;
 public class ApiSurfaceRelationshipFailureTests
 {
     [Fact]
+    public void ExtractApiSurface_AssemblyRefExportWithoutForwarderPreservesFailure()
+    {
+        using var stream = new MemoryStream(
+            BuildExportedTypeImage(ExportedTypeShape.MalformedAssemblyReference));
+
+        var surface = AssemblyReader.ExtractApiSurface(
+            stream,
+            includeAll: true,
+            typesOnly: true);
+
+        Assert.NotNull(surface);
+        Assert.Empty(surface.TypeForwarders);
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            ApiSurfaceInspectionFailure.TypeForwarderIdentityOperation,
+            failure.Operation);
+        Assert.Equal(0x27000001, failure.SubjectToken);
+        Assert.Equal(
+            MetadataTypeNameFailureMechanism.Metadata,
+            failure.Mechanism);
+        Assert.Equal("MalformedMetadata", failure.Kind);
+    }
+
+    [Fact]
+    public void BoundedApiSurface_AssemblyRefExportWithoutForwarderUsesFailureBudget()
+    {
+        using var stream = new MemoryStream(
+            BuildExportedTypeImage(ExportedTypeShape.MalformedAssemblyReference));
+        using var peReader = new PEReader(stream);
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.IncludeAll,
+            new ApiSurfaceExtractionBounds(0, 0, 1, 0, int.MaxValue),
+            typesOnly: true);
+
+        ApiSurface surface =
+            Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result).Surface;
+        Assert.Equal(
+            ApiSurfaceInspectionFailure.TypeForwarderIdentityOperation,
+            Assert.Single(surface.InspectionFailures).Operation);
+    }
+
+    [Fact]
+    public void ExtractApiSurface_ModuleExportWithoutForwarderRemainsValid()
+    {
+        using var stream = new MemoryStream(
+            BuildExportedTypeImage(ExportedTypeShape.ModuleExport));
+
+        var surface = AssemblyReader.ExtractApiSurface(
+            stream,
+            includeAll: true,
+            typesOnly: true);
+
+        Assert.NotNull(surface);
+        Assert.Empty(surface.TypeForwarders);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
+    public void ExtractApiSurface_NestedForwarderWithoutFlagRemainsValid()
+    {
+        using var stream = new MemoryStream(
+            BuildExportedTypeImage(ExportedTypeShape.NestedForwarder));
+
+        var surface = AssemblyReader.ExtractApiSurface(
+            stream,
+            includeAll: true,
+            typesOnly: true);
+
+        Assert.NotNull(surface);
+        Assert.Equal(
+            "N.Outer",
+            Assert.Single(surface.TypeForwarders).TypeName);
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    [Fact]
     public void ExtractApiSurface_CyclicTypePreservesValidSiblingAndFailure()
     {
         using var stream = new MemoryStream(BuildImage(
@@ -248,6 +327,94 @@ public class ApiSurfaceRelationshipFailureTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildExportedTypeImage(ExportedTypeShape shape)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Synthetic.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        switch (shape)
+        {
+            case ExportedTypeShape.MalformedAssemblyReference:
+                metadata.AddExportedType(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Type"),
+                    target,
+                    typeDefinitionId: 0);
+                break;
+            case ExportedTypeShape.ModuleExport:
+                AssemblyFileHandle module = metadata.AddAssemblyFile(
+                    metadata.GetOrAddString("Part.netmodule"),
+                    metadata.GetOrAddBlob(new byte[] { 1, 2, 3 }),
+                    containsMetadata: true);
+                metadata.AddExportedType(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Type"),
+                    module,
+                    typeDefinitionId: 0);
+                break;
+            case ExportedTypeShape.NestedForwarder:
+                ExportedTypeHandle root = metadata.AddExportedType(
+                    TypeAttributes.Public | (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString("N"),
+                    metadata.GetOrAddString("Outer"),
+                    target,
+                    typeDefinitionId: 0);
+                metadata.AddExportedType(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    metadata.GetOrAddString("Inner"),
+                    root,
+                    typeDefinitionId: 0);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(shape));
+        }
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    enum ExportedTypeShape
+    {
+        MalformedAssemblyReference,
+        ModuleExport,
+        NestedForwarder,
     }
 
     static byte[] BuildEnumDefaultImage()

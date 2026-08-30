@@ -939,6 +939,13 @@ public enum AssemblyBindingFailureKind
 public sealed record AssemblyBindingFailure(
     AssemblyBindingFailureKind Kind);
 
+public enum AssemblyBindingMissDisposition
+{
+    Undifferentiated,
+    NoNameOwner,
+    NameOwnedNoMatch
+}
+
 public sealed class AssemblyBindingPolicyVersion
 {
     public AssemblyBindingPolicyVersion() { }
@@ -993,7 +1000,14 @@ public abstract class AssemblyBindingSelection
         ResolvedAssemblyReference assembly) =>
         new Selected(assembly);
 
-    public static AssemblyBindingSelection NotFound() => new Missing();
+    public static AssemblyBindingSelection NotFound() =>
+        new Missing(AssemblyBindingMissDisposition.Undifferentiated);
+
+    public static AssemblyBindingSelection NameNotOwned() =>
+        new Missing(AssemblyBindingMissDisposition.NoNameOwner);
+
+    public static AssemblyBindingSelection NameOwnedButNoMatch() =>
+        new Missing(AssemblyBindingMissDisposition.NameOwnedNoMatch);
 
     public static AssemblyBindingSelection CannotSelect(
         AssemblyBindingFailure failure) =>
@@ -1017,7 +1031,10 @@ public abstract class AssemblyBindingSelection
 
     public sealed class Missing : AssemblyBindingSelection
     {
-        internal Missing() { }
+        internal Missing(AssemblyBindingMissDisposition disposition) =>
+            Disposition = disposition;
+
+        public AssemblyBindingMissDisposition Disposition { get; }
     }
 
     public sealed class Unavailable : AssemblyBindingSelection
@@ -1067,7 +1084,10 @@ public abstract class AssemblyBindingOutcome
 
     public sealed class Missing : AssemblyBindingOutcome
     {
-        internal Missing() { }
+        internal Missing(AssemblyBindingMissDisposition disposition) =>
+            Disposition = disposition;
+
+        public AssemblyBindingMissDisposition Disposition { get; }
     }
 
     public sealed class Unavailable : AssemblyBindingOutcome
@@ -1112,6 +1132,107 @@ internal interface IAssemblyBindingResolver
         AssemblyResolutionScope scope);
 }
 ```
+
+#### Binding miss name ownership
+
+`AssemblyBindingMissDisposition` is the policy owner's typed statement about
+one missing `AssemblyReference` request. It is scoped to the complete
+`AssemblyBindingRequest` -- target, origin, and scope -- and to the policy
+version that produced it:
+
+- `NoNameOwner` means the issuing policy's frozen ownership rule proves that
+  its tier does not own the requested assembly name for that request.
+- `NameOwnedNoMatch` means that tier owns the name but produced no candidate
+  under its own identity and scope rules.
+- `Undifferentiated` means the producer has not supplied owner-attested name
+  ownership. It preserves the current nullable/legacy meaning without
+  pretending that the name is owned or unowned.
+
+These are composition facts, not candidate evidence. `NoNameOwner` permits a
+composite policy to invoke its next policy tier or request the next composition
+step defined by #5214, but it does not establish identity eligibility,
+authorize candidate selection, or permit inactive-shadow promotion.
+`NameOwnedNoMatch` and `Undifferentiated` are terminal for composition.
+Treating `Undifferentiated` as terminal is fail-closed behavior, not evidence
+that the producer owned the name. A concrete unavailable or rejected result
+remains that typed failure; `NameOwnedNoMatch` is not a way to erase it.
+
+An explicit disposition is valid only for
+`AssemblyBindingTarget.AssemblyReference`, whose structured identity supplies
+the requested name. An intrinsic-core-library request has no requested
+assembly name and continues to use a selected, unavailable, or rejected
+outcome rather than a name-ownership miss. Every wrapper or composite validates
+each delegated result against the original request before interpreting it. A
+missing result for an intrinsic-core-library request immediately becomes
+`Rejected(InvalidPolicyResult)` and no later tier is invoked. The Metadata
+adapter applies the same validation to a final policy result, so direct and
+composed policies share one closed rule.
+
+Only the policy owner that holds the complete frozen name-ownership decision
+for the exact request may issue `NoNameOwner` or `NameOwnedNoMatch`. This
+contract does not define how a package, project, sibling, platform, or local
+owner decides which names it owns. It requires that decision to be
+owner-issued; Metadata and composing policies cannot reconstruct it from
+paths, provenance, file names, candidate enumeration, or a failed identity
+match.
+
+Composition preserves each policy result exactly:
+
+- selected, ambiguous, unavailable, and rejected results are terminal;
+- `NoNameOwner` alone permits evaluation of the next tier;
+- `NameOwnedNoMatch` stops at the issuing tier;
+- `Undifferentiated` stops rather than falling through; and
+- a composite may return `NoNameOwner` only after exhausting its complete
+  frozen request-eligible tier chain and receiving `NoNameOwner` from every
+  tier in that chain.
+
+The complete request-eligible chain is an owner-attested input independent of
+the results its tiers return. A configured tier list without that completeness
+attestation is an invalid policy input and produces
+`Rejected(InvalidPolicyResult)` before a no-owner result can be issued. This
+contract consumes the closed chain and does not define how an adjacent
+workspace owner constructs or publishes it.
+
+A final `NoNameOwner` attests only that the exact composite, origin, scope, and
+version exhausted that complete chain. It is not evidence that no owner exists
+globally or in a later independently owned composite. A skipped, unconfigured,
+or unevaluated request-eligible tier prevents the composite from issuing
+`NoNameOwner`.
+
+A wrapper around `IAssemblyBindingPolicy` preserves the delegated disposition.
+The nullable `IAssemblyReferenceResolver` adapter cannot infer ownership from a
+null result and therefore emits `Undifferentiated`. A policy backed by a known
+empty inventory, such as `NoResolverAssemblyBindingPolicy`, may explicitly
+emit `NoNameOwner` for an assembly-reference target because that policy owns
+the complete empty decision.
+
+The Metadata adapter copies the disposition unchanged from
+`AssemblyBindingSelection.Missing` to `AssemblyBindingOutcome.Missing`.
+`AssemblyBindingSnapshot` and every frozen binding dependency include the
+disposition, so cache equality never collapses `NoNameOwner`,
+`NameOwnedNoMatch`, and `Undifferentiated`. A disposition change for an equal
+request is a policy-answer change and therefore requires a different
+`AssemblyBindingPolicyVersion`; #5213 owns the future atomic association
+between that version and the returned answer. Until that association exists,
+same-version stability is a producer obligation rather than proof that an
+observed answer was atomically governed by one observed version.
+
+Type resolution may continue to project every binding miss to
+`TypeResolutionOutcome.UnboundBinding`. This issue does not widen the type
+resolution outcome hierarchy or expose tier internals through presentation.
+
+This focused contract does not define adjacent package, project, sibling,
+platform, or local name-ownership rules; #5214's complete identity-eligible
+candidate currency; #5213's atomic answer/version association; #5216's
+workspace realization; or the #5133 successor's designated/platform role
+arbitration.
+
+The executable
+[binding name-ownership model](models/binding-name-ownership/README.md)
+checks multi-tier fallthrough, terminal owned and undifferentiated misses,
+exact disposition preservation, and eventual completion. It models policy
+results already issued under one stable version; atomic version association is
+the separate #5213 claim.
 
 A package or platform resolver normally returns one selected assembly. A local
 unordered directory containing several plausible candidates returns
@@ -1751,9 +1872,9 @@ It stores:
 - the exact `AssemblyBindingCacheKey` dependencies and their closed,
   structurally comparable `AssemblyBindingSnapshot` values.
 
-`AssemblyBindingSnapshot` contains only the binding arm, selected candidate ids,
-and typed failure payload; it never compares public outcome objects or
-descriptors. Freeze stores recipes by
+`AssemblyBindingSnapshot` contains only the binding arm, missing disposition,
+selected candidate ids, and typed failure payload; it never compares public
+outcome objects or descriptors. Freeze stores recipes by
 `(AssemblyCatalogGenerationId, TypeResolutionCacheKey)` and materializes the
 public outcome and definition keys for that generation. A later epoch carries
 each dependency forward without a policy call while its owning policy version
@@ -3565,6 +3686,57 @@ Claim: direct callers and transitive call graphs share one definition identity.
   intrinsic-core-library binding targets; no core-library identity is
   synthesized.
 - An external fake policy can construct every `AssemblyBindingFailureKind`.
+- An external fake policy can construct all three
+  `AssemblyBindingMissDisposition` arms only through the closed missing-result
+  factories.
+- `AssemblyBindingMissDisposition_IntrinsicMissingRejectedBeforeComposition`
+  returns each public missing result from a first tier for an
+  intrinsic-core-library request while a second tier could select. Every
+  wrapper and composite returns `Rejected(InvalidPolicyResult)` without
+  invoking that second tier, and Metadata applies the same rule to a direct
+  final result.
+- `AssemblyBindingMissDisposition_OnlyNoNameOwnerContinues` derives every
+  two-tier result pair from one declaration and proves that only
+  `NoNameOwner` invokes the next tier; selected, ambiguous, unavailable,
+  rejected, `NameOwnedNoMatch`, and `Undifferentiated` remain terminal.
+- `AssemblyBindingMissDisposition_CompleteExhaustionRequired` proves a
+  composite cannot issue `NoNameOwner` when its configured chain omits an
+  independently owner-attested request-eligible tier or while any tier in the
+  complete chain remains unevaluated.
+- `AssemblyBindingMissDisposition_AllNoOwnerRemainsNoOwner` proves a complete,
+  exhausted policy chain containing only `NoNameOwner` results retains that
+  disposition.
+- `AssemblyBindingMissDisposition_UndifferentiatedLegacyMissFailsClosed`
+  proves nullable resolver adapters and unchanged `NotFound()` callers cannot
+  reach a lower tier or become owner-attested evidence.
+- `AssemblyBindingMissDisposition_SurvivesInterningAndFrozenReuse` proves all
+  three dispositions remain distinct through `AssemblyBindingOutcome.Missing`,
+  structural `AssemblyBindingSnapshot` comparison, frozen recipe dependencies,
+  and unchanged-version cache reuse.
+- `AssemblyBindingMissDisposition_ObservedVersionChangeRefreshesDisposition`
+  proves a changed observed policy version refreshes a frozen miss and recipe
+  dependency rather than reusing the prior disposition. Same-version answer
+  stability remains a producer obligation; #5213 owns atomic
+  answer-to-version observation.
+- `NoResolverAssemblyBindingPolicy_ReportsNoNameOwner` proves its complete
+  empty assembly-reference inventory issues `NoNameOwner`, while its
+  intrinsic-core-library behavior remains the existing typed failure.
+- `AssemblyReferenceBindingPolicy_NullRemainsUndifferentiated` proves the
+  nullable resolver adapter neither invents ownership nor permits
+  fallthrough.
+- `KnownInventoryBindingPolicy_DistinguishesNameAbsenceFromIdentityMiss`
+  proves a complete frozen inventory reports `NoNameOwner` when the requested
+  name is absent and `NameOwnedNoMatch` when its owner-issued name domain
+  contains the name but no identity candidate is selected.
+- `AssemblyDependencyResolver_PreservesOwnerIssuedNameDisposition` covers
+  package, sibling, project, and platform close negatives without deriving
+  ownership from an empty final identity match.
+- `SourceRelativeAssemblyGroupBindingPolicy_ContinuesOnlyAfterNoNameOwner`
+  covers both global and requesting-assembly origins and proves
+  `NameOwnedNoMatch` and `Undifferentiated` remain authoritative.
+- `AssemblyBindingMissDisposition_OriginScopesRemainDistinct` proves global
+  and requesting-assembly requests can carry different owner-issued
+  dispositions and retain separate frozen cache entries.
 - Reusing the canonical descriptor, including `candidate.Assembly`, yields one
   candidate id, one inventory snapshot, at most one demanded durable session,
   and `Same` correspondence.

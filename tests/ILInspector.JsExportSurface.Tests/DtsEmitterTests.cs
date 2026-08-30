@@ -1202,6 +1202,15 @@ public sealed class DtsEmitterTests
                                     "System.Collections.Generic.Dictionary<string, string>",
                                 ReturnTypeReferences =
                                     [lookalikeDictionary],
+                                ReturnTypeShape =
+                                    ApiTypeShape.GenericInstance(
+                                        lookalikeDictionary,
+                                        [
+                                            ApiTypeShape.PrimitiveType(
+                                                ApiPrimitiveType.String),
+                                            ApiTypeShape.PrimitiveType(
+                                                ApiPrimitiveType.String),
+                                        ]),
                             },
                         },
                     ],
@@ -1212,6 +1221,53 @@ public sealed class DtsEmitterTests
         string dts = DtsEmitter.Emit(surface, diagnostics);
 
         Assert.Contains("  readonly Values: unknown;", dts, StringComparison.Ordinal);
+        Assert.Single(diagnostics.UnmappedTypes);
+    }
+
+    [Fact]
+    public void Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling()
+    {
+        var diagnostics = new TsBindGenDiagnostics();
+        var externalString = new ApiTypeReferenceIdentity(
+            new ApiAssemblyIdentity(
+                "External",
+                new Version(1, 0, 0, 0),
+                culture: null,
+                publicKeyToken: null),
+            "string");
+        var surface = new ILInspector.JsExportSurface.JsExportSurface
+        {
+            Records =
+            [
+                new ApiType
+                {
+                    Name = "Root",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Value",
+                            Kind = "property",
+                            HasGetter = true,
+                            SignatureModel = new ApiSignature
+                            {
+                                ReturnType = "string",
+                                ReturnTypeReferences = [externalString],
+                                ReturnTypeShape =
+                                    ApiTypeShape.Named(externalString),
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        string dts = DtsEmitter.Emit(surface, diagnostics);
+
+        Assert.Contains(
+            "  readonly Value: unknown;",
+            dts,
+            StringComparison.Ordinal);
         Assert.Single(diagnostics.UnmappedTypes);
     }
 

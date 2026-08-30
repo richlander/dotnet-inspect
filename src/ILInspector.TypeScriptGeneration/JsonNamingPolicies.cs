@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace tsbindgen;
+namespace ILInspector.TypeScriptGeneration;
 
 internal static class JsonNamingPolicies
 {

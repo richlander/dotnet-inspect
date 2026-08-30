@@ -28,6 +28,7 @@ public sealed class PackagingSurfaceTests
         "src/dotnet-inspect/dotnet-inspect.csproj",
         "src/mdi/mdi.csproj",
         "src/runfaster/runfaster.csproj",
+        "src/ts-jsexport/ts-jsexport.csproj",
         "src/tsbindgen/tsbindgen.csproj",
     ];
 
