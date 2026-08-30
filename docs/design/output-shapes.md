@@ -265,6 +265,21 @@ formats accept a request that resolves to multiple row sets under `--count`.
 Their ordinary one-input-table restriction applies before reduction and does
 not reject this count-result table.
 
+Target adoption must add the non-vacuous Release gate
+`TypedCountResultsRenderByShape`. It feeds already-bound typed results directly
+to the output layer and requires:
+
+- one exact entry to render as one bare text/tabular value, one JSON number,
+  and one numeric JSONL record;
+- multiple entries to preserve identity, order, and numeric counts as a native
+  Markdown/table/plain-text table, two-column TSV, JSON array, and object-per-row
+  JSONL result, while standalone Mermaid rejects and the ordinary
+  single-input-table restriction does not reject the count result;
+- a bound failure to render through the failure path with no Scalar or count
+  Table payload; and
+- fixtures to prove that no tested output path reconstructs cardinality from
+  rendered or intercepted rows.
+
 For multiple package subjects, `Package Info` and package-file sections retain
 their producer-declared cross-package survey row sets. Other sections preserve
 the aggregate or per-package scope declared before shaping. L2 does not infer a

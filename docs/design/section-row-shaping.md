@@ -261,18 +261,22 @@ Resolution is fail-fast in this total order:
 The first failure wins and no later category is evaluated. Its failure scope
 is:
 
-- request-wide for steps 1-3, an unmatched projection request in step 5, a
-  malformed or empty association in step 6.2, or an unknown row-set reference
-  in step 6.3;
-- the reached declared row-set identity for step 4, a duplicate association or
-  missing participating-set association in step 6, or per-set validation in
-  step 7; and
+- request-wide for steps 1-3, a malformed row-set identity in step 4.1, a
+  malformed or unsupported projection operation in step 5.2, an unmatched
+  projection request in step 5.4, a malformed or empty association in step
+  6.2, or an unknown row-set reference in step 6.3;
+- the reached validated declared row-set identity for steps 4.2-4.5, a
+  duplicate association or missing participating-set association in step 6,
+  or per-set validation in step 7; and
 - the first participating row-set identity for an invalid cohort in step 8.
 
+A request-wide invalid-identity failure retains the selected-row-set
+declaration ordinal and supplied token in the structured reason. A request-wide
+projection-operation failure retains its typed operation position and kind.
 A request-wide association failure retains the typed association ordinal and,
-for an unknown reference, its reference ordinal and supplied row-set token in
-the structured reason. It does not manufacture a declared-row-set scope for an
-entry that never bound successfully.
+for an unknown reference, its reference ordinal and supplied row-set token.
+None manufactures a declared-row-set scope for an entry that never bound
+successfully.
 
 Atomicity prevents a partial executable request; it does not permit an
 implementation to choose among simultaneous invalid bindings. This list is
@@ -486,10 +490,10 @@ The implementation must add these named Release gates:
 
 | Gate | Contract |
 | --- | --- |
-| `DeclaredRowSetIdentityIsTyped` | Equal owner-issued identities bind equal row sets; labels, headings, paths, and sequence positions do not affect identity or equality. |
+| `DeclaredRowSetIdentityIsTyped` | Equal owner-issued identities bind equal row sets; labels, headings, paths, and sequence positions do not affect identity or equality. An invalid supplied identity returns request-wide failure with its declaration ordinal and token rather than manufacturing row-set scope. |
 | `SelectedRowSetListIsNonEmpty` | A missing or empty selected-row-set list returns request-wide resolution failure before terminal, projection, schema, or row-query validation; Count never produces an undefined zero-entry shape. |
 | `RowSequenceKeysRoundTripDeclaredIdentity` | Every declared row set receives one unique semantic key, every returned key resolves to the original identity, and duplicate or unknown identities/keys reject. |
-| `ProjectionApplicabilityIsRequestWide` | No projection intent preserves every selected set with full cells; a non-empty request resolving in any selected schema succeeds; each nonmatching set contributes no shaping entry; a request whose names resolve nowhere returns one request-wide failure. |
+| `ProjectionApplicabilityIsRequestWide` | No projection intent preserves every selected set with full cells; a malformed or unsupported operation returns request-wide failure with its typed position and kind; a non-empty request resolving in any selected schema succeeds; each nonmatching set contributes no shaping entry; a request whose names resolve nowhere returns one request-wide failure. |
 | `MembershipProjectionPrecedesRowQuery` | Applicable field-entry membership selection changes the rows seen by predicates, baseline order, and semantic stages; a close negative table-column projection changes no membership. |
 | `CellProjectionFollowsSelectionAndPreservesCardinality` | Cell projection applies only to selected row results, may omit predicate/order fields, and never changes membership, order, or Count. |
 | `CountObservesPrecedingSemanticStages` | Empty, undersized, exact, and oversized `Head`, `Tail`, and `Top` plans reduce to the cardinality of their selected result, including `Head(N) -> Count = min(N, input count)`. |
