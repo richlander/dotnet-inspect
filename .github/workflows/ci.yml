@@ -141,7 +141,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.tla == 'true'
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
@@ -174,6 +174,13 @@ jobs:
         shell: bash
         run: |
           export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
+          # Tighter than the script's 600s local-dev default: this repo's
+          # shared CI runners are slower than a typical contributor
+          # machine, and a per-invocation cap this size still leaves ample
+          # room under the job's timeout-minutes even if several configs
+          # hit it (a hit is a warning, not a failure -- see
+          # eng/run-tla-checks.sh).
+          export TLA_CHECK_TIMEOUT_SECONDS=120
           eng/run-tla-checks.sh
 
   inspect-web:
