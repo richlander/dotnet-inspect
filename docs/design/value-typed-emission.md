@@ -515,8 +515,10 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    invariant extension follow once the residual census reaches the
    printer-owned floor.
    `MaterializesSingleStoreConditionalWithSingleRead` and
-   `DefersIntegerTestimonyWhenConditionalFeedsBooleanProperty` gate both sides
-   of this boundary.
+   `DefersIntegerTestimonyWhenConditionalFeedsBooleanLocal` gate both sides of
+   the general boundary;
+   `DefersIntegerTestimonyWhenConditionalFeedsBooleanProperty` gates property
+   setter identity recovery specifically.
 
 Each slice reports the standard decompiler-affecting-PR evidence: focused tests,
 the corpus quality-diff card, and improved/still-flat examples. As ReturnToSender
