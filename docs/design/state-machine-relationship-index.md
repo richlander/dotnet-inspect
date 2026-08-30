@@ -306,8 +306,9 @@ way only. A whole-module failure is always total; a per-claim refusal *may*
 also be total, because a claim can reach every machine in the module, and in a
 single-machine module it necessarily does. So observing a **partial** rejection
 proves the failure was per-claim, while observing a total one proves nothing
-about which path produced it. Combined with C4, a consumer that needs the
-distinction cannot obtain it from the index as it stands.
+about which path produced it. Combined with C4, a consumer cannot obtain the
+distinction from keyed-result shape; it must inspect the outer `Relationships`
+result.
 
 Trimming is explicitly **not** evidence for this invariant. A trimmed artifact
 can retain a claim while losing required role evidence, producing per-claim
