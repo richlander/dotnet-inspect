@@ -323,8 +323,11 @@ public class AnnotatedSourceJsonTests
     [InlineData("methodology_version")]
     public void StrictStructuralDiffReader_RejectsUnsupportedVersions(string propertyName)
     {
+        int currentVersion = propertyName == "schema_version"
+            ? CSharpStructuralDiffDocument.CurrentSchemaVersion
+            : CSharpStructuralDiffDocument.CurrentMethodologyVersion;
         string json = StructuralDiffJson().Replace(
-            $"\"{propertyName}\":1",
+            $"\"{propertyName}\":{currentVersion}",
             $"\"{propertyName}\":999",
             StringComparison.Ordinal);
 
