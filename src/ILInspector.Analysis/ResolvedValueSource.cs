@@ -10,39 +10,50 @@ namespace ILInspector.Analysis;
 /// transparent-operation walk can prove (see
 /// <see cref="ResolvedValueSet"/>). Anything else stays unresolved rather than
 /// being approximated, so a consumer that requires proof fails closed.
+/// Numeric values are part of the public contract; new kinds use new explicit
+/// values. <c>ResolvedValueSourceKind_PreservesPublishedValues</c> gates them.
 /// </remarks>
 public enum ResolvedValueSourceKind
 {
     /// <summary>A <c>call</c>/<c>callvirt</c> result.</summary>
-    CallResult,
+    CallResult = 0,
 
     /// <summary>A <c>newobj</c> result.</summary>
-    NewObjectResult,
+    NewObjectResult = 1,
 
     /// <summary>An <c>ldc.i4*</c> literal.</summary>
-    Int32Literal,
+    Int32Literal = 2,
 
     /// <summary>An <c>ldstr</c> literal resolved through the user-string heap.</summary>
-    StringLiteral,
+    StringLiteral = 3,
 
     /// <summary>An <c>ldnull</c> constant.</summary>
-    NullReference,
+    NullReference = 4,
 
     /// <summary>An <c>ldsfld</c> of a resolved static field.</summary>
-    StaticFieldLoad,
+    StaticFieldLoad = 5,
 
     /// <summary>
     /// An <c>ldfld</c> of a resolved instance field whose receiver Analysis
     /// proved to be an argument slot
     /// (<see cref="ResolvedValueSource.ArgumentIndex"/>).
     /// </summary>
-    InstanceFieldLoad,
+    InstanceFieldLoad = 6,
 
     /// <summary>An <c>ldarg*</c> of an argument slot.</summary>
-    Argument,
+    Argument = 7,
 
     /// <summary>An <c>ldtoken</c> of a resolved type.</summary>
-    TypeHandle,
+    TypeHandle = 8,
+
+    /// <summary>An <c>ldsflda</c> of a resolved static field.</summary>
+    StaticFieldAddress = 9,
+
+    /// <summary>
+    /// An <c>ldflda</c> of a resolved instance field whose receiver Analysis
+    /// proved to be an argument slot.
+    /// </summary>
+    InstanceFieldAddress = 10,
 }
 
 /// <summary>
@@ -77,23 +88,24 @@ public sealed record ResolvedValueSource(
     /// <summary>
     /// Zero-based argument slot for <see cref="ResolvedValueSourceKind.Argument"/>,
     /// and the proven receiver slot for
-    /// <see cref="ResolvedValueSourceKind.InstanceFieldLoad"/>. Slot zero is
-    /// <c>this</c> for an instance method. Negative when not applicable.
+    /// <see cref="ResolvedValueSourceKind.InstanceFieldLoad"/> and
+    /// <see cref="ResolvedValueSourceKind.InstanceFieldAddress"/>. Slot zero
+    /// is <c>this</c> for an instance method. Negative when not applicable.
     /// </summary>
     public int ArgumentIndex { get; init; } = -1;
 
     /// <summary>
-    /// The declaring type of a resolved field load, or the resolved type of an
-    /// <c>ldtoken</c>. Null when the producer carries no type operand or the
-    /// token could not be resolved.
+    /// The declaring type of a resolved field access, or the resolved type of
+    /// an <c>ldtoken</c>. Null when the producer carries no type operand or
+    /// the token could not be resolved.
     /// </summary>
     public TypeRef? Type { get; init; }
 
-    /// <summary>Field name for a resolved field load; null otherwise.</summary>
+    /// <summary>Field name for a resolved field access; null otherwise.</summary>
     public string? Name { get; init; }
 
     /// <summary>
-    /// Canonical field identity for a resolved field load; null otherwise.
+    /// Canonical field identity for a resolved field access; null otherwise.
     /// </summary>
     public FieldIdentity? FieldIdentity { get; init; }
 
@@ -183,6 +195,113 @@ public sealed class ResolvedValueSet : IEquatable<ResolvedValueSet>
         var hash = new HashCode();
         ImmutableArrayValueEquality.AddToHash(ref hash, Sources);
         hash.Add(IsResolved);
+        return hash.ToHashCode();
+    }
+}
+
+/// <summary>
+/// Exact call-result provenance carried through one compiler async
+/// state-machine field across suspension.
+/// </summary>
+/// <remarks>
+/// The field, store, and load coordinates are physical evidence in the
+/// containing <see cref="MethodResultSink.EvidenceMethod"/>. This fact is
+/// issued only for a sink with authenticated
+/// <see cref="AsyncLoweringKind.StateMachine"/> attribution, one unambiguous
+/// pre-suspension store that dominates the initial suspension, one exact
+/// post-suspension load with no address escape or exact store outside the
+/// physical state-machine body, and a trusted framework async-builder
+/// completion using the same exact builder field as every suspension. The
+/// authenticated kickoff source's framework <c>Task&lt;T&gt;</c> or
+/// <c>ValueTask&lt;T&gt;</c> family and result type must match that builder.
+/// Later null cleanup must not flow back to the selected load, and the fact is
+/// withheld from a scoped body census. It does not infer provenance from
+/// generated field names. Custom async builders remain unresolved.
+/// <c>LibraryBodyIndexTests.ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_AuthenticateStateMachineCompletionBuilderField</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_SuppressStateMachineFieldSourceForScopedCensus</c>
+/// and
+/// <c>LibraryBodyIndexTests.ResultSinks_WithStateMachineFieldSourceRemainEqualityStable</c>
+/// and
+/// <c>MethodCallResolvedValueTests.AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity</c>
+/// gate the positive and fail-closed boundaries.
+/// </remarks>
+public sealed class AsyncStateMachineFieldResultSource :
+    IEquatable<AsyncStateMachineFieldResultSource>
+{
+    internal AsyncStateMachineFieldResultSource(
+        FieldIdentity field,
+        int storeOffset,
+        int loadOffset,
+        ImmutableArray<int> sourceCallOffsets)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (field.LocalDefinitionToken == 0)
+        {
+            throw new ArgumentException(
+                "Async state-machine field provenance requires a local field definition.",
+                nameof(field));
+        }
+        if (storeOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(storeOffset));
+        if (loadOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(loadOffset));
+        if (storeOffset >= loadOffset)
+        {
+            throw new ArgumentException(
+                "The field store must precede the field load.",
+                nameof(storeOffset));
+        }
+        sourceCallOffsets =
+            ImmutableArrayValueEquality.RequireInitialized(
+                sourceCallOffsets,
+                nameof(sourceCallOffsets));
+        if (sourceCallOffsets.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Async state-machine field provenance requires a call source.",
+                nameof(sourceCallOffsets));
+        }
+
+        Field = field;
+        StoreOffset = storeOffset;
+        LoadOffset = loadOffset;
+        SourceCallOffsets = sourceCallOffsets;
+    }
+
+    public FieldIdentity Field { get; }
+    public int StoreOffset { get; }
+    public int LoadOffset { get; }
+    public ImmutableArray<int> SourceCallOffsets { get; }
+
+    public bool Equals(AsyncStateMachineFieldResultSource? other)
+        => other is not null
+            && Field.Equals(other.Field)
+            && StoreOffset == other.StoreOffset
+            && LoadOffset == other.LoadOffset
+            && ImmutableArrayValueEquality.SequenceEqual(
+                SourceCallOffsets,
+                other.SourceCallOffsets);
+
+    public override bool Equals(object? obj)
+        => obj is AsyncStateMachineFieldResultSource other
+            && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Field);
+        hash.Add(StoreOffset);
+        hash.Add(LoadOffset);
+        ImmutableArrayValueEquality.AddToHash(
+            ref hash,
+            SourceCallOffsets);
         return hash.ToHashCode();
     }
 }
@@ -371,17 +490,17 @@ public sealed record FieldStoreFact(
     bool? IsReachable);
 
 /// <summary>
-/// One physical <c>ldsfld</c>/<c>ldfld</c> site, with the receiver Analysis
-/// proved for an instance load.
+/// One physical <c>ldsfld</c>/<c>ldfld</c>/<c>ldsflda</c>/<c>ldflda</c> site,
+/// with the receiver Analysis proved for an instance access.
 /// </summary>
 /// <param name="Caller">
 /// Declared method attributed to the body, which can differ from
 /// <paramref name="EvidenceMethod"/> for a synthesized body.
 /// </param>
-/// <param name="EvidenceMethod">Physical method body containing the load.</param>
-/// <param name="ILOffset">Physical IL offset of the load instruction.</param>
-/// <param name="FieldToken">Metadata token in the load operand.</param>
-/// <param name="IsStatic">True for <c>ldsfld</c>.</param>
+/// <param name="EvidenceMethod">Physical method body containing the access.</param>
+/// <param name="ILOffset">Physical IL offset of the access instruction.</param>
+/// <param name="FieldToken">Metadata token in the access operand.</param>
+/// <param name="IsStatic">True for <c>ldsfld</c>/<c>ldsflda</c>.</param>
 /// <param name="DeclaringType">
 /// Resolved declaring type of the loaded field, or null when the field token
 /// could not be resolved.
@@ -392,15 +511,15 @@ public sealed record FieldStoreFact(
 /// available; null when the operand could not be resolved unambiguously.
 /// </param>
 /// <param name="ReceiverArgumentIndex">
-/// For an instance load, the argument slot Analysis proved supplies the
-/// receiver; -1 for a static load or an unproven receiver.
+/// For an instance access, the argument slot Analysis proved supplies the
+/// receiver; -1 for a static access or an unproven receiver.
 /// </param>
 /// <param name="IsReachable">
 /// Whether the containing block is reachable from the body entry. Null when the
 /// block graph is incomplete, so reachability is unknown rather than assumed.
 /// </param>
 /// <remarks>
-/// The load counterpart of <see cref="FieldStoreFact"/>. A consumer that has
+/// The read/address counterpart of <see cref="FieldStoreFact"/>. A consumer that has
 /// proven where a cached value is written still needs to see which field the
 /// cached-read path reads, and a merged read/write return leaves that read off
 /// every stack-slot resolution.
@@ -416,4 +535,11 @@ public sealed record FieldLoadFact(
     string? FieldName,
     FieldIdentity? Identity,
     int ReceiverArgumentIndex,
-    bool? IsReachable);
+    bool? IsReachable)
+{
+    /// <summary>
+    /// True when the instruction takes the field address with
+    /// <c>ldsflda</c>/<c>ldflda</c>, allowing indirect mutation.
+    /// </summary>
+    public bool IsAddress { get; init; }
+}
