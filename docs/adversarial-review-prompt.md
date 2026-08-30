@@ -1,12 +1,4 @@
-# Adversarial review prompt template
-
-<!--
-This optional fill-in form includes the complete fixed repository review
-contract from ../adversarial-review-prompt.md. Replace every {...} placeholder,
-then append domain-specific instructions where indicated. Keep the fixed
-contract aligned with the primary prompt; do not remove, weaken, paraphrase,
-reorder, or put other instructions before it.
--->
+# Adversarial review prompt
 
 ## Repository review contract
 
@@ -72,74 +64,6 @@ contract findings. Ignore style preferences and speculative hardening. A clean
 result is successful: if no qualifying findings remain, report **CLEAN** and
 name the exact reviewed head.
 
-## Required review frame
-
-- **Normative owner:** {document and section that own the reviewed claim}
-- **Exact owned claim:** {one precise claim the change must satisfy}
-- **Supporting designs and models:** {documents and their supporting roles,
-  not additional owners}
-- **Change intent:** {what behavior or contract this candidate changes}
-- **Supported actor or caller:** {ordinary caller, producer, user, or external
-  actor relevant to the claim}
-- **Controlled or variable input:** {artifact, data, operation, event, or state
-  that reaches the component}
-- **Boundary and supported path:** {where trust or ownership changes and how
-  the input reaches the claim}
-- **Trusted parties and state:** {cooperating code, caller-owned values, local
-  environment, or other trusted context}
-- **Explicit exclusions:** {misuse and scenarios the owner does not promise to
-  defend against}
-- **Observable consequence:** {what failure a real defect would produce}
-- **Falsifier and required evidence:** {the observation and execution evidence
-  that would disprove the claim}
-
-Do not begin review if the frame uses placeholders, names multiple normative
-owners, or cannot connect the supported input to the claimed consequence.
-Return the framing defect instead of inventing a broader review property.
-
-## Candidate
-
-- **Repository:** {owner/repository}
-- **Pull request:** {number and title}
-- **Review round:** {round number}
-- **Base commit:** {full base SHA}
-- **Head commit:** {full locked head SHA}
-- **Review worktree:** {absolute isolated worktree path}
-- **Diff command:** {exact command for the base-to-head diff}
-
-Treat the worktree as read-only. Do not run `git reset`, `git add`, or
-`git commit`; do not rebase or checkout another revision. Put scratch files
-under `/tmp/`. Do not modify tracked files.
-
-## Candidate-specific context
-
-### Design intent and changed surfaces
-
-{Describe the intended behavior, relevant files, and how the change implements
-the exact owned claim.}
-
-### Properties to verify
-
-{List concrete properties derived from the review frame. Describe properties,
-not attacks, and do not broaden the actor, input, boundary, or exclusions.}
-
-### Prior findings and carried-forward obligations
-
-{List earlier findings that must be verified at this head. Distinguish accepted
-findings, dismissed findings, disclosed limitations, and out-of-scope
-proposals. Do not invite variants outside the review frame.}
-
-### Required real-run evidence
-
-{Name focused tests, commands, fixtures, corpus witnesses, mutations, or
-probes. Require evidence proportional to the claim and supported path.}
-
-### Domain-specific instructions
-
-{Append instructions needed for this subsystem. They may narrow the review or
-ask for deeper evidence, but must not weaken or broaden the repository review
-contract.}
-
 ## Report contract
 
 For every finding, provide:
@@ -154,8 +78,4 @@ For every finding, provide:
 
 Separate blocking findings from non-blocking observations and scope proposals.
 Do not turn a scope proposal into a defect by assigning it a severity. If there
-are no qualifying findings, write:
-
-```text
-CLEAN — exact head {full locked head SHA}
-```
+are no qualifying findings, write **CLEAN** and name the exact reviewed head.

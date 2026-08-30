@@ -489,16 +489,16 @@ feedback, since the settled PR still requires its full round.
 ### Running the round
 
 Start every reviewer prompt with the complete canonical
-[adversarial-review prompt template](docs/templates/adversarial-review-prompt.md);
-do not omit, paraphrase, reorder, or precede it with domain instructions. Fill
-every placeholder with the same self-contained candidate instructions for every
-seat, and follow
+[adversarial-review prompt](docs/adversarial-review-prompt.md); do not omit,
+paraphrase, reorder, or precede it with domain instructions. Append the same
+self-contained candidate instructions for every seat, directly or with the
+optional [fill-in template](docs/templates/adversarial-review-prompt.md). Follow
 [running a round](docs/round-orchestration.md#running-a-round) for mechanics
 and reporting.
 
 ### Keep review proportional to the contract
 
-The template's finding-admission and trust-boundary rules are binding. A
+The prompt's finding-admission and trust-boundary rules are binding. A
 reviewer concern outside them is a scope proposal, not a landing requirement,
 unless the operator explicitly approves it.
 

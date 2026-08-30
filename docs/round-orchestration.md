@@ -244,20 +244,21 @@ filled. One round evaluates one settled head with all required reviewers.
 ### Dispatch
 
 Start every reviewer prompt with the complete contents of
-[`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md).
+[`docs/adversarial-review-prompt.md`](adversarial-review-prompt.md).
 Read it directly before composing the prompt:
 
 ```bash
-cat docs/templates/adversarial-review-prompt.md
+cat docs/adversarial-review-prompt.md
 ```
 
 Do not summarize, paraphrase, reorder, or put candidate-specific instructions
-before the template. Replace every placeholder throughout the template,
-including the candidate's exact base and head, design intent, relevant diff,
-concrete properties under test, prior findings, and required real-run evidence.
-Add domain-specific material only in the designated section. It may narrow the
-review but must not weaken or broaden the template's trust model and
-finding-admission rules.
+before the fixed prompt. Append the candidate's exact base and head, design
+intent, relevant diff, concrete properties under test, prior findings, and
+required real-run evidence. The appended material may narrow the review but
+must not weaken or broaden the prompt's trust model and finding-admission rules.
+Agents that prefer a structured composition aid may instead fill the optional
+[`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
+which includes the same fixed prompt followed by candidate placeholders.
 
 Do not dispatch with a generic or incoherent frame. The prompt must name one
 normative owner and exact claim, the supported actor or caller, the controlled
@@ -269,7 +270,7 @@ cannot be filled, return to design or scope clarification before spending a
 review round.
 
 Give every seat the same completed prompt except for its worktree path. State
-candidate facts rather than rewarding findings; the canonical template already
+candidate facts rather than rewarding findings; the canonical prompt already
 makes reporting CLEAN an explicit successful outcome.
 
 Isolate every reviewer in a separate linked review worktree under the primary
@@ -285,7 +286,7 @@ so reproduce the finding and measure it before accepting its severity.
 
 ### Wording the prompt
 
-The canonical template requires a property description rather than an attack
+The canonical prompt requires a property description rather than an attack
 brief. An exploit-tutorial-style prompt can trip a model's content filter, and
 **that failure is silent**: the reviewer returns an empty or near-empty
 response with a clean worktree, which is indistinguishable from a broken model
