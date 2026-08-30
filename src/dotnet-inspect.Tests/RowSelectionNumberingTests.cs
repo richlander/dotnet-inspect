@@ -27,7 +27,13 @@ public class RowSelectionNumberingTests
     ];
 
     private static ShapeProjectionOptions Options(RowSelector? row) =>
-        new(ShapeProjectionKind.Value, row, JsonOutput: false, Jsonl: false, JsonArray: false);
+        new(
+            ShapeProjectionKind.Value,
+            row,
+            JsonOutput: false,
+            Jsonl: false,
+            JsonArray: false,
+            Destination: new ProjectionDestination(OutputPath: null));
 
     [Fact]
     public async Task Row_SelectsDisplayedNumber_NotListPosition()
@@ -89,7 +95,8 @@ public class RowSelectionNumberingTests
     {
         var options = new ShapeProjectionOptions(
             ShapeProjectionKind.Value, RowSelector.FromIndex(5),
-            JsonOutput: true, Jsonl: false, JsonArray: false);
+            JsonOutput: true, Jsonl: false, JsonArray: false,
+            Destination: new ProjectionDestination(OutputPath: null));
         var (exit, output, _) = await ConsoleCapture.RunAsync(() =>
             Task.FromResult(ShapeProjectionOutput.Write(GappedRows(), options)));
 
@@ -243,7 +250,13 @@ public class RowSelectionNumberingTests
     }
 
     private static PrintProjectionOptions Print(RowSelector? row) =>
-        new(row, JsonOutput: false, Jsonl: false, JsonArray: false, Bare: false, OutputPath: null);
+        new(
+            row,
+            JsonOutput: false,
+            Jsonl: false,
+            JsonArray: false,
+            Bare: false,
+            Destination: new ProjectionDestination(OutputPath: null));
 
     [Fact]
     public void PrintSelection_ReportsEmptySection()

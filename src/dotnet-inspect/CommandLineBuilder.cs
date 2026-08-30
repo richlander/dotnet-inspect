@@ -67,14 +67,36 @@ public static class CommandLineBuilder
     internal static string[] CuratedScopePackages => ScopeConstants.CuratedPackages;
 
     /// <summary>
-    /// Pre-processes args to handle implicit package command and platform framework shorthands.
-    /// Delegates to <see cref="ArgumentPreprocessor.PreprocessArgs"/> for backward compatibility.
+    /// Pre-processes args and rewrites line-window shorthand only when the active
+    /// command parse does not own the token as a required option value.
     /// </summary>
-    public static string[] PreprocessArgs(string[] args) => ArgumentPreprocessor.PreprocessArgs(args);
+    public static string[] PreprocessArgs(string[] args)
+        => PreprocessArgs(args, CreateRootCommand());
+
+    internal static string[] PreprocessArgs(
+        string[] args,
+        RootCommand rootCommand)
+    {
+        string[] processed = ArgumentPreprocessor.PreprocessArgs(args);
+        if (processed.FirstOrDefault() == "router")
+            return processed;
+
+        return ArgumentPreprocessor.RewriteLineWindowShorthand(
+            rootCommand.Parse(processed),
+            processed);
+    }
+
+    public static void ApplyParsedLineWindow(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
+        => ArgumentPreprocessor.ApplyParsedLineWindow(parseResult, rawArgs);
+
+    public static bool HasParsedOption(ParseResult parseResult, string alias)
+        => ArgumentPreprocessor.HasParsedOption(parseResult, alias);
 
     /// <summary>
     /// Invokes a parsed command under the payload-projection audit. This is the single
-    /// invoke choke point: the product entry point and the test harness both call it, so a
+    /// invoke choke point: product and test-harness invocation paths pass through it, so a
     /// render path that drops <c>--print</c>/<c>--value</c>/<c>--urls</c>/<c>--paths</c>/
     /// <c>--count</c> fails loudly in tests rather than shipping unprojected output.
     ///
@@ -92,11 +114,78 @@ public static class CommandLineBuilder
     /// the default handler off and catching here rather than only at the entry point
     /// keeps the containment on the path the test harness exercises too.
     /// </summary>
-    public static async Task<int> InvokeAsync(ParseResult parseResult)
+    public static Task<int> InvokeAsync(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
+        => InvokeParsedAsync(
+            parseResult,
+            rawArgs,
+            installLineWindow: false);
+
+    /// <summary>
+    /// Invokes a parsed command with the CLI host's rendered-line writer. The entry point
+    /// uses this for explicit commands, and the router uses it only after resolving the
+    /// authoritative child parse.
+    /// </summary>
+    public static Task<int> InvokeWithLineWindowAsync(
+        ParseResult parseResult,
+        string[]? rawArgs = null)
+        => InvokeParsedAsync(
+            parseResult,
+            rawArgs,
+            installLineWindow: true);
+
+    private static async Task<int> InvokeParsedAsync(
+        ParseResult parseResult,
+        string[]? rawArgs,
+        bool installLineWindow)
     {
+        ApplyParsedLineWindow(parseResult, rawArgs);
+
         if (WriteParseErrors(parseResult))
             return 1;
 
+        if (!installLineWindow)
+            return await InvokeCoreAsync(parseResult);
+
+        TextWriter originalWriter = Console.Out;
+        TailLineLimitingTextWriter? tailWriter = null;
+        bool replaceWriter = false;
+        if (!HasParsedOption(parseResult, "--rows")
+            && !UsesTypedItemLimit(parseResult))
+        {
+            if (HeadLines is int headLines)
+            {
+                Console.SetOut(
+                    new LineLimitingTextWriter(
+                        originalWriter,
+                        headLines));
+                replaceWriter = true;
+            }
+            else if (TailLines is int tailLines)
+            {
+                tailWriter = new TailLineLimitingTextWriter(
+                    originalWriter,
+                    tailLines);
+                Console.SetOut(tailWriter);
+                replaceWriter = true;
+            }
+        }
+
+        try
+        {
+            return await InvokeCoreAsync(parseResult);
+        }
+        finally
+        {
+            if (replaceWriter)
+                Console.SetOut(originalWriter);
+            tailWriter?.FlushTail();
+        }
+    }
+
+    private static async Task<int> InvokeCoreAsync(ParseResult parseResult)
+    {
         // Two projections cannot both shape one payload, so reject the combination before
         // the command runs rather than letting one of them be discarded.
         if (!ProjectionAudit.ValidateExclusive(parseResult, message => CommandError.Write(message)))
