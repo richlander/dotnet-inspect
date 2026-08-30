@@ -1,1265 +1,299 @@
 # Architecture
 
-This document describes the design and implementation of dotnet-inspect.
+This document maps the current implementation and its explicit migration
+boundaries to the architecture owned by the rest of the documentation set. It
+is a guide to composition, project boundaries, and code location; it is not an
+umbrella specification.
 
-## Design philosophy
+Authority is intentionally distributed:
 
-dotnet-inspect is designed for **LLM-driven .NET development**. The tool prioritizes:
+- [Overview](overview.md) names subsystem owners.
+- [Inspection space architecture](inspection-space.md) owns the host-neutral
+  workspace, query, acquisition, join, cache, and safety target.
+- [Inspection layers](design/inspection-layers.md) owns the L1/L2/L3 consumer
+  boundaries.
+- Focused documents under [`docs/design/`](design/) own their component
+  contracts.
+- [CLI host architecture](cli-architecture.md) describes command-host
+  composition without treating the CLI as the whole product.
 
-1. **Structured output** - Markdown tables and JSON that LLMs can parse reliably
-2. **Progressive disclosure** - Verbosity controls let you request exactly the detail level needed
-3. **Minimal tokens** - `--table`, `--tsv`, `--jsonl`, and `--compact` options reduce output size
-4. **Self-documenting** - `skill` command prints the SKILL.md; `--help` and `-v` show CLI structure
+## Essential shape
 
-## Command structure
-
-The tool is organized around source inspection, API lookup, relationship, and utility commands:
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                        package                               │
-│  NuGet package metadata, dependencies, file structure        │
-├─────────────────────────────────────────────────────────────┤
-│                        project                               │
-│  Restored direct dependency docs and grounding index         │
-├─────────────────────────────────────────────────────────────┤
-│                        library                              │
-│  PE headers, SourceLink, determinism audit                   │
-├─────────────────────────────────────────────────────────────┤
-│                         type                                 │
-│  Type shape, public signatures, and summaries                │
-├─────────────────────────────────────────────────────────────┤
-│                        member                               │
-│  Member docs, overload selection, Source/IL drill-in         │
-├─────────────────────────────────────────────────────────────┤
-│                         find                                 │
-│  Search for types across packages, platform, and assets      │
-├─────────────────────────────────────────────────────────────┤
-│                         diff                                 │
-│  Compare API, analysis, or implementation evidence           │
-├─────────────────────────────────────────────────────────────┤
-│                       timeline                               │
-│  Correlate API or member-body Findings across a package range │
-├─────────────────────────────────────────────────────────────┤
-│            depends / extensions / implements                 │
-│  Relationship discovery for APIs, packages, and libraries    │
-├─────────────────────────────────────────────────────────────┤
-│                        source                               │
-│  SourceLink URLs, source text, and token+IL offset mapping   │
-├─────────────────────────────────────────────────────────────┤
-│                      cache / skill                           │
-│  Cache inspection and embedded agent guidance                │
-└─────────────────────────────────────────────────────────────┘
-```
-
-The command surface has independent source, focus, operation, lens, traversal,
-and rendering axes. Noun-first commands (`package`, `type`, `member`) select a
-structural focus for unary inspection; operation-first commands (`diff` and
-`timeline`) change arity while retaining source/focus selectors. See
-[Command Transition Model](design/command-transition-model.md) for the decision
-rules and version-range cardinality contract.
-
-### package
-
-Inspects NuGet package metadata without extracting libraries:
-
-- Package ID, version, authors, license
-- Target frameworks and dependencies per TFM
-- File listing (DLLs or all files with `--all`)
-- Version history from nuget.org
-
-### project
-
-Inspects a restored project through `project.assets.json`:
-
-- Direct package references with resolved versions per selected TFM
-- Package `skills/**/SKILL.md` files from direct dependencies
-- Version-resolved README/PROJECT docs for one direct dependency
-
-### library
-
-Inspects .NET library files (PE/COFF format):
-
-- Assembly identity (name, version, public key token)
-- PE characteristics (architecture, compilation type)
-- SourceLink and determinism audit
-- Unsafe code detection
-
-### type and member
-
-Extract public API surface using metadata:
-
-- `type` renders type shape, summaries, members, and `--shape` declarations
-- `member` renders member tables, docs, `Member Index` selectors,
-  decompiled/lowered C#, typed decompiler fidelity causes, PDB-mapped source,
-  and IL
-- Both support package/platform/library sources and section/field projection
-
-The proposed
-[member inspection planning and metadata projection](design/member-inspection-planning-and-metadata-projection.md)
-boundary separates parsed gestures, resolved section/member plans, producer
-authorization, shared Metadata declaration validation, and model-bound C#
-representability. It is the migration owner for the current type/member
-selection and full/summary/focused projection seams.
-
-Guarded metadata signature rejection remains fail-closed (`object`/empty
-signature shape), but it is not presented as ordinary metadata:
-`ApiMember.SignatureDecodeStatus` is `Degraded`, and member tables add a
-`Decode: degraded` cell only for affected rows. The same status contract covers
-non-rendering signature inspections: spellability rejects a degraded signature
-instead of treating it as spellable, and unsafe-member discovery emits a
-diagnostic row when its pointer-signature scan is incomplete.
-
-### diff
-
-Compares two package, platform, or local-library versions:
-
-- API compatibility is the default lens: added, removed, and modified types and
-  members.
-- `-S "Analysis Diff"` selects body-signal changes.
-- `-S "Implementation Diff"` selects Research-composed C# + IL evidence grouped
-  by member.
-- Multiple selected sections compose in Markdown and JSON. Explicit
-  table/TSV/JSONL output requires exactly one selected section.
-- Version range syntax is `Package@v1..v2` or `old/Foo.dll..new/Foo.dll`.
-
-### timeline
-
-Correlates one type- or member-focused Finding census across an inclusive
-package version vector:
-
-- `--finding api.type` observes the type's own presence and facets.
-- `--finding api.member` observes all members owned by the type.
-- `--finding api.member --member M` selects one exact member identity track.
-- `--finding api.attribute` observes applied attribute occurrences.
-- `--finding analysis.allocation`, `analysis.call-site`, or
-  `analysis.unsafety` observes one selected method's Analysis census.
-- No `--at` evaluates zero package payloads; repeated `--at` selectors perform
-  sparse probes; `--at all` explicitly authorizes dense traversal.
-- `Evaluations` currently preserves `Present`/`Missing` self-presence through
-  an exact `FindingCorrelation<T>` and `Complete`/`SubjectAbsent` owned censuses
-  through `FindingCensusCorrelation<T>`, plus `Failed` and `Unevaluated` cells.
-  Exact identity tracks derive from the census correlation rather than
-  bypassing it. `Transitions` compares adjacent evaluated cells; a
-  gap-spanning row is qualified and never claims an exact transition version.
-  Analysis cells decode only the selected method body from the selected package
-  assembly. The shared
-  [Finding topology](design/finding-nomenclature.md#inspection-and-comparison-semantics)
-  distinguishes `SubjectAbsent` from `NoApplicableInput`; the current timeline
-  projection still renders both as `SubjectAbsent` pending a focused CLI
-  migration. The compatibility projection is gated by
-  `AnalysisTimeline_NoApplicableInputRetainsLegacySubjectAbsentPresentation`.
-
-### find
-
-Searches for types across packages, platform libraries, projects, and local assets.
-
-### relationships
-
-`graph integrations` induces typed Integration relationships over an explicit
-package workspace. `depends`, `extensions`, and `implements` expose dependency
-graphs, extension methods/properties, implementors, and subclasses.
-
-### source
-
-Resolves SourceLink URLs, source text, and MethodDef token + IL offset pairs to source locations.
-
-## LLM integration
-
-### SKILL.md
-
-The tool includes an embedded SKILL.md that is distributed via the [dotnet/skills](https://github.com/dotnet/skills) marketplace. Skills are loaded automatically into the LLM's context when activated, providing decision trees, command patterns, and usage examples without requiring the LLM to run a command first.
-
-Run `dotnet-inspect skill` to print the embedded SKILL.md.
-
-### Output designed for LLMs
-
-- **Markdown tables** - Structured, parseable format
-- **Consistent formatting** - Same structure across invocations
-- **Full signatures** - Parameter names included, not just types
-- **Minimal noise** - Hidden/obsolete members excluded by default
-
-## Analysis, Research, and Decompiler evidence
-
-Method-body evidence is split by representation altitude, then joined by a
-single overlay layer:
-
-The shared Finding model names one-version occurrences as observations
-(`Finding<T>`) and classified old/new relationships as transitions
-(`PairFinding<T>`). Evidence is the role those and other producer-owned values
-play in supporting a conclusion, not a parallel row hierarchy. See
-[Finding Nomenclature](design/finding-nomenclature.md) and
-[Finding Producer Design](design/finding-producers.md). Finding subject identity,
-cross-version correspondence, optional producer order, and typed provenance are
-separate axes; see [Finding Coordinates](design/finding-coordinates.md).
-
-- **R1** is the lower, metadata/IL representation. `ILInspector.Analysis` reads
-  assemblies with `System.Reflection.Metadata`, builds whole-assembly indexes,
-  and produces method signals, direct-call evidence, allocation occurrences, and
-  leverage data without depending on the decompiler IR. `AnalysisFindings`
-  projects allocations, direct call sites, definite unsafe operations, and
-  broader unsafe evidence into typed censuses used by single-version and
-  two-version consumers. IL occurrences retain producer order; declaration and
-  signature evidence remains an identity multiset without fabricated ordinals.
-- **R2** is the higher decompiler representation. `ILInspector.Decompiler`
-  imports one method into IR, raises/lowers it for C# printing, projects raw or
-  annotated IL, and supplies IR anchors for source-line placement.
-- **Research** is the bridge. `ILInspector.Research` depends on both Analysis
-  and Decompiler; neither depends back on Research or on each other. It owns the
-  offset-keyed fact overlay for `Annotated Source`, annotated IL, and the
-  structured `Facts` rows. For two-version operations, it also owns
-  `ResearchComparison`: one flat collection of `ResearchChange` values from API,
-  body-signal, IL/body, C#, and round-trip mechanisms, with subject grouping
-  computed as a view rather than stored as duplicate state. API comparisons
-  retain Metadata's `ApiFindingComparison` (type/member `FindingComparison<T>`
-  envelopes plus the classified `ApiDiff`) alongside the Research projection.
-  Allocation changes retain Analysis's
-  `FindingComparison<AllocationOccurrence>` on their Research projection;
-  count, hot/cold, and ranking fields are derived from that comparison rather
-  than from a separate count-only diff. Unsafety changes consume Analysis's
-  `FindingComparison<UnsafetyOccurrence>` and
-  `FindingComparison<UnsafeEvidence>` directly, with count and offset
-  attribution projected in Research instead of an Analysis-owned intermediate
-  diff. Focused endpoint-confirmation consumers can also request complete
-  allocation or direct-call comparisons, including exact pairs that have no
-  `ResearchChange` row.
-
-`ResearchFactRegistry` is the dogfooded analyzer registry for the overlay.
-Producers implement `IResearchFactProducer` with a stable name, produced fact
-ids, dependency names, declared `ResearchFactRequirements`, and a
-`Produce(ResearchFactContext)` method. Requirements name the Analysis feature
-set and whether it is body-local or assembly-wide; the registry unions them
-before acquisition. A body-local index can satisfy one member without decoding
-every body, while a compatible full index can satisfy a later narrower request.
-Assembly projections on `ResearchAssemblyContext` remain lazy. A producer that
-declares no Analysis requirement receives no assembly context.
-
-The registry orders producers by dependencies, invokes them for an imported
-method, and merges their annotations by IL offset and descriptor id. The default
-registry currently includes:
-
-| Producer | Source | Facts |
-| -------- | ------ | ----- |
-| `AllocationOccurrenceFactProducer` | `ILInspector.Analysis` allocation Finding census | `alloc.box`, `alloc.array`, `alloc.new`, `alloc.closure`, `alloc.statemachine`, `alloc.delegate`, `alloc.enumerator` |
-| `UnsafetyOccurrenceFactProducer` | `ILInspector.Analysis` unsafety Finding census | `unsafe.deref`, `unsafe.stackalloc`, `unsafe.calli` |
-| `CallSiteCostFactProducer` | Analysis call-site Findings joined with signals and leverage | `cost.callee` |
-| `CallSiteSemanticsFactProducer` | Analysis call-site Findings joined with callee semantics | `semantics.callee`, `safety.callee` |
-| `MethodHeaderLeverageFactProducer` | Analysis method-signal and leverage aggregates | `cost.method` |
-| `DecompilerLifetimeFactProducer` | existing decompiler lifetime classifier | `lifetime.*` |
-
-`ResearchFactRegistry.CallRelationships` is a separate, focused profile. Its
-`DirectCallFactProducer` turns already-acquired physical `DirectCall` values
-into `call.edge` facts; it declares no Analysis requirement and fails if the
-caller omits the supplied evidence. This lets a graph-owning query annotate
-source without opening a second body index.
-
-The important boundary is that Analysis remains SRM-only, NativeAOT-friendly,
-Roslyn-free, and free of `IrNode`/decompiler dependencies. New whole-assembly or
-R1 facts should be new Analysis-backed producers registered through Research,
-not direct `Decompiler -> Analysis` calls and not parallel presentation paths.
-
-## Library inspection
-
-The tool uses `System.Reflection.Metadata` and `System.Reflection.PortableExecutable` for low-level assembly inspection without loading assemblies into the runtime.
-
-Metadata-owned library observations flow into the CLI as typed
-`FindingInspection<T>` results. DotnetInspector retains those inspections and
-projects their payloads only at section, package-rollup, and JSON presentation
-boundaries. New single-domain Metadata producers should follow that path
-directly; Research remains the consumer for views that genuinely join multiple
-producers or preserve producer-native structural evidence. Failed censuses stay
-distinct from empty results and render as inspection diagnostics without
-suppressing unaffected sections.
-
-Portable-PDB observations split by ownership. `SourceLinkFindings` produces
-SourceLink-decorated source-document and member-to-document censuses;
-`MetadataFindings` produces compilation-option and compilation-reference
-censuses from raw PDB data. Source audit and integrity consume the document
-census; member source-location enrichment consumes the mapping census by
-metadata token. Network acquisition and checksum agreement remain operation
-outcomes rather than Findings.
-See [Source Finding Producers](design/source-finding-producers.md).
-
-Extension discovery follows the same rule for both `library` and `extensions`:
-each assembly is scanned once into Metadata's extension-member Finding census,
-then CLI target, reachability, overload, and display projections consume that
-shared inventory.
-
-### Metadata extraction
+`dotnet-inspect` is one inspection product with multiple hosts. The CLI is the
+most complete host, but it is not the architectural center. The product is
+converging incrementally on this host-neutral shape:
 
 ```text
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│    PEReader     │────▶│ MetadataReader  │────▶│  Type/Method    │
-│  (PE headers)   │     │ (ECMA-335 meta) │     │  Definitions    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+Hosts
+  CLI | browser/Wasm | focused tools and harnesses
+                       |
+                       v
+Host composition and presentation
+  source authorization | navigation | sections | rows | rendering
+                       |
+                       v
+Typed inspection composition
+  immutable query catalogs | section demand | request-local plans
+                       |
+                       v
+Domain-owned evidence
+  metadata | source | IL | analysis | C# | decompilation | diffs | Findings
+                       |
+                       v
+Artifact and workspace foundations
+  acquisition outcomes | guarded content | provenance | leases | caches
 ```
 
-Key inspectors:
-
-| Inspector | Purpose |
-| --------- | ------- |
-| `ApiSurfaceExtractor` | Extracts public types, methods, properties, fields, events |
-| `AssemblyInspector` | Reads PE headers, attributes, and assembly metadata |
-| `PdbContext` | Opens PE/PDB images and exposes typed raw PDB records and CDI blobs |
-| `SourceLinkResolver` | In ILInspector.SourceLink, decorates raw PDB correlations with SourceLink paths and URLs |
-
-### Tool package resolution
-
-.NET tools published as runtime-specific (NativeAOT) executables ship a thin wrapper
-package whose payload is only a `tools/**/DotnetToolSettings.xml` manifest that points at
-per-RID packages (`<id>.win-x64`, `<id>.osx-arm64`, `<id>.any`, …). The wrapper carries no
-managed assemblies, so any inspection of `--package <tool>` would otherwise fail with
-"Could not extract API from library."
-
-`PackageExtractor` detects this case after extraction: when a package has no non-resource
-managed DLLs but exposes a `DotnetToolSettings.xml` with an `any` RID entry, it transparently
-redirects to that portable `any` package (the framework-dependent build) at the same version
-and inspects its managed assemblies. The redirect benefits every package-consuming command
-(`type`, `member`, `package`, `depends`).
-
-The extraction result retains the ordered wrapper chain separately from the final payload
-coordinate. Package inspection uses the requested wrapper's tool manifest for classification
-and commands while keeping the payload package identity and producer as the provenance of the
-managed assemblies being inspected. RID companion availability is verified when an explicit
-Manifest selection or effective discovery requests it. Normal and detailed local-file views also
-verify local siblings because that work is filesystem-only; ordinary remote views do not gain
-hidden network traffic. A coordinate-matching nuspec or an exact entry in an authoritative
-version index proves presence, authoritative absence renders `no`, and malformed or otherwise
-inconclusive probes remain `unknown`. A local sibling
-matches by NuGet's case-insensitive coordinate identity and must also pass bounded package-archive
-admission before its strict UTF-8 nuspec can prove presence; an existing but empty, non-regular,
-corrupt, unreadable, or mismatched sibling remains `unknown`. An acquired redirect hop likewise proves its
-mapped package present only when verification was requested and its extracted root nuspec has one
-consistently namespaced metadata, id, and version element that matches the acquired coordinate.
-Indeterminate acquired evidence remains `unknown` when every other applicable probe is absent;
-any coordinate-matching present probe still wins.
-Malformed critical `PackageBaseAddress` entries likewise keep a source's negative
-answer indeterminate without suppressing matching evidence from a usable sibling
-endpoint.
-Wrapper metadata uses the same bounded extracted-nuspec path. Bare effective discovery renders
-every discoverable section established by its bounded automatic producer candidates, so it
-performs the same Manifest verification as targeted discovery without authorizing identifier,
-symbol, or source enrichment. Targeted discovery may authorize the producer for the explicitly
-requested section, and an explicit section selection constrains both discovery output and its producers.
-`RidPackageVerifierTests` and `PackageInspectorMetadataSourceTests` gate these local, remote, and
-acquired distinctions. Verification deduplicates case-insensitive package ids, probes at most 64
-distinct coordinates, snapshots a bounded local sibling directory once, and reads at most 500 MB
-of compressed local sibling archives across one verification operation. Each reservation uses
-the length of the opened file handle that is then read, so a path replacement cannot receive an
-uncharged allowance. Mappings and archive
-candidates beyond those limits, and candidates that race with the snapshot, remain `unknown`;
-missing paths still establish absence without spending the archive-byte budget.
-Availability is not retained in the payload index; each explicit request evaluates the current
-source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical
-NuGet id grammar before cache or network use; probe versions compare by normalized NuGet identity,
-and invalid UTF-8 cannot establish presence.
-
-### Signature decoding
-
-Method and property signatures are decoded using `SignatureTypeProvider`, which implements `ISignatureTypeProvider<string, object?>`:
-
-```csharp
-public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch
-{
-    PrimitiveTypeCode.Int32 => "int",
-    PrimitiveTypeCode.String => "string",
-    // ...
-};
-
-public string GetPointerType(string elementType) => $"{elementType}*";
-public string GetByReferenceType(string elementType) => $"ref {elementType}";
-```
-
-Parameter names are extracted from the `Parameter` table in metadata, matching by sequence number.
-
-### Unsafe code detection
-
-Unsafe code detection operates at two levels:
-
-#### Assembly-level detection
-
-Checks for `System.Security.UnverifiableCodeAttribute` on the assembly. This attribute is emitted by the C# compiler when `AllowUnsafeBlocks` is enabled, indicating the assembly contains unverifiable code.
-
-```csharp
-private static bool CheckForUnsafeCode(MetadataReader reader)
-{
-    foreach (var attrHandle in reader.CustomAttributes)
-    {
-        var attr = reader.GetCustomAttribute(attrHandle);
-        string? attrName = GetAttributeName(reader, attr);
-        if (attrName == "System.Security.UnverifiableCodeAttribute")
-            return true;
-    }
-    return false;
-}
-```
-
-#### Method-level detection (`--unsafe` filter)
-
-The `--unsafe` filter identifies methods that require the caller to enter an
-unsafe context, from two metadata signals:
-
-```csharp
-IsUnsafe = HasUnsafeSignature(signature)               // pointer in signature
-        || AttributeReader.HasRequiresUnsafeAttribute(...); // declared `unsafe`/`extern`
-```
-
-The signature check (`signature.Contains('*')`) detects:
-
-- Pointer parameters: `void Process(byte* buffer)`
-- Pointer return types: `int* GetPointer()`
-- Function pointers: `delegate*<int, void>`
-
-The attribute check detects members declared `unsafe`/`extern` even when no
-pointer appears in their signature. Under the updated memory-safety rules the
-compiler stamps such members with `RequiresUnsafeAttribute`
-(`System.Diagnostics.CodeAnalysis`); the attribute is only emitted under those
-rules, so the check is self-gating and legacy assemblies are unaffected.
-
-This approach is intentionally **API-focused** - it surfaces methods that require the caller to use an unsafe context. Methods that use unsafe internally but expose a safe API are not included.
-
-#### What's not detected
-
-For a **legacy** assembly (no `RequiresUnsafeAttribute`), a method declared with
-the `unsafe` keyword but without a pointer in its signature is not detected,
-because there is no metadata trace of the member modifier. For example:
-
-```csharp
-public unsafe int StackAlloc()
-{
-    Span<int> span = stackalloc int[10];  // unsafe internally
-    return span[0];
-}
-```
-
-This method is `unsafe` but has a safe signature (`int StackAlloc()`), so for a
-legacy assembly `--unsafe` won't include it. Under the updated memory-safety
-rules the same member carries `RequiresUnsafeAttribute` and **is** detected.
-
-#### Fully accurate implementation
-
-A complete implementation would require IL analysis to detect all unsafe constructs:
-
-1. **Scan method bodies for unsafe IL opcodes:**
-   - `localloc` (0xFE 0x0F) - used by `stackalloc`
-   - `ldind.*` / `stind.*` - pointer indirection
-   - `cpblk` / `initblk` - block memory operations
-   - `sizeof` on unmanaged types
-
-2. **Check for pointer local variables** in the method's `LocalVariableSignature`
-
-3. **Detect `fixed` statements** by looking for pinned local variables (the `ELEMENT_TYPE_PINNED` modifier in signatures)
-
-Example IL scan:
-
-```csharp
-var body = pe.GetMethodBody(method.RelativeVirtualAddress);
-var ilBytes = body.GetILBytes();
-
-// Check for localloc opcode
-for (int i = 0; i < ilBytes.Length - 1; i++)
-{
-    if (ilBytes[i] == 0xFE && ilBytes[i + 1] == 0x0F)
-        return true;  // Has stackalloc
-}
-```
-
-This approach is significantly more expensive (requires reading IL for every method) and would slow down API extraction. The current signature-based approach is a pragmatic choice that covers the most common use case: finding methods that expose pointers in their public API.
-
-### Async method detection
-
-The **Async Methods** section lists public async methods and classifies each as one of two kinds:
-
-- **Runtime** — runtime async ("async v2"), introduced in .NET 11. The compiler emits the
-  method with the `MethodImplAttributes.Async` flag (`0x2000`) and no state machine; the
-  runtime drives the continuation. Enabled by compiling with `<Features>runtime-async=on</Features>`
-  on `net11.0`. Adoption is selective: in .NET 11 Preview 4, `System.Private.CoreLib` uses
-  runtime async (mixed with some state-machine methods), while many framework assemblies
-  (e.g. `System.Text.Json`) still compile their async methods as state machines.
-- **State machine** — classic compiler-generated async ("async v1"). The compiler rewrites
-  the method into a state machine and marks it with `AsyncStateMachineAttribute` (or
-  `AsyncIteratorStateMachineAttribute` for `async` iterators).
-
-The two are mutually exclusive. Detection reads metadata directly — no IL scan required:
-
-```csharp
-// Runtime async: method implementation flag 0x2000
-bool isRuntimeAsync = (method.ImplAttributes & (MethodImplAttributes)0x2000) != 0;
-
-// State-machine async: AsyncStateMachineAttribute / AsyncIteratorStateMachineAttribute
-```
-
-Like the Unsafe and P/Invoke sections, detection is **public-surface only** (skips
-accessors and compiler-generated `<...>` types), so it surfaces the async API a caller sees.
-
-The **Signals** section carries a roll-up **Async Kind** row summarizing the whole assembly's
-public async surface: `Runtime`, `State machine`, `Mixed` (both kinds present), or `None`
-(no public async methods). It reuses the same cheap, always-computed presence flags
-(`HasRuntimeAsync`/`HasStateMachineAsync`) gathered in the single metadata pass, so it adds no
-extra scanning cost.
-
-> Note: runtime async is a *compiler* opt-in. A method compiled with `runtime-async=on`
-> emits the `0x2000` flag regardless of body shape (loops, `try`/`catch`/`finally`,
-> `await using`, `await foreach`, `ConfigureAwait(false)` all classify as Runtime).
-
-### SourceLink resolution
-
-SourceLink information is embedded in PDBs (portable or embedded) as custom
-debug information. Metadata exposes the raw module CDI blob by GUID;
-ILInspector.SourceLink owns the SourceLink GUID and interprets the payload.
-
-The JSON contains document mappings:
-
-```json
-{
-  "documents": {
-    "/_/*": "https://raw.githubusercontent.com/dotnet/runtime/abc123/*"
-  }
-}
-```
-
-The layers cooperate as follows:
-
-1. `PdbContext` extracts named documents, checksums, sequence-point ranges,
-   type/member/token relationships, and raw CDI blobs.
-2. `ILInspector.SourceLink` extracts and parses the SourceLink map, retaining
-   map-level errors and individually rejected document keys for audit output.
-3. The high-level resolver combines raw PDB correlation with document-name
-   fallback and canonical path selection.
-4. SourceLinkFetch applies the winning map entry and establishes provenance.
-5. ILInspector.SourceLink decorates raw and browse URLs.
-
-### Determinism audit
-
-Determinism is detected via the `DebuggableAttribute` blob. Specifically, checking bit 0x100 in the debugging modes flags:
-
-```csharp
-// Bit 8 (0x100) = IgnoreSymbolStoreSequencePoints (deterministic)
-isDeterministic = (debuggingModes & 0x100) != 0;
-```
-
-## Output formatting
-
-### Serialization architecture
-
-The tool supports two output formats — Markdown (via [Markout](https://github.com/richlander/markout)) and JSON — with a clean separation between data and presentation.
-
-**Data models** (`Models/`) are pure data types with no serialization attributes. They represent the raw inspection results:
-
-```csharp
-// Models/InspectionResult.cs — pure data, no Markout
-public class InspectionResult
-{
-    public string PackageName { get; set; }
-    public long? TotalDownloads { get; set; }
-    public List<string>? TargetFrameworks { get; set; }
-    // ...
-}
-```
-
-**View models** (`Views/`) wrap the data models and add all Markout presentation concerns — display attributes, sections, field builders, computed display properties, and formatting:
-
-```csharp
-// Views/InspectionResultView.cs — Markout presentation
-[MarkoutSerializable(TitleProperty = nameof(PackageName), AutoFields = false)]
-public class InspectionResultView
-{
-    private readonly InspectionResult _data;
-
-    [MarkoutValueFormatter(typeof(CompactNumberFormatter))]
-    [MarkoutPropertyName("Downloads")]
-    public long? TotalDownloads => _data.TotalDownloads;
-
-    [MarkoutSection(Name = "Package")]
-    public List<MarkoutField> Metadata => GetMetadataFields();
-    // ...
-}
-```
-
-**`OutputFormatter`** acts as the pivot point between the two paths:
-
-- **JSON** → serializes the data model directly via `JsonContext` (STJ source-gen with `SnakeCaseLower` naming policy)
-- **Markout** → wraps data in a view model, then serializes via `MarkoutContext`
-
-```csharp
-// JSON: data model goes straight to STJ
-JsonSerializer.Serialize(result, JsonContext.Default.InspectionResult);
-
-// Markout: data model wrapped in view model first
-var view = new InspectionResultView(result);
-context.Serialize(view);
-```
-
-This ensures data models never reference Markout, and presentation logic is fully contained in `Views/` and `Output/`.
-
-### Value formatting
-
-Numeric and date formatting is handled declaratively through Markout attributes on view model properties:
-
-| Attribute | Purpose | Example |
-| --------- | ------- | ------- |
-| `[MarkoutJoin(", ")]` | Joins list properties | `["net8.0", "net9.0"]` → `"net8.0, net9.0"` |
-| `[MarkoutFormat("yyyy-MM-dd")]` | Format string via `ISpanFormattable` | `DateTimeOffset` → `"2024-06-15"` |
-| `[MarkoutValueFormatter(typeof(...))]` | Custom `IMarkoutValueFormatter<T>` | `5100000000` → `"5.1B"` |
-| `[MarkoutBoolFormat("✓", "✗")]` | Boolean display strings | `true` → `"✓"` |
-
-Formatter implementations live in `Output/ValueFormatters.cs` (`ByteSizeFormatter`, `CompactNumberFormatter`).
-
-### Output modes
-
-| Mode | Flag | Description |
-| ---- | ---- | ----------- |
-| Markdown | (default) | Tables with headers, powered by Markout |
-| Table | `--table` | One result per line, pretty-printed columns |
-| TSV | `--tsv` | Normalized tab-separated rows for agents and shell tools |
-| JSON | `--json` | Full structured output |
-| Compact JSON | `--json --compact` | Minified, omits false/null values |
-
-### Verbosity control
-
-Output follows a **height × width** model:
-
-- **Width** (verbosity): `-v:q` through `-v:d` controls column density
-- **Height** (sections): `-s:1,2` or `-x:3` includes/excludes H2 sections
-
-This allows precise control over output size for LLM context management.
-
-## Caching
-
-Packages are resolved in order:
-
-1. **NuGet global cache** (`~/.nuget/packages`) — read-only (never written to)
-2. **App cache** — downloaded packages cached under the platform cache directory owned by `DotnetInspector.Core`'s `CoreCache`: `$XDG_CACHE_HOME/dotnet-inspect` (default `~/.cache/dotnet-inspect`) on Linux, `~/Library/Caches/dotnet-inspect` on macOS, `%LocalAppData%\dotnet-inspect` on Windows. The pre-XDG `~/.local/share/dotnet-inspect` location is legacy and is removed by cache cleanup.
-
-`PackageCacheService` enforces this invariant: the app reads from both caches but only writes to the app cache. This prevents corrupting the shared NuGet cache.
-
-## Project structure
-
-The codebase is organized into domain providers, shared method-body engines, the
-Research overlay bridge, and the application layer:
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  dotnet-inspect (App layer)                                 │
-│                                                             │
-│  Commands/        CLI commands, orchestration               │
-│  Models/          Pure data types (no serialization attrs)  │
-│  Views/           Markout view models (presentation only)   │
-│  Output/          Formatters, serialization pivot            │
-│  Inspectors/      App-specific inspection logic             │
-│  Options/         CLI option types                          │
-├─────────────────────────────────────────────────────────────┤
-│  DotnetInspector.Queries (L1 inspection coordination)       │
-│                                                             │
-│  Workspace and binding-consistent assembly context groups   │
-│  Typed per-assembly and group-query coordination             │
-│  ApiInventoryQuery          type/member inventory facets    │
-├─────────────────────────────────────────────────────────────┤
-│  ILInspector.Research (Fact overlay bridge)                 │
-│                                                             │
-│  ResearchFactRegistry       ordered fact producers           │
-│  ResearchViews              fact overlay for source/IL/Facts  │
-│  *FactProducer              Analysis or Decompiler adapters  │
-├─────────────────────────────────────────────────────────────┤
-│  ILInspector.Decompiler (R2 method projection)              │
-│                                                             │
-│  IrImporter, CSharpPrinter, IlProjection                    │
-│  Per-method IR, source rendering, annotation anchors         │
-├─────────────────────────────────────────────────────────────┤
-│  ILInspector.Analysis (R1 whole-assembly evidence)          │
-│                                                             │
-│  LibraryBodyIndex, CallTree, MethodSignals                  │
-│  AllocationOccurrence, leverage, direct calls               │
-├─────────────────────────────────────────────────────────────┤
-│  ILInspector.ControlFlow (Shared kernels)                   │
-│                                                             │
-│  Block edges, dominance, dataflow fixpoint                  │
-├─────────────────────────────────────────────────────────────┤
-│  DotnetInspector.Services (Shared services)                 │
-│                                                             │
-│  PackageMetadataService    NuGet metadata (downloads, etc)  │
-│  PackageCacheService       cache management                 │
-│  NuspecParser              nuspec → NuspecData DTO           │
-│  DepsJsonParser            deps.json → DepsJsonData DTO     │
-│  TfmSelector               TFM selection, assembly paths    │
-│  + 7 more shared services                                   │
-├─────────────────────────────────────────────────────────────┤
-│  DotnetInspector.Packages (Domain provider — NuGet)         │
-│                                                             │
-│  PackageExtractor, NuGetCache                               │
-│  DependencyGroup, PackageDependency                         │
-├─────────────────────────────────────────────────────────────┤
-│  NuGetFetch (NuGet protocol client)                         │
-│                                                             │
-│  Feeds, downloads, TfmResolver — adopted in-repo (#3423)    │
-├─────────────────────────────────────────────────────────────┤
-│  ILInspector.CSharp (C# type views)                         │
-│                                                             │
-│  CSharpFormatter declaration spelling                       │
-│  CSharpTypePrinter typed request and body composition        │
-├─────────────────────────────────────────────────────────────┤
-│  CSharpText (C# textual grammar)                            │
-│                                                             │
-│  Names, signatures, XML docs, lexer, source spans and layout│
-├─────────────────────────────────────────────────────────────┤
-│  ILInspector.SourceLink (source decoration)                 │
-│                                                             │
-│  SourceLinkService, SourceLinkResolver, SourceLinkFindings  │
-│  Canonical paths, URLs, provenance, source debug audit      │
-├─────────────────────────────────────────────────────────────┤
-│  ILInspector.Metadata (Domain provider — PE/Assembly)       │
-│                                                             │
-│  AssemblyReader, ApiSurface models, PdbContext raw PDB data │
-├─────────────────────────────────────────────────────────────┤
-│  SourceLinkFetch (map/provenance grammar)                   │
-│                                                             │
-│  SourceLinkResolver matcher, SourceLinkProvenance           │
-├─────────────────────────────────────────────────────────────┤
-│  DotnetInspector.Core (Tool runtime kernel)                 │
-│                                                             │
-│  CoreCache/AsyncCache, HttpClientFactory, NetworkTelemetry  │
-│  HardenedXml/Json, Downloader — zero project references     │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Layer rules
-
-- **Domain providers** are application-agnostic. They know about NuGet packages and PE files, not about dotnet-inspect.
-- **Queries** owns content-shaped workspace lifetimes and typed inspection
-  request/result contracts. It coordinates domain providers without taking
-  filesystem paths or presentation dependencies.
-- **Services** return DTOs (`NuspecData`, `DepsJsonData`, `PackageMetadata`), never mutate app types. They use `Action<string>?` for logging instead of app-specific logger types.
-- **CSharp** owns model-bound C# spelling through `CSharpFormatter`; its
-  [structured declaration provenance](design/csharp-structured-declaration-provenance.md)
-  contract defines declaration slots, composition, compatibility, and visible
-  failure. It owns exact typed-request composition through `CSharpTypePrinter`,
-  including skeleton, full, stub, mixed-accessor, primary-constructor, and
-  nested-type shapes. It does not depend on Decompiler or Research.
-- **CSharpText** owns dependency-free, model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source ranges. It has no metadata, SRM, PDB, SourceLink, acquisition, decompiler, or presentation dependency and does not claim to be a parser.
-  `DeclarationIndexBuilder` owns the single forward token traversal, scope and
-  trust state, and linear span finalization.
-  `DeclarationHeaderGrammar` owns pure header truncation, classification,
-  declarator splitting, operator and delegate naming, and extension-scope
-  recognition over an immutable enclosing-scope snapshot. It owns no traversal
-  or span state.
-  `DeclarationIndexTests.EveryDeclarationRoslynReports_IsReportedIdenticallyByTheIndex`
-  gates corpus-level projection parity.
-  `DeclarationIndexTests.EachDeclaratorCarriesItsOwnInitializerFact`,
-  `DeclarationIndexTests.ACheckedOperator_IsNamedForItsSymbolAlone`,
-  `DeclarationIndexTests.DelegatesFunctionPointersAndDestructors_AreClassifiedApart`,
-  `DeclarationIndexTests.AConstructorNamedExtension_IsNotAnExtensionBlock`,
-  and
-  `DeclarationIndexTests.AGenericExtensionBlock_IsTransparentJustLikeAPlainOne`
-  gate the header grammar's focused positive and close-negative cases.
-- **Metadata** owns PE/PDB extraction and raw typed correlations. It does not know SourceLink maps, GUIDs, URLs, or provenance and does not expose its readers.
-- **SourceLink** owns map extraction and processing, canonical source paths, URL decoration, provenance, high-level resolution, source Findings, and SourceLink-aware audits. SourceLinkFetch remains the single map/provenance grammar owner and does not depend on Metadata.
-- **ReturnToSender target boundary** remains tools-only and owns compile-back reference
-  selection, same-assembly root selection, closure censuses, cluster membership,
-  body policy, admission, receipts, and verdict composition. It consumes
-  Metadata accessibility and identity evidence plus CSharp and Decompiler
-  evidence and rendering; it must neither flatten accessibility nor synthesize
-  product C#. This target is **unverified** until
-  `CompileBackPlanningOwnershipMatchesComponentBoundary` runs in Release.
-  Shipping `FidelityCheck.TryForcePublicConstructorAccessibility` and
-  `EmitPrerenderedMember` re-indentation are the known product-policy violations
-  retired by that milestone; the labelled tools-owned legacy emitter remains
-  separate.
-- **Analysis** owns R1 whole-assembly evidence and must not depend on the
-  decompiler IR, Roslyn, or inspected-assembly loading. One
-  `LibraryBodyAnalysisPlan` normalizes producer dependencies and scope before
-  `LibraryBodyIndex` runs the selected producers in one metadata-ordered
-  assembly acquisition. The acquisition returns cohesive method, safety,
-  allocation, optimization, and resource-lifecycle result bundles rather than
-  a flat omnibus tuple; independent judgments such as repeated-scan and
-  generated-framework classification remain separate Analysis services over
-  those shared results. Within acquisition, one
-  `MethodBodyAnalysisContext` carries the method identity, exception regions,
-  shared Layer-0 `MethodInstructions`, Analysis-owned loop regions, and
-  immutable decoded local types to topic producers, plus the neutral navigation
-  those producers share (instruction-at-offset, next-non-`nop` index, loop-region
-  membership). Raw IL, generic decoding
-  scope, metadata readers, and reader-bound method bodies remain outside the
-  context, preventing producers from creating a second decode or metadata
-  traversal path. Allocation path contexts, confidence, and
-  post-dominance remain producer-owned Layer-1 interpretations.
-  `BodySignalAnalysis` consumes the context with metadata-dependent box
-  classification supplied through a narrow callback.
-  `MethodSafetyAnalysis` owns declaration, local, opcode, call, and unsafety
-  occurrence interpretation.
-  `MethodCallAnalysis` owns the single instruction traversal that projects
-  direct and indirect calls, return addresses, definition tokens, call kinds,
-  opcodes, loop membership, and allocation-derived multiplicity. It receives
-  member, calli-signature, and definition-token facts through
-  `IMethodCallResolver`, appends calls and safety evidence incrementally, and
-  delegates unsafe-call/opcode policy back to `MethodSafetyAnalysis`.
-  `MethodAllocationFacts` owns allocation interpretation for one decoded
-  body: occurrence discovery, allocation-shape classification, escape
-  classification, and the private path-context/confidence/post-dominance indexes
-  that produce its multiplicity reading. It receives metadata and raw-IL
-  judgments through the narrow `IMethodAllocationResolver` contract the assembly
-  reader implements, and binds the canonical context, discovered and
-  escape-refined occurrences, and Layer-1 queries in one object.
-  `FactsBundlesBindContextOccurrencesAndQueries` gates that coherence.
-  `OptimizationOpportunityAnalysis` owns its per-method instruction walk,
-  optimization-shape classification, lazy memoized reaching-definitions use,
-  and allocation metadata projection. It reuses allocation discovery and the
-  allocation facts' Layer-1 query methods rather than opening another
-  allocation or decode path. The collector coordinates the ordered opportunity
-  traversal and delegates focused evidence classification to
-  `ArrayEscapeAnalysis`, `LoopInvariantMaterializerAnalysis`,
-  `StackGuardFallbackAnalysis`, and `StringConcatAccumulationAnalysis`; those
-  recognizers do not emit or reorder opportunities. Its separate traversal may
-  repeat member and type
-  resolution, and lazily requests its own reaching-definitions result through
-  `IOptimizationOpportunityResolver`; the producer does not own the metadata
-  reader, generic scope, or raw IL. `LibraryMethodAnalysisRunner` owns the
-  ordered per-method lifecycle: body acquisition, the intentionally throwing
-  decode and canonical context construction, topic-producer sequencing,
-  leak-only handling, recoverable diagnostics, and publication of partial
-  method-local calls and safety evidence. It consumes one
-  `ILibraryMethodAnalysisInfrastructure` implemented by the assembly builder;
-  that contract supplies the caller-owned primary-image reader/PE pair,
-  while delegating method identity, generic scope, and the existing narrow
-  metadata resolvers to `LibraryBodyPrimaryMetadataResolver` without exposing
-  them to topic producers.
-  `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` gates partial failure
-  publication, and
-  `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
-  scoped decode through the runner. `LibraryBodyPrimaryMetadataResolver` owns
-  primary-image method identity, unsafe/generated attribute judgments,
-  token/member/type/field/calli/value-type/delegate facts, async-state-machine
-  caching, and the allocation/optimization/call resolver adapters.
-  `LibraryBodyStableReceiverGetterClassifier` owns the acquisition-scoped,
-  PE-backed readonly-field getter judgment and its exactly-once cache. The
-  primary resolver's optimization adapter consumes that judgment without
-  acquiring method bodies itself;
-  `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates the
-  shared cache.
-  `LibraryBodyGenericConstraintClassifier` owns generic-constraint presence
-  over any supplied metadata reader and primary-image generic-parameter
-  value-type eligibility. The primary resolver and async-sibling services
-  consume those two judgments without duplicating constraint policy;
-  `OptimizationOpportunities_GenericObjectEqualsBox_IsReported`,
-  `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
-  `OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate the shared
-  behavior.
-  `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
-  `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
-  `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
-  representative identity, cached classification, and token-shape behavior.
-  `LibraryBodyAnalysisPlan` carries the source type for mapped classic
-  `MoveNext` tokens so method/type scope intersection admits only the selected
-  source's evidence body;
-  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`
-  gates member-, type-, and combined-scope projection.
-  `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped structural
-  signature and generic-scope identities, canonical `MemberRef`/`MethodSpec`
-  resolution caches, and their shared assembly work budgets. The primary
-  metadata resolver and `LibraryBodyLiftedSourceOwnerResolver` consume that
-  same resolution authority. The lifted-source-owner resolver owns
-  acquisition-scoped local-function/lambda owner correlation, memoized owner
-  execution-body evidence, bounded reference closure across sibling lifted
-  bodies, and top-level entry-point authentication. Authenticated async
-  `MoveNext` bodies from the async-source resolver seed the same closure as
-  ordinary owner bodies. Authenticated synchronous-iterator `MoveNext` bodies
-  also seed it, and bounded traversal through methods on that same state-machine
-  type retains compiler-hoisted `finally` helpers, including generic
-  state-machine calls encoded as member references. Managed top-level
-  entry-point authentication requires a static supported signature and
-  analyzable IL; runtime-async top-level owners use their authenticated method
-  body directly.
-  `AllocationFanout_TypeScopeAdmittingEveryFixtureTypePreservesAsyncLocals`
-  gates async locals reached through iterator execution and those helpers,
-  including generic methods, generic containing types, and generated async
-  iterators; it also gates exact generated source-type acquisition of the
-  authenticated async-iterator `MoveNext`.
-  `LiftedOwners_TopLevelRejectsMalformedManagedEntryPoint` and the
-  runtime-async `OptimizationOpportunities_AsyncTopLevelLocalFunction_IsReported`
-  gate the top-level close cases.
-  It consumes primary metadata identity, generated-code
-  judgments, and async execution mapping rather than duplicating them. Scoped
-  closure failures are retained as analysis diagnostics rather than becoming
-  success-shaped partial evidence. `AnalysisDiagnosticAggregation` combines
-  expansion and per-method failures by physical method, canonical label, and
-  message; null-compatible declaring/source provenance is enriched into one
-  row, conflicting non-null provenance remains distinct, and final rows retain
-  stable MethodDef order.
-  `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
-  `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
-  `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
-  sharing and scope-aware identity.
-  `OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce`,
-  `ResolveDeclaredMethod_MapsSiblingReferencedLocalFunctionToOwner`,
-  `ResolveDeclaredMethod_MapsAsyncOwnerLocalFunctionToOwner`,
-  `ResolveDeclaredMethod_MapsAsyncLiftedFunctionSiblingToOwner`,
-  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner`,
-  `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
-  `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
-  `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
-  `ScopedLiftedResolution_NestedFailurePublishesOneDiagnostic`,
-  `ScopeDiagnosticAggregation_EnrichesFailuresInMetadataOrder`,
-  `ScopeDiagnosticAggregation_PreservesConflictingProvenance`,
-  `ScopeDiagnosticAggregation_UsesStructuralTypeProvenanceCompatibility`,
-  `ScopeDiagnosticAggregation_DoesNotInferTypeIdentityFromDisplay`,
-  `ScopeDiagnosticAggregation_PreservesDistinctFailureMessages`,
-  `ScopeDiagnosticAggregation_PreservesPhysicalFailureIdentity`,
-  `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
-  `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
-  the top-level local-function tests gate the lifted-owner caches, closure, and
-  execution mapping.
-  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime, classic,
-  and async-iterator source resolution; authenticated source-to-`MoveNext`
-  mapping; generated lifted-source execution mapping; synchronous-iterator
-  execution authentication for lifted-owner traversal; and scoped evidence
-  expansion. Its shared execution map preserves attribute kind, rejects
-  non-unique source claims, requires the corresponding state-machine
-  interfaces, and resolves explicit iterator `MoveNext` implementations before
-  considering a named method. Authenticated execution-source maps drive acquisition and
-  per-method attribution; the scope-independent fallback contains only
-  non-generated declared sources. A rejected state-machine mapping is
-  authoritative across attribution, acquisition, and fallback, including when
-  generated-code filtering leaves one otherwise actionable source and when a
-  source carries classic and synchronous-iterator claims. Runtime-async
-  methods ignore state-machine claims of every kind, and a runtime-async
-  claimant cannot poison a valid sibling claim. A runtime-async execution
-  method cannot authenticate as a state-machine body. Generated kickoff
-  intermediates compose through authenticated lifted owners when their
-  evidence bodies are acquired. In unscoped indexes, an unresolved ultimate
-  owner retains the authenticated immediate source in `DeclaredSources`;
-  direct calls retain their physical caller rather than becoming logical
-  attribution. Async execution sources and owner chains reject malformed
-  generated-like lifted names while preserving ordinary compiler-generated
-  owners, including async owners, that already own valid generated bodies.
-  Rejected execution sources and owners cannot expand a scoped acquisition to
-  descendant physical bodies; async scope expansion validates the complete
-  lifted-owner chain before admitting a state-machine body. Scoped indexes
-  retain neither fallback.
-  Lifted-owner groups authenticate state-machine claims across the complete
-  owner candidate set in every scope without acquiring unselected owner bodies.
-  Authenticated lifted-owner evidence carries the owner identity together with
-  method- and enclosing-type compiler-generated provenance; attribution,
-  scope admission, and recommendation projection preserve that evidence
-  through ultimate-owner traversal rather than re-reading a narrower attribute
-  subset or projecting identity alone.
-  Ownership-derived recommendations require an authenticated ultimate owner
-  in full, method, and type scopes; unresolved ownership retains physical
-  evidence and body-intrinsic opportunities but fails closed for attribution.
-  Canonical generated bodies with no authenticated claimant are unresolved,
-  while malformed ownership metadata on an authored body cannot suppress that
-  body's intrinsic evidence. Allocation fanout turns calls into excluded
-  bodies into opaque paths before composing caller summaries.
-  Generated-owner suppression applies to ownership-derived recommendations,
-  not body-intrinsic opportunities, and authenticated top-level entry points
-  retain their established exception.
-  A recoverable ownership failure cannot abort final publication or discard
-  physical calls collected before opportunity projection.
-  `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner` gates full,
-  owner-method-scoped, and owner-type-scoped call parity plus declared-owner
-  resolution. `DirectCalls_AttributeAsyncIteratorBodiesToDeclaredSource`
-  preserves existing async-iterator attribution without broadening iterator
-  ownership.
-  `DirectCalls_SourceGeneratedAsyncCollisionCannotEscapeRejection` gates the
-  close ambiguity case across caller attribution, public resolution, and
-  method-scoped acquisition.
-  `DirectCalls_CrossKindStateMachineAttributesFailClosed` gates kind-agnostic
-  duplicate detection when classic async and async-iterator attributes occur
-  on the same source method;
-  `DirectCalls_ClassicAndSynchronousIteratorAttributesFailClosed` gates the
-  corresponding legacy-fallback and scoped-acquisition cases.
-  `DirectCalls_RuntimeAsyncIgnoresAsyncIteratorAttribute` gates the
-  runtime-async source cross-kind non-action boundary, while
-  `DirectCalls_RuntimeAsyncMoveNextCannotAuthenticateKickoff` gates the
-  execution-body boundary and cross-scope owner parity.
-  `DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource` gates ignored
-  claimant collisions.
-  Result-sink value flow carries `AsyncBodyAttribution`, pairing the exact
-  authenticated source method with an explicit `Runtime` or `StateMachine`
-  lowering instead of encoding lowering through source/evidence identity
-  equality.
-  `ResultSinks_PublishRuntimeAsyncBodyAttribution`,
-  `ResultSinks_PublishStateMachineAsyncBodyAttribution`, and
-  `ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync` gate that
-  projection, including mixed lowerings in one assembly.
-  `DirectCalls_MalformedIteratorClaimPreservesPhysicalEvidence` and
-  `DirectCalls_ScopedMalformedLiftedOwnerFailsClosed` gate recoverable
-  publication, feature-stable physical calls, and scope-stable group
-  authentication.
-  `OptimizationOpportunities_UnresolvedLiftedSourceFailsClosedAcrossScopes`
-  gates the unscoped immediate-source fallback and fail-closed scoped
-  ownership-derived recommendations and allocation fanout while preserving
-  full-scope body-intrinsic opportunities.
-  `OptimizationOpportunities_UnresolvedAsyncOwnerDoesNotProjectGenericBoxingAcrossScopes`
-  gates generic-box suppression for unresolved async ownership in full,
-  method, and type scopes.
-  `OptimizationOpportunities_OrphanGeneratedBodyFailsClosedAcrossScopes` and
-  `OptimizationOpportunities_AuthoredIntrinsicRowsSurviveMalformedOwnershipAcrossScopes`
-  distinguish owner-required generated bodies from authored intrinsic
-  evidence, while
-  `AllocationFanoutTests.Analyze_TreatsExcludedTargetsAsOpaque` gates
-  pre-composition fanout exclusion.
-  `OptimizationOpportunities_UnresolvedLiftedOwnerDoesNotProjectGeneratedBoxing`
-  gates generated generic-box projection on an authenticated ultimate owner in
-  full, method, and type scopes.
-  `DirectCalls_UnresolvedNestedLiftedSourceRetainsPhysicalCaller` and
-  `DirectCalls_RecoverableUltimateOwnerFailureRetainsPhysicalCaller` gate
-  multi-hop caller projection for unresolved and recoverable-failure paths;
-  `ResolveDeclaredMethod_MalformedLiftedSourceNameFailsClosed` and
-  `ResolveDeclaredMethod_MalformedNestedLiftedOwnerDoesNotBecomeUltimateOwner`
-  gate malformed immediate and intermediate names.
-  `ResolveDeclaredMethod_CompilerGeneratedOwnersRetainAttribution`,
-  `DirectCalls_CompilerGeneratedAsyncOwnerRetainsAttributionAcrossScopes`,
-  `ResolveDeclaredMethod_TypeGeneratedMalformedAsyncSourceFailsClosedAcrossScopes`,
-  `ResolveDeclaredMethod_TypeGeneratedMalformedOwnerFailsClosedAcrossScopes`,
-  `Scopes_MalformedGeneratedOwnersDoNotAdmitStateMachineBodies`, and
-  `ResolveDeclaredMethod_TerminalMalformedOwnerFailsClosed` gate compiled owner
-  compatibility, method- and type-level generated provenance, async scope
-  admission, and terminal-hop authentication.
-  `OptimizationOpportunities_CompilerGeneratedAsyncOwnerIsScopeInvariant`,
-  `OptimizationOpportunities_TypeGeneratedAsyncOwnerSuppressesSiblingAcrossScopes`,
-  and
-  `ResolveUltimateDeclaredMethod_AuthenticatesTopLevelEntryPoint` gate
-  body-intrinsic scope parity, ordinary async-source suppression, and the
-  top-level exception.
-  `ScopedAsyncAdmission_DoesNotIndexUnselectedTopLevelEntryPoint` gates the
-  metadata-only scope-admission boundary before top-level body authentication.
-  `OptimizationOpportunities_ResolvedNestedLiftedOwnerProjectsUltimateOwnerAcrossScopes`
-  gates ultimate-owner recommendation attribution with a resolvable two-hop
-  compiled relationship in full, method, and type scopes.
-  `OptimizationOpportunities_GeneratedUltimateSuppressesNestedBoxAcrossScopes`
-  and
-  `OptimizationOpportunities_GeneratedUltimateSuppressesNestedAsyncAcrossScopes`
-  gate generated ultimate-owner suppression for generic-box and async-sibling
-  recommendations across those same scopes.
-  `ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder` gates
-  ordered aggregation of recoverable final-publication failures.
-  `LiftedOwners_RejectUnauthenticatedIteratorExecution` gates explicit
-  synchronous-iterator implementations with named decoys, duplicate iterator
-  source claims, and async-iterator claims over classic-only state machines,
-  including the declared-source fallback for their rejected `MoveNext`.
-  `LibraryBodyDeclaredSourceResolver` composes the async and lifted resolvers
-  into ultimate declared owners, owns the async/lifted/async scoped-evidence
-  expansion sequence, and publishes declared-source mappings plus recoverable
-  diagnostics. It owns no metadata image or parallel scheduling lifetime.
-  `AsyncSource_MethodImplRequiresValidSourceMethodShape` gates the kickoff and
-  state-machine body requirements. The async source resolver reuses primary
-  metadata identity and generated-code judgments plus the builder's shared
-  local type-definition index.
-  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
-  `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
-  `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
-  `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
-  gate projection, authentication, close-negative scope behavior, and
-  read-only parallel cache consumption.
-  `LibraryBodyAnalysisAccumulator` receives the completed per-method result
-  array in metadata order, merges every topic and partial diagnostic, computes
-  the call-derived non-heap and exception-type assembly projections, and
-  constructs the immutable `LibraryBodyAnalysisResult`.
-  `ParallelBuild_IsOrderStable_AcrossRepeatedOpens` gates deterministic ordered
-  output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
-  gates partial-result accumulation.
-  The assembly builder retains the metadata-ordered work list, parallel
-  scheduling, shared local type-definition infrastructure, and service
-  lifetime composition; declared-source policy is delegated to
-  `LibraryBodyDeclaredSourceResolver`.
-  Cross-assembly type-definition binding,
-  referenced-image metadata lifetime, and the registration-keyed cache belong
-  to `LibraryBodyReferenceMetadataResolver`, which composes
-  `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`. When analysis
-  needs reference resolution, `LibraryBodyIndex` acquires one budgeted immutable
-  root snapshot and registers that same snapshot with the catalog; neither the
-  resolver nor the catalog may reacquire or copy the root image.
-  `RetainedSnapshot_IsRegisteredWithoutReopeningOrCopyingSource` and
-  `OptimizationOpportunities_RootImageIsRetainedOnce` gate the metadata and
-  end-to-end sides of that ownership contract;
-  `DisposedCatalog_ReleasesLatestCandidateImages` gates release of frozen
-  generation and correspondence-cache image roots while a disposed catalog
-  remains referenced;
-  `DisposedContext_ReleasesCandidateImages` gates the corresponding frozen
-  context roots.
-  `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
-  `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
-  forwarder and binding-scope behavior.
-  `LibraryBodyAsyncSiblingSignatureMatcher` owns stateless async-sibling
-  signature decoding, source-frame projection, exact type identity and
-  comparison, optional cancellation matching, async return compatibility, and
-  bounded finding display.
-  `AsyncSiblingMethodMatching_PreservesOpenGenericSignature`,
-  `AsyncSiblingCancellationTokenDefault_MustBeNull`,
-  and `AsyncSiblingTypeSupport_IsLinearForSharedDag` gate representative
-  decoding, compatibility, and linear-work behavior; the identity and display
-  gates below cover the remaining policy.
-  `LibraryBodyAsyncSiblingDispatchAnalyzer` owns reader-relative type
-  relationships, constructed generic projection, virtual-slot and MethodImpl
-  correspondence, constrained-method suppression, and conservative unknown
-  handling. It receives synchronized external type-definition resolution and
-  the shared `LibraryBodyAsyncSiblingMethodIndex` rather than owning a second
-  reference cache or candidate index.
-  `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
-  `OptimizationOpportunities_MvidCollisionPreservesRecursiveInterfaceSuppression`,
-  `MethodImplSignature_RequiresByRefDirection`, and
-  `ConstructedInterfaceIdentity_RequiresMatchingArguments` gate that policy.
-  `LibraryBodyAsyncSiblingAccessibilityAnalyzer` owns CLR member-access,
-  protected-receiver, friend-assembly identity, and directional nested-private
-  access policy. It consumes the primary reader and assembly identity plus the
-  dispatch analyzer's source-type relationship proof, without owning metadata
-  resolution or caches.
-  `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
-  `OptimizationOpportunities_FriendAccessRequiresProvableReceiver`,
-  `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`, and
-  `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey` gate that
-  policy.
-  `LibraryBodyAsyncSiblingCandidateResolver` owns synchronous-definition and
-  sibling-candidate resolution, bounded inherited-name traversal,
-  exact-callee caching, ambiguity selection, and source-dependent
-  accessibility and dispatch filtering. It consumes builder-owned synchronized
-  external resolution and the shared local type-definition index without
-  owning metadata lifetime.
-  `LibraryBodyAsyncSiblingMethodIndex` owns the synchronized reader-relative
-  per-type method-name cache shared by candidate and dispatch analysis.
-  `LibraryBodyAnalysisBuilder.AsyncSibling` owns only `sync-call-in-async`
-  opportunity orchestration, diagnostic containment, and result ordering. It
-  consumes the candidate resolver and canonical direct-call rows after
-  ordinary opportunity collection and appends only this metadata-bound shape;
-  recoverable sibling-classification failures remain diagnostic without
-  discarding independent ordinary opportunities or body signals.
-  Source-independent lookup is cached by exact callee identity, while
-  accessibility remains source-dependent;
-  `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
-  per-type method index that bounds distinct-callee discovery;
-  `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
-  index publication during parallel body analysis, and
-  `OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel` gates
-  constructed base traversal, generic substitution, name hiding, and inherited
-  accessibility;
-  `OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed`
-  gates the erased receiver boundary for inherited synchronous definitions:
-  methods on unsealed classes and interfaces fail closed because IL does not
-  preserve the source receiver lookup type or static type qualifier; methods
-  declared on sealed classes remain eligible.
-  Constructed generic type relationships preserve DAG sharing and bound
-  structural identity, comparison, and finding-display work;
-  `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
-  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`,
-  `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
-  `AsyncSiblingTypeMatching_DistinguishesStructuredNames` gate exact identity,
-  while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
-  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`,
-  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`,
-  `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank`, and
-  `AsyncSiblingFindingDisplay_AccumulatesNestedArrayRanks` gate per-type
-  relationship and aggregate-output limits. Trusted framework-contract
-  identities, exact interface-slot correspondence, friend-aware protected
-  access, and nested private-access domains are gated by
-  `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
-  `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
-  `OptimizationOpportunities_FriendAccessRequiresProvableReceiver`,
-  `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey`,
-  `OptimizationOpportunities_SuppressesSourceGeneratedTypes`,
-  and
-  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`.
-  Performance command projections report body-index diagnostics independently
-  of unsafe scanning, and reject document JSON rather than silently omitting
-  requested Performance analysis;
-  `PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes` gates library,
-  type, and member disclosure;
-  `PerformanceTriage_SuppressesDiagnosticsOutsideSelectedScope` gates scoped
-  source/evidence projection, while
-  `PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis` gates the
-  unsupported document shape.
-  `OptimizationOpportunityRanking` owns opportunity priority, semantic loop
-  classification, source-owner aggregation for lifted bodies, and stable
-  triage ordering. Both the CLI compatibility projection and
-  `AssemblyContextOptimizationOpportunitiesQuery` consume that policy rather
-  than sorting or classifying Analysis evidence in their hosts. The group query
-  opens optimization-only indexes over workspace-retained snapshots,
-  constrains reference resolution to binding-selected siblings in the same
-  group, attributes analyzed bodies to owning public API members with exact
-  metadata type identity and stable member selectors, and carries participant,
-  Analysis, and API-projection failures in its typed result. It
-  executes participants sequentially so whole-group ranking remains available
-  on single-threaded Browser/Wasm. `OptimizationOpportunityRankingTests` and
-  `AssemblyContextOptimizationOpportunitiesQueryTests` gate these ownership,
-  ordering, attribution, and execution contracts;
-  `AssemblyContextResearchProjectionQueryTests.Projection_DoesNotAcquireAPolicySelectionOutsideTheGroup`
-  gates containment in the shared resolver.
-  `MethodInstructionFacts` owns the
-  metadata-free local/argument-slot, operand, and single-branch-target grammar
-  shared by safety and allocation
-  interpretation, and `CompilerGeneratedNames` owns the unspeakable-name grammar
-  shared by escape classification and optimization-opportunity classification.
-  `MethodBodyFlowProbe` owns the bounded throw-path probes shared with allocation
-  analysis. `LibraryBodyIndex` is the compatibility query facade, not the owner
-  of every analysis algorithm. The app unions the features required by selected
-  sections and owns one lazy
-  `MethodBodyInspectionSession` per command. Library body commands consume
-  immutable content from the prefetched `PdbContext` image already opened for
-  metadata/PDB inspection rather than reopening the target file or receiving
-  Metadata's raw reader. Producers may still perform their own instruction
-  interpretation over the acquired bodies.
-- **Decompiler** owns R2 method projection and rendering evidence, not whole-assembly analysis indexes.
-- **Research** is the only bridge between Analysis and Decompiler evidence. New overlay facts register as producers; presenters consume the merged offset-keyed overlay.
-- **Models** are pure data with no Markout references. JSON conditional attributes (`[JsonIgnore(Condition = ...)]`) are acceptable since they control data serialization, not presentation.
-- **Views** wrap models and own all Markout attributes, sections, field builders, and computed display properties. They are the only types registered in `MarkoutContext`.
-- **Commands** orchestrate: they call services, populate models, and hand off to `OutputFormatter`. Most commands should not import Markout directly.
-
-### Key files
-
-```text
-src/dotnet-inspect/
-├── Commands/                   # CLI commands (orchestration)
-├── Inspectors/                 # App-specific inspection logic
-├── Models/                     # Pure data types
-│   ├── InspectionResult.cs     #   Package inspection data
-│   ├── AssemblyAudit.cs        #   Assembly audit data
-│   └── RidPackageReference.cs  #   RID package data
-├── Views/                      # Markout presentation
-│   ├── InspectionResultView.cs #   Package view model
-│   ├── AssemblyAuditView.cs    #   Assembly audit view model
-│   ├── AssemblyAuditReport.cs  #   Multi-assembly report wrapper
-│   └── FlatDependency.cs       #   Dependency table row (view-only type)
-├── Output/                     # Formatters and utilities
-│   ├── OutputFormatter.cs      #   JSON/Markout pivot point
-│   ├── ValueFormatters.cs      #   ByteSizeFormatter, CompactNumberFormatter
-│   ├── FindOutputFormatter.cs  #   Find command rendering
-│   ├── DiffOutputFormatter.cs  #   Diff command rendering
-│   └── MemberTableFormatter.cs #   API member table rendering
-├── Options/                    # CLI option types
-├── JsonContext.cs              # STJ source-gen (data models)
-└── MarkoutContext.cs           # Markout source-gen (view models)
-
-src/DotnetInspector.Services/   # Shared, app-agnostic services
-src/DotnetInspector.Packages/   # NuGet domain provider
-src/DotnetInspector.Queries/    # Typed inspection requests and results
-src/ILInspector.Metadata/       # PE/assembly domain provider
-src/ILInspector.CSharp/         # C# spelling and namespace/type views
-src/ILInspector.ControlFlow/    # Shared control-flow/dataflow kernels
-src/ILInspector.Analysis/       # R1 whole-assembly method-body evidence
-src/ILInspector.Decompiler/     # R2 per-method IR and source/IL projection
-src/ILInspector.Research/       # Registered fact overlay and annotated views
-```
-
-## Key design decisions
-
-1. **No assembly loading** — Uses `MetadataReader` to avoid loading assemblies into the runtime, enabling inspection of any .NET library regardless of target framework.
-
-2. **Data/View model split** — Data models (`Models/`) have zero Markout references. View models (`Views/`) own all presentation. This prevents serialization concerns from bleeding into domain types.
-
-3. **Services return DTOs** — Services never mutate app types. They return focused DTOs that commands compose into models. This keeps services reusable across applications.
-
-4. **Read-only NuGet cache** — The app reads from the shared NuGet global cache but never writes to it. Downloads go to the app's own cache directory.
-
-5. **Embedded SKILL.md** — The skill definition is compiled into the binary as a resource, ensuring it's always available and version-matched. Distributed via the dotnet/skills marketplace.
-
-6. **Default exclusions** — `[EditorBrowsable(Never)]` and `[Obsolete]` members are hidden by default to reduce noise. Use `--all` to include them.
-
-7. **Automatic TFM selection** — When multiple target frameworks exist, the highest is auto-selected. Override with `--tfm`.
-
-8. **Signature-first output** — Full method signatures with parameter names are the primary output, not just type names, because LLMs need complete information to generate correct code.
-
-9. **Deliberate local structural identity in `ILInspector.Analysis`** — The whole-assembly memory-safety analyzer (`ILInspector.Analysis`: `LibraryBodyIndex`, `CallTree`, the `Hollow`/`Opaque`/`UnsafeLeverage` classifications) retains its own `TypeRef` / `TypeRefDecoder` / `MemberResolver` rather than sharing the decompiler's `Pipeline.TypeRef` or Metadata's display/API models. This is a committed capability boundary, not dependency isolation: Analysis references `ILInspector.Metadata` for acquisition, structured binding, and definition correspondence, while its SRM-direct `TypeRef` continues to answer the distinct evidence-matching question. The type models remain separate because they carry different shapes and erasure policies, not because Analysis has zero project references. [Shared metadata primitives](metadata-primitives.md) preserves that semantic boundary while reopening convergence of bounded SRM mechanics below it.
-
-10. **Research seam for R1/R2 overlays** — `ILInspector.Research` is the accepted bridge above Analysis (R1 lower representation) and Decompiler (R2 projection/recovery representation). Research owns the `ResearchFactRegistry`, annotation producers, and fact-overlay presenters, so new facts flow through one offset-keyed overlay instead of direct `Analysis <-> Decompiler` edges or bypass renderers.
-
-11. **Finding arity is semantic** — `Finding<T>` is a one-version observation and `PairFinding<T>` is a two-version transition. `IFinding` and `IPairFinding` provide separate heterogeneous collection contracts; repeated subject/descriptor/detail projections do not justify a misleading shared hierarchy. Research composes producer-owned observations, transitions, native structural diffs, failures, and provenance as evidence without wrapping them in a second universal row model. See [Finding Nomenclature](design/finding-nomenclature.md).
-
-12. **Analysis owns structural clone truth** — Exact method-body relationship and block/local correspondence are Analysis concerns over the shared instruction substrate. Candidate discovery and corpus orchestration remain outside the producer; Research may later project owner-issued provenance into implementation-diff presentation without making C# rendering a second verifier. The first A-vs-A contract and its explicit unsupported boundaries are in [Structural Clone Analysis](design/structural-clone-analysis.md).
+The arrows describe request composition, not a strict project-reference stack.
+A logical layer may span projects, and dependency-free contract floors can be
+referenced from several layers.
+
+## Request composition
+
+Current hosts perform the same broad responsibilities, although migration to
+the source-neutral artifact and compiled-domain seams is incremental:
+
+| Stage | Responsibility | Typical implementation |
+| ----- | -------------- | ---------------------- |
+| 1. Admit sources | Interpret explicit package, platform, project, local-file, or in-memory input and authorize any network or source-content work. | Host adapters, `DotnetInspector.Packages`, `DotnetInspector.Services` |
+| 2. Form a workspace | Retain content and binding-consistent participant contexts for the operation lifetime. | `AssemblySet`, query workspaces, assembly context groups; artifact-session canaries |
+| 3. Resolve intent | Turn host gestures into typed subjects, lenses, sections, row plans, and capabilities. | CLI options and resolvers, section catalogs, output projections |
+| 4. Plan producers | Lower direct section and host demand through an immutable typed-query catalog. | `InspectionQueryCatalog<TContext>`; Diff's compiled domain and lens |
+| 5. Produce evidence | Execute only the selected producer closure over caller-owned contexts. | Metadata, SourceLink, Analysis, Decompiler, Research, package, and relationship queries |
+| 6. Compose results | Preserve owner-issued identity, provenance, correspondence, Findings, and typed failure outcomes. | Query results and focused comparison or graph contracts |
+| 7. Present | Project results into sections, rows, documents, or host-native interactions. | CLI views/output, inspect-web engine/UI, focused tools |
+
+Hosts own operation lifetime and policy. Query and evidence owners do not
+silently acquire a new source, infer identity from display text, or convert a
+failed inspection into an empty success.
+
+## Logical layers
+
+The implementation uses the L1/L2/L3 ownership vocabulary defined by
+[Inspection layers](design/inspection-layers.md):
+
+| Layer | Owns | Does not own |
+| ----- | ---- | ------------ |
+| L1 typed queries | Typed requests and results, prerequisite closure, cost, execution order, and producer invocation. | Sections, command syntax, rendering, or ambient source discovery. |
+| L2 inspection lenses | Section candidates, direct producer demand, schemas, output-row projection, and related selection metadata. | Producer algorithms, prerequisite semantics, or host acquisition policy. |
+| L3 hosts | User gestures, source authorization, operation lifetime, navigation, command-specific demand, and presentation choice. | Metadata, Analysis, or other producer truth. |
+
+Artifact contracts and domain engines sit below these consumer layers rather
+than forming an additional host tier.
+
+These are logical boundaries, not a claim that every layer is already a
+separate reusable assembly. L1 is available through host-neutral projects.
+Current L2 section pipelines remain in the `DotnetInspector.Sections` namespace
+inside the CLI project; the owning design describes their separate-component
+target.
+
+The reusable L1/L2 binding is owned by
+[Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition).
+One immutable producer domain can serve multiple immutable section lenses while
+each request supplies its own context and cancellation. Diff is the current
+production canary; other command families still use their existing query and
+section catalog composition.
+
+## Implementation regions
+
+The tables follow composition order: shared contracts and substrates first,
+then primary producers, then derived projections, composers, and hosts.
+Parallel siblings are grouped by their place in that flow rather than sorted
+alphabetically.
+
+### Artifact and runtime foundations
+
+| Region | Place in flow | Responsibility | Primary authority |
+| ------ | ------------- | -------------- | ----------------- |
+| `DotnetInspector.Artifacts` | Contract floor | Source-neutral artifact identity, provenance, diagnostics, acquisition outcomes, and guarded content access. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
+| `DotnetInspector.Core` | Runtime floor | Cache roots, cache publication, network policy, telemetry, and hardened readers. | [Inspection space architecture](inspection-space.md), [cache concurrency](design/cache-concurrency.md) |
+| `DotnetInspector.Artifacts.Workspaces` | Workspace composition | Bounded immutable contribution composition and workspace-session lifetime, currently exercised by the package-free fixture canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
+| `DotnetInspector.Artifacts.Local` | Source adapter canary | Snapshotting explicitly supplied local files into artifact contracts for the current local-acquisition canary. | [Artifact acquisition and workspaces](design/artifact-acquisition-and-workspaces.md) |
+| `NuGetFetch` | Protocol adapter | NuGet feeds, downloads, authentication, and protocol behavior. | [NuGet authentication](design/nuget-authentication.md) |
+| `DotnetInspector.Packages` | Package adapter | Package archives, package/source caches, extraction, and version acquisition. | [Version resolution](design/version-resolution.md) |
+| `DotnetInspector.Services` | Shared services | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
+
+The artifact floor is intentionally package- and Metadata-free. Its contracts,
+local adapter, and workspace session are implemented migration foundations, not
+the universal CLI acquisition path. The current package-free fixture consumes
+the canary; existing CLI paths still compose Packages, Services, `AssemblySet`,
+and query workspaces while migration continues.
+
+### Metadata, source, and text
+
+| Region | Place in flow | Responsibility | Primary authority |
+| ------ | ------------- | -------------- | ----------------- |
+| `ILInspector.MetadataPrimitives` | Primitive floor | Dependency-free SRM mechanics and neutral metadata-name operations. | [Metadata primitives](metadata-primitives.md) |
+| `CSharpText` | Text grammar floor | Model-free C# and XML-documentation grammars, names, signatures, and conservative text ranges. | [Inspection layers](design/inspection-layers.md) |
+| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), focused Metadata designs |
+| `SourceLinkFetch` | Map grammar | SourceLink map matching and provenance grammar. | [PDB acquisition](pdb-acquisition.md) |
+| `ILInspector.SourceLink` | Source composer | SourceLink extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
+| `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md), [structured declaration provenance](design/csharp-structured-declaration-provenance.md) |
+
+Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
+CSharpText owns textual grammar, while ILInspector.CSharp owns spelling that
+depends on typed models.
+
+### Evidence and comparison engines
+
+| Region | Place in flow | Responsibility | Primary authority |
+| ------ | ------------- | -------------- | ----------------- |
+| `ILInspector.Findings` | Result contracts | Domain-free observation, census, matching, transition, comparison, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding producers](design/finding-producers.md) |
+| `ILInspector.Instructions` | Decode substrate | Shared instruction decoding and exception-region-aware basic blocks. | [Instruction substrate](design/instruction-substrate.md) |
+| `ILInspector.ControlFlow` | Flow substrate | Shared control-flow, dominance, and dataflow kernels. | [Instruction substrate](design/instruction-substrate.md) |
+| `ILInspector.Text` | Text producer | Exact ordered line inspection and generic text comparison on the Finding spine. | [Finding producers](design/finding-producers.md) |
+| `ILInspector.Analysis` | IL evidence producer | SRM-based whole-assembly and targeted IL evidence, including calls, allocations, safety, leverage, and resource analysis. | Focused Analysis designs, [Finding adoption](design/finding-adoption.md) |
+| `ILInspector.Decompiler` | IR producer | Per-method IR, structuring, typing, C# projection, and annotated IL. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
+| `ILInspector.ILDiff` | Comparison producer | Canonical IL-body and assembly comparison with typed failures and Finding projection. | [Implementation diff](design/implementation-diff.md) |
+| `ILInspector.CallGraph` | Derived projection | Host-neutral projection of Analysis call trees into graph nodes, edges, cycles, and characteristics. | [Call graph projection](design/call-graph-projection.md) |
+| `ILInspector.Research` | Cross-representation composer | Composition of producer-owned Analysis and Decompiler evidence into offset-keyed facts and implementation comparisons. | [IL coordinate workflows](design/il-coordinate-workflows.md), [Implementation diff](design/implementation-diff.md) |
+
+Analysis and Decompiler intentionally answer different questions at different
+representation altitudes. Research composes their evidence; neither engine
+reaches through Research to redefine the other.
+
+### Query and current lens composition
+
+| Region | Place in flow | Responsibility | Primary authority |
+| ------ | ------------- | -------------- | ----------------- |
+| `DotnetInspector.Vocabulary` | Cross-host catalog | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
+| `DotnetInspector.Queries` | Core L1 | Typed query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |
+| `DotnetInspector.ResearchQueries` | Optional L1 companion | Research-backed queries without pulling Research into the core query assembly. | [Inspection layers](design/inspection-layers.md) |
+| `DotnetInspector.PackageQueries` | Optional L1 companion | Package-aware composition over package-neutral queries and realization proofs. | [Package Root realization](design/artifact-acquisition-and-workspaces.md#package-root-realization) |
+
+Queries accept content-shaped or context-shaped inputs. They do not choose a
+renderer, parse command lines, or use display strings as identity.
+
+Current L2 section pipelines, immutable catalogs, schemas, and compiled lenses
+live under `src/dotnet-inspect/Sections` in the CLI assembly. The
+[Section model](design/section-model.md) and
+[section pipeline](design/section-pipeline.md) own those contracts;
+[Inspection layers](design/inspection-layers.md) owns the target reusable L2
+component boundary. The browser host currently consumes L1 query projects
+without referencing the CLI assembly.
+
+### Hosts and tools
+
+| Host | Place in flow | Role | Primary guide |
+| ---- | ------------- | ---- | ------------- |
+| `src/dotnet-inspect` | Product host | Complete command-line host, including source resolution, command orchestration, section selection, output models, and rendering. | [CLI host architecture](cli-architecture.md) |
+| `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine contracts. | [Inspect Web UI](design/inspect-web-ui.md); target [operation authority](design/inspect-web-operation-authority.md) |
+| `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
+| Focused apps and fixtures | Boundary canary | Narrow executable consumers that prove a reusable boundary without becoming product owners. | Their local README or owning design |
+
+Harnesses and fixtures may prove product behavior, but they do not manufacture
+or repair the product evidence they measure.
+
+## Core currencies
+
+The architecture composes typed currencies rather than strings or
+presentation rows:
+
+- artifact identity, generation, provenance, diagnostics, and guarded content;
+- workspace participants, binding context, leases, and request-owned contexts;
+- typed query definitions, plans, results, costs, and failures;
+- type, member, API, metadata, and instruction identities;
+- owner-issued correspondence between versions, representations, or
+  participants;
+- `Finding<T>`, censuses, comparisons, transitions, and correlation results;
+- section, schema, row, and output-shape identities;
+- inert presentation text at the untrusted-data boundary.
+
+The owning documents define construction and failure semantics. Adjacent
+components consume those values without recreating their validation or
+inferring them from formatted text.
+
+### Portable and bound currencies
+
+Portability is one axis of a currency, not a synonym for durability,
+correspondence, or displayability:
+
+| Form | Examples | Boundary rule |
+| ---- | -------- | ------------- |
+| Bound or non-portable | Live readers, IR nodes, query contexts, leases, body-scoped offsets, and generation-scoped catalog keys | Meaning depends on one live image, body, request, workspace, or catalog generation. These values do not cross that boundary. |
+| Portable | Artifact coordinates and digests, XML documentation API identifiers, persisted member projections, workspace definition records, and materialized source/text spans | The owner defines enough stable data for the value to cross a query, process, serialization, or persistence boundary. Portability does not make equality prove correspondence. |
+
+Projection from bound to portable is explicit and records what authority or
+precision was erased. Rebinding a portable value is another owner operation
+with validation and a typed failure; it is not a cast back to the live value.
+The full scope/lifetime/portability/correspondence matrix is owned by
+[Inspection space](inspection-space.md#core-currencies).
+
+This use of *portable* describes an architectural boundary. It is independent
+of format names such as Portable PDB.
+
+### Interchange formats
+
+Interchange is a separate axis: it defines an external or cross-host syntax
+from which an owner constructs typed currencies. A value can be portable
+without having a standardized interchange syntax, and accepted interchange
+text is not automatically trusted identity.
+
+| Format | Owner and typed boundary | Carries | Does not carry |
+| ------ | ------------------------ | ------- | -------------- |
+| XML documentation API identifiers | `CSharpText.XmlDocumentationNotation` produces `XmlDocMemberIdentity`; [type/member/API representation](design/type-member-api-representation.md) owns its role among identity projections. | Portable `T:`, `M:`, and related lookup notation with the XML documentation signature grammar. | A live metadata binding, Member Index identity, or proof that two members correspond. |
+| Workspace share packets | `WorkspaceSharePacketCodec` in `DotnetInspector.Queries`; [workspace definitions](design/workspace-definitions.md#the-url-share-packet) owns the versioned projection. | A bounded canonical base64url/JSON projection of acquisition coordinates, binding contexts, navigation focus, and optional initial view state. | Acquired artifacts, a serialized live workspace, credentials, or query results. |
+| Nuspec XML | `DotnetInspector.Services.NuspecParser` over the shared `HardenedXml` boundary; [nuspec structural compatibility](design/nuspec-structural-compatibility.md) owns accepted document shapes. | Untrusted package-manifest structure projected into `NuspecData`, then validated by consuming package queries. | Authoritative package coordinates or acquisition provenance merely because the manifest declares them. |
+
+## Representation-specific identities
+
+The codebase deliberately has more than one type or member representation.
+Metadata API shapes, Analysis `TypeRef` values, Decompiler IR types, C# display
+shapes, selectors, and navigation subjects retain different structure and
+erasure policies.
+
+This is not accidental duplication. Shared mechanics may move into neutral
+primitives, but one representation must not become a universal identity merely
+because several displays look alike. The authoritative currency map and
+correspondence rules live in
+[Type, member, and API representation](design/type-member-api-representation.md).
+
+## Dependency direction
+
+Repository-wide constraints in [`AGENTS.md`](../AGENTS.md) and focused designs
+are binding. The implementation map highlights the consequences:
+
+- product inspection remains SRM-based and does not load inspected
+  assemblies;
+- reusable paths remain NativeAOT-friendly and target Browser/Wasm
+  compatibility;
+- L1 queries do not depend on CLI presentation;
+- Metadata, Analysis, CSharpText, CSharp, Decompiler, Research, and the CLI
+  retain their named ownership boundaries;
+- network, source-content, and unbounded work require explicit host
+  authorization;
+- typed failures remain visible rather than becoming empty success;
+- presentation is downstream of typed identity, provenance, and
+  correspondence.
+
+Focused documents name the Release gates for their safety, soundness, or
+faithfulness claims. This map does not duplicate those evolving gate lists.
+
+## Finding the implementation
+
+| Change area | Start with | Then inspect |
+| ----------- | ---------- | ------------ |
+| Workspace, acquisition, cache, or source policy | [Inspection space](inspection-space.md), [artifact acquisition](design/artifact-acquisition-and-workspaces.md) | `DotnetInspector.Artifacts*`, `DotnetInspector.Core`, `DotnetInspector.Packages`, `DotnetInspector.Services` |
+| Query planning or execution | [Inspection layers](design/inspection-layers.md) | `DotnetInspector.Queries`, optional query companions |
+| Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md) | `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
+| Metadata, API, type, or member facts | [Assembly inspection query](design/assembly-inspection-query.md), [representation](design/type-member-api-representation.md) | `ILInspector.Metadata*`, `ILInspector.CSharp`, `CSharpText` |
+| Portable identities or interchange formats | [Inspection space currencies](inspection-space.md#core-currencies), [workspace definitions](design/workspace-definitions.md), [nuspec compatibility](design/nuspec-structural-compatibility.md) | `CSharpText.XmlDocumentationNotation`, `DotnetInspector.Queries.Definitions.WorkspaceSharePacket*`, `DotnetInspector.Services.NuspecParser` |
+| Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |
+| IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `ILInspector.Findings` |
+| Decompilation or implementation comparison | [Decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
+| CLI command or output behavior | [CLI host architecture](cli-architecture.md), [progressive disclosure](design/progressive-disclosure.md), [output shapes](design/output-shapes.md) | `src/dotnet-inspect` |
+| Browser interaction | [Inspect Web UI](design/inspect-web-ui.md) | `prototypes/inspect-web` |
+
+Use [the documentation index](README.md) when the focused owner is not obvious.
+
+## Non-claims
+
+This document does not:
+
+- define command syntax or enumerate current options;
+- restate every project, query, section, producer, or test;
+- replace focused design contracts with one end-to-end specification;
+- assign ownership based only on project names or directory placement;
+- describe design-history documents as implemented behavior; or
+- make merge, compatibility, safety, or fidelity claims without their owning
+  evidence.
