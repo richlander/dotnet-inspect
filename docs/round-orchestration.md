@@ -96,14 +96,15 @@ Recovery transitions, applied without waiting for CI:
   unchanged head; repeat only with concrete transient evidence, otherwise treat
   it as an author change.
 
-A final-gate `ci-required` failure observed during or after a non-boundary
-Markdown-only round does not interrupt or reopen that round. Finish its review
-path; afterward, retry the unchanged head only with concrete transient evidence,
-otherwise remove `review-clean` and form a candidate at the next round number.
-Never close a round or goal while one of its applicable required checks is red. A
-superseded attempt spends no round and gets no completion report; let its
-reviewers finish or acknowledge cancellation, and carry every returned finding
-forward.
+A final-gate `ci-required` failure observed during or after a Markdown-only round
+does not interrupt or reopen that round. Finish its review path; afterward,
+retry the unchanged head only with concrete transient evidence, otherwise
+remove `review-clean` and form a candidate at the next round number. After every
+sixth completed round, the failure instead prevents the separate next-block
+approval goal from completing. Never close a round or goal while one of its
+applicable required checks is red. A superseded attempt spends no round and
+gets no completion report; let its reviewers finish or acknowledge
+cancellation, and carry every returned finding forward.
 
 ### Merge preflight
 
@@ -222,7 +223,8 @@ Status not observed for PR <number> at round <n> after <mm> minutes.
 - This is not a CI result. No failing check was observed. GitHub documents
   hosted-job execution limits up to 6 hours and self-hosted queue limits up to
   24 hours, so this repository's 60-minute budget can expire first.
-- Effect: <reviewer dispatch withheld for round n | boundary approval withheld>.
+- Effect: <reviewer dispatch withheld for round n | boundary approval withheld
+  | merge withheld | readiness not established>.
 - Next: <what a later user or workflow turn should re-check>.
 Recommendation: stop (status budget exhausted); nothing is closed or abandoned.
 ```
