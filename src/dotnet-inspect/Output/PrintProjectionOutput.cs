@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Models;
-using InertText;
 
 namespace DotnetInspector.Output;
 
@@ -35,7 +34,7 @@ public sealed record PrintProjectionOptions(
     bool Jsonl,
     bool JsonArray,
     bool Bare,
-    string? OutputPath);
+    ProjectionDestination Destination);
 
 public sealed record PrintableContent(
     string Content,
@@ -126,6 +125,9 @@ public static class PrintProjectionOutput
             selectedRow = rows[0];
         }
 
+        if (!ProjectionDestinationWriter.ValidateBeforeAcquisition(options.Destination))
+            return 1;
+
         PrintableContent payload = readContent(selectedRow);
         var selected = new PrintableDocument(
             selectedRow.Row,
@@ -141,54 +143,46 @@ public static class PrintProjectionOutput
 
         if (options.Jsonl)
         {
-            WriteOutput(
-                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + '\n',
-                options.OutputPath);
+            ProjectionDestinationWriter.WriteText(
+                options.Destination,
+                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + '\n');
             return 0;
         }
 
         if (options.JsonArray)
         {
-            WriteOutput(JsonSerializer.Serialize(new[] { selected }, PrintProjectionJsonContext.Default.PrintableDocumentArray), options.OutputPath);
+            ProjectionDestinationWriter.WriteText(
+                options.Destination,
+                JsonSerializer.Serialize(new[] { selected }, PrintProjectionJsonContext.Default.PrintableDocumentArray));
             return 0;
         }
 
         if (options.JsonOutput)
         {
-            WriteOutput(JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument), options.OutputPath);
+            ProjectionDestinationWriter.WriteText(
+                options.Destination,
+                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument));
             return 0;
         }
 
-        WriteContentOutput(payload, options.OutputPath);
+        WriteContentOutput(payload, options.Destination);
         return 0;
     }
 
-    private static void WriteContentOutput(PrintableContent output, string? outputPath)
+    private static void WriteContentOutput(PrintableContent output, ProjectionDestination destination)
     {
-        if (!string.IsNullOrWhiteSpace(outputPath))
+        if (destination.ExactTransfer
+            && output.ExactBytes is { } bytes
+            && ProjectionDestinationWriter.IsFile(destination))
         {
-            if (output.SelectedContent is { } selected)
-                File.WriteAllText(outputPath, selected.ToString());
-            else if (output.ExactBytes is { } bytes)
-                File.WriteAllBytes(outputPath, bytes);
-            else
-                File.WriteAllText(outputPath, output.Content);
+            ProjectionDestinationWriter.WriteExactBytes(destination, bytes);
+            return;
         }
-        else
-        {
-            if (output.SelectedContent is { } selected)
-                Console.Write(selected.ToString());
-            else
-                Console.Write(new InertString(TextPolicy.Prose, output.Content));
-        }
-    }
 
-    private static void WriteOutput(string output, string? outputPath)
-    {
-        if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
+        if (output.SelectedContent is { } selected)
+            ProjectionDestinationWriter.WriteSelectedText(destination, selected);
         else
-            Console.Write(output);
+            ProjectionDestinationWriter.WriteRenderedText(destination, output.Content);
     }
 }
 
