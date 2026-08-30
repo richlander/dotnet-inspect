@@ -440,8 +440,7 @@ it; the arm also requires the complete contained declaration.
 | Opaque member declaration | Opaque compatibility | `ApiMember.Signature` when no complete structured signature can be formed |
 | Combined explicit-interface name | Opaque compatibility | combined `ApiMember.Name` or `ApiSignature.MemberName` pending #5114 |
 | Display-derived type-binding context | Opaque compatibility | legacy declared/imported type full-name strings without exact definition identities |
-| Legacy operator declaration | Opaque compatibility | pre-#5164 bounded operator rewrite over compatibility signature and name text |
-| Legacy projected accessor list | Opaque compatibility | pre-#5164 `ApiSignature.Accessors` without complete semantic-association evidence |
+| Unproven type-expression occurrence | Opaque compatibility | one exact base, interface, constraint, return, field, property, event, or parameter type spelling whose required binding or generic-owner provenance is unavailable, including #5076 |
 | Unstructured type constraint | Opaque compatibility | a `TypeParameter.Constraints` entry without structured constraint evidence |
 | Unstructured method constraint | Opaque compatibility | a method `TypeParameter.Constraints` entry without structured constraint evidence |
 
@@ -466,7 +465,7 @@ it; the arm also requires the complete contained declaration.
 | Fixed-buffer field | Validated fixed-buffer evidence, closed `fixed` form, typed element type, exact field name, and validated length |
 | Unary, binary, conversion, or checked operator | Neutral Metadata-issued operator candidate with exact identity, name, flags, and complete signature shape; CSharp validates `SpecialName`, staticness, form/arity, and its closed token catalog; a representable outcome is pending #5164 |
 | Delegate | Return type, exact type declaration name, typed root or parent/child placement, generic parameters, parameters, and constraints |
-| Standalone accessor head | Typed selection of one exact child in the complete aggregate, accessor return attributes, accessor-specific accessibility, and closed accessor kind |
+| Standalone accessor head | Typed selection of one exact child in the complete aggregate, accessor return attributes, accessor-specific accessibility, and closed accessor kind; a representable outcome is pending #5164 |
 | Abbreviated member declaration | The selected member head plus a closed abbreviation choice; omitted parameter-name, default, and accessor child slots are not treated as consumed |
 | Terminated member declaration | The selected member form plus a closed terminator choice |
 
@@ -549,11 +548,12 @@ pass:
 1. introduce the four result arms, text currencies, receipt, and slot catalog;
 2. route currently structured type, constructor, ordinary method, field,
    enum-member, fixed-buffer, parameter, and constraint paths through plans;
-3. retain pre-#5164 operator and accessor-bearing declarations as
-   `FallbackRequired` with explicit legacy opaque boundaries, then consume
-   #5164's neutral operator candidate and complete accessor aggregate before
-   promoting operator, property, indexer, event, or standalone-accessor forms
-   to `Representable`;
+3. keep pre-#5164 operator and accessor-bearing string methods as legacy
+   adapters outside `CSharpDeclarationResult`: their current projections cannot
+   supply either representability evidence or the complete contained facts
+   required by `FallbackRequired`. Consume #5164's neutral operator candidate
+   and complete accessor aggregate before routing operator, property, indexer,
+   event, or standalone-accessor forms through the result contract;
 4. consume #5114's owner-issued explicit-interface handoff before promoting
    those forms;
 5. remove a compatibility repair only after its final form has representable
@@ -601,6 +601,9 @@ A well-formed typed standalone accessor selector that does not bind one exact
 aggregate child likewise selects `FallbackRequired` when the contained
 declaration is complete, or `Unavailable` only when Metadata reports an actual
 declaration failure; an undefined selector enum remains a programmer error.
+An inconsistent caller-issued nested declaration context is also a programmer
+error. A well-formed nested request that CSharp cannot place as a standalone
+declaration selects `FallbackRequired` with its complete contained type.
 
 `SignatureDecodeStatus.Degraded` selects `Degraded` and preserves the bounded
 nonauthoritative evidence allowed by the Metadata design. It never carries
@@ -630,7 +633,9 @@ properties remain unverified:
   convenience adapter bypasses the target result. Slot-local lexical helpers,
   constructor-initializer fragments, `CSharpFormatOptions.NamespacePolicy`,
   `FormatMemberUnit`, and `FormatTypeUnit` unit composition are enumerated
-  exclusions rather than silently absent inputs.
+  exclusions rather than silently absent inputs. Pre-#5164 operator and
+  accessor-bearing branches are enumerated temporary legacy exclusions; their
+  sibling representable forms still map through the result.
 - `CSharpDeclarationSlotCatalogTests.ResultArmsRequireExactConsumedSlotSet`
   derives the expected slots for every form from that catalog, compares them
   with the slots actually consumed by the public composition path, and fails
@@ -696,11 +701,19 @@ properties remain unverified:
   varies `ApiType.Name`, flattened full-name strings, and rendered type text
   while holding exact definition identities fixed, then varies only the exact
   identities. Only the latter may change declared/imported binding decisions.
+- `CSharpDeclarationProvenanceTests.MissingTypeExpressionProvenanceIsOccurrenceScoped`
+  uses equal unproven type spellings in base, interface, constraint, return, and
+  parameter positions. Each becomes a distinct opaque occurrence in
+  subordinate fallback compatibility text while the complete contained
+  declaration remains independently set-equal; no occurrence can authorize
+  another.
 - `CSharpDeclarationProvenanceTests.NestedTypePlacementDoesNotComeFromDisplayText`
   varies only legacy `Name`/`MetadataName` spellings and proves that the typed
-  declaration context selects an exact child leaf while mismatched parent
-  identity, namespace, or segment depth and an unsupported standalone nested
-  request return `Unavailable`.
+  declaration context selects an exact child leaf. An inconsistent
+  caller-supplied parent identity, namespace, or segment depth is an argument
+  error; a well-formed unsupported standalone nested request selects
+  `FallbackRequired` with the complete contained type, and `Unavailable` occurs
+  only for a supplied Metadata declaration failure.
 - `CSharpDeclarationProvenanceTests.LegacyFlattenedTypeNameWithLiteralPunctuationIsNotRepresentable`
   proves that `ApiType.Name` cannot stand in for exact definition-name segments.
 - `CSharpDeclarationProvenanceTests.TypeNameArityOwnershipIsRequiredForRepresentableNestedGenerics`
