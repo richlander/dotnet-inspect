@@ -22,6 +22,9 @@ public sealed class ArrayKindIdentityTests
         ApiType type = Assert.Single(
             surface.Types,
             candidate => candidate.Name == "ArrayKinds");
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name) == "ArrayKinds");
 
         ApiMember vector = Member(type, "Vector");
         ApiParameter vectorParameter =
@@ -29,38 +32,65 @@ public sealed class ArrayKindIdentityTests
         Assert.Equal("int[]", vectorParameter.Type);
         Assert.Equal("int[]", vectorParameter.EffectiveCanonicalType);
         Assert.Null(vectorParameter.StructuralType);
+        AssertDecodedParameterStructuralIdentity(
+            reader,
+            typeHandle,
+            "Vector",
+            "System.Int32[]");
 
         ApiMember md1 = Member(type, "Md1");
         ApiParameter md1Parameter =
             Assert.Single(md1.SignatureModel!.Parameters);
         Assert.Equal("int[*]", md1Parameter.Type);
         Assert.Equal("int[*]", md1Parameter.EffectiveCanonicalType);
-        Assert.Equal("System.Int32[*]", md1Parameter.StructuralType);
+        Assert.Null(md1Parameter.StructuralType);
+        AssertDecodedParameterStructuralIdentity(
+            reader,
+            typeHandle,
+            "Md1",
+            "System.Int32[*]");
 
-        ApiMember md1Twin = Member(type, "Md1Twin");
         Assert.Equal(
-            md1Parameter.StructuralType,
-            Assert.Single(md1Twin.SignatureModel!.Parameters).StructuralType);
+            md1Parameter.EffectiveCanonicalType,
+            Assert.Single(
+                Member(type, "Md1Twin").SignatureModel!.Parameters)
+                .EffectiveCanonicalType);
+        AssertDecodedParameterStructuralIdentity(
+            reader,
+            typeHandle,
+            "Md1Twin",
+            "System.Int32[*]");
 
         ApiMember md2 = Member(type, "Md2");
         ApiParameter md2Parameter =
             Assert.Single(md2.SignatureModel!.Parameters);
         Assert.Equal("int[,]", md2Parameter.Type);
         Assert.Null(md2Parameter.StructuralType);
+        AssertDecodedParameterStructuralIdentity(
+            reader,
+            typeHandle,
+            "Md2",
+            "System.Int32[,]");
 
         AssertParameterIdentity(
+            reader,
+            typeHandle,
             type,
             "Nested",
             "System.Collections.Generic.List<int[*]>",
             "System.Collections.Generic.List<int[*]>",
             "System.Collections.Generic.List{System.Int32[*]}");
         AssertParameterIdentity(
+            reader,
+            typeHandle,
             type,
             "Pointer",
             "int[*]*",
             "int[*]*",
             "System.Int32[*]*");
         AssertParameterIdentity(
+            reader,
+            typeHandle,
             type,
             "ByRef",
             "int[*]",
@@ -68,12 +98,16 @@ public sealed class ArrayKindIdentityTests
             "System.Int32[*]@",
             modifier: "ref");
         AssertParameterIdentity(
+            reader,
+            typeHandle,
             type,
             "Tuple",
             "(int[*], int[])",
             "System.ValueTuple<int[*], int[]>",
             "System.ValueTuple{System.Int32[*],System.Int32[]}");
         AssertParameterIdentity(
+            reader,
+            typeHandle,
             type,
             "Generic",
             "T[*]",
@@ -92,19 +126,30 @@ public sealed class ArrayKindIdentityTests
         Assert.Equal(1, md1Shape.ArrayRank);
         Assert.Null(
             Member(type, "ReturnVector").SignatureModel!.StructuralReturnType);
-        Assert.Equal(
-            "System.Int32[*]",
+        Assert.Null(
             Member(type, "ReturnMd1").SignatureModel!.StructuralReturnType);
         Assert.Null(
             Member(type, "ReturnMd2").SignatureModel!.StructuralReturnType);
+        AssertDecodedReturnStructuralIdentity(
+            reader,
+            typeHandle,
+            "ReturnVector",
+            "System.Int32[]");
+        AssertDecodedReturnStructuralIdentity(
+            reader,
+            typeHandle,
+            "ReturnMd1",
+            "System.Int32[*]");
+        AssertDecodedReturnStructuralIdentity(
+            reader,
+            typeHandle,
+            "ReturnMd2",
+            "System.Int32[,]");
         Assert.Equal(md1Shape, md1TwinShape);
         Assert.Equal(md1Shape.GetHashCode(), md1TwinShape.GetHashCode());
         Assert.NotEqual(vectorShape, md1Shape);
         Assert.NotEqual(md1Shape, md2Shape);
 
-        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(
-            handle => reader.GetString(
-                reader.GetTypeDefinition(handle).Name) == "ArrayKinds");
         var directAnchors = reader.GetTypeDefinition(typeHandle)
             .GetMethods()
             .ToDictionary(
@@ -158,6 +203,36 @@ public sealed class ArrayKindIdentityTests
         Assert.NotEqual(
             projectedAnchors["Md1"].Fingerprint,
             projectedAnchors["Md2"].Fingerprint);
+    }
+
+    [Fact]
+    public void SyntheticImage_UsesValidBodylessInterfaceDeclarations()
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(BuildArrayKindImage()));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinition type = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(
+                handle => reader.GetString(
+                    reader.GetTypeDefinition(handle).Name) == "ArrayKinds"));
+
+        Assert.True(type.Attributes.HasFlag(TypeAttributes.Interface));
+        Assert.True(type.Attributes.HasFlag(TypeAttributes.Abstract));
+        Assert.True(type.BaseType.IsNil);
+        foreach (MethodDefinitionHandle handle in type.GetMethods())
+        {
+            MethodDefinition method = reader.GetMethodDefinition(handle);
+            Assert.True(method.Attributes.HasFlag(MethodAttributes.Public));
+            Assert.True(method.Attributes.HasFlag(MethodAttributes.Abstract));
+            Assert.True(method.Attributes.HasFlag(MethodAttributes.Virtual));
+            Assert.False(method.Attributes.HasFlag(MethodAttributes.Static));
+            Assert.Equal(0, method.RelativeVirtualAddress);
+            Assert.True(method.DecodeSignature(
+                TypeNodeProvider.Instance,
+                GenericContext.ForMethod(reader, type, method))
+                .Header
+                .IsInstance);
+        }
     }
 
     [Fact]
@@ -230,6 +305,8 @@ public sealed class ArrayKindIdentityTests
     }
 
     static void AssertParameterIdentity(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
         ApiType type,
         string memberName,
         string display,
@@ -241,9 +318,59 @@ public sealed class ArrayKindIdentityTests
             Assert.Single(Member(type, memberName).SignatureModel!.Parameters);
         Assert.Equal(display, parameter.Type);
         Assert.Equal(canonical, parameter.EffectiveCanonicalType);
-        Assert.Equal(structural, parameter.StructuralType);
+        Assert.Null(parameter.StructuralType);
         Assert.Equal(modifier, parameter.Modifier);
+        AssertDecodedParameterStructuralIdentity(
+            reader,
+            typeHandle,
+            memberName,
+            structural);
     }
+
+    static void AssertDecodedParameterStructuralIdentity(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string memberName,
+        string expected)
+    {
+        MethodDefinition method = Method(reader, typeHandle, memberName);
+        MethodSignature<TypeNode> signature = method.DecodeSignature(
+            TypeNodeProvider.Instance,
+            GenericContext.ForMethod(
+                reader,
+                reader.GetTypeDefinition(typeHandle),
+                method));
+        Assert.Equal(
+            expected,
+            Assert.Single(signature.ParameterTypes).StructuralIdentity());
+    }
+
+    static void AssertDecodedReturnStructuralIdentity(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string memberName,
+        string expected)
+    {
+        MethodDefinition method = Method(reader, typeHandle, memberName);
+        MethodSignature<TypeNode> signature = method.DecodeSignature(
+            TypeNodeProvider.Instance,
+            GenericContext.ForMethod(
+                reader,
+                reader.GetTypeDefinition(typeHandle),
+                method));
+        Assert.Equal(expected, signature.ReturnType.StructuralIdentity());
+    }
+
+    static MethodDefinition Method(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string name) =>
+        reader.GetMethodDefinition(
+            reader.GetTypeDefinition(typeHandle)
+                .GetMethods()
+                .Single(
+                    handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name) == name));
 
     static ApiTypeShape ReturnShape(ApiType type, string memberName) =>
         Assert.IsType<ApiTypeShape>(
@@ -330,7 +457,7 @@ public sealed class ArrayKindIdentityTests
         foreach (MethodSpec method in methods)
         {
             var signature = new BlobBuilder();
-            signature.WriteByte(method.IsGeneric ? (byte)0x10 : (byte)0x00);
+            signature.WriteByte(method.IsGeneric ? (byte)0x30 : (byte)0x20);
             if (method.IsGeneric)
                 signature.WriteCompressedInteger(1);
             signature.WriteCompressedInteger(
@@ -341,7 +468,11 @@ public sealed class ArrayKindIdentityTests
 
             MethodDefinitionHandle methodHandle =
                 metadata.AddMethodDefinition(
-                    MethodAttributes.Public | MethodAttributes.Static,
+                    MethodAttributes.Public
+                        | MethodAttributes.Abstract
+                        | MethodAttributes.Virtual
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.NewSlot,
                     MethodImplAttributes.IL,
                     metadata.GetOrAddString(method.Name),
                     metadata.GetOrAddBlob(signature),
@@ -367,7 +498,9 @@ public sealed class ArrayKindIdentityTests
         }
 
         metadata.AddTypeDefinition(
-            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface,
             metadata.GetOrAddString("N"),
             metadata.GetOrAddString("ArrayKinds"),
             default,

@@ -39,10 +39,8 @@ internal abstract class TypeNode
     public string? TupleElementName { get; set; }
 
     /// <summary>
-    /// Whether this node or a descendant requires an explicit
-    /// <see cref="StructuralIdentity"/> in addition to canonical spelling: a
-    /// non-SZ rank-one array, custom modifier, pinned wrapper, or function-pointer
-    /// header.
+    /// Whether this node or a descendant carries identity that <see cref="Render"/>
+    /// erases: a custom modifier, pinned wrapper, or function-pointer header.
     /// </summary>
     internal virtual bool HasStructuralPayload => false;
 
@@ -389,8 +387,6 @@ internal sealed class GenericTypeNode(
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
-    internal override bool HasStructuralPayload =>
-        arguments.Any(argument => argument.HasStructuralPayload);
     public override long EstimatedRenderedLength => estimatedRenderedLength;
 
     internal override string StructuralIdentity()
@@ -537,8 +533,7 @@ internal sealed class MDArrayTypeNode(
         arrayLowerBounds.IsDefault ? [] : arrayLowerBounds;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
-    internal override bool HasStructuralPayload =>
-        rank == 1 || elementType.HasStructuralPayload;
+    internal override bool HasStructuralPayload => elementType.HasStructuralPayload;
     public override long EstimatedRenderedLength =>
         Math.Min(
             int.MaxValue,

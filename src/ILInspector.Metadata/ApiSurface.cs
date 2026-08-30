@@ -564,8 +564,8 @@ public class ApiSignature
 
     /// <summary>
     /// Opaque structural return-type identity for call-graph selectors. Null on
-    /// older serialized surfaces and signatures with no explicit structural
-    /// payload.
+    /// older serialized surfaces and members whose display spelling is already
+    /// injective.
     /// </summary>
     public string? StructuralReturnType { get; set; }
 
@@ -637,8 +637,8 @@ public class ApiParameter
 
     /// <summary>
     /// Opaque structural parameter-type identity for call-graph selectors. Null on
-    /// older serialized surfaces and parameters with no explicit structural
-    /// payload.
+    /// older serialized surfaces and parameters whose display spelling is already
+    /// injective.
     /// </summary>
     public string? StructuralType { get; set; }
 
