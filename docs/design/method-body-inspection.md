@@ -322,8 +322,8 @@ gates partial-result accumulation.
 memory-safety opt-in and unsafe/generated attribute judgments,
 token/member/type/field/calli/value-type and delegate facts,
 async-state-machine caching, and the narrow resolver adapters. The assembly
-builder's per-method infrastructure and the result accumulator consume the same
-memory-safety judgment.
+builder consumes its method identities, while the result accumulator publishes
+the same memory-safety judgment.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn` and
 `CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn` gate the legacy
 and updated-rule states. `LibraryBodyStableReceiverGetterClassifier` owns the

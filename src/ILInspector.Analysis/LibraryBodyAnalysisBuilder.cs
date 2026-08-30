@@ -429,9 +429,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
     }
 
-    public bool MemorySafetyRulesEnabled =>
-        _primaryMetadataResolver.MemorySafetyRulesEnabled;
-
     internal bool ScopeMayRequireStateMachineBody(
         IReadOnlySet<int> bodyScope) =>
         _asyncSourceResolver.ScopeMayRequireStateMachineBody(
