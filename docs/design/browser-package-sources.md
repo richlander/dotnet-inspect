@@ -1299,6 +1299,7 @@ ordinary disposed-stream result.
 The implementation gates are:
 
 - `PackageSourceClientTests.SharedContext_RequestTimeoutCanContinueWithAnotherSource`;
+- `PackageSourceClientTests.SharedContext_MetadataBodyTimeoutUsesEffectiveRequestDeadline`;
 - `PackageSourceClientTests.SharedContext_ExpiredCeilingPreventsAnotherSource`;
 - `PackageSourceClientTests.SharedContext_ExpiredUnsupportedCapabilityIsTypedTimeout`;
 - `PackageSourceClientTests.SharedContext_CallerCancellationRetainsOriginalToken`;

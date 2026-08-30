@@ -201,7 +201,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                                     response,
                                     NuGetApi.DeserializeVersionIndexAsync,
                                     _options,
-                                    _client.Timeout,
+                                    operation.RequestTimeout,
                                     requestToken).ConfigureAwait(false);
                             return (true, parsed);
                         }).ConfigureAwait(false);
@@ -496,7 +496,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     response,
                     deserialize,
                     _options,
-                    _client.Timeout,
+                    operation.RequestTimeout,
                     requestToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
     }
@@ -543,7 +543,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                                     cancellationToken).ConfigureAwait(false);
                         },
                         _options,
-                        _client.Timeout,
+                        operation.RequestTimeout,
                         requestToken).ConfigureAwait(false);
                     hasResult = true;
                     return result;

@@ -143,9 +143,17 @@ public sealed record NuGetFetchOptions
         TimeSpan clientTimeout)
     {
         options = Validate(options);
-        TimeSpan requestTimeout = RequestTimeoutForClient(
+        return ForRequest(
             options,
-            clientTimeout);
+            RequestTimeoutForClient(options, clientTimeout));
+    }
+
+    internal static NuGetFetchOptions ForRequest(
+        NuGetFetchOptions options,
+        TimeSpan requestTimeout)
+    {
+        options = Validate(options);
+        ValidateTimeout(requestTimeout, nameof(requestTimeout));
         return options.MetadataBodyTimeout != Timeout.InfiniteTimeSpan
             && options.MetadataBodyTimeout < requestTimeout
                 ? options

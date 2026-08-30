@@ -139,7 +139,7 @@ public partial class SearchService
                 response,
                 NuGetApi.DeserializeSearchResponseAsync,
                 _options,
-                _client.Timeout,
+                operation.RequestTimeout,
                 requestToken).ConfigureAwait(false);
         }
 

@@ -8,12 +8,12 @@ internal static class NuGetMetadataReader
         HttpResponseMessage response,
         Func<Stream, CancellationToken, ValueTask<T>> deserialize,
         NuGetFetchOptions options,
-        TimeSpan clientTimeout,
+        TimeSpan requestTimeout,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(deserialize);
-        options = NuGetFetchOptions.ForClient(options, clientTimeout);
+        options = NuGetFetchOptions.ForRequest(options, requestTimeout);
 
         if (response.Content.Headers.ContentLength is long advertised
             && advertised > options.MaxMetadataResponseBytes)

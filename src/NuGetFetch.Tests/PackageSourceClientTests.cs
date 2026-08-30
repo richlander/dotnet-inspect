@@ -1281,6 +1281,43 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task SharedContext_MetadataBodyTimeoutUsesEffectiveRequestDeadline()
+    {
+        var sourceOptions = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(50),
+            MetadataBodyTimeout = TimeSpan.FromMilliseconds(100),
+            OperationTimeout = TimeSpan.FromSeconds(2),
+        };
+        var contextOptions = sourceOptions with
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(300),
+        };
+        using var operation = new NuGetOperationContext(
+            contextOptions,
+            TestContext.Current.CancellationToken);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                new StallingMetadataBodyHandler(),
+                sourceOptions);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation));
+
+        Assert.Equal(PackageSourceFailureKind.Timeout, failure.Kind);
+        Assert.Equal(
+            new PackageSourceTimeout(
+                PackageSourceTimeoutKind.MetadataBody,
+                sourceOptions.MetadataBodyTimeout),
+            failure.Timeout);
+    }
+
+    [Fact]
     public async Task SharedContext_ExpiredCeilingPreventsAnotherSource()
     {
         var options = new NuGetFetchOptions
@@ -5499,6 +5536,56 @@ public sealed class PackageSourceClientTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Unreachable.");
         }
+    }
+
+    private sealed class StallingMetadataBodyHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(
+                        new StallingMetadataBodyStream()),
+                });
+    }
+
+    private sealed class StallingMetadataBodyStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return 0;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ThrowingPayloadStream(Action? beforeThrow = null)

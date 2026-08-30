@@ -310,6 +310,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
     private bool IsOperationExpired() => _context.IsOperationExpired;
 
+    internal TimeSpan RequestTimeout => _requestTimeout;
+
     private void ThrowTranslated(
         OperationCanceledException exception,
         CancellationTokenSource requestCancellation,
