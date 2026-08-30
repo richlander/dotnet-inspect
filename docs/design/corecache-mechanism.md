@@ -937,10 +937,13 @@ maintenance generation before deleting anything; only `Clear(null)` also
 waits the same way but reports `0` maintenance bytes, and neither overload's
 return value includes the directory-deleted count — see
 [Clear and concurrent writers](#clear-and-concurrent-writers)).
-Routine (non-`Clear`) maintenance is silent: a caller that never calls
+Routine (non-`Clear`) maintenance is silent to **public** callers: one that
+never calls
 `Clear` or `CancelAndWaitForMaintenance` never learns whether background
 retirement ran, succeeded, or was skipped because a prior run left the
-directory absent.
+directory absent — the only exception is the assembly-internal
+`RequestVersionedCategoryCleanupAsync` path (see above), which test code can
+await directly to observe maintenance completion and its accounting.
 
 ## `Clear` and concurrent writers
 
