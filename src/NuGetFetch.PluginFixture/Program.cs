@@ -382,7 +382,7 @@ internal static class Program
     private static int CloseMatchingUnixDescriptors(bool isMacOS)
     {
         const int maxDescriptor = 1024;
-        if (FStat(isMacOS, 1, out UnixStat outputStat) != 0)
+        if (SystemNativeFStat(1, out FileStatus outputStatus) != 0)
         {
             return Marshal.GetLastPInvokeError();
         }
@@ -390,9 +390,9 @@ internal static class Program
         List<int> matches = [];
         for (int descriptor = 1; descriptor < maxDescriptor; descriptor++)
         {
-            if (FStat(isMacOS, descriptor, out UnixStat candidateStat) == 0
-                && outputStat.Device == candidateStat.Device
-                && outputStat.Inode == candidateStat.Inode)
+            if (SystemNativeFStat(descriptor, out FileStatus candidateStatus) == 0
+                && outputStatus.Device == candidateStatus.Device
+                && outputStatus.Inode == candidateStatus.Inode)
             {
                 matches.Add(descriptor);
             }
@@ -411,14 +411,6 @@ internal static class Program
 
         return 0;
     }
-
-    private static int FStat(
-        bool isMacOS,
-        int descriptor,
-        out UnixStat stat) =>
-        isMacOS
-            ? FStatMacOS(descriptor, out stat)
-            : FStatUnix(descriptor, out stat);
 
     private static async Task DrainInputAsync(
         StreamReader input,
@@ -458,15 +450,27 @@ internal static class Program
         Exit,
     }
 
-    // Linux and Darwin stat layouts both place the device at 0 and inode at 8.
-    [StructLayout(LayoutKind.Explicit, Size = 512)]
-    private struct UnixStat
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileStatus
     {
-        [FieldOffset(0)]
-        internal uint Device;
-
-        [FieldOffset(8)]
-        internal ulong Inode;
+        internal int Flags;
+        internal int Mode;
+        internal uint UserId;
+        internal uint GroupId;
+        internal long Size;
+        internal long AccessTime;
+        internal long AccessTimeNanoseconds;
+        internal long ModificationTime;
+        internal long ModificationTimeNanoseconds;
+        internal long ChangeTime;
+        internal long ChangeTimeNanoseconds;
+        internal long BirthTime;
+        internal long BirthTimeNanoseconds;
+        internal long Device;
+        internal long RawDevice;
+        internal long Inode;
+        internal uint UserFlags;
+        internal int HardLinkCount;
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -479,16 +483,14 @@ internal static class Program
     [DllImport("libc", EntryPoint = "close", SetLastError = true)]
     private static extern int CloseUnix(int fileDescriptor);
 
-    [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
-    private static extern int FStatUnix(
-        int fileDescriptor,
-        out UnixStat stat);
-
     [DllImport("libSystem.B.dylib", EntryPoint = "close", SetLastError = true)]
     private static extern int CloseMacOS(int fileDescriptor);
 
-    [DllImport("libSystem.B.dylib", EntryPoint = "fstat", SetLastError = true)]
-    private static extern int FStatMacOS(
-        int fileDescriptor,
-        out UnixStat stat);
+    [DllImport(
+        "libSystem.Native",
+        EntryPoint = "SystemNative_FStat",
+        SetLastError = true)]
+    private static extern int SystemNativeFStat(
+        nint fileDescriptor,
+        out FileStatus status);
 }
