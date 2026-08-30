@@ -222,18 +222,36 @@ evidence is cited rather than asserted:
 
 - it is enabled by default in a standard preset of an established tool;
 - a platform, standards body, or browser vendor recommends it for this class of
-  application; or
-- it is independently implemented by multiple mainstream, maintained projects.
+  application;
+- it is independently implemented by multiple mainstream, maintained projects;
+  or
+- **this repository has already demonstrably failed the way the protection would
+  prevent** — an actual defect that shipped or reached review, not a
+  constructed scenario.
 
-A scenario a reviewer can construct, a rule that exists but is off by default,
-and a protection that only this repository would have are not evidence.
+A scenario a reviewer can construct, and a rule that exists but is off by
+default, are not evidence.
 
-This principle does not override principle 1's narrow allowance for a bespoke
-check. That allowance is for a *property* no preset can structurally supply —
-failing closed on the unrecognized. Principle 6 governs whether to pursue a
-property at all; principle 1 governs how to implement one already judged worth
-having. Where a preset covers a property incompletely, prefer reporting the gap
-upstream and recording it here over hand-writing a local substitute.
+The fourth form needs a constraint, or it becomes the ratchet this principle
+exists to stop: every declined proposal can be re-argued after one incident. The
+constraint is that a demonstrated failure justifies a **structural** response —
+failing closed on the unrecognized, or containment at the build boundary — and
+not another enumerated rule. Enumeration is what failed in the first place, so
+answering a bypass by naming the bypass is the response this document is
+specifically about not making.
+
+That fourth form is also what makes this principle honest about the repository's
+own bespoke HTML gate. That gate is not common practice by any of the first
+three tests, and without a fourth form principle 6 would condemn the single
+strongest protection here. It qualifies on demonstrated failure: an earlier
+deny-list version of it shipped a document that ran script on load, and four
+separate spellings walked through it. Its response was structural — invert the
+question and reject the unrecognized — so it satisfies the constraint too.
+
+Principle 6 governs whether to pursue a property at all; principle 1 governs how
+to implement one already judged worth having. Where a preset covers a property
+incompletely, prefer reporting the gap upstream and recording it here over
+hand-writing a local substitute.
 
 ## What is enforced today
 
@@ -241,14 +259,15 @@ upstream and recording it here over hand-writing a local substitute.
 | --- | --- | --- |
 | Script-capable HTML rejected unless classified inert | Bespoke fail-closed gate in `test/toolchain.test.ts` | Fails on unrecognized elements and attributes |
 | HTML validity and accessibility | `html-validate` in `npm run lint` | `standard`, `document`, and `a11y` presets |
-| SRI on cross-origin subresources | `html-validate` `require-sri` | Covers the URL spellings `require-sri` recognizes; see Known gaps |
+| SRI attribute present on cross-origin subresources | `html-validate` `require-sri` | Presence only; accepts `integrity="not-a-digest"` |
+| Remote `<script>` bytes pinned to a real digest | Bespoke gate in `test/toolchain.test.ts` | Validates digest syntax; normalizes backslash URL spellings; `<script>` only |
 | TypeScript correctness and unsafe-value rules | `oxlint`, type-aware | `correctness` and `suspicious` as errors |
 | Unused files, exports, dependencies | `knip` | |
 | Every registry artifact pinned with integrity metadata | `test/toolchain.test.ts` | Lockfile carries an integrity hash per artifact |
 | No source path escapes type checking or linting | `test/toolchain.test.ts` | Symlink, stray-JavaScript, and suppression checks fail closed |
-| Every file the bundler reads is linted and typechecked | `test/toolchain.test.ts` | Bundler has no unread path into shipped output |
-| Runtime libraries resolve from the lockfile, not a CDN | npm dependencies plus Vite bundling | mermaid, marked, and DOMPurify are bundled; not a gate against new cross-origin imports, see Known gaps |
-| Known advisories in shipped dependencies | `npm audit --audit-level=info` in CI | Fails on any advisory at any severity |
+| Bundler-read files are linted and typechecked, or on a pinned exception list | `test/toolchain.test.ts` | An *unexpected* exception fails; the five current ones are named and reviewed |
+| mermaid, marked, and DOMPurify resolve from the lockfile | npm dependencies plus Vite bundling | Those three only; Prism still ships from a CDN, and nothing gates a new cross-origin import — see Known gaps |
+| Known advisories in npm-graph dependencies | `npm audit --audit-level=info` in CI | Fails at any severity; cannot see CDN-loaded code |
 | Provenance of the Markdown sanitizer | Same lockfile and audit gate as any dependency | Sanitization *policy* is not owned here; see below |
 | Response headers | `staticwebapp.config.json` `globalHeaders` | `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Strict-Transport-Security` |
 | Pinned subresource staleness | Weekly `inspect-web-sri.yml` | A staleness check, not a security control |
@@ -268,17 +287,36 @@ Recorded so they are not rediscovered as findings:
 
 - **No Content-Security-Policy.** This is the most significant gap: nothing
   contains an injection that gets past sanitization.
-- **`require-sri` does not recognize every browser-equivalent URL spelling.** A
-  cross-origin subresource written `https:\\host/path` passes the lint, though a
-  browser resolves it to the same origin as `https://host/path`; the bespoke gate
-  does not catch it either. No such spelling is in the tree, and the markup is
-  not attacker-controlled, so this is gate coverage rather than a live exposure.
-  Per principles 1 and 6, the response is to report it upstream rather than to
-  hand-write a URL normalizer. Tracked as #5239.
+- **`require-sri` checks presence, not validity, and misses some URL spellings.**
+  It accepts `integrity="not-a-digest"`, which pins nothing, and does not flag a
+  cross-origin subresource written `https:\\host/path` even though a browser
+  resolves it to the same URL as `https://host/path`. The bespoke gate closes
+  both halves for remote `<script>` — it validates digest syntax and normalizes
+  backslashes — so the uncovered case is a cross-origin `<link>` with absent or
+  malformed integrity. No such element is in the tree, and the markup is not
+  attacker-controlled, so this is gate coverage rather than live exposure. Per
+  principles 1 and 6, the presence-versus-validity half belongs upstream in
+  `html-validate` rather than in a hand-written URL normalizer here. Tracked as
+  #5239.
+- **Three Prism scripts still load from a CDN.** `index.html` loads
+  `prism-core`, `prism-clike`, and `prism-csharp` from jsDelivr. They are pinned
+  by SRI and watched by the weekly freshness check, but they are not in the npm
+  graph, so `npm audit` structurally cannot report advisories against them —
+  which is the same blind spot that principle 2 describes, still open for one
+  library. Bundling them is the intended fix and is also what unblocks a
+  Content-Security-Policy without allow-listing a whole CDN.
+- **One shipped JavaScript file is linted by nothing.**
+  `annotated-source-viewer/src/document-model.js` is in the TypeScript program
+  and reaches the bundle, but is covered by no lint target. It is one of five
+  reviewed exceptions pinned in the bundler-coverage gate. Tracked as #4780.
 - **Nothing prevents a *new* cross-origin runtime `import()`.** Vite preserves a
   dynamic import of a constructed URL when marked `@vite-ignore`, and no linter
   rule or test rejects one. Today's bundling is a convention, not a boundary.
-  Tracked as #5240.
+  Under the fourth evidence form in principle 6 this one *qualifies* for
+  closure — the failure is demonstrated rather than hypothetical, and a check on
+  built output for cross-origin specifiers would be structural containment
+  rather than another enumerated rule. It is open work, not a declined
+  proposal. Tracked as #5240.
 - **Response headers do not apply to `/api/*`.** The static host does not apply
   `globalHeaders` to API routes. Tracked as #5119.
 - **`stylelint` is not adopted**, at the measurement recorded in principle 1.
