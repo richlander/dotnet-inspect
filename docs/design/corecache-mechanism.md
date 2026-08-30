@@ -71,10 +71,14 @@ differently, but the difference is enforced for only one of them:
   (`GetFilePath`'s `hashString[..2]/hashString[2..].{extension}` layout). A
   key built from untrusted content — a package id, a URL, source text — can
   never produce a path outside the two-level hash bucket. The filesystem path
-  is not `key`'s only sink, though: every read/write operation also forwards
-  the original, unhashed `key` to `CacheTelemetry.Record` (see
+  is not `key`'s only sink, though: every telemetry event that *is* produced
+  (not every operation reaches telemetry — a read that fails before its own
+  telemetry call, or a write that fails before publication, produces no
+  event at all; see
   [Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)
-  below) — that is a second, independent path for the same untrusted input,
+  below) carries
+  the original, unhashed `key` to `CacheTelemetry.Record` — that is a second,
+  independent path for the same untrusted input,
   contained by a different owner's mechanism (`CacheTelemetry`'s own
   redaction), not by the hashing described here.
 - **`category`** is concatenated into the path verbatim (`GetCategoryPath` is
@@ -88,12 +92,21 @@ differently, but the difference is enforced for only one of them:
   forwards its `category`/`extension` interface parameters straight through
   to `CoreCache.TryGet`/`Set`, so the literal-only property holds only
   transitively, at each producer's own call site, not at every direct call
-  into `CoreCache`.
+  into `CoreCache`. Like `key`, `category` has a telemetry sink distinct from
+  the filesystem path — every telemetry event that *is* produced (the same
+  caveat as `key`'s above) carries it (via
+  `GetTelemetryCategory`, below) to `CacheTelemetry.Record` — but unlike
+  `key`, nothing contains or redacts it there; it is recorded exactly as
+  received.
 - **`extension`** is concatenated verbatim after the hash suffix. Most call
   sites pass a literal (`"json"`, `"forbidden"`, `"miss"`, `"md"`, `"tsv"`),
   but `SymbolPackageDownloader.Storage.cs` passes a local variable selected
   from a fixed two-value set, and the `CoreSourceLinkQueryCache` forwarding
   above applies to `extension` too — the same transitive-only caveat holds.
+  `extension` also reaches the same telemetry sink as `category`, but only
+  for the `"symbol-misses"` category (`GetTelemetryCategory` folds it into
+  `category` there — see [Telemetry](#telemetry-is-fire-and-forget-but-not-exception-isolated)
+  below), and, like `category`, uncontained.
 - **`appName`** (`Initialize`'s first parameter) is concatenated verbatim into
   every platform's default base path (`GetDefaultBasePath`'s
   `Path.Combine(..., AppName)` on each branch); `Initialize` only rejects a
@@ -642,8 +655,10 @@ with what was already registered for that `prefix`, `RegisterVersionedCategory`
 throws `InvalidOperationException` (not `ArgumentException`) — a
 conflicting-registration error, distinct from an invalid-argument one — while
 an identical repeat registration (same `prefix`, same `current`) succeeds
-silently and reschedules cleanup for that generation instead of throwing.
-Retirement:
+silently and calls the same idempotent scheduler as the first registration
+instead of throwing — see the repeated-registration retry caveat below for
+what that scheduler actually does (normally nothing, within the same
+generation for the same root). Retirement:
 
 - deletes only sibling directories whose suffix parses as a non-negative
   integer strictly less than the current version;
@@ -670,12 +685,18 @@ recording anything at all if cancellation was requested in the interim
 directory that failed to measure *and* whose generation was canceled in
 that same window is neither deleted nor counted, not "still deleted and
 still counted with a zero size." Only when cancellation is not requested at
-that second check does `CleanupVersionedCategory` proceed to
+that second check does `CleanupVersionedCategory` *attempt* to
 `Directory.Delete` the directory and record
-a deletion with that (possibly `0`) size. A directory that fails to measure
-(permissions, a concurrent modification during enumeration) but is not
-racing a cancellation is still
-deleted and still counted as one retired directory, but contributes `0` to
+a deletion with that (possibly `0`) size — but the attempt itself is not
+guaranteed to succeed either: `Directory.Delete` and `RecordDeletion` are
+both wrapped in the same blanket `catch` (see the next Gap below), so a
+directory that fails to measure and then also fails to delete (for example,
+a concurrent writer still holding a file inside it) contributes neither
+bytes nor a directory count, having failed at both steps rather than only
+the first. A directory that fails to measure
+(permissions, a concurrent modification during enumeration), is not
+racing a cancellation, and *does* delete successfully is
+counted as one retired directory, but contributes `0` to
 the accumulated byte total — so the maintenance byte counter that `Clear(null)`
 later consumes into its return value (see
 [Clear and concurrent writers](#clear-and-concurrent-writers)) can
@@ -957,40 +978,20 @@ accept both the silent-loss and the `Clear`-throws possibilities.
 
 ## Telemetry is fire-and-forget but not exception-isolated
 
-This section describes `CacheTelemetry`'s and `InfoTracker`'s *current*
-implementation only as evidence for a claim this document does own — what
-happens to a `CoreCache` read/write operation when telemetry recording
-fails. `CacheTelemetry`'s subscriber-dispatch mechanics (ordering,
-delivery guarantees, `ActivityEvent` behavior) and `InfoTracker`'s counter
-implementation are those types' own contracts, specified by their owning
-code, not normatively defined here; if either changes internally without
-changing where its call sites sit relative to `CoreCache`'s own
-`try`/`catch` blocks, this document's claims about `CoreCache`'s resulting
-return/throw/counter behavior are unaffected.
+This section states a `CoreCache`-owned claim only: what happens to a
+`CoreCache` read/write operation when telemetry recording fails. Where
+`CacheTelemetry.Record` sits relative to `CoreCache`'s own `try`/`catch`
+blocks and counter increments is this document's claim; `CacheTelemetry`'s
+own construction, redaction, activity-event, and subscriber-delivery
+mechanics are that type's own contract, owned and specified by its own
+code — not normatively redefined here, and not needed to support the claim
+below.
 
 `InfoTracker.RecordCacheHit`/`RecordCacheMiss` and `CacheTelemetry.Record` are
 recorded on cache outcomes, but recording itself does nothing to protect a
-cache result. `CoreCache` forwards the original, unhashed `key` (see the
-trust-boundary section above) to `CacheTelemetry.Record` as plain caller
-evidence — what happens to that call is the adjacent `CacheTelemetry`
-owner's own contract, cited here only because it is the first place the
-untrusted `key` is contained rather than hashed: `CacheObservation.Create`
-constructs the observation *before* either `Activity.Current?.AddEvent` or
-subscriber dispatch runs, and that construction routes `key` through
-`RedactCacheKey`, which returns a redacted `UrlRedaction` result for a
-URL-shaped key or wraps any other key in an `InertString(TextPolicy.Field,
-key)` — so by the time `Record` first adds an `ActivityEvent` to
-`Activity.Current` when one exists (`Activity.Current?.AddEvent(...)` — no
-event is added when there is no current activity, which is the ordinary
-state unless one has been established), then calls every subscribed
-`IObserver<CacheObservation>.OnNext` synchronously and in registration order,
-with no surrounding `try`/`catch`. When a current activity does exist, its
-event and every subscriber before a throwing one have already observed the
-outcome by the time an exception surfaces; only subscribers *after* the
-throwing one are not invoked at all, and `Record` itself does not complete
-normally. (The throwing subscriber's own `OnNext` *was* called — it received
-the observation before throwing; "not invoked" describes only the
-subscribers after it, not the throwing one itself.) A throwing subscriber
+cache result: `CacheTelemetry.Record` executes synchronously and can throw
+(from subscriber code it dispatches to, or from its own internals) before
+returning control to its caller. A throwing `Record` call
 then changes cache behavior differently depending on which method and
 overload observed it:
 
@@ -1033,14 +1034,11 @@ overload observed it:
   only the hit counter is incremented, not both.)
 - **`Set`/`SetBytes`:** the telemetry call is inside the method's own blanket
   `catch`, so a throwing subscriber is swallowed the same way any other write
-  failure is — the activity event (if any) and any subscribers up to and
-  including the throwing one were still invoked with the observation; only
-  subscribers *after* the throwing one are not.
+  failure is.
 
 This mechanism does not isolate telemetry from the operation it is
 recording; "fire-and-forget" describes the caller's intent, not an enforced
-boundary, and delivery to any given subscriber is not guaranteed once an
-earlier subscriber throws. Telemetry may also undercount for reasons
+boundary. Telemetry may also undercount for reasons
 unrelated to a subscriber (a `Set` that never reaches the `try` body's
 `CacheTelemetry.Record` call because an earlier line threw is silently
 uncounted) and must not be read as an audit trail of cache correctness —
