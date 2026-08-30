@@ -117,17 +117,21 @@ pages, and terminal tokens do and do not prove is exactly what
 [completion evidence](#completion-evidence) disciplines; that discipline is
 contract, gated, and applies to every adoption.
 
-A provider's computational honesty is not a third tier between those two. A
-service that cannot be trusted to implement its own protocol contract — one
-that claims ordering support and returns unordered values, or fabricates a
-count — cannot be trusted at all: the raw values it hands the natural path
-rest on the same enumeration it just misrepresented, so declining reverse
-delegation rescues nothing. Whether to use a source at all is an
+Reverse delegation does expand the trusted surface. The natural path trusts
+a provider only for enumeration — the raw values it returns — while a
+delegated prefix additionally trusts provider-computed predicate, order,
+clamp, or count work the natural path would perform locally. That expansion
+is deliberate and is never justified by assumption: the adoption's
+capability proof and equivalence gates are its justification. Distinct from
+that expansion, a provider that misrepresents its declared contract —
+advertising ordering it does not perform, fabricating a count — is not a
+third trust tier: the misrepresentation discredits the same interface that
+produces the raw values, so whether to use that source at all is the
 authorization decision made before this contract, and containment of its
 untrusted content stays owned by the threat model. Completion evidence
-therefore exists not to catch a dishonest provider but to stop an honest one
-from being misread: protocol-optional features, operational caps, and
-terminal signals that resemble proof.
+therefore exists to stop an honest provider from being misread —
+protocol-optional features, operational caps, and terminal signals that
+resemble proof — not to police a dishonest one.
 
 ## Authority and scope
 
@@ -159,7 +163,8 @@ This design does not own:
 - concrete implementation APIs.
 
 The caller supplies already-resolved typed delegation candidates. This
-pattern neither reads the caller's plan nor invents an alternative partition.
+pattern transports the delegated operations without interpreting them and
+never invents an alternative partition.
 
 ## Vocabulary
 
@@ -216,20 +221,25 @@ preference order. Each candidate contains:
 
 1. one immutable, already-authorized source input;
 2. one caller-defined execution group with its complete ordered member list;
-3. the required source capability;
-4. one completion-requirement identity; and
-5. exactly one result shape:
+3. the delegated operation prefix for every member — the caller's proven
+   safe prefix as typed, owner-issued operation content, which the pattern
+   transports without interpretation and the source must execute exactly;
+   empty for an acquisition-only row handoff;
+4. the required source capability;
+5. one completion-requirement identity; and
+6. exactly one result shape:
    - **row handoff** — the caller retains a residual continuation holding
      every non-delegated operation; or
    - **exact Count** — the candidate covers the complete resolved plan and
      has no residual.
 
 An empty candidate list means no source delegation is available. A capability
-the source does not publish or cannot honor makes the candidate unsupported,
-not invalid; planning moves to the next candidate. A capability is a
-selection key only — it is never permission to reinterpret another owner's
-operation, and a source claim of similar work never adds an operation the
-caller did not delegate.
+or delegated prefix the source does not publish or cannot honor makes the
+candidate unsupported, not invalid; planning moves to the next candidate. A
+capability is a selection key only: the delegated work is defined by the
+candidate's operation prefix, never inferred from the capability, it is
+never permission to reinterpret another owner's operation, and a source
+claim of similar work never adds an operation the caller did not delegate.
 
 ### Safe prefix and residual
 
@@ -248,10 +258,12 @@ caller uses a row handoff or the reference path instead, so the operation and
 Count execute under their owner-defined observation and failure contract.
 
 The caller owns constructing these partitions and proving them against its
-reference plan; the source receives only the candidate. The proof is the
+reference plan; the source receives the candidate — including the delegated
+prefix it must execute exactly — and never the residual. The proof is the
 caller's adoption gate
-([`SourceDelegationPartitionMatchesReference`](#required-gates)), applied before a
-candidate is ever presented to planning.
+([`SourceDelegationPartitionMatchesReference`](#required-gates)), applied
+before a candidate is ever presented to planning; the prefix transported in
+the candidate is exactly the proven prefix.
 
 ## Effect protocol
 
@@ -259,15 +271,18 @@ candidate is ever presented to planning.
    declarations and performs no network, filesystem, source-result cache,
    provider, pagination, row-callback, comparer, or source-content work. It
    visits candidates in declaration order and returns `Declined` or
-   `Accepted` for the first candidate whose complete capability, member
-   shape, completion requirement, input, and result shape the source
-   supports. A decline is a capability result, not a source failure, and the
+   `Accepted` for the first candidate whose complete capability, delegated
+   operation prefix, member shape, completion requirement, input, and result
+   shape the source supports. A decline is a capability result, not a source failure, and the
    caller may then use any later strategy, including its complete reference
    path.
-2. **Acceptance is the commitment point.** Acceptance yields one accepted
-   plan binding the exact candidate. Execution consumes the accepted plan;
-   the API shape makes a second execution inexpressible rather than
-   detected.
+2. **Acceptance is the commitment point.** Acceptance binds the exact
+   candidate, and the contract exposes no free-standing accepted-plan value:
+   acceptance and execution form one public operation, the accepted binding
+   escapes only inside the published result, and a second execution
+   therefore has no handle to replay. An implementation that separates the
+   two internally keeps the accepted plan private and publishes at most one
+   outcome.
 3. **No fallback after acceptance.** After acceptance, the source returns one
    result or propagates an unexpected implementation exception. A runtime
    capability miss, provider failure, cancellation, or insufficient evidence
@@ -278,8 +293,11 @@ candidate is ever presented to planning.
    validated `RowHandoff` enters it.
 4. **Publication is atomic.** Physical execution may stream or buffer
    internally, but no logical success or partial result is published before
-   one complete outcome exists. `NotSatisfied`, an exception, or a defective
-   result is terminal for the accepted plan and never enters the residual.
+   one complete outcome exists, and published `RowValues` are fully
+   acquired: no deferred source enumeration, acquisition, or source failure
+   remains to occur after publication, including inside residual
+   processing. `NotSatisfied`, an exception, or a defective result is
+   terminal for the accepted plan and never enters the residual.
 
 ## The result algebra
 
@@ -419,10 +437,12 @@ caller/source boundary. How the source satisfies its accepted plan —
 following next links, trusting `@odata.count`, checking capability
 annotations — is adoption-owned acquisition and proof construction, and the
 same rule holds at every depth: an operational bound anywhere in the chain
-never surfaces as semantic proof. Per the [trust model](#trust-model), a
-service that cannot be trusted to implement its own protocol contract is not
-rescued by keeping it on the natural path; whether to use it at all is the
-prior authorization decision.
+never surfaces as semantic proof. Per the [trust model](#trust-model),
+delegating `$orderby` or `$count` trusts the service for computation the
+natural path performs locally — the adoption's capability proof and
+equivalence gate justify that expansion — while a service that misrepresents
+its declared protocol contract is not rescued by keeping it on the natural
+path; whether to use it at all is the prior authorization decision.
 
 ## By construction, not by gate
 
@@ -434,9 +454,9 @@ is an ordinary bug in cooperating code, found by ordinary tests.
 | Guarantee | Structural encoding |
 | --- | --- |
 | A result answers exactly one accepted plan | The result type is constructed from, and refers to, the accepted plan. |
-| Execution happens at most once | Execution consumes the accepted plan. |
+| Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. |
 | Member maps are complete, ordered, and duplicate-free | Results are built from the accepted plan's member list. |
-| Evidence binds to what it proves | Evidence is a field of the member entry; there is no free-standing evidence to transfer, replay, or duplicate. |
+| Evidence reaches the caller only inside a member entry | Evidence is carried by the entries it accompanies rather than as free-standing values; whether a referenced basis and scope establish each entry's claim remains the semantic check owned by `SourceDelegationCompletionEvidenceBasisIsAccepted`. |
 | The residual is caller-owned | The residual is a caller-held continuation; the candidate the source sees does not contain it. |
 | The source cannot rewrite the plan | No result branch carries operations, cursors, or plan fragments. |
 | Permit classifications cannot be downgraded | There are no permits; source-closed is declared by the operation owner in its own contract and proven by that owner's gate. |
@@ -477,8 +497,8 @@ shape, not checks.
 | `SourceDelegationPlanningIsPure` | Planning inspects only immutable capability declarations and performs zero source, provider, source-result cache, filesystem, network, row-callback, comparer, or content operations. |
 | `SourceDelegationDeclineAllowsReferenceFallback` | A pure all-candidates decline permits the caller's retained reference strategy and is never reported as a source failure. |
 | `SourceDelegationAcceptedFailureNeverFallsBack` | After acceptance, a capability miss, incomplete stop, member- or candidate-scoped failure, exception, or defective result never tries a later candidate, reference execution, or the row-handoff residual; only a validated `RowHandoff` enters its retained residual. |
-| `SourceDelegationOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete outcome. |
-| `SourceDelegationPartitionMatchesReference` | The caller's adoption gate proves every row-handoff candidate delegates one contiguous reference-order prefix (possibly empty) and retains the exact disjoint suffix in its residual, with complete coverage and no duplicated operation for every member; it rejects a non-prefix partition before presenting the candidate. Every exact-Count candidate covers the complete resolved plan. |
+| `SourceDelegationOutcomePublicationIsAtomic` | Streaming or buffered physical strategies expose no logical success or partial member map before the complete outcome, and published row values retain no deferred source enumeration, acquisition, or source failure. |
+| `SourceDelegationPartitionMatchesReference` | The caller's adoption gate proves every row-handoff candidate delegates one contiguous reference-order prefix (possibly empty) and retains the exact disjoint suffix in its residual, with complete coverage and no duplicated operation for every member; it rejects a non-prefix partition before presenting the candidate, and the delegated prefix transported in the candidate is exactly the proven prefix. Every exact-Count candidate covers the complete resolved plan. |
 | `SourceClosedDeclarationsMatchOwnerContracts` | Each operation owner's gate proves its source-closed declaration against its reference failure and invocation contract; an operation is delegable only under its owner's current declaration. |
 | `OwnerObservationsRemainReferenceBarriers` | An operation not declared source-closed never enters delegated work; retained in the residual or reference path, it preserves exact invocation, failure identity, scope, all-or-failure behavior, and precedence. |
 | `SourceDelegationExactCountIsAtomic` | `ExactCount` occurs only for an exact-Count candidate, contains one non-negative exact value and accepted completion evidence per member, carries no rows, and publishes no partial map or invented total. |
@@ -488,7 +508,7 @@ shape, not checks.
 | `RowsUsabilityAndCountSufficiencyStayDistinct` | A capped row-handoff candidate may return Rows-usable values with incomplete-stop evidence, while the corresponding exact-Count candidate returns `NotSatisfied` and no cardinality. |
 | `OptimizedRowHandoffMatchesSectionRowReference` | The optimized row-handoff path is proven to execute and, after its retained residual, matches the complete section-row reference result for surviving values, order, member identity, unavailable-member composition, source evidence, owner-observable invocation, and terminal failure. Fixtures exercise a typed strict-window residual failure, an exact sentinel callback/comparer/resolver exception, and a case where both are reachable with reference precedence preserved; none publishes partial rows. Query, ordering, and semantic-operation cases are required only when the adoption delegates matching source-closed operations. |
 | `OptimizedCountMatchesSectionRowReference` | The optimized Count path is proven to execute and matches the complete section-row reference result for empty, below-bound exhausted, bound-satisfied, oversized, multi-member, and sentinel-failure cases; insufficient evidence rejects rather than succeeding. |
-| `SourceDelegationContractIsPresentationFree` | Candidates, plans, results, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label. |
+| `SourceDelegationContractIsPresentationFree` | Protocol-owned fields of candidates, plans, results, dispositions, and evidence contain no CLI spelling, heading, formatted value, diagnostic sentence, renderer state, or provider display label; opaque caller-owned row values are outside this constraint. |
 | `SourceDelegationContractHasOnlyFrameworkDependencies` | The shared contract's evaluated Release compile/runtime/native assets contain only framework references and the contract component. |
 | `SourceDelegationContractForbidsHostApis` | A static product-closure gate rejects reflection, inspected-assembly loading, filesystem, network, console, process, native-interop, parallel-loop, and dedicated-thread APIs even when they are framework APIs. |
 
