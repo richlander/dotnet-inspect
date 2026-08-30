@@ -21,6 +21,7 @@ internal sealed record InspectionAcquisitionPlanOptions
         DefaultMaxInventoryImageBytes;
     internal int MaxConcurrentSourceOpens { get; init; } =
         DefaultMaxConcurrentSourceOpens;
+    internal InspectionAcquisitionPlan.TestHooks? TestHooks { get; init; }
 
     internal void Validate()
     {
@@ -127,7 +128,9 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         _options.Validate();
         CatalogId = new AssemblyCatalogId(Guid.NewGuid());
         _sourceOpenGate =
-            new SynchronousConcurrencyGate(_options.MaxConcurrentSourceOpens);
+            new SynchronousConcurrencyGate(
+                _options.MaxConcurrentSourceOpens,
+                _options.TestHooks?.SourceOpenWaitStarted);
     }
 
     internal AssemblyCatalogId CatalogId { get; }
@@ -774,5 +777,10 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 CandidateOpenFailureKind.InvalidImage,
                 detail);
         }
+    }
+
+    internal sealed class TestHooks
+    {
+        internal Action? SourceOpenWaitStarted { get; init; }
     }
 }
