@@ -698,12 +698,38 @@ public sealed record BrowserAnnotatedSourceCapabilityAvailability
     public BrowserAnnotatedSourceCapabilityUnavailableReason? UnavailableReason { get; }
 }
 
-public sealed record BrowserAnnotatedSourceViewerCatalog(
-    int[] DefaultFindingIds,
-    BrowserAnnotatedSourceMedium[] SupportedMedia,
-    string[] InvocationLikeNodeKinds,
-    BrowserAnnotatedSourceCapabilityAvailability FindingEvidence,
-    BrowserAnnotatedSourceCapabilityAvailability Destinations);
+public sealed record BrowserAnnotatedSourceViewerCatalog
+{
+    private readonly int[] _defaultFindingIds;
+    private readonly BrowserAnnotatedSourceMedium[] _supportedMedia;
+    private readonly string[] _invocationLikeNodeKinds;
+
+    public BrowserAnnotatedSourceViewerCatalog(
+        int[] DefaultFindingIds,
+        BrowserAnnotatedSourceMedium[] SupportedMedia,
+        string[] InvocationLikeNodeKinds,
+        BrowserAnnotatedSourceCapabilityAvailability FindingEvidence,
+        BrowserAnnotatedSourceCapabilityAvailability Destinations)
+    {
+        ArgumentNullException.ThrowIfNull(DefaultFindingIds);
+        ArgumentNullException.ThrowIfNull(SupportedMedia);
+        ArgumentNullException.ThrowIfNull(InvocationLikeNodeKinds);
+        ArgumentNullException.ThrowIfNull(FindingEvidence);
+        ArgumentNullException.ThrowIfNull(Destinations);
+
+        _defaultFindingIds = [.. DefaultFindingIds];
+        _supportedMedia = [.. SupportedMedia];
+        _invocationLikeNodeKinds = [.. InvocationLikeNodeKinds];
+        this.FindingEvidence = FindingEvidence;
+        this.Destinations = Destinations;
+    }
+
+    public int[] DefaultFindingIds => [.. _defaultFindingIds];
+    public BrowserAnnotatedSourceMedium[] SupportedMedia => [.. _supportedMedia];
+    public string[] InvocationLikeNodeKinds => [.. _invocationLikeNodeKinds];
+    public BrowserAnnotatedSourceCapabilityAvailability FindingEvidence { get; }
+    public BrowserAnnotatedSourceCapabilityAvailability Destinations { get; }
+}
 
 /// <summary>
 /// The annotated-source envelope: the product's portable <c>AnnotatedSourceDocument</c> serialized

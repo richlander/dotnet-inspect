@@ -108,6 +108,39 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
     }
 
     [Fact]
+    public void CatalogCollectionsRemainImmutableAcrossInputAndOutputMutation()
+    {
+        int[] defaultFindingIds = [1];
+        BrowserAnnotatedSourceMedium[] supportedMedia =
+            [BrowserAnnotatedSourceMedium.CSharp];
+        string[] invocationLikeNodeKinds = ["InvocationExpression"];
+        var unavailable = new BrowserAnnotatedSourceCapabilityAvailability(
+            Available: false,
+            BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
+        var catalog = new BrowserAnnotatedSourceViewerCatalog(
+            defaultFindingIds,
+            supportedMedia,
+            invocationLikeNodeKinds,
+            unavailable,
+            unavailable);
+
+        defaultFindingIds[0] = 99;
+        supportedMedia[0] = BrowserAnnotatedSourceMedium.Il;
+        invocationLikeNodeKinds[0] = "MemberAccessExpression";
+        catalog.DefaultFindingIds[0] = 98;
+        catalog.SupportedMedia[0] = BrowserAnnotatedSourceMedium.Il;
+        catalog.InvocationLikeNodeKinds[0] = "MemberAccessExpression";
+
+        Assert.Equal([1], catalog.DefaultFindingIds);
+        Assert.Equal(
+            [BrowserAnnotatedSourceMedium.CSharp],
+            catalog.SupportedMedia);
+        Assert.Equal(
+            ["InvocationExpression"],
+            catalog.InvocationLikeNodeKinds);
+    }
+
+    [Fact]
     public void Create_ProjectsDocumentRelativeDefaultsAndInvocationKinds()
     {
         AnnotatedSourceDocument document = CreateMixedDocument();
