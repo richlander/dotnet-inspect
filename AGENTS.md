@@ -243,12 +243,12 @@ over-broad-design recovery procedure live in
   Do not start or broaden into one without the user's explicit request or
   approval; a large issue, cross-cutting motivation, or reviewer suggestion is
   not approval.
-- If review keeps discovering new component-internal contracts the design
-  doesn't close, stop and apply the
-  [scope-violation recovery transition](#recovery-transitions): keep the locked
-  candidate unchanged, name the combined components, and ask the user to
-  choose among splitting into focused successors, abandoning, or approving a
-  recorded broad exception.
+- If review keeps discovering new component-internal contracts, stop and apply
+  the [scope-violation recovery transition](#recovery-transitions).
+- Lock a new cross-cutting pattern as its own focused design document — defining
+  only the pattern's contract, not other owners' internals — then have each
+  owner adopt it one at a time rather than one PR sweeping every owner; see
+  [Stage implementation after locking the design](docs/design-scope.md#stage-implementation-after-locking-the-design).
 
 ## Repository-wide engineering constraints
 
