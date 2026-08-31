@@ -2068,14 +2068,17 @@ For one builder request:
 8. On `Rejected`, return `Rejected`.
 9. On `ExportedFromModule`, return
    `Rejected(UnsupportedModuleExport(module))`.
-10. On `Forwarded`, append one hop.
-11. Tighten, but never loosen, `AssemblyResolutionScope` for the next reference.
-12. Wrap the forwarder's exact target identity in
+10. On `Forwarded`, tighten, but never loosen, `AssemblyResolutionScope`, then
+    append one hop carrying that effective scope and the exact target identity.
+11. If the appended hop exceeds the forwarding-hop budget, return
+    `Rejected(HopBudgetExceeded)` without constructing a binding request or
+    invoking binding policy for that target.
+12. Otherwise wrap the forwarder's exact target identity in
     `AssemblyBindingTarget.Reference`, construct the binding request, add its
     key to the discovery manifest, read or populate its provisional cache
     entry, and apply the same exhaustive outcome mapping as step 2.
-13. Stop on repeated assembly candidate or the hop budget with the corresponding
-    `Rejected` failure.
+13. Stop on a repeated selected assembly candidate with
+    `Rejected(ForwarderCycle)`.
 14. Otherwise repeat at step 3.
 
 The traversal is iterative. It has both:
