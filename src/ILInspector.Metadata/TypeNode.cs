@@ -544,7 +544,10 @@ internal sealed class MDArrayTypeNode(
 
     public override string Render(bool canonicalTuples)
     {
-        var result = $"{elementType.Render(canonicalTuples)}[{new string(',', rank - 1)}]";
+        var dimensions = rank == 1
+            ? "*"
+            : new string(',', rank - 1);
+        var result = $"{elementType.Render(canonicalTuples)}[{dimensions}]";
         return IsNullableAnnotated ? $"{result}?" : result;
     }
 
