@@ -277,7 +277,7 @@ public static class MatchCommand
     /// the assembly defining it, so it must not name a row in the image the caller opened. A type
     /// with no recorded source came from that image's own tables.
     /// </summary>
-    static bool DefinesOwnRows(ApiType type, string image)
+    internal static bool DefinesOwnRows(ApiType type, string image)
         => type.SourceAssemblyPath is null || SameImage(type.SourceAssemblyPath, image);
 
     /// <summary>

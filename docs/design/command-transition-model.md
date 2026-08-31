@@ -439,7 +439,13 @@ images remains outside this command: Analysis ranks by portable structural
 categories and establishes no cross-reader correspondence, and pairwise `match`
 compares two methods within one retained assembly. That capability is
 issue #5269, a separate effort under its own owner, not a disclosure this
-command may imply it already has.
+command may imply it already has. Discovery enforces this rather than relying on
+the shape of the ordinary case: when the seed and the candidate type resolve to
+different images, the run is refused before retrieval, naming both images
+(`Similar_RefusesACandidateTypeDefinedInAnotherImage`). Names are likewise
+projected only from the rows an image defines, so a forwarded type can never
+label a local row with a name from another assembly
+(`Names_DoNotLabelALocalRowWithAForwardedTypesName`).
 
 The candidate population follows the disclosure rules rather than the focus
 rules. Type-scoped retrieval is the bounded default and is inferred from the

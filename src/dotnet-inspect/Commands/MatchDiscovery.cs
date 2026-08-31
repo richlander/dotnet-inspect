@@ -124,7 +124,24 @@ internal static class MatchDiscovery
         string candidateImage = populationImage is null
             ? callerImage
             : MatchCommand.CanonicalImagePath(populationImage);
-        bool sameImage = MatchCommand.SameImage(seedImage, candidateImage);
+        // Discovery ranks rows of one image against a seed in that same image. When forwarding
+        // resolves the seed and the population to different assemblies, nothing downstream can
+        // repair it: the ranked tokens address the candidate image, the seed does not exist there,
+        // and so the pairwise confirmation the disclosure points at cannot be run. The design has
+        // always declared this unsupported; enforce it here rather than leaving every later
+        // surface to defend an invariant one gate can hold.
+        if (!MatchCommand.SameImage(seedImage, candidateImage))
+        {
+            CommandError.Write(
+                $"Seed '{resolvedSeed.Display}' is defined in {Path.GetFileName(seedImage)}, but "
+                    + $"candidate type '{scopeDisplay}' is defined in "
+                    + $"{Path.GetFileName(candidateImage)}. Discovery ranks candidates within a "
+                    + "single image, because a MethodDef token addresses a row in exactly one "
+                    + "image and the seed must be present to confirm a rank pairwise. Name a "
+                    + "candidate type defined in "
+                    + $"{Path.GetFileName(seedImage)}, or pass --assembly-wide to search it.");
+            return 1;
+        }
 
         // Whether the ranked tokens index the image the caller actually named. That, not the
         // seed-to-candidate relation, is what decides if the run has to name an assembly: a
@@ -151,17 +168,15 @@ internal static class MatchDiscovery
             ApiSurface namesSurface = populationSide?.Api ?? candidate.Api;
 
             using var workspace = new InspectionWorkspace();
-            using AssemblyContextGroup seedGroup = CreateGroup(workspace, seedImage);
-            using AssemblyContextGroup? candidateGroup =
-                sameImage ? null : CreateGroup(workspace, candidateImage);
-            AssemblyContextGroup effectiveCandidateGroup =
-                candidateGroup ?? seedGroup;
+
+            // One image, guaranteed by the gate above, so one group serves both sides.
+            using AssemblyContextGroup group = CreateGroup(workspace, seedImage);
 
             var input = new AssemblyContextStructuralCloneRetrievalInput(
-                seedGroup,
-                seedGroup.Participants[0],
-                effectiveCandidateGroup,
-                effectiveCandidateGroup.Participants[0],
+                group,
+                group.Participants[0],
+                group,
+                group.Participants[0],
                 new StructuralCloneQuerySeed.MethodDefinitionToken(resolvedSeed.Token!.Value),
                 population!,
                 limits);
@@ -177,7 +192,7 @@ internal static class MatchDiscovery
                     limits,
                     options.Top),
                 result,
-                MatchDiscoveryNames.Build(namesSurface));
+                MatchDiscoveryNames.Build(namesSurface, candidateImage));
 
             if (options.JsonOutput)
             {
@@ -293,6 +308,16 @@ internal static class MatchDiscovery
                 return (null, null, null,
                     $"Candidate type '{options.RightSelector}' not found in "
                         + $"{Path.GetFileName(candidate.ApiDllPath)}.");
+            }
+
+            if (lookup.ImpliedMember is { } impliedMember)
+            {
+                // The selector named Type.Member, but the population is a type. Silently widening
+                // to the declaring type turns a typo into a completed run over a scope the caller
+                // never asked for.
+                return (null, null, null,
+                    $"Candidate '{options.RightSelector}' names member '{impliedMember}', but a "
+                        + "candidate is a type scope. Pass the type alone to rank its members.");
             }
 
             if (lookup.Type!.DefinitionName is null)

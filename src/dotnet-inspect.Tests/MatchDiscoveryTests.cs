@@ -879,13 +879,17 @@ public sealed class MatchDiscoveryTests
             Scope = Hostile,
             CandidateAssembly = Hostile,
             Disposition = "Completed",
-            Disclosure = "",
+            Disclosure = Hostile,
             Limits = new MatchDiscoveryLimitsDocument(1, 1, null),
         };
 
         Assert.DoesNotContain('\u202E', document.Seed);
         Assert.DoesNotContain('\u202E', document.Scope);
         Assert.DoesNotContain('\u202E', document.CandidateAssembly!);
+
+        // The disclosure embeds the candidate assembly path, so leaving it raw would reinstate
+        // through the prose exactly what containing the field above removes.
+        Assert.DoesNotContain('\u202E', document.Disclosure);
 
         var seed = new MatchDiscoverySeedDocument
         {
@@ -1044,6 +1048,96 @@ public sealed class MatchDiscoveryTests
         Assert.Matches(@"\d+ eligible of \d+ processed \(\d+ input\)", markdown);
     }
 
+    // ---- Round 8 review findings: image-local names and single-image discovery ----
+
+    /// <summary>
+    /// An <see cref="ApiSurface"/> describes the types an image forwards as well as the types it
+    /// defines, and a forwarded type's members carry tokens from the image that defines them. Those
+    /// tokens collide with the caller image's own dense row indices, so admitting forwarded types
+    /// into the projection let one shadow a local row and label it with a name from another
+    /// assembly -- discovery printed a name that pairwise <c>match</c> contradicted for the very
+    /// token discovery had just printed. Only rows the image owns may name anything.
+    /// </summary>
+    [Fact]
+    public void Names_DoNotLabelALocalRowWithAForwardedTypesName()
+    {
+        const string image = "/images/Local.dll";
+
+        var local = new ApiType
+        {
+            Namespace = "Z",
+            Name = "LocalType",
+            Members = { new ApiMember { Name = "LocalMethod", MetadataToken = 0x06000002 } },
+        };
+
+        // Ordered first so it wins TryAdd if the projection fails to exclude it.
+        var forwarded = new ApiType
+        {
+            Namespace = "A",
+            Name = "ForwardedType",
+            SourceAssemblyPath = "/images/Other.dll",
+            Members = { new ApiMember { Name = "Foreign", MetadataToken = 0x06000002 } },
+        };
+
+        var surface = new ApiSurface();
+        surface.Types.Add(forwarded);
+        surface.Types.Add(local);
+
+        MatchDiscoveryNames names = MatchDiscoveryNames.Build(surface, image);
+
+        var address = new MetadataMethodAddress(
+            Guid.Empty,
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        Assert.Equal("Z.LocalType.LocalMethod", names.Display(address));
+    }
+
+    /// <summary>
+    /// Discovery ranks rows of one image. When forwarding resolves the seed and the candidate type
+    /// to different assemblies the run is unrepairable downstream: the ranked tokens address the
+    /// candidate image, the seed is absent from it, and the pairwise confirmation the disclosure
+    /// points at cannot be run. It must be refused at the gate, naming both images.
+    /// </summary>
+    [Fact]
+    public async Task Similar_RefusesACandidateTypeDefinedInAnotherImage()
+    {
+        string coreLibrary = typeof(string).Assembly.Location;
+        string facade = Path.Combine(Path.GetDirectoryName(coreLibrary)!, "System.dll");
+        Assert.True(File.Exists(facade), facade);
+
+        MatchOptions options = Seeded("System.Net.Sockets.NetworkStream.Flush") with
+        {
+            AssemblyPath = facade,
+            RightSelector = "System.Collections.Generic.SortedDictionary`2",
+        };
+
+        var (exitCode, _, error) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("System.Net.Sockets.dll", error);
+        Assert.Contains("System.Collections.dll", error);
+        Assert.Contains("single image", error);
+    }
+
+    /// <summary>
+    /// A candidate is a type scope. Accepting a Type.Member selector and silently widening to the
+    /// declaring type turned a typo into a completed run over a scope the caller never named.
+    /// </summary>
+    [Fact]
+    public async Task Similar_RefusesAMemberShapedCandidateInsteadOfWideningToItsType()
+    {
+        MatchOptions options = Seeded($"{typeof(MatchSampleA).FullName}.AddOne") with
+        {
+            RightSelector = $"{typeof(MatchSampleA).FullName}.NoSuchMember",
+        };
+
+        var (exitCode, _, error) = await RunAsync(options);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("NoSuchMember", error);
+        Assert.Contains("type scope", error);
+    }
+
     /// <summary>
     /// The README tells same-image callers to confirm a candidate with the pairwise form. That
     /// instruction must stay scoped, because there is no cross-image confirmation to run.
@@ -1063,6 +1157,22 @@ public sealed class MatchDiscoveryTests
             "Confirm a candidate by re-running the pairwise form on the selected pair.",
             structuralMatching);
         Assert.Contains("Within one image, confirm a candidate", structuralMatching);
+    }
+
+    /// <summary>
+    /// The range grammar was removed from the product, but the surviving promise of it sat in the
+    /// command table, outside the Structural matching section the gate above reads. Scoping a
+    /// documentation gate to one section is why that line shipped stale for a full round; this one
+    /// reads the whole file.
+    /// </summary>
+    [Fact]
+    public void Readme_DoesNotPromiseTheRemovedLibraryRangeGrammar()
+    {
+        string readme = Path.Combine(CommandErrorOwnershipTests.RepositoryRoot(), "README.md");
+        string text = File.ReadAllText(readme);
+
+        Assert.DoesNotContain("old.dll..new.dll", text);
+        Assert.DoesNotContain("--library old", text);
     }
 
     // ---- Round 7 review findings: raw MethodDef token selectors ----

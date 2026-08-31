@@ -31,15 +31,19 @@ internal sealed class MatchDiscoveryNames
     MatchDiscoveryNames(Dictionary<int, string> names) => this.names = names;
 
     /// <summary>
-    /// Builds the token-to-name projection for one image. The caller must pass the surface of the
-    /// image whose tokens will be displayed: a MethodDef token is a table row and names nothing
-    /// outside its own image.
+    /// Builds the token-to-name projection for one image, keeping only the types that image
+    /// actually defines. An <see cref="ApiSurface"/> also describes the types the image forwards,
+    /// whose tokens index the defining assembly; admitting them lets a forwarded type shadow a
+    /// local row and label it with a name from another image.
     /// </summary>
-    internal static MatchDiscoveryNames Build(ApiSurface api)
+    internal static MatchDiscoveryNames Build(ApiSurface api, string image)
     {
         var names = new Dictionary<int, string>();
         foreach (ApiType type in api.Types)
         {
+            if (!Commands.MatchCommand.DefinesOwnRows(type, image))
+                continue;
+
             foreach (ApiMember member in type.Members)
             {
                 foreach (int token in Commands.MatchDiscovery.MemberTokens(member))
@@ -193,7 +197,16 @@ public sealed record MatchDiscoveryDocument
 
     public required string Disposition { get; init; }
 
-    public required string Disclosure { get; init; }
+    /// <summary>
+    /// Contained like <see cref="CandidateAssembly"/>: this sentence embeds the same
+    /// metadata-derived path, so leaving it raw would reinstate through the prose exactly what
+    /// containing the field removes.
+    /// </summary>
+    public required string Disclosure
+    {
+        get => field;
+        init => field = CSharpIdentifier.ContainRenderedText(value);
+    }
 
     public required MatchDiscoveryLimitsDocument Limits { get; init; }
 
