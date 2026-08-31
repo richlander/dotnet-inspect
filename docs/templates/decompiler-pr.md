@@ -1,12 +1,15 @@
 # Decompiler PR template
 
 <!--
-Use this for decompiler PRs that affect raising, structuring, validity,
-fidelity, or corpus behavior. Delete sections that do not apply. Keep generated
-tables generated; do not re-key metric rows by hand.
+Use this single template for every decompiler PR that affects raising,
+structuring, validity, fidelity, or corpus behavior. There is no alternate
+template for focused validity fixes. Delete sections that do not apply. Keep
+generated tables generated; do not re-key metric rows by hand.
 
-Every behavior-changing raise PR must keep Raise contract, Structural review
-status, Before, After, and Fully raised. Before and After must each show a
+Every output-changing decompiler PR must keep Structural review status, Before,
+After, and Evidence. Every behavior-changing raise must also keep Raise contract
+and Fully raised. Every invalid-`Full` or output-correctness fix must keep
+Correctness-fix contract and Corpus validity. Before and After must each show a
 concrete C# example. After records this PR's output; Fully raised records the
 intended endpoint.
 
@@ -69,9 +72,6 @@ Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
 reviewer/model, the exact head reviewed, findings and their resolution commits
 or explicit non-actions, and each reviewer's final verdict.
-
-For focused invalid-Full / burndown row fixes, prefer
-`docs/templates/decompiler-burndown-fix-pr.md`.
 -->
 
 - Fixes/advances #{issue}
@@ -114,6 +114,28 @@ output. "The tests pass" is not a lowering or ownership proof.
 | Replacement | {binding, observable behavior, and compile-back evidence} |
 | Decline boundary | {near misses that remain flat and their tests} |
 | Falsifier | {evidence that would make the raise unsound} |
+
+### Correctness-fix contract
+
+<!--
+Required for invalid-`Full` or output-correctness fixes. Keep the structural
+review whenever the rendered body changes, even when the fix does not introduce
+a new raise.
+
+- False claim: the exact validity or correctness claim the product made.
+- Root cause: why the product produced that output.
+- Fix shape: the narrow code, predicate, ownership, or rendering change.
+- Scope boundary: sibling defects or nearby shapes this change does not fix.
+- Falsifier: the concrete observation that would disprove the fix.
+-->
+
+| Obligation | Contract |
+| --- | --- |
+| False claim | {invalid `Full`, incorrect behavior, or other false product claim} |
+| Root cause | {why the product produced the defective output} |
+| Fix shape | {narrow code, predicate, ownership, or rendering change} |
+| Scope boundary | {nearby shapes or sibling defects intentionally unchanged} |
+| Falsifier | {evidence that would make the fix incorrect or incomplete} |
 
 ### Two-lens review
 
@@ -301,6 +323,48 @@ this PR (same tests, same reason) rather than omitting them.
 For render A/B or corpus deltas, list stable changed-method identities and
 classify every loss/gain. Do not use a net count to offset a newly invalid,
 behavior-changing, or unexplained method.
+
+## Corpus validity
+
+<!--
+Required for invalid-`Full` fixes and any change that can alter output legality.
+Compare the same input population at Baseline and Head. Classify every changed
+validity row; do not offset a new defect with fixes elsewhere.
+
+Use a real corpus witness when one exists. If none exists, write "not
+applicable", explain why the compiler-produced or synthetic reduced fixture is
+the authoritative reproducer, and name the focused census or gate that bounds
+the affected population. Do not invent a witness or switch templates.
+-->
+
+> Did this change introduce any new invalid-`Full` defects?
+
+**Conclusion:** **PASS/ADVISORY/BLOCKED** — {baseline-versus-head validity
+verdict and decisive evidence}.
+
+Run: {corpus, focused census, or reduced-fixture population}, Baseline versus
+Head.
+
+| Metric | Baseline | Head |
+| --- | ---: | ---: |
+| Full malformed (-) | {count} | {count} |
+| Valid to invalid (-) | - | {count} |
+| Invalid to valid (+) | - | {count} |
+| Invalid to invalid, changed | - | {count} |
+
+<!-- markdownlint-disable MD033 -->
+<details>
+<summary>Changed validity rows (showing up to 24)</summary>
+
+| Direction | Method | Diagnostic / bucket | Baseline | Head |
+| --- | --- | --- | --- | --- |
+| Regressed/Fixed/Changed | `{Type::Method}` | `{CSxxxx or bucket}` | `{old}` | `{new}` |
+
+For the full local delta, see
+[Reproducing decompiler corpus deltas](../decompiler-corpus-delta-repro.md).
+
+</details>
+<!-- markdownlint-enable MD033 -->
 
 ## Decompiler quality
 

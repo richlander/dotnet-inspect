@@ -338,10 +338,10 @@ coverage strings, sharpen ledger notes, and avoid behavior changes unless the
 curation exposes an actual bug. Run the relevant catalog/fixture tests so the
 metadata still points at real rows and mechanisms.
 
-Operational burndown queue hygiene — stale rows, merged PR status, merge
+Operational defect-queue hygiene — stale rows, merged PR status, merge
 conflicts, CI breaks, rebaseline triggers, and subagent delegation — is the
-**Burndown Curator** role, tracked operationally through rollup issue #1568.
-Burndown row ownership is hot-start work: a claimed row should proceed to a PR,
+**Defect Docket Curator** role, tracked operationally through rollup issue #1568.
+Docket-row ownership is hot-start work: a claimed row should proceed to a PR,
 explicit blocker, or pivot issue rather than waiting or stopping at an internal
 milestone.
 

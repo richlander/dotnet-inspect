@@ -438,7 +438,7 @@ measurable, unlike the control-flow rewrite's all-or-nothing invariant relaxatio
    iterator yields) — neutral on common sinks, correcting
    previously-unfaithful casts at call-argument sinks. The insertion domain is
    deliberately "sinks whose printer rendering is provably CoerceText with the
-   same target"; everything else is an enumerated residual for the burn-down:
+   same target"; everything else is an enumerated residual docket:
    slot-carried values (the unifier owns their type until instance 2), lambda
    returns (delegate `Invoke` signature not yet resolved), merge-node values
    (CoerceText's own targeted branches render them, statement-position

@@ -16,7 +16,7 @@ namespace ILInspector.DecompilerHarness;
 /// shipped pipeline should have caught (an ordering gap between an enabling pass
 /// and its consumer, F1's class) or an unstable pass — both are findings, and zero
 /// is the target. The run-2 rewrite is bucketed by the pass that fired, so the
-/// report is a burn-down list of ordering gaps. This is a 2x-pipeline lane by
+/// report is a prioritized list of ordering gaps. This is a 2x-pipeline lane by
 /// construction, so it belongs in scheduled/deep runs, not the per-PR loop.
 /// </summary>
 internal static class IdempotenceSensor

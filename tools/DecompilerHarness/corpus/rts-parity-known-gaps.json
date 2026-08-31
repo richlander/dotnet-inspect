@@ -1,0 +1,18 @@
+{
+  "description": "RTS-parity known gaps: methods the product compile-back oracle recompiled Exact but ReturnToSender did not. Regenerate mechanically with --emit-rts-parity-known-gaps; the RTS-orchestrator work resolves this list.",
+  "command": "decompiler-harness [corpus] --compile-cap 0 --corpus-fidelity-cap 3 --corpus-fidelity-oracle rts-parity --emit-rts-parity-known-gaps tools/DecompilerHarness/corpus/rts-parity-known-gaps.json",
+  "rows": [
+    {
+      "method": "ILInspector.Analysis!ILInspector.Analysis.LibraryBodyIndex::HollowUnsafeMethods#0",
+      "status": "RecompileFail"
+    },
+    {
+      "method": "Newtonsoft.Json!Newtonsoft.Json.Utilities.Base64Encoder::WriteCharsAsync#0",
+      "status": "RecompileFail"
+    },
+    {
+      "method": "System.CommandLine!System.CommandLine.ParseResult::GetValue#2",
+      "status": "RecompileFail"
+    }
+  ]
+}

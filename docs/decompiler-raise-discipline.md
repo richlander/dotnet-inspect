@@ -215,9 +215,9 @@ legitimate *localized* signoff, never a population gate.
   structuring/typing/printer semantics on nodes that carry a **runnable
   `assumes:` predicate**, shown as a before/after on the targeted method(s)
   (the improved example plus a still-flat near miss) — and always as a
-  complement to the corpus evidence, never a replacement. A burndown /
-  invalid-`Full` fix showing the violation gone at that node is the natural
-  "defect is dead" artifact.
+  complement to the corpus evidence, never a replacement. An invalid-`Full` fix
+  showing the violation gone at that node is the natural "defect is dead"
+  artifact.
 - **Never as signoff when** the claim is population-scale (that is the card
   and render A/B's job); when the changed nodes carry no `assumes:` predicate
   (the dump is then purely descriptive — do not dress it up as a gate); or on
