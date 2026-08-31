@@ -5075,6 +5075,104 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PendingAcquisitionAssociation_UsesCoordinateAndExactClientReference()
+    {
+        using IPackageSourceClient gallery =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        using IPackageSourceClient v3 =
+            PackageSourceClientFactory.Create(
+                PackageSourceDescriptor.NuGetV3(
+                    "nuget-v3",
+                    "NuGet.org v3",
+                    new Uri("https://api.nuget.org/v3/index.json")),
+                PackageSourceAssociation.Create());
+        const string coordinate = "example@1.0.0";
+
+        Assert.Equal(gallery.Source.Producer, v3.Source.Producer);
+        Assert.NotEqual(
+            gallery.Source.TransportKind,
+            v3.Source.TransportKind);
+
+        var galleryKey =
+            new BrowserPackageWorkspace.PendingAcquisitionKey(
+                coordinate,
+                gallery);
+        var equivalentGalleryKey =
+            new BrowserPackageWorkspace.PendingAcquisitionKey(
+                coordinate,
+                gallery);
+        var v3Key =
+            new BrowserPackageWorkspace.PendingAcquisitionKey(
+                coordinate,
+                v3);
+
+        Assert.Equal(galleryKey, equivalentGalleryKey);
+        Assert.Equal(
+            galleryKey.GetHashCode(),
+            equivalentGalleryKey.GetHashCode());
+        Assert.NotEqual(galleryKey, v3Key);
+
+        FieldInfo[] fields = typeof(
+                BrowserPackageWorkspace.PendingAcquisitionKey)
+            .GetFields(
+                BindingFlags.Instance
+                | BindingFlags.NonPublic);
+        Assert.Equal(2, fields.Length);
+        Assert.Contains(fields, field => field.FieldType == typeof(string));
+        Assert.Contains(
+            fields,
+            field => field.FieldType == typeof(IPackageSourceClient));
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_DistinctSameProducerClientsDoNotSharePendingTransfer()
+    {
+        string packageId =
+            $"distinct.pending.package.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        var stalledHandler = new StallingPackageHandler();
+        var servingHandler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageDocuments(1));
+        using IPackageSourceClient stalledSource =
+            Gallery(stalledHandler);
+        using IPackageSourceClient servingSource =
+            Gallery(servingHandler);
+
+        Assert.Equal(
+            stalledSource.Source.Producer,
+            servingSource.Source.Producer);
+        Assert.NotSame(stalledSource, servingSource);
+
+        Task<BrowserPackage> stalled =
+            BrowserPackageWorkspace.AcquireAsync(
+                packageId,
+                version,
+                stalledSource,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromMilliseconds(500));
+        await stalledHandler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+
+        BrowserPackage served =
+            await BrowserPackageWorkspace.AcquireAsync(
+                packageId,
+                version,
+                servingSource,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+
+        Assert.Equal(packageId, served.PackageId);
+        Assert.Equal(version, served.Version);
+        await Assert.ThrowsAsync<TimeoutException>(() => stalled);
+        Assert.Equal(1, stalledHandler.Requests);
+        Assert.Single(servingHandler.Requested);
+    }
+
+    [Fact]
     public void PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent()
     {
         using var deadline =
