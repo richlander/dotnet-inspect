@@ -1113,6 +1113,20 @@ public sealed class TypeResolutionContext : IDisposable
             MetadataRootReason = failure?.MetadataRootReason,
         };
 
+    static bool ShouldReplaceCandidateFailure(
+        CandidateOpenFailure? retained,
+        CandidateOpenFailure candidate) =>
+        retained is null
+        || retained.Kind is not CandidateOpenFailureKind.ResourceBudget
+            && !IsMetadataFormatFailure(retained)
+            && IsMetadataFormatFailure(candidate);
+
+    static bool IsMetadataFormatFailure(
+        CandidateOpenFailure failure) =>
+        failure.Kind
+            is CandidateOpenFailureKind.UnsupportedMetadataFormat
+        || failure.MetadataRootReason is not null;
+
     bool TryProjectRequest(
         TypeResolutionRequest request,
         out RequestKey key,
@@ -2559,8 +2573,13 @@ public sealed class TypeResolutionContext : IDisposable
                         assembly.Registration,
                         out failure))
                 {
-                    unavailableAssembly ??= assembly;
-                    unavailableFailure ??= failure;
+                    if (ShouldReplaceCandidateFailure(
+                            unavailableFailure,
+                            failure))
+                    {
+                        unavailableAssembly = assembly;
+                        unavailableFailure = failure;
+                    }
                     continue;
                 }
 

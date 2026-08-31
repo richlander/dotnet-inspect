@@ -207,7 +207,8 @@ public static class AssemblyTypeDeclarationInventoryReader
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
-                or ArgumentOutOfRangeException)
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             OwnedResourceCleanup.DisposeAfterFailure(
                 ref peReader,

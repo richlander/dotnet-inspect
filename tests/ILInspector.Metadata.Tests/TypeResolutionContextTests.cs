@@ -1636,8 +1636,14 @@ public class TypeResolutionContextTests
         Assert.Empty(policy.Requests);
     }
 
-    [Fact]
-    public void AmbiguousBindingFailure_PreservesMalformedCandidateReason()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void MultipleBindingFailure_PrefersTypedAdmissionFailureRegardlessOfOrder(
+        bool malformed,
+        bool admissionFirst)
     {
         byte[] ownerImage = BuildAssembly(
             "Owner",
@@ -1646,15 +1652,18 @@ public class TypeResolutionContextTests
             "Target",
             definesType: true);
         ResolvedAssemblyReference owner = Descriptor(ownerImage);
-        ResolvedAssemblyReference malformed =
+        ResolvedAssemblyReference formatRejected =
             ResolvedAssemblyReference.Create(
                 ReadIdentity(targetImage),
                 path: null,
                 () => new MemoryStream(
-                    MetadataAdmissionCleanupTests
-                        .BuildMalformedMetadataRoot(),
+                    malformed
+                        ? MetadataAdmissionCleanupTests
+                            .BuildMalformedMetadataRoot()
+                        : MetadataAdmissionCleanupTests
+                            .BuildManagedWindowsMetadata(),
                     writable: false),
-                AssemblyResolutionProvenance.Local("malformed"));
+                AssemblyResolutionProvenance.Local("format rejected"));
         ResolvedAssemblyReference unreadable =
             ResolvedAssemblyReference.Create(
                 ReadIdentity(targetImage),
@@ -1668,7 +1677,9 @@ public class TypeResolutionContextTests
             AssemblyResolutionScope.Any);
         var policy = new RecordingPolicy(
             _ => AssemblyBindingSelection.Multiple(
-                [malformed, unreadable]));
+                admissionFirst
+                    ? [formatRejected, unreadable]
+                    : [unreadable, formatRejected]));
         using var catalog = new TypeResolutionCatalog();
         using TypeResolutionContext context =
             catalog.CreateContext(
@@ -1682,10 +1693,14 @@ public class TypeResolutionContextTests
                 context.Bind(binding)).Failure;
 
         Assert.Equal(
-            CandidateOpenFailureKind.InvalidImage,
+            malformed
+                ? CandidateOpenFailureKind.InvalidImage
+                : CandidateOpenFailureKind.UnsupportedMetadataFormat,
             failure.CandidateFailureKind);
         Assert.Equal(
-            MetadataRootMalformedReason.InvalidSignature,
+            malformed
+                ? MetadataRootMalformedReason.InvalidSignature
+                : null,
             failure.MetadataRootReason);
     }
 

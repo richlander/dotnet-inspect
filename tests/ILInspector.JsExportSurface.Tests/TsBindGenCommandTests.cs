@@ -369,6 +369,40 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
+    public void Invoke_WithMetadataStreamCountOverflow_ReturnsBoundedError()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            $"tsbindgen-stream-count-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                MetadataAdmissionFixture.WithOverflowingMetadataStreamCount(
+                    FixtureAssemblyPath));
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke([path], output, error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "could not read",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Unhandled exception",
+                error.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Invoke_IncompleteExtractionFailsWithoutOutput()
     {
         string assemblyPath = Path.Combine(

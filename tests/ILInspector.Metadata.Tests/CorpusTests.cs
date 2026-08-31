@@ -119,6 +119,7 @@ namespace ILInspector.Metadata.Tests
                 string unsupported = Path.Combine(root, "windows.winmd");
                 string malformed = Path.Combine(root, "malformed.dll");
                 string invalid = Path.Combine(root, "invalid.dll");
+                string overflow = Path.Combine(root, "overflow.dll");
                 File.WriteAllBytes(
                     noMetadata,
                     MetadataAdmissionCleanupTests.BuildNoMetadataImage());
@@ -134,6 +135,10 @@ namespace ILInspector.Metadata.Tests
                     invalid,
                     MetadataImageOverviewTests
                         .SelfWithCorruptTableStream());
+                File.WriteAllBytes(
+                    overflow,
+                    MetadataAdmissionCleanupTests
+                        .BuildOverflowingMetadataStreamCount());
                 var corpus = new Corpus(
                 [
                     new CorpusMember
@@ -156,14 +161,32 @@ namespace ILInspector.Metadata.Tests
                         AssemblyPath = invalid,
                         Source = "invalid",
                     },
+                    new CorpusMember
+                    {
+                        AssemblyPath = overflow,
+                        Source = "overflow",
+                    },
+                    new CorpusMember
+                    {
+                        AssemblyPath = SelfAssembly,
+                        Source = "healthy",
+                    },
                 ]);
 
                 CorpusTypeSearchOutcome outcome =
-                    corpus.SearchTypes(["Anything"]);
+                    corpus.SearchTypes(["CorpusProbeTypeAlpha"]);
 
-                Assert.Empty(outcome.Results);
                 Assert.Equal(
-                    [noMetadata, unsupported, malformed, invalid],
+                    "healthy",
+                    Assert.Single(outcome.Results).Source);
+                Assert.Equal(
+                    [
+                        noMetadata,
+                        unsupported,
+                        malformed,
+                        invalid,
+                        overflow,
+                    ],
                     outcome.SkippedAssemblies);
                 AssertAdmissionFailures(outcome.Failures);
 
@@ -172,7 +195,13 @@ namespace ILInspector.Metadata.Tests
 
                 Assert.Empty(memberOutcome.Results);
                 Assert.Equal(
-                    [noMetadata, unsupported, malformed, invalid],
+                    [
+                        noMetadata,
+                        unsupported,
+                        malformed,
+                        invalid,
+                        overflow,
+                    ],
                     memberOutcome.SkippedAssemblies);
                 AssertAdmissionFailures(memberOutcome.Failures);
             }
@@ -220,6 +249,14 @@ namespace ILInspector.Metadata.Tests
                             CorpusSearchFailureKind.InvalidImage,
                             failure.Kind);
                         Assert.Equal("invalid", failure.Member.Source);
+                        Assert.Null(failure.MetadataRootReason);
+                    },
+                    failure =>
+                    {
+                        Assert.Equal(
+                            CorpusSearchFailureKind.InvalidImage,
+                            failure.Kind);
+                        Assert.Equal("overflow", failure.Member.Source);
                         Assert.Null(failure.MetadataRootReason);
                     });
         }

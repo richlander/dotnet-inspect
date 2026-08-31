@@ -309,7 +309,10 @@ public sealed partial class AssemblyDependencyResolver :
             ResolvedAssemblyReference? selected = descriptor.Assembly;
             if (selected is null)
             {
-                if (candidateFailure is null)
+                if (ShouldReplaceCandidateFailure(
+                        candidateFailure,
+                        candidateAdmissionFailure,
+                        descriptor))
                 {
                     candidateFailure =
                         descriptor.FailureKind
@@ -372,7 +375,10 @@ public sealed partial class AssemblyDependencyResolver :
                 ResolvedAssemblyReference? selected = descriptor.Assembly;
                 if (selected is null)
                 {
-                    if (candidateFailure is null)
+                    if (ShouldReplaceCandidateFailure(
+                            candidateFailure,
+                            candidateAdmissionFailure,
+                            descriptor))
                     {
                         candidateFailure =
                             descriptor.FailureKind
@@ -398,6 +404,15 @@ public sealed partial class AssemblyDependencyResolver :
             candidateFailure,
             AdmissionFailure: candidateAdmissionFailure);
     }
+
+    static bool ShouldReplaceCandidateFailure(
+        CandidateOpenFailureKind? retainedKind,
+        ExceptionDispatchInfo? retainedAdmissionFailure,
+        AssemblyDescriptorResolution candidate) =>
+        retainedKind is null
+        || retainedKind is not CandidateOpenFailureKind.ResourceBudget
+            && retainedAdmissionFailure is null
+            && candidate.AdmissionFailure is not null;
 
     AssemblyResolutionAttempt? ResolveDesignatedOverlay(
         IReadOnlyList<ResolvedAssemblyDependency> candidates,

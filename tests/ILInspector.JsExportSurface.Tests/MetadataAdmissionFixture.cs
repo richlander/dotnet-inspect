@@ -58,4 +58,24 @@ internal static class MetadataAdmissionFixture
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    public static byte[] WithOverflowingMetadataStreamCount(
+        string assemblyPath)
+    {
+        byte[] image = File.ReadAllBytes(assemblyPath);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
+    }
 }

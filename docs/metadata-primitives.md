@@ -288,6 +288,15 @@ Frozen `TypeResolutionContext` binding outcomes construct their public
 `AssemblyBindingFailure` from the retained `CandidateOpenFailure`; selected,
 multi-candidate, and requesting-origin failures therefore keep the candidate
 kind and malformed-root reason after the discovery builder is discarded.
+When every candidate fails, a resource-budget failure retains its established
+precedence; otherwise a typed unsupported-format or malformed-root failure
+outranks an earlier generic unreadable, no-metadata, or invalid-image failure
+so candidate order cannot erase the admission receipt.
+Post-admission SRM validation failures such as an overflowing metadata stream
+count remain ordinary invalid-image outcomes: package role realization retains
+the rejected participant, declaration inventory and Corpus return typed
+failures, and TypeScript commands emit bounded diagnostics rather than an
+unhandled exception.
 `MetadataFormatAdmissionTests`,
 `CallerScopeReachabilityPlanTests.Candidate_PreservesUnmappableMetadataDirectory`,
 and `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation,

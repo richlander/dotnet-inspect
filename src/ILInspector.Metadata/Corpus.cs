@@ -391,7 +391,8 @@ public sealed class Corpus
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
-                or ArgumentOutOfRangeException)
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
             failure = SearchFailure(
                 member,

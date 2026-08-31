@@ -71,6 +71,43 @@ public sealed class TsJsExportCommandTests
     }
 
     [Fact]
+    public void Invoke_WithMetadataStreamCountOverflow_ReturnsBoundedError()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-stream-count-{Guid.NewGuid():N}.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                MetadataAdmissionFixture.WithOverflowingMetadataStreamCount(
+                    typeof(FixtureExports).Assembly.Location));
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [path, "--runtime-module", "./dotnet.js"],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "could not read",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Unhandled exception",
+                error.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Invoke_RequiresRuntimeModuleSpecifier()
     {
         var output = new StringWriter();

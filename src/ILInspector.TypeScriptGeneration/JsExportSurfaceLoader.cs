@@ -44,6 +44,7 @@ internal static class JsExportSurfaceLoader
         catch (Exception ex) when (
             ex is not MalformedMetadataRootException
                 and (BadImageFormatException
+                    or OverflowException
                     or IOException
                     or UnauthorizedAccessException))
         {
@@ -87,6 +88,7 @@ internal static class JsExportSurfaceLoader
         catch (Exception ex) when (
             ex is not MalformedMetadataRootException
                 and (BadImageFormatException
+                    or OverflowException
                     or IOException
                     or UnauthorizedAccessException))
         {

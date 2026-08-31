@@ -554,7 +554,8 @@ public sealed class ResolvedAssemblyReference
             }
             catch (Exception ex) when (
                 ex is BadImageFormatException
-                    or UnsupportedMetadataFormatException)
+                    or UnsupportedMetadataFormatException
+                    or OverflowException)
             {
                 OwnedResourceCleanup.DisposeAfterFailure(
                     ref peReader,

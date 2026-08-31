@@ -1758,6 +1758,135 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void SelectAndResolve_TypedAdmissionFailureOutranksNoMetadataCandidate(
+        bool malformed,
+        bool admissionFirst)
+    {
+        string root = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-admission-precedence-").FullName;
+        try
+        {
+            string rootPackage = Path.Combine(
+                root,
+                "root.package",
+                "1.0.0");
+            string targetDirectory = Path.Combine(
+                rootPackage,
+                "lib",
+                "net8.0");
+            Directory.CreateDirectory(targetDirectory);
+            string targetPath = Path.Combine(targetDirectory, "Root.dll");
+            File.Copy(
+                typeof(AssemblyDependencyResolverTests).Assembly.Location,
+                targetPath);
+
+            string firstId = admissionFirst
+                ? "A.Format"
+                : "A.NoMetadata";
+            string secondId = admissionFirst
+                ? "B.NoMetadata"
+                : "B.Format";
+            File.WriteAllText(
+                Path.Combine(rootPackage, "root.package.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="{firstId}" version="1.0.0" />
+                        <dependency id="{secondId}" version="1.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            byte[] admissionImage = malformed
+                ? CreateUnmappableMetadataImage()
+                : CreateUnsupportedMetadataImage();
+            foreach ((string id, byte[] image) in new[]
+            {
+                (
+                    admissionFirst ? firstId : secondId,
+                    admissionImage),
+                (
+                    admissionFirst ? secondId : firstId,
+                    CreateNoMetadataImage()),
+            })
+            {
+                string directory = Path.Combine(
+                    root,
+                    id.ToLowerInvariant(),
+                    "1.0.0",
+                    "ref",
+                    "net8.0");
+                Directory.CreateDirectory(directory);
+                File.WriteAllBytes(
+                    Path.Combine(directory, "Shared.dll"),
+                    image);
+            }
+
+            var resolver = new AssemblyDependencyResolver(
+                new AssemblyDependencyResolutionOptions(targetPath)
+                {
+                    PackageRoots = [root],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                    SnapshotAssemblyImages = true,
+                });
+            var identity = new AssemblyReferenceIdentity(
+                "Shared",
+                Version: null,
+                Culture: null,
+                PublicKeyToken: null);
+            var unavailable =
+                Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                    resolver.Select(
+                        new AssemblyBindingRequest(
+                            AssemblyBindingTarget.Reference(identity),
+                            AssemblyBindingOrigin.Global(),
+                            AssemblyResolutionScope.Any)));
+
+            Assert.Equal(
+                malformed
+                    ? CandidateOpenFailureKind.InvalidImage
+                    : CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                unavailable.Failure.CandidateFailureKind);
+            Assert.Equal(
+                malformed
+                    ? MetadataRootMalformedReason
+                        .UnmappableMetadataDirectory
+                    : null,
+                unavailable.Failure.MetadataRootReason);
+            if (malformed)
+            {
+                Assert.Throws<MalformedMetadataRootException>(
+                    () => resolver.Resolve(
+                        identity,
+                        AssemblyResolutionScope.Any));
+            }
+            else
+            {
+                Assert.Throws<UnsupportedMetadataFormatException>(
+                    () => resolver.Resolve(
+                        identity,
+                        AssemblyResolutionScope.Any));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Select_RenamedDesignatedOverlayUsesMetadataIdentity()
     {

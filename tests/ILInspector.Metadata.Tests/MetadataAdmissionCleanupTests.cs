@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -55,6 +56,22 @@ public sealed class MetadataAdmissionCleanupTests
             MetadataRootMalformedReason.InvalidSignature,
             rejected.Failure.MetadataRootReason);
         Assert.Equal(1, opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void TypeDeclarationInventory_MetadataStreamCountOverflowIsInvalidImage()
+    {
+        AssemblyTypeDeclarationInventoryOutcome outcome =
+            AssemblyTypeDeclarationInventoryReader.Read(
+                Descriptor(BuildOverflowingMetadataStreamCount()));
+
+        var rejected =
+            Assert.IsType<AssemblyTypeDeclarationInventoryOutcome.Rejected>(
+                outcome);
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            rejected.Failure.Kind);
+        Assert.Null(rejected.Failure.MetadataRootReason);
     }
 
     [Fact]
@@ -169,6 +186,12 @@ public sealed class MetadataAdmissionCleanupTests
     public void FallbackIdentity_ModuleCleanupCannotPreventFallback()
     {
         AssertFallback(BuildManagedModule());
+    }
+
+    [Fact]
+    public void FallbackIdentity_MetadataStreamCountOverflowCannotPreventFallback()
+    {
+        AssertFallback(BuildOverflowingMetadataStreamCount());
     }
 
     [Fact]
@@ -488,6 +511,26 @@ public sealed class MetadataAdmissionCleanupTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    internal static byte[] BuildOverflowingMetadataStreamCount()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MetadataAdmissionCleanupTests).Assembly.Location);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            image.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return image;
     }
 
     static byte[] BuildManagedModule()
