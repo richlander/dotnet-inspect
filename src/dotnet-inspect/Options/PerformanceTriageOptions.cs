@@ -123,6 +123,7 @@ public sealed record PerformanceTriageOptions
     public string? MinConfidence { get; init; }
     public string[] Shapes { get; init; } = [];
     public int? Top { get; init; }
+    public string[] SelectedKindSections { get; init; } = [];
     public string[] Where { get; init; } = [];
     public string? OrderBy { get; init; }
 

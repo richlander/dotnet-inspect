@@ -21,12 +21,10 @@ public class FindCommand
         FindOptions options,
         CancellationToken cancellationToken = default)
     {
-        if (options.IsPackageProfile
-            && options.Count
-            && options.Limit is not null)
+        if (options.Count && options.Limit is not null)
         {
             CommandError.Write(
-                "--count cannot be combined with -t for a package-prefix search.");
+                "--count cannot be combined with a numeric -t/--type limit.");
             return 1;
         }
 
@@ -76,6 +74,16 @@ public class FindCommand
                     cancellationToken);
             }
 
+            if (!options.Count
+                && !IsColumnProjectionRequested(options)
+                && ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+                    options,
+                    options.JsonOutput,
+                    "find"))
+            {
+                return 1;
+            }
+
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             if (patterns.Length == 0)
             {
@@ -120,14 +128,6 @@ public class FindCommand
                 }
                 else
                 {
-                    if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
-                            options,
-                            options.JsonOutput,
-                            "find"))
-                    {
-                        return 1;
-                    }
-
                     JsonOutputHelper.Write(
                         results,
                         TypeFindResultJsonContext.Default.ListTypeFindResult,
@@ -375,14 +375,6 @@ public class FindCommand
             }
             else
             {
-                if (ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
-                        options,
-                        options.JsonOutput,
-                        "find"))
-                {
-                    return 1;
-                }
-
                 JsonOutputHelper.Write(
                     results,
                     MemberFindResultJsonContext.Default.ListMemberFindResult,

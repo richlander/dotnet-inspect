@@ -474,6 +474,13 @@ public static class InspectionCommandDefinitions
                 CommandError.Write(topRankingError!);
                 return 1;
             }
+            performanceTriage = opts.BindPerformanceTriageToSelectedKindSections(
+                performanceTriage,
+                select,
+                pipeline.SelectableSectionNames,
+                pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap(),
+                selectDefault);
 
             var options = new LibraryOptions
             {
@@ -523,6 +530,8 @@ public static class InspectionCommandDefinitions
                 PrintRow = opts.ParsePrintRow(parseResult),
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = opts.ParseRows(parseResult),
+                RankedTopRequested =
+                    parseResult.GetResult(opts.PerformanceTriageTop) is { Implicit: false },
                 HumanRowWindowNote = opts.BuildHumanRowWindowNote(
                     parseResult,
                     select,

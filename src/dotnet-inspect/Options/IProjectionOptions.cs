@@ -47,6 +47,9 @@ public interface IProjectionOptions
     /// <summary>The requested data-row window, or null when all rows are selected.</summary>
     RowWindow? Rows => null;
 
+    /// <summary>Whether the row window originated from the ranked <c>--top</c> gesture.</summary>
+    bool RankedTopRequested => false;
+
     /// <summary>The requested field projection, or null when fields are not projected.</summary>
     string[]? Fields => null;
 

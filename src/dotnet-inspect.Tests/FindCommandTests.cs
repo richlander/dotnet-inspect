@@ -1169,7 +1169,7 @@ public class FindCommandIntegrationTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--count cannot be combined with -t for a package-prefix search",
+            "--count cannot be combined with a numeric -t/--type limit",
             error);
         Assert.DoesNotContain("Attempted:", error);
     }
@@ -1198,7 +1198,7 @@ public class FindCommandIntegrationTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "--count cannot be combined with -t for a package-prefix search",
+            "--count cannot be combined with a numeric -t/--type limit",
             error);
         Assert.DoesNotContain("Attempted:", error);
     }

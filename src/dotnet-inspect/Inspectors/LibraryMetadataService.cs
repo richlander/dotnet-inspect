@@ -1718,6 +1718,14 @@ internal static class LibraryMetadataService
     {
         options ??= PerformanceTriageOptions.Default;
         var filtered = opportunities;
+        if (options.SelectedKindSections.Length > 0)
+        {
+            var selectedKindSections =
+                options.SelectedKindSections.ToHashSet(StringComparer.Ordinal);
+            filtered = filtered.Where(
+                opportunity => selectedKindSections.Contains(
+                    PerformanceKinds.SectionForShape(opportunity.Shape)));
+        }
         if (options.LoopOnly)
             filtered = filtered.Where(IteratesInLoop);
         if (options.MinConfidence is { Length: > 0 } confidence)

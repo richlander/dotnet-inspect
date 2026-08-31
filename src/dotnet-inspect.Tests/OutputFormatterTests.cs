@@ -1362,6 +1362,28 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void FilterAndOrderTriageOpportunities_AppliesTopWithinSelectedKind()
+    {
+        var opportunities = new[]
+        {
+            Opp("HigherGlobalBoxing", inLoop: true, confidence: "high", rootReach: 100, shape: "box-value-type"),
+            Opp("SelectedArray", inLoop: false, confidence: "medium", rootReach: 1, shape: "small-array"),
+        };
+
+        var filtered = LibraryMetadataService.FilterAndOrderTriageOpportunities(
+                opportunities,
+                new PerformanceTriageOptions
+                {
+                    Top = 1,
+                    SelectedKindSections = [SectionNames.PerformanceArrays],
+                })
+            .Select(opportunity => opportunity.Method.Name)
+            .ToList();
+
+        Assert.Equal(["SelectedArray"], filtered);
+    }
+
+    [Fact]
     public void FilterAndOrderTriageOpportunities_OrdersByWeight()
     {
         var opportunities = new[]

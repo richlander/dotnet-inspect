@@ -1,9 +1,13 @@
 using System.CommandLine;
 using DotnetInspector.CommandLine;
+using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
+using DotnetInspector.Services;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class CommandLineLimitSlice4677Tests
 {
     [Fact]
@@ -276,6 +280,23 @@ public class CommandLineLimitSlice4677Tests
     }
 
     [Fact]
+    public async Task ImplicitRouterConsumesSeparatedBooleanValues()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            var args = CommandLineBuilder.PreprocessArgs(
+                ["--tail", "false", "System.Text.Json", "--tips", "q"]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("# System.Text.Json.dll", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LineModeDetectionRecognizesAttachedOptionValueForms()
     {
         // Round 15 (Opus): --lines/--tail-lines/--tail line-mode detection compared raw tokens
@@ -357,6 +378,172 @@ public class CommandLineLimitSlice4677Tests
             error => error.Message.Contains(
                 "--count cannot be combined",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ExplicitFalseCountDoesNotConflictWithItemWindow()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "System.Text.Json", "--count=false", "-n", "2"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Theory]
+    [InlineData("find", "JsonSerializer")]
+    [InlineData("implements", "IDisposable")]
+    [InlineData("extensions", "string")]
+    public async Task NumericLegacyTypeLimitRejectsCountBeforeAcquisition(
+        string command,
+        string target)
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            var args = CommandLineBuilder.PreprocessArgs(
+            [
+                command,
+                target,
+                "--package-prefix",
+                "Does.Not.Exist.4677",
+                "--source",
+                "http://127.0.0.1:1/v3/index.json",
+                "-t",
+                "2",
+                "--count",
+            ]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "--count cannot be combined with a numeric -t/--type limit.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("127.0.0.1", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-n", "1", "item windows")]
+    [InlineData("--rows", "2..3", "absolute row ranges")]
+    public async Task FindRejectsDocumentJsonWindowsBeforeAcquisition(
+        string option,
+        string value,
+        string windowName)
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            var args = CommandLineBuilder.PreprocessArgs(
+            [
+                "find",
+                "JsonSerializer",
+                "--package-prefix",
+                "Does.Not.Exist.4677",
+                "--source",
+                "http://127.0.0.1:1/v3/index.json",
+                "--json",
+                option,
+                value,
+            ]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains($"Document --json {windowName}", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("127.0.0.1", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("implements", "IDisposable")]
+    [InlineData("extensions", "string")]
+    public async Task SearchCommandsRejectDocumentJsonWindowsBeforeAcquisition(
+        string command,
+        string target)
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            var args = CommandLineBuilder.PreprocessArgs(
+            [
+                command,
+                target,
+                "--package-prefix",
+                "Does.Not.Exist.4677",
+                "--source",
+                "http://127.0.0.1:1/v3/index.json",
+                "--json",
+                "-n",
+                "1",
+            ]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("Document --json item windows", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("127.0.0.1", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RankedTopProjectionDiagnosticNamesTop()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            var args = CommandLineBuilder.PreprocessArgs(
+            [
+                "library",
+                "missing.dll",
+                "-S",
+                SectionNames.PerformanceBoxing,
+                "--value",
+                "--top",
+                "1",
+            ]);
+            return await CommandLineBuilder.CreateRootCommand()
+                .Parse(args)
+                .InvokeAsync();
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("--top ranked selections", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("-n item windows", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RankedTopBindsToSelectedPerformanceKindRowSet()
+    {
+        var shared = new SharedOptions();
+        var bound = shared.BindPerformanceTriageToSelectedKindSections(
+            new PerformanceTriageOptions { Top = 1 },
+            [SectionNames.PerformanceArrays],
+            PerformanceKinds.Sections,
+            infoSections: null,
+            categories: null,
+            selectDefault: false);
+
+        Assert.Equal([SectionNames.PerformanceArrays], bound.SelectedKindSections);
+    }
+
+    [Fact]
+    public void RankedTopBindsPerformanceKindsWithinMixedSelection()
+    {
+        var shared = new SharedOptions();
+        var bound = shared.BindPerformanceTriageToSelectedKindSections(
+            new PerformanceTriageOptions { Top = 1 },
+            [SectionNames.PerformanceArrays, SectionNames.TopLeverage],
+            [.. PerformanceKinds.Sections, SectionNames.TopLeverage],
+            infoSections: null,
+            categories: null,
+            selectDefault: false);
+
+        Assert.Equal([SectionNames.PerformanceArrays], bound.SelectedKindSections);
     }
 
     [Theory]

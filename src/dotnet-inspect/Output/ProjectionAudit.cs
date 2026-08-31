@@ -88,21 +88,52 @@ public static class ProjectionAudit
         => RejectUnsupportedDocumentJsonRowWindow(
             options.Rows,
             jsonOutput,
-            commandName);
+            commandName,
+            options.RankedTopRequested);
 
     public static bool RejectUnsupportedDocumentJsonRowWindow(
         RowWindow? rows,
         bool jsonOutput,
         string commandName)
+        => RejectUnsupportedDocumentJsonRowWindow(
+            rows,
+            jsonOutput,
+            commandName,
+            rankedTopRequested: false);
+
+    private static bool RejectUnsupportedDocumentJsonRowWindow(
+        RowWindow? rows,
+        bool jsonOutput,
+        string commandName,
+        bool rankedTopRequested)
     {
         if (!jsonOutput || rows is null)
             return false;
 
+        string windowName = rankedTopRequested
+            ? "ranked selections"
+            : rows.Value.Kind == RowWindowKind.Range
+                ? "absolute row ranges"
+                : "item windows";
         CommandError.Write(
-            $"Document --json item windows are not yet supported by '{commandName}'. "
+            $"Document --json {windowName} are not yet supported by '{commandName}'. "
             + "Use --jsonl for row-shaped JSON output.");
         return true;
     }
+
+    public static string RowWindowOption(IProjectionOptions options) =>
+        options.RankedTopRequested
+            ? "--top"
+            : options.Rows is { Kind: RowWindowKind.Range }
+                ? "--rows"
+                : "-n";
+
+    public static string RowWindowName(IProjectionOptions options) =>
+        options.RankedTopRequested
+            ? "ranked selections"
+            : options.Rows is { Kind: RowWindowKind.Range }
+                ? "absolute row ranges"
+                : "item windows";
 
     /// <summary>
     /// Rejects more than one payload projection in a single invocation. Two projections cannot

@@ -914,9 +914,10 @@ public class ApiCommand
         }
         if (options.Rows is not null)
         {
+            var rowWindowOption = ProjectionAudit.RowWindowOption(options);
             CommandError.Write(
-                $"-n item windows are not yet supported with {optionName}; "
-                + "omit -n or use --row N|first|last to select a projected row.");
+                $"{rowWindowOption} {ProjectionAudit.RowWindowName(options)} are not yet supported with {optionName}; "
+                + $"omit {rowWindowOption} or use --row N|first|last to select a projected row.");
             return false;
         }
 
@@ -949,8 +950,9 @@ public class ApiCommand
         }
         if (options.Print && options.Rows is not null)
         {
+            var rowWindowOption = ProjectionAudit.RowWindowOption(options);
             CommandError.Write(
-                "-n item windows are not yet supported with --print; "
+                $"{rowWindowOption} {ProjectionAudit.RowWindowName(options)} are not yet supported with --print; "
                 + "use --row N|first|last to choose one row, or add --lines for a rendered-line window.");
             return false;
         }

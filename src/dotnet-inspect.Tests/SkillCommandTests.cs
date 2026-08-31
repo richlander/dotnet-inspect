@@ -80,17 +80,48 @@ public class SkillCommandTests
         {
             string[] args = CommandLineBuilder.PreprocessArgs(
                 ["skill", "query", "-n", "1"]);
-            return await CommandLineBuilder.CreateRootCommand()
-                .Parse(args)
-                .InvokeAsync();
+            var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
         });
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains(
-            "-n item windows apply to 'skill list'",
+            "-n selects items for commands with row windows",
             error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FocusedSkill_RejectsNonPositiveWindow()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+                ["skill", "query", "-n", "0"]);
+            var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+        });
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains("-n must be a positive integer.", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FocusedSkill_AppliesRenderedLineWindow()
+    {
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+        {
+            string[] args = CommandLineBuilder.PreprocessArgs(
+                ["skill", "query", "-n", "1", "--lines"]);
+            var result = CommandLineBuilder.CreateRootCommand().Parse(args);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(result, args);
+        });
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Single(output.TrimEnd('\n').Split('\n'));
     }
 
     [Fact]

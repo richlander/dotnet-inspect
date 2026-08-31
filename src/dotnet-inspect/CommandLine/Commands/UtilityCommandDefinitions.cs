@@ -168,6 +168,11 @@ public static class UtilityCommandDefinitions
             var name = skill.Name;
             var focusedCommand = new Command(name, skill.Description);
             focusedCommand.Options.Add(opts.Limit);
+            focusedCommand.Options.Add(opts.Lines);
+            focusedCommand.Options.Add(opts.TailLines);
+            focusedCommand.Options.Add(opts.Head);
+            focusedCommand.Options.Add(opts.Tail);
+            opts.AddRowWindowValidators(focusedCommand, supportsRowWindows: false);
             focusedCommand.SetAction((parseResult) =>
             {
                 if (RejectUtilityItemWindow(opts, parseResult, "skill list") is { } exitCode)

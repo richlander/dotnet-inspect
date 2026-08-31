@@ -334,6 +334,13 @@ public static class MemberOptionsParser
         {
             return new VersionError(topRankingError!);
         }
+        performanceTriage = opts.BindPerformanceTriageToSelectedKindSections(
+            performanceTriage,
+            select,
+            sectionPipeline.SelectableSectionNames,
+            sectionPipeline.InfoSectionNames,
+            sectionPipeline.GetCategoryMap(),
+            selectDefault);
 
         var embeddedMermaid = opts.IsEmbeddedMermaid(parseResult);
         if (parseResult.GetValue(opts.Mermaid)
@@ -416,6 +423,8 @@ public static class MemberOptionsParser
             Fields = opts.ParseFields(parseResult),
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
+            RankedTopRequested =
+                parseResult.GetResult(opts.PerformanceTriageTop) is { Implicit: false },
             HumanRowWindowNote = opts.BuildHumanRowWindowNote(
                 parseResult,
                 select,

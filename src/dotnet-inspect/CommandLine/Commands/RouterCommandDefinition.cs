@@ -1112,14 +1112,19 @@ public static class RouterCommandDefinition
                 if (CommandLineModel.HasAttachedValue(tokens[i]))
                     continue;
 
-                int remainingValues = options.Max(option =>
-                    !CommandLineModel.CanConsumeFollowingValue(option)
-                        ? 0
-                        : option.AllowMultipleArgumentsPerToken
-                            ? option.Arity.MaximumNumberOfValues
-                            : Math.Min(
-                                1,
-                                option.Arity.MaximumNumberOfValues));
+                string? nextToken = i + 1 < tokens.Length
+                    ? tokens[i + 1]
+                    : null;
+                int remainingValues = nextToken is null
+                    ? 0
+                    : options.Max(option =>
+                        !CommandLineModel.CanConsumeFollowingToken(option, nextToken)
+                            ? 0
+                            : option.AllowMultipleArgumentsPerToken
+                                ? option.Arity.MaximumNumberOfValues
+                                : Math.Min(
+                                    1,
+                                    option.Arity.MaximumNumberOfValues));
                 while (remainingValues > 0
                     && i + 1 < tokens.Length
                     && !IsKnownOption(rootCommand, tokens[i + 1]))

@@ -87,6 +87,29 @@ public static class SearchCommandDefinitions
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
+            bool hasSearchTarget =
+                !string.IsNullOrEmpty(parseResult.GetValue(patternArg))
+                || parseResult.GetResult(packagePrefixOption) is { Implicit: false };
+            if (hasSearchTarget)
+            {
+                var legacyTypeLimit =
+                    CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption));
+                if (parseResult.GetValue(opts.Count) && legacyTypeLimit is not null)
+                {
+                    CommandError.Write(
+                        "--count cannot be combined with a numeric -t/--type limit.");
+                    return 1;
+                }
+
+                if (RejectDocumentJsonWindowBeforeAcquisition(
+                    parseResult,
+                    opts,
+                    FindCommand.Name))
+                {
+                    return 1;
+                }
+            }
+
             var result = await FindOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -201,6 +224,23 @@ public static class SearchCommandDefinitions
                     "implements Stream --platform --extensions  # combine scopes");
             }
 
+            var legacyTypeLimit =
+                CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption));
+            if (parseResult.GetValue(opts.Count) && legacyTypeLimit is not null)
+            {
+                CommandError.Write(
+                    "--count cannot be combined with a numeric -t/--type limit.");
+                return 1;
+            }
+
+            if (RejectDocumentJsonWindowBeforeAcquisition(
+                parseResult,
+                opts,
+                "implements"))
+            {
+                return 1;
+            }
+
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
             var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
@@ -234,7 +274,7 @@ public static class SearchCommandDefinitions
                 Projects = projects,
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
+                Limit = legacyTypeLimit,
                 Rows = opts.ParseRows(parseResult),
                 HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
                 Count = parseResult.GetValue(opts.Count),
@@ -345,6 +385,23 @@ public static class SearchCommandDefinitions
                     "extensions HttpClient --platform --extensions  # combine scopes");
             }
 
+            var legacyTypeLimit =
+                CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption));
+            if (parseResult.GetValue(opts.Count) && legacyTypeLimit is not null)
+            {
+                CommandError.Write(
+                    "--count cannot be combined with a numeric -t/--type limit.");
+                return 1;
+            }
+
+            if (RejectDocumentJsonWindowBeforeAcquisition(
+                parseResult,
+                opts,
+                "extensions"))
+            {
+                return 1;
+            }
+
             var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
             var packagePrefix = parseResult.GetValue(packagePrefixOption);
             var packages = await CommandLineHelpers.MergeWithPrefixPackagesAsync(
@@ -380,7 +437,7 @@ public static class SearchCommandDefinitions
                 Depth = parseResult.GetValue(depthOption),
                 Tfm = parseResult.GetValue(tfmOption),
                 IncludeAll = parseResult.GetValue(allOption),
-                Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(typeFilterOption)),
+                Limit = legacyTypeLimit,
                 Rows = opts.ParseRows(parseResult),
                 HumanRowWindowNote = opts.BuildHumanRowWindowNote(parseResult),
                 Count = parseResult.GetValue(opts.Count),
@@ -554,5 +611,23 @@ public static class SearchCommandDefinitions
         });
 
         return dependsCommand;
+    }
+
+    private static bool RejectDocumentJsonWindowBeforeAcquisition(
+        ParseResult parseResult,
+        SharedOptions opts,
+        string commandName)
+    {
+        if (parseResult.GetValue(opts.Count)
+            || parseResult.GetValue(opts.Columns) is { Length: > 0 }
+            || parseResult.GetValue(opts.Fields) is { Length: > 0 })
+        {
+            return false;
+        }
+
+        return ProjectionAudit.RejectUnsupportedDocumentJsonRowWindow(
+            opts.ParseRows(parseResult),
+            opts.ResolveFormat(parseResult) == OutputFormat.Json,
+            commandName);
     }
 }

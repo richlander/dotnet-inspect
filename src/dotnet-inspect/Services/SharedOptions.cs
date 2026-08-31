@@ -278,8 +278,7 @@ public class SharedOptions
             bool linesRequested = IsLinesRequested(result);
             bool headRequested = result.GetValue(Head);
             bool tailRequested = IsTailRequested(result);
-            bool countOutputRequested =
-                result.GetResult(Count) is { Implicit: false };
+            bool countOutputRequested = result.GetValue(Count);
 
             if (headRequested && tailRequested)
                 result.AddError("--head and --tail select opposite ends; choose one.");
@@ -603,6 +602,41 @@ public class SharedOptions
             ? $"Section '{select[0]}' does not support --top. Use -n N for a positional limit."
             : "--top requires sections with a ranking default. Use -n N for a positional limit.";
         return false;
+    }
+
+    public PerformanceTriageOptions BindPerformanceTriageToSelectedKindSections(
+        PerformanceTriageOptions options,
+        string[]? select,
+        string[] knownSections,
+        string[]? infoSections,
+        IReadOnlyDictionary<string, string[]>? categories,
+        bool selectDefault)
+    {
+        if (!options.Top.HasValue)
+            return options;
+
+        var resolvedSelection = ResolveSelectedSections(
+            select,
+            knownSections,
+            infoSections,
+            categories,
+            selectDefault);
+        if (resolvedSelection is not { Count: > 0 })
+        {
+            return options;
+        }
+
+        string[] selectedKindSections =
+        [
+            .. PerformanceKinds.Sections.Where(resolvedSelection.Contains)
+        ];
+        if (selectedKindSections.Length == 0)
+            return options;
+
+        return options with
+        {
+            SelectedKindSections = selectedKindSections,
+        };
     }
 
     public string? BuildHumanRowWindowNote(

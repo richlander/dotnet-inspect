@@ -293,6 +293,8 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public RowWindow? Rows { get; init; }
 
+    public bool RankedTopRequested { get; init; }
+
     public string? HumanRowWindowNote { get; init; }
 
     /// <summary>
