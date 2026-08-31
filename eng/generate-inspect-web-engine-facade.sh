@@ -12,6 +12,40 @@ dts_output_file="$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts"
 js_output_file="$repo_root/prototypes/inspect-web/engine/wwwroot/inspect-web-engine.js"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
+dotnet=${DOTNET:-dotnet}
+node=${NODE:-node}
+
+mode=write
+source_assembly="$engine_dll"
+contract_output=
+case "${1:-}" in
+  "")
+    ;;
+  --check)
+    if [[ "$#" != 1 ]]; then
+      echo "Usage: generate-inspect-web-engine-facade.sh [--check | --contract <assembly> <declaration-output>]" >&2
+      exit 1
+    fi
+    mode=check
+    ;;
+  --contract)
+    if [[ "$#" != 3 ]]; then
+      echo "Usage: generate-inspect-web-engine-facade.sh --contract <assembly> <declaration-output>" >&2
+      exit 1
+    fi
+    mode=contract
+    source_assembly="$2"
+    contract_output="$3"
+    if [[ ! -f "$source_assembly" ]]; then
+      echo "Assembly not found: $source_assembly" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "Usage: generate-inspect-web-engine-facade.sh [--check | --contract <assembly> <declaration-output>]" >&2
+    exit 1
+    ;;
+esac
 
 tsc=${TSC:-"$repo_root/prototypes/inspect-web/node_modules/.bin/tsc"}
 if [[ ! -x "$tsc" ]]; then
@@ -19,14 +53,16 @@ if [[ ! -x "$tsc" ]]; then
   exit 1
 fi
 
-dotnet build "$engine_csproj" -c Release >&2
+if [[ "$mode" != contract ]]; then
+  "$dotnet" build "$engine_csproj" -c Release >&2
+fi
 runtime_pack_directory=$(
-  dotnet msbuild \
+  "$dotnet" msbuild \
     "$engine_csproj" \
     -nologo \
     -target:ProcessFrameworkReferences \
     -getItem:RuntimePack \
-  | node -e '
+  | "$node" -e '
 const data = JSON.parse(require("fs").readFileSync(0, "utf8"));
 const matches = (data.Items?.RuntimePack ?? []).filter(
   pack => pack.Identity === "Microsoft.NETCore.App.Runtime.Mono.browser-wasm");
@@ -53,11 +89,11 @@ cat > "$scratch/header" <<'EOF'
 
 EOF
 
-dotnet run \
+"$dotnet" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
   -- \
-  "$engine_dll" \
+  "$source_assembly" \
   --runtime-module ./_framework/dotnet.js \
   --output "$scratch/inspect-web-engine.body.ts"
 cat \
@@ -95,11 +131,14 @@ if grep -E 'RuntimeAPI|dotnet(\.js)?' "$scratch/out/inspect-web-engine.d.ts" >/d
 fi
 
 printf '{ "type": "module" }\n' > "$scratch/out/package.json"
-node \
+"$node" \
   "$repo_root/prototypes/inspect-web/scripts/verify-engine-facade-runtime.ts" \
   "$scratch/out/inspect-web-engine.js"
 
-if [[ "${1:-}" == "--check" ]]; then
+if [[ "$mode" == contract ]]; then
+  cp "$scratch/out/inspect-web-engine.d.ts" "$contract_output"
+  echo "Wrote $contract_output"
+elif [[ "$mode" == check ]]; then
   drifted=0
   for pair in \
     "$scratch/inspect-web-engine.ts:$ts_output_file" \

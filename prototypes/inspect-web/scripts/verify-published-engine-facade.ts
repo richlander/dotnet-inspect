@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 interface PublishedEngineFacade {
+  asyncLoweringCanary(): Promise<string>;
   buildIdentity(): unknown;
   configureHost(origin: string): void;
   initializeRuntime(): Promise<void>;
@@ -24,6 +25,7 @@ function isPublishedEngineFacade(
   value: unknown,
 ): value is PublishedEngineFacade {
   return isRecord(value)
+    && typeof value.asyncLoweringCanary === "function"
     && typeof value.buildIdentity === "function"
     && typeof value.configureHost === "function"
     && typeof value.initializeRuntime === "function"
@@ -72,14 +74,14 @@ try {
     isRecord(identity) && typeof identity.version === "string",
     "synchronous build identity did not cross the generated facade");
 
-  const versions = await imported.queryPackageVersions("System.Text.Json");
-  assert.ok(
-    versions.length > 0 && versions.every(version => typeof version === "string"),
-    "awaited package versions did not cross the generated facade");
+  assert.equal(
+    await imported.asyncLoweringCanary(),
+    "inspect-web-async-lowering-ok",
+    "awaited lowering canary did not cross the generated facade");
 
   console.log(
     `inspect-web published facade smoke passed (${identity.version}; `
-      + `${versions.length} System.Text.Json versions).`);
+      + "deterministic async canary).");
 } finally {
   unlinkSync(dotnetAlias);
 }
