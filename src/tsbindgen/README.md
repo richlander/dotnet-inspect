@@ -67,6 +67,60 @@ and
 gate structurally equal owner-issued facts for the paired direct and
 field-carried artifacts.
 
+Authenticated synchronous `System.Action` and `System.Func` parameters map to
+TypeScript function types with deterministic synthetic argument names, managed
+parameter order, nullable payloads, primitive payload types, and the exact
+synchronous return type. `Action` uses an `undefined` return rather than
+TypeScript `void`, so the public callback contract does not intentionally
+accept Promise-returning functions. Delegate-looking C# text without the
+corresponding body-authenticated `JsExportDelegateParameter` fact remains
+diagnosed `unknown`; TypeScript does not reconstruct publication authority from
+display text. Every display argument must also correlate structurally with its
+authenticated `TypeRef`. Framework mappings require the exact metadata name,
+generic arity, and trusted defining assembly. Local mappings require retained
+resolution origin, the complete containing assembly identity, the exact
+structured metadata definition name, and a known declaration kind before
+nullable-reference spelling is accepted; a local value type requires an
+authenticated `Nullable<T>` wrapper, and that wrapper rejects reference or
+unclassified arguments in either C# spelling. Every delegate fact must also
+have one unique in-range managed parameter index. Display text cannot replace
+payload identity, manufacture nullability, exceed the SDK callback arity,
+introduce `Void` callback payloads, or hide an authenticated async return.
+Once correlation succeeds, a local declaration with the same display spelling
+cannot override an authenticated framework payload; local arguments elsewhere
+in the same callback shape remain available.
+`MapParameterType_MapsAuthenticatedActionWithNullablePayload`,
+`MapParameterType_MapsAuthenticatedFuncInManagedOrder`,
+`MapParameterType_MapsAuthenticatedIntPtrAsNumber`,
+`MapParameterType_AcceptsCorrelatedQualifiedDelegateTypes`,
+`MapParameterType_AcceptsCorrelatedLocalRecordIdentity`,
+`MapParameterType_RejectsDelegateFactsBeyondSdkArity`,
+`MapParameterType_RejectsFrameworkLookalikeIdentities`,
+`MapParameterType_RejectsSameRecordFromDifferentAssembly`,
+`MapParameterType_RejectsSameSimpleAssemblyWithDifferentIdentity`,
+`MapParameterType_RejectsNullableLocalValueTypeWithoutWrapper`,
+`MapParameterType_RejectsExplicitNullableOfReferenceType`,
+`MapParameterType_RejectsFlattenedLocalDefinitionCollision`,
+`MapParameterType_RejectsMalformedFrameworkGenericNames`,
+`MapParameterType_RejectsFrameworkNamesWithWrongGenericArity`,
+`MapParameterType_RejectsVoidDelegatePayloads`,
+`MapParameterType_FrameworkFactsOverrideLocalNameCollisions`,
+`MapParameterType_FrameworkFilteringPreservesLocalGenericArguments`,
+`MapParameterType_RejectsAuthenticatedIdentityMismatch`,
+`MapParameterType_RejectsUnqualifiedRecordAliasMismatch`,
+`MapParameterType_RejectsPromiseReturningDelegate`,
+`MapParameterType_DoesNotTrustDelegateLookingText`, and
+`Emit_MapsAuthenticatedSynchronousDelegatesToFunctionTypes`,
+`Emit_MapsDelegateRecordFromContainingAssembly`, and
+`Emit_RejectsDelegateRecordFromDifferentAssembly`,
+`Emit_RejectsDelegateRecordWithDifferentFullAssemblyIdentity`,
+`Emit_RejectsNullableDelegateValueTypeWithoutWrapper`,
+`Emit_RejectsFlattenedLocalDefinitionCollision`,
+`Emit_FrameworkDelegateFactsOverrideNestedLocalNameCollisions`, and
+`Emit_RejectsInvalidDelegateParameterAssociations` gate the projection.
+Promise-returning delegates remain unsupported by the SDK source generator and
+by hand-composed mapper inputs.
+
 Generated JSON-wire interfaces are producer-owned snapshots: their properties
 are `readonly`, arrays use `ReadonlyArray<T>`, and string-keyed dictionaries use
 `Readonly<Record<string, T>>`. This policy is limited to authenticated JSON
@@ -568,7 +622,8 @@ for that exact mapping plus the expected top-level
 `MetadataTypeDefinitionName`; same-name external types, nested lookalikes, and
 references that merely claim a platform token become diagnosed `unknown`.
 `DtsEmitterTests.Emit_DoesNotApplyDictionarySemanticsToLookalikeType` and
-`Emit_DoesNotApplyTaskSemanticsToLookalikeType` plus
+`Emit_DoesNotApplyIntPtrSemanticsToLookalikeType`,
+`Emit_DoesNotApplyTaskSemanticsToLookalikeType`, plus
 `Emit_DoesNotTrustClaimedPlatformTokenFromWrongAssembly` gate this framework
 boundary;
 `Emit_NestedIdentityCannotAliasNamespaceQualifiedType` gates structured type
