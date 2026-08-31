@@ -2003,6 +2003,14 @@ workspace
 The query owns session use. A host or presentation layer cannot open raw
 readers and invoke producers around the query registry.
 
+For an accepted analysis plan,
+[analysis universe realization](analysis-universe-realization.md) owns the
+operation-scoped binding from the plan's exact finite universe description to
+its authenticated Workspace offer and the capability-owner-issued access
+required by the plan. Workspace retains ownership of admission, groups, query
+authorization, and close behavior; the analysis consumer receives no mutable
+Workspace or group enumeration surface.
+
 Operations that do not inspect assemblies remain narrower. Package metadata,
 feed discovery, archive listing, and artifact inventory queries do not create
 fake assembly participants merely to enter the workspace path.
