@@ -2223,7 +2223,7 @@ test("bare home paints before wasm engine download", () => {
     /requestAnimationFrame\(\(\) => setTimeout\(resolve, 0\)\)/);
   assert.match(
     appSource,
-    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*await initializeEngine\(reportEngineStatus\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
+    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*reportEngineStatus\("Loading \.NET WebAssembly…"\);[\s\S]*await initializeRuntime\(\);[\s\S]*configureHost\(window\.location\.origin\);[\s\S]*await runEntryPoint\(\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
   assert.match(
     renderDispatch,
     /if \(state\.credits\) \{[\s\S]*renderCreditsView\(\);[\s\S]*if \(state\.loading \|\| state\.error\)/);
@@ -2519,7 +2519,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
   const bootstrap = appSource.match(
     /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
-  const initializeAt = bootstrap.indexOf("await initializeEngine(reportEngineStatus);");
+  const initializeAt = bootstrap.indexOf("await initializeRuntime();");
   const restoreAt = bootstrap.indexOf("await restoreInitialWorkspace();");
   assert.notEqual(initializeAt, -1);
   assert.notEqual(restoreAt, -1);
@@ -3136,7 +3136,7 @@ test("all dependency navigation paths use one product-owned coordinate matcher",
     6);
   assert.match(
     generatedEngineSource,
-    /matchPackageDependencyCoordinateExport = exports\.InspectionEngine\.MatchPackageDependencyCoordinate/);
+    /\$requireManagedExports\(\)\["InspectionEngine"\]\["MatchPackageDependencyCoordinate\.-?\d+"\]/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\([\s\S]*?JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)/);
@@ -3400,10 +3400,10 @@ test("type source identity includes decompiler taste", () => {
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
     generatedEngineSource,
-    /cancelSourceQueryExport = exports\.InspectionEngine\.CancelSourceQuery/);
+    /\$requireManagedExports\(\)\["InspectionEngine"\]\["CancelSourceQuery\.-?\d+"\]/);
   assert.match(
     generatedEngineSource,
-    /export function cancelSourceQuery\(\)[\s\S]*?return cancelSourceQueryExport\(\)/);
+    /export function cancelSourceQuery\(\)[\s\S]*?return \$requireManagedExports\(\)/);
   assert.match(
     appSource,
     /cancelSourceQuery: cancelSourceInspection/);
@@ -3567,10 +3567,11 @@ test("source operations cancel when superseded or hidden", () => {
   assert.equal(requestState.typeSourceError, "");
 });
 
-test("browser engine configures the same-origin managed MSDL API", () => {
+test("browser consumer explicitly sequences same-origin host configuration", () => {
   assert.match(
-    generatedEngineSource,
-    /configureHostExport = exports\.InspectionEngine\.ConfigureHost[\s\S]*?configureHostExport\(window\.location\.origin\)/);
+    appSource,
+    /await initializeRuntime\(\);[\s\S]*configureHost\(window\.location\.origin\);[\s\S]*await runEntryPoint\(\)/);
+  assert.doesNotMatch(generatedEngineSource, /\bwindow\b/);
 });
 
 test("generated browser engine module is syntactically valid", () => {
@@ -3599,7 +3600,9 @@ test("generated source wrappers parse their JSON envelopes", () => {
     "queryMemberSource",
     "queryTypeMemberSource",
   ]) {
-    assert.match(wrapper(name), /return JSON\.parse\(result\);/);
+    assert.match(
+      wrapper(name),
+      /const \$parsed = JSON\.parse\(\$result\);[\s\S]*return \$parsed;/);
   }
 });
 
@@ -4016,7 +4019,7 @@ test("graph-only members open through the typed member surface", () => {
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
     generatedEngineSource,
-    /queryGraphMemberSurfaceExport = exports\.InspectionEngine\.QueryGraphMemberSurface/);
+    /\$requireManagedExports\(\)\["InspectionEngine"\]\["QueryGraphMemberSurface\.-?\d+"\]/);
   assert.match(
     generatedEngineSource,
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);

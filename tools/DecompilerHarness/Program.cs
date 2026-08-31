@@ -95,6 +95,8 @@ static class Program
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
+        bool sourceOracleCandidates = false;
+        string? baselineSourceOracleReportPath = null;
         string? ratchetBaselinePath = null;
         string? sourceOracleManifestPath = null;
         bool integrityOnly = false;
@@ -237,6 +239,10 @@ static class Program
                     case "--benchmark-authored-corpus":
                         benchmarkAuthoredCorpus = true;
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--source-oracle-candidates": sourceOracleCandidates = true; break;
+                    case "--baseline-source-oracle-report":
+                        baselineSourceOracleReportPath = NextArg(args, ref i, flag);
                         break;
                     case "--ratchet-baseline": ratchetBaselinePath = NextArg(args, ref i, flag); break;
                     case "--source-oracle-manifest": sourceOracleManifestPath = NextArg(args, ref i, flag); break;
@@ -384,7 +390,9 @@ static class Program
             verifyAuthoredCorpusHistory,
             ratchetBaselinePath is not null,
             integrityOnly,
-            sourceOracleManifestPath is not null);
+            sourceOracleManifestPath is not null,
+            sourceOracleCandidates,
+            baselineSourceOracleReportPath is not null);
         switch (flags.Disposition)
         {
             case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
@@ -439,6 +447,7 @@ static class Program
             ("--enumerate-real-methods", enumerateRealMethods),
             ("--harvest-authored-corpus", harvestAuthoredCorpus),
             ("--harvest-evil-corpus", harvestEvilCorpus),
+            ("--source-oracle-candidates", sourceOracleCandidates),
             ("--benchmark-authored-corpus", benchmarkAuthoredCorpus),
             ("--verify-authored-corpus", verifyAuthoredCorpus),
             ("--append-authored-corpus-history", appendAuthoredCorpusHistory is not null),
@@ -623,6 +632,15 @@ static class Program
 
         if (harvestEvilCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
+
+        if (sourceOracleCandidates)
+        {
+            return SourceOracleCandidateLedger.Run(
+                assemblies,
+                baselineSourceOracleReportPath!,
+                json,
+                sourceRepositories);
+        }
 
         if (benchmarkAuthoredCorpus || verifyAuthoredCorpus)
         {
@@ -2259,8 +2277,9 @@ static class Program
           --package-tfm <tfm>    select a specific TFM from --package.
           --package-assembly <dll>
                                 select a specific assembly inside --package.
-          --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus
-                                or --verify-authored-corpus: read authored source
+          --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus,
+                                --verify-authored-corpus, or
+                                --source-oracle-candidates: read authored source
                                 from a local git clone (checksum-arbitrated)
                                 instead of the network; repeatable. Point at this
                                 checkout to skip remote fetches for dotnet-inspect's
@@ -2304,6 +2323,30 @@ static class Program
                                 file must be Valid and Correct; files opted into
                                 Printer exact must also match before source
                                 normalization. Missing or stale members fail.
+          --source-oracle-candidates
+                                network-bound measurement: which whole source files
+                                could be enrolled in the source oracle next, and in
+                                what order they add the most new C# syntax. Scans
+                                every real-method target in the supplied assemblies
+                                (no cap), computes file membership from the complete
+                                portable-PDB mapping before acquiring any source,
+                                and publishes every qualification outcome. It is not
+                                a gate: a rejected candidate or an unanswered source
+                                fetch is typed data and exits 0. Only measurement
+                                integrity fails — no usable assembly or target, a
+                                failed PDB census, an evaluation mismatch, an
+                                unverified baseline, or no checksum-identified file
+                                evaluated. Requires
+                                --baseline-source-oracle-report.
+          --baseline-source-oracle-report <report.json>
+                                with --source-oracle-candidates: the VERIFIED
+                                --benchmark-authored-corpus --json report whose
+                                observed syntax features the ranking is incremental
+                                to. It must have complete inputs, a passing
+                                source-oracle manifest, and an evaluated syntax
+                                inventory at a supported version; a manifest is not
+                                accepted in its place, because a declaration is not
+                                evidence that a feature was ever observed.
           --integrity-only      with --benchmark-authored-corpus: report measurement
                                 integrity only, making no quality claim at all. For a
                                 lane that cannot yet ratchet because its pool is not
