@@ -1105,9 +1105,15 @@ public static class PlatformResolver
                 framework.LatestVersion);
             if (refPath == null)
             {
-                catalogFailure ??= new PlatformTypeLookupFailure(
+                PlatformTypeLookupFailure failure = new(
                     PlatformTypeLookupFailureKind.CatalogUnavailable,
                     $"The {framework.ShortName} reference catalog is unavailable.");
+                if (PlatformTypeCatalog.ShouldReplaceFailure(
+                        catalogFailure,
+                        failure))
+                {
+                    catalogFailure = failure;
+                }
                 continue;
             }
 
@@ -1124,7 +1130,12 @@ public static class PlatformResolver
                     candidates.AddRange(ambiguous.Candidates);
                     break;
                 case PlatformTypeLookupOutcome.Rejected rejected:
-                    catalogFailure ??= rejected.Failure;
+                    if (PlatformTypeCatalog.ShouldReplaceFailure(
+                            catalogFailure,
+                            rejected.Failure))
+                    {
+                        catalogFailure = rejected.Failure;
+                    }
                     break;
             }
         }

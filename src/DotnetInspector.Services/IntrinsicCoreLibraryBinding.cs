@@ -41,7 +41,7 @@ static class IntrinsicCoreLibraryBinding
                     requestingAssembly);
             }
 
-            AssemblyBindingSelection? firstFailure = null;
+            AssemblyBindingSelection? retainedFailure = null;
             foreach (AssemblyReferenceIdentity facade
                 in CoreLibraryReferences(reader))
             {
@@ -53,10 +53,15 @@ static class IntrinsicCoreLibraryBinding
                     return selection;
                 }
 
-                firstFailure ??= selection;
+                if (ShouldReplaceFailure(
+                        retainedFailure,
+                        selection))
+                {
+                    retainedFailure = selection;
+                }
             }
 
-            return firstFailure
+            return retainedFailure
                 ?? AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.UnsupportedScope));
@@ -161,6 +166,28 @@ static class IntrinsicCoreLibraryBinding
         AssemblyBindingSelection.CannotSelect(
             new AssemblyBindingFailure(
                 AssemblyBindingFailureKind.CandidateUnavailable));
+
+    static bool ShouldReplaceFailure(
+        AssemblyBindingSelection? retained,
+        AssemblyBindingSelection candidate) =>
+        retained is null
+        || FailurePrecedence(candidate)
+            > FailurePrecedence(retained);
+
+    static int FailurePrecedence(
+        AssemblyBindingSelection selection) =>
+        selection is AssemblyBindingSelection.Unavailable unavailable
+            ? unavailable.Failure.CandidateFailureKind switch
+            {
+                CandidateOpenFailureKind.ResourceBudget => 2,
+                CandidateOpenFailureKind
+                    .UnsupportedMetadataFormat => 1,
+                CandidateOpenFailureKind.InvalidImage
+                    when unavailable.Failure.MetadataRootReason
+                        is not null => 1,
+                _ => 0,
+            }
+            : 0;
 
     static bool IsCoreLibraryFacade(string name) =>
         name.Equals(

@@ -73,6 +73,90 @@ public sealed class MetadataFormatAdmissionTests
         Assert.Equal(1, opened!.DisposeCount);
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    public void IntrinsicBinding_PreservesCandidateFailurePrecedence(
+        int scenario,
+        bool higherPriorityFirst)
+    {
+        var assembly = ResolvedAssemblyReference.Create(
+            new AssemblyReferenceIdentity(
+                "Consumer",
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            path: null,
+            () => new MemoryStream(
+                BuildCoreLibraryReferenceAssembly(),
+                writable: false),
+            AssemblyResolutionProvenance.Local(
+                "services format admission test"));
+        AssemblyBindingSelection higherPriority =
+            scenario switch
+            {
+                0 => CandidateFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    MetadataRootMalformedReason.InvalidSignature),
+                1 => CandidateFailure(
+                    CandidateOpenFailureKind.ResourceBudget),
+                2 => CandidateFailure(
+                    CandidateOpenFailureKind
+                        .UnsupportedMetadataFormat),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(scenario)),
+            };
+        AssemblyBindingSelection lowerPriority =
+            scenario switch
+            {
+                0 or 2 => CandidateFailure(
+                    CandidateOpenFailureKind.Unreadable),
+                1 => CandidateFailure(
+                    CandidateOpenFailureKind
+                        .UnsupportedMetadataFormat),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(scenario)),
+            };
+        AssemblyBindingSelection first = higherPriorityFirst
+            ? higherPriority
+            : lowerPriority;
+        AssemblyBindingSelection second = higherPriorityFirst
+            ? lowerPriority
+            : higherPriority;
+        IAssemblyBindingPolicy bindingPolicy =
+            new SourceRelativeAssemblyGroupBindingPolicy(
+                [(assembly, new CoreLibraryFailurePolicy(first, second))]);
+
+        var unavailable =
+            Assert.IsType<AssemblyBindingSelection.Unavailable>(
+                bindingPolicy.Select(
+                    new AssemblyBindingRequest(
+                        AssemblyBindingTarget.CoreLibrary(),
+                        AssemblyBindingOrigin.FromAssembly(assembly),
+                        AssemblyResolutionScope.Platform)));
+
+        Assert.Equal(
+            scenario switch
+            {
+                0 => CandidateOpenFailureKind.InvalidImage,
+                1 => CandidateOpenFailureKind.ResourceBudget,
+                2 => CandidateOpenFailureKind
+                    .UnsupportedMetadataFormat,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(scenario)),
+            },
+            unavailable.Failure.CandidateFailureKind);
+        Assert.Equal(
+            scenario == 0
+                ? MetadataRootMalformedReason.InvalidSignature
+                : null,
+            unavailable.Failure.MetadataRootReason);
+    }
+
     static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();
@@ -108,6 +192,86 @@ public sealed class MetadataFormatAdmissionTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildCoreLibraryReferenceAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Consumer.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Consumer"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static AssemblyBindingSelection CandidateFailure(
+        CandidateOpenFailureKind kind,
+        MetadataRootMalformedReason? reason = null) =>
+        AssemblyBindingSelection.CannotSelect(
+            new AssemblyBindingFailure(
+                AssemblyBindingFailureKind.CandidateUnavailable,
+                kind)
+            {
+                MetadataRootReason = reason,
+            });
+
+    sealed class CoreLibraryFailurePolicy(
+        AssemblyBindingSelection first,
+        AssemblyBindingSelection second)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request)
+        {
+            var reference =
+                Assert.IsType<AssemblyBindingTarget.AssemblyReference>(
+                    request.Target);
+            return reference.Identity.Name.Equals(
+                "System.Private.CoreLib",
+                StringComparison.Ordinal)
+                ? first
+                : second;
+        }
     }
 
     sealed class ThrowingDisposeMemoryStream(byte[] image)

@@ -1,4 +1,8 @@
+using System.Buffers.Binary;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using DotnetInspector.Core;
 using DotnetInspector.Services;
@@ -366,6 +370,217 @@ public class PlatformResolverTests
         }
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void PlatformTypeCatalog_PreservesMetadataFailure(
+        int failure)
+    {
+        string packsDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-platform-format-{Guid.NewGuid():N}");
+        string referencePath = Path.Combine(
+            packsDirectory,
+            "Microsoft.NETCore.App.Ref",
+            "1.0.0",
+            "ref",
+            "net1.0");
+        try
+        {
+            Directory.CreateDirectory(referencePath);
+            File.WriteAllBytes(
+                Path.Combine(referencePath, "Rejected.dll"),
+                failure switch
+                {
+                    0 => BuildNoMetadataImage(),
+                    1 => BuildManagedWindowsMetadata(),
+                    2 => BuildMalformedMetadataRoot(),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(failure)),
+                });
+
+            var rejected =
+                Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+                    PlatformResolver.LookupTypeInFramework(
+                        "System.String",
+                        "runtime@1.0.0",
+                        packsDirectory));
+
+            Assert.Equal(
+                failure switch
+                {
+                    0 => PlatformTypeLookupFailureKind.NoMetadata,
+                    1 => PlatformTypeLookupFailureKind
+                        .UnsupportedMetadataFormat,
+                    2 => PlatformTypeLookupFailureKind
+                        .MalformedMetadataRoot,
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(failure)),
+                },
+                rejected.Failure.Kind);
+            Assert.Equal(
+                failure == 2
+                    ? MetadataRootMalformedReason.InvalidSignature
+                    : null,
+                rejected.Failure.MetadataRootReason);
+        }
+        finally
+        {
+            Directory.Delete(packsDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PlatformTypeLookupFailure_PreservesCompatibilityShape()
+    {
+        Assert.Equal(
+            0,
+            (int)PlatformTypeLookupFailureKind.InvalidPattern);
+        Assert.Equal(
+            1,
+            (int)PlatformTypeLookupFailureKind.CatalogUnavailable);
+        Assert.Equal(
+            2,
+            (int)PlatformTypeLookupFailureKind.InvalidAssembly);
+
+        Type type = typeof(PlatformTypeLookupFailure);
+        Assert.NotNull(type.GetConstructor(
+            [
+                typeof(PlatformTypeLookupFailureKind),
+                typeof(string),
+            ]));
+        MethodInfo deconstruct = Assert.Single(
+            type.GetMethods(),
+            method => method.Name == "Deconstruct");
+        Assert.Equal(2, deconstruct.GetParameters().Length);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    public void LookupTypeAcrossFrameworks_PrefersTypedMetadataFailure(
+        int failure,
+        bool typedFailureInRuntime)
+    {
+        string packsDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"platform-format-precedence-{Guid.NewGuid():N}");
+        try
+        {
+            string runtimePath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                "1.0.0",
+                "ref",
+                "net1.0");
+            string aspNetCorePath = Path.Combine(
+                packsDirectory,
+                "Microsoft.AspNetCore.App.Ref",
+                "1.0.0",
+                "ref",
+                "net1.0");
+            Directory.CreateDirectory(runtimePath);
+            Directory.CreateDirectory(aspNetCorePath);
+            File.WriteAllBytes(
+                Path.Combine(runtimePath, "Runtime.dll"),
+                typedFailureInRuntime
+                    ? failure == 0
+                        ? BuildManagedWindowsMetadata()
+                        : BuildMalformedMetadataRoot()
+                    : BuildNoMetadataImage());
+            File.WriteAllBytes(
+                Path.Combine(aspNetCorePath, "AspNetCore.dll"),
+                typedFailureInRuntime
+                    ? BuildNoMetadataImage()
+                    : failure == 0
+                        ? BuildManagedWindowsMetadata()
+                        : BuildMalformedMetadataRoot());
+
+            var rejected =
+                Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+                    PlatformResolver.LookupTypeAcrossFrameworks(
+                        "Missing.Type",
+                        packsDirectory));
+
+            Assert.Equal(
+                failure == 0
+                    ? PlatformTypeLookupFailureKind
+                        .UnsupportedMetadataFormat
+                    : PlatformTypeLookupFailureKind
+                        .MalformedMetadataRoot,
+                rejected.Failure.Kind);
+            Assert.Equal(
+                failure == 0
+                    ? null
+                    : MetadataRootMalformedReason.InvalidSignature,
+                rejected.Failure.MetadataRootReason);
+        }
+        finally
+        {
+            Directory.Delete(packsDirectory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void
+        LookupTypeAcrossFrameworks_UnsupportedCatalogPreservesHealthyCandidate(
+            bool unsupportedInRuntime)
+    {
+        string packsDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"platform-format-neighbor-{Guid.NewGuid():N}");
+        try
+        {
+            string runtimePath = Path.Combine(
+                packsDirectory,
+                "Microsoft.NETCore.App.Ref",
+                "1.0.0",
+                "ref",
+                "net1.0");
+            string aspNetCorePath = Path.Combine(
+                packsDirectory,
+                "Microsoft.AspNetCore.App.Ref",
+                "1.0.0",
+                "ref",
+                "net1.0");
+            Directory.CreateDirectory(runtimePath);
+            Directory.CreateDirectory(aspNetCorePath);
+            byte[] healthy = File.ReadAllBytes(
+                typeof(PlatformResolverTests).Assembly.Location);
+            File.WriteAllBytes(
+                Path.Combine(runtimePath, "Runtime.dll"),
+                unsupportedInRuntime
+                    ? BuildManagedWindowsMetadata()
+                    : healthy);
+            File.WriteAllBytes(
+                Path.Combine(aspNetCorePath, "AspNetCore.dll"),
+                unsupportedInRuntime
+                    ? healthy
+                    : BuildManagedWindowsMetadata());
+
+            var resolved =
+                Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+                    PlatformResolver.LookupTypeAcrossFrameworks(
+                        typeof(PlatformResolverTests).FullName!,
+                        packsDirectory));
+            var provenance =
+                Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                    resolved.Candidate.Assembly.Provenance);
+            Assert.Equal(
+                unsupportedInRuntime ? "aspnetcore" : "runtime",
+                provenance.Framework);
+        }
+        finally
+        {
+            Directory.Delete(packsDirectory, recursive: true);
+        }
+    }
+
     [Fact]
     public void LookupType_UnqualifiedCollision_ReturnsOrderedAmbiguity()
     {
@@ -631,8 +846,12 @@ public class PlatformResolverTests
                     "Missing.Type",
                     tempDir));
             Assert.Equal(
-                PlatformTypeLookupFailureKind.CatalogUnavailable,
+                PlatformTypeLookupFailureKind.MalformedMetadataRoot,
                 rejected.Failure.Kind);
+            Assert.Equal(
+                MetadataRootMalformedReason
+                    .UnmappableMetadataDirectory,
+                rejected.Failure.MetadataRootReason);
         }
         finally
         {
@@ -1274,6 +1493,71 @@ public class PlatformResolverTests
             if (Directory.Exists(tempPacksDir))
                 Directory.Delete(tempPacksDir, recursive: true);
         }
+    }
+
+    static byte[] BuildManagedWindowsMetadata()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildMalformedMetadataRoot()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(PlatformResolverTests).Assembly.Location);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.MetadataStartOffset,
+                sizeof(uint)),
+            0);
+        return image;
+    }
+
+    static byte[] BuildNoMetadataImage()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(PlatformResolverTests).Assembly.Location);
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
     }
 
     [Theory]

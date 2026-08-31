@@ -294,14 +294,23 @@ outranks an earlier generic unreadable, no-metadata, or invalid-image failure
 so candidate order cannot erase the admission receipt. Requesting-origin
 binding projection consults the retained registration failure directly, so a
 resolution-specific budget result does not erase its
-`CandidateOpenFailureKind.ResourceBudget` binding receipt.
+`CandidateOpenFailureKind.ResourceBudget` binding receipt. Intrinsic
+core-library facade selection applies the same ranking rather than choosing
+the first unsuccessful facade.
 Post-admission SRM validation failures such as an overflowing metadata stream
 count remain ordinary invalid-image outcomes: package role realization retains
 the rejected participant, declaration inventory and Corpus return typed
 failures, path and assembly-set surface classification preserve healthy
 neighbors, Research API comparison records the failed participant without
 retrying it as a module, and TypeScript commands emit bounded diagnostics
-rather than an unhandled exception.
+rather than an unhandled exception. The defensive `MethodSemanticsRowReader`
+leaf maps the same SRM construction failure to
+`MetadataReaderRejected`.
+Platform type lookup appends distinct no-metadata, unsupported-format, and
+malformed-root failure kinds and carries the exact malformed reason
+non-positionally. Per-catalog and cross-framework aggregation prefer those
+typed receipts over generic catalog failures without changing the existing
+numeric values or positional record shape.
 `MetadataFormatAdmissionTests`,
 `CallerScopeReachabilityPlanTests.Candidate_PreservesUnmappableMetadataDirectory`,
 and `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation,

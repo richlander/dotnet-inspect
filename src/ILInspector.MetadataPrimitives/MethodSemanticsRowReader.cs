@@ -212,7 +212,8 @@ public static class MethodSemanticsRowReader
         {
             reader = peReader.GetMetadataReader();
         }
-        catch (BadImageFormatException)
+        catch (Exception ex) when (
+            ex is BadImageFormatException or OverflowException)
         {
             return Malformed(
                 MethodSemanticsMalformedReason.MetadataReaderRejected);
