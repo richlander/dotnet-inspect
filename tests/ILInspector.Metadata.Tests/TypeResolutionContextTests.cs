@@ -709,13 +709,7 @@ public class TypeResolutionContextTests
             [baseline, equivalent, .. closeNegatives];
         using var catalog = new TypeResolutionCatalog();
         using TypeResolutionContext context = catalog.CreateContext(
-            new RecordingPolicy(
-                request => request.Target
-                        is AssemblyBindingTarget.AssemblyReference
-                    ? AssemblyBindingSelection.NotFound()
-                    : AssemblyBindingSelection.CannotSelect(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.UnsupportedScope))),
+            new RecordingPolicy(_ => AssemblyBindingSelection.NotFound()),
             [firstOwner, secondOwner],
             requests);
 
@@ -730,7 +724,8 @@ public class TypeResolutionContextTests
         UnresolvedBindingKey[] negativeKeys = closeNegatives
             .Select(request => IssuedBindingKey(
                 catalog,
-                UnresolvedBinding(context.Resolve(request))))
+                Assert.IsType<TypeResolutionOutcome.UnboundBinding>(
+                    context.Resolve(request)).Binding))
             .ToArray();
 
         Assert.Same(baselineKey, equivalentKey);
@@ -2237,33 +2232,6 @@ public class TypeResolutionContextTests
                 [facade],
                 [request]));
         Assert.Equal(1, policy.CallCount);
-    }
-
-    [Theory]
-    [InlineData(AssemblyBindingMissDisposition.Undifferentiated)]
-    [InlineData(AssemblyBindingMissDisposition.NoNameOwner)]
-    [InlineData(AssemblyBindingMissDisposition.NameOwnedNoMatch)]
-    public void AssemblyBindingMissDisposition_IntrinsicMissingIsRejected(
-        AssemblyBindingMissDisposition disposition)
-    {
-        var request = new AssemblyBindingRequest(
-            AssemblyBindingTarget.CoreLibrary(),
-            AssemblyBindingOrigin.Global(),
-            AssemblyResolutionScope.Platform);
-        var policy = new RecordingPolicy(_ => Missing(disposition));
-        using var catalog = new TypeResolutionCatalog();
-
-        using TypeResolutionContext context = catalog.CreateContext(
-            policy,
-            roots: [],
-            bindingRequests: [request],
-            requests: []);
-
-        Assert.Equal(
-            AssemblyBindingFailureKind.InvalidPolicyResult,
-            Assert.IsType<AssemblyBindingOutcome.Rejected>(
-                context.Bind(request)).Failure.Kind);
-        Assert.Single(policy.Requests);
     }
 
     [Theory]
