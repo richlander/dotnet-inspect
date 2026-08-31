@@ -4653,7 +4653,14 @@ public class PackageCommand
                     preflightFailure.AdmissionException);
             }
 
-            failures.Add((relativePath, preflightFailure.Reason));
+            string reason =
+                preflightFailure.AdmissionException is
+                    UnsupportedMetadataFormatException
+                    or MalformedMetadataRootException
+                    ? DescribeLibraryInspectionFormatFailure(
+                        preflightFailure.AdmissionException)
+                    : preflightFailure.Reason;
+            failures.Add((relativePath, reason));
             return Task.FromResult<LibraryInspection?>(null);
         }
 

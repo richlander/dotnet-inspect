@@ -284,6 +284,10 @@ contract.
 Assembly-binding and workspace-load failures likewise retain the exact reason
 in non-positional properties, while browser and command adapters include the
 bounded enum reason without exposing artifact text.
+Frozen `TypeResolutionContext` binding outcomes construct their public
+`AssemblyBindingFailure` from the retained `CandidateOpenFailure`; selected,
+multi-candidate, and requesting-origin failures therefore keep the candidate
+kind and malformed-root reason after the discovery builder is discarded.
 `MetadataFormatAdmissionTests`,
 `CallerScopeReachabilityPlanTests.Candidate_PreservesUnmappableMetadataDirectory`,
 and `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation,
@@ -297,6 +301,11 @@ and reader/image association. Services
 workspace malformed-asset tests, browser
 `MetadataProjection_PreservesFormatRejection`, and the mixed-package command
 tests gate exact malformed-root reason retention through their adapters.
+The `TypeResolutionContextTests` malformed candidate, origin, and ambiguous
+binding cases gate frozen binding retention.
+`PackageIntegrationsWorkspaceTests.MalformedMetadataPreflight_PreservesGroupedReason`
+gates grouped multi-library Integration preflight projection through the same
+bounded format-failure diagnostic used by ordinary library inspection.
 `TypeScriptFacadeEmitterTests.SurfaceLoader_PreservesMalformedMetadataRoot`
 gates TypeScript-generation propagation; the malformed-root command tests in
 `TsBindGenCommandTests` and `TsJsExportCommandTests` gate their bounded

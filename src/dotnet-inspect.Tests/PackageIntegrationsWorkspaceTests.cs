@@ -590,6 +590,55 @@ public sealed class PackageIntegrationsWorkspaceTests
         }
     }
 
+    [Fact]
+    public async Task MalformedMetadataPreflight_PreservesGroupedReason()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "package-integrations-malformed-").FullName;
+        string path = Path.Combine(directory, "Malformed.dll");
+        byte[] image = File.ReadAllBytes(
+            typeof(PackageIntegrationsWorkspaceTests).Assembly.Location);
+        using (var peReader = new PEReader(
+            ImmutableArray.Create(image)))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(
+                    peReader.PEHeaders.MetadataStartOffset,
+                    sizeof(uint)),
+                0xDEADBEEF);
+        }
+        File.WriteAllBytes(path, image);
+        try
+        {
+            using var workspace =
+                PackageIntegrationsWorkspace.Create(
+                    [new(path, "net11.0")],
+                    "Test.Package",
+                    "1.0.0");
+            List<(string FileName, string Reason)> failures = [];
+
+            LibraryInspection? inspection =
+                await Commands.PackageCommand
+                    .InspectGroupedAssemblyAsync(
+                        workspace,
+                        path,
+                        "ref/net11.0/Malformed.dll",
+                        failures,
+                        (_, _, _) => throw new InvalidOperationException(
+                            "Inspection must not run."));
+
+            Assert.Null(inspection);
+            var failure = Assert.Single(failures);
+            Assert.Equal(
+                "malformed metadata root (InvalidSignature)",
+                failure.Reason);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static byte[] CreateUnsupportedMetadataImage()
     {
         const int fixedMetadataRootPrefixLength = 16;

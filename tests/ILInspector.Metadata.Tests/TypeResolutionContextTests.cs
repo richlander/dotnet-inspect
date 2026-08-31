@@ -1532,12 +1532,161 @@ public class TypeResolutionContextTests
             AssemblyBindingFailureKind.CandidateUnavailable,
             Assert.IsType<AssemblyBindingOutcome.Unavailable>(
                 context.Bind(bindingRequest)).Failure.Kind);
+        Assert.Equal(
+            CandidateOpenFailureKind.Unreadable,
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(bindingRequest))
+                .Failure.CandidateFailureKind);
         Assert.IsType<TypeResolutionFailure.CandidateOpenFailed>(
             Assert.IsType<TypeResolutionOutcome.Rejected>(
                 second.Resolve(referenceRequest)).Failure);
         Assert.IsType<AssemblyBindingOutcome.Unavailable>(
             second.Bind(bindingRequest));
         Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
+    public void BindingFailure_PreservesMalformedCandidateReason()
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference malformed =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Designated(
+                    "malformed selected assembly"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Found(malformed));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            failure.MetadataRootReason);
+    }
+
+    [Fact]
+    public void BindingFailure_PreservesMalformedOriginReason()
+    {
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner =
+            ResolvedAssemblyReference.Create(
+                Identity("Owner"),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("test"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => throw new InvalidOperationException(
+                "Policy must not run."));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            failure.MetadataRootReason);
+        Assert.Empty(policy.Requests);
+    }
+
+    [Fact]
+    public void AmbiguousBindingFailure_PreservesMalformedCandidateReason()
+    {
+        byte[] ownerImage = BuildAssembly(
+            "Owner",
+            definesType: false);
+        byte[] targetImage = BuildAssembly(
+            "Target",
+            definesType: true);
+        ResolvedAssemblyReference owner = Descriptor(ownerImage);
+        ResolvedAssemblyReference malformed =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => new MemoryStream(
+                    MetadataAdmissionCleanupTests
+                        .BuildMalformedMetadataRoot(),
+                    writable: false),
+                AssemblyResolutionProvenance.Local("malformed"));
+        ResolvedAssemblyReference unreadable =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                () => throw new IOException("unreadable"),
+                AssemblyResolutionProvenance.Local("unreadable"));
+        var binding = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                ReadIdentity(targetImage)),
+            AssemblyBindingOrigin.FromAssembly(owner),
+            AssemblyResolutionScope.Any);
+        var policy = new RecordingPolicy(
+            _ => AssemblyBindingSelection.Multiple(
+                [malformed, unreadable]));
+        using var catalog = new TypeResolutionCatalog();
+        using TypeResolutionContext context =
+            catalog.CreateContext(
+                policy,
+                roots: [owner],
+                bindingRequests: [binding],
+                requests: []);
+
+        AssemblyBindingFailure failure =
+            Assert.IsType<AssemblyBindingOutcome.Unavailable>(
+                context.Bind(binding)).Failure;
+
+        Assert.Equal(
+            CandidateOpenFailureKind.InvalidImage,
+            failure.CandidateFailureKind);
+        Assert.Equal(
+            MetadataRootMalformedReason.InvalidSignature,
+            failure.MetadataRootReason);
     }
 
     [Fact]

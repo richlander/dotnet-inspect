@@ -1089,8 +1089,10 @@ public sealed class TypeResolutionContext : IDisposable
                         is TypeResolutionFailure.UnregisteredAssembly
                         ? new AssemblyBindingOutcome.ExpansionRequired(request)
                         : new AssemblyBindingOutcome.Unavailable(
-                            new AssemblyBindingFailure(
-                                AssemblyBindingFailureKind.CandidateUnavailable));
+                            failure
+                                is TypeResolutionFailure.CandidateOpenFailed open
+                                    ? CandidateUnavailableBinding(open.Failure)
+                                    : CandidateUnavailableBinding());
                 }
 
                 return _bindings.TryGetValue(
@@ -1101,6 +1103,15 @@ public sealed class TypeResolutionContext : IDisposable
             }
         }
     }
+
+    static AssemblyBindingFailure CandidateUnavailableBinding(
+        CandidateOpenFailure? failure = null) =>
+        new(
+            AssemblyBindingFailureKind.CandidateUnavailable,
+            failure?.Kind)
+        {
+            MetadataRootReason = failure?.MetadataRootReason,
+        };
 
     bool TryProjectRequest(
         TypeResolutionRequest request,
@@ -2502,8 +2513,7 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 return new(
                     new AssemblyBindingOutcome.Unavailable(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.CandidateUnavailable),
+                        CandidateUnavailableBinding(strictFailure),
                         shadowedAssemblies),
                     assembly,
                     strictFailure,
@@ -2524,8 +2534,7 @@ public sealed class TypeResolutionContext : IDisposable
                 _registrationFailures[assembly.Registration];
             return new(
                 new AssemblyBindingOutcome.Unavailable(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable),
+                    CandidateUnavailableBinding(failure),
                     shadowedAssemblies),
                 assembly,
                 failure,
@@ -2572,8 +2581,7 @@ public sealed class TypeResolutionContext : IDisposable
             return unavailableFailure is not null
                 ? new(
                     new AssemblyBindingOutcome.Unavailable(
-                        new AssemblyBindingFailure(
-                            AssemblyBindingFailureKind.CandidateUnavailable)),
+                        CandidateUnavailableBinding(unavailableFailure)),
                     unavailableAssembly,
                     unavailableFailure,
                     assemblies)
