@@ -2,7 +2,7 @@
 
 > **Owner:** the classic async inverse in `ILInspector.Decompiler`.
 >
-> **Owning document:** this document.
+> **Owning document:** `docs/design/classic-async-reconstruction.md`.
 >
 > **Map:** [Decompiler design](../decompiler.md) owns pipeline composition.
 > [Raise-work discipline](../decompiler-raise-discipline.md) owns the evidence
@@ -15,9 +15,10 @@ Design. Tracking:
 [#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
 
 The classic async inverse core accepts one authenticated classic request with
-pristine kickoff and execution bodies. It produces either a healthy decline, a
-visible planning failure, or one immutable reconstruction plan. A successful
-plan proves three independent obligations:
+unmodified import snapshots of the kickoff and execution IL present in the
+inspected artifact. It produces either a healthy decline, a visible planning
+failure, or one immutable reconstruction plan. A successful plan proves three
+independent obligations:
 
 1. every physical region in scope has one explicit disposition;
 2. every input semantic effect has one output realization; and
@@ -28,11 +29,14 @@ This is a reconstruction proof, not a general control-flow proof. Container
 CFG facts may support a recipe, but they do not establish arbitrary CLR
 control-flow or exception-flow soundness.
 
-The previous design swept request attachment, planning, stage application,
-nested-function embedding, and result projection into one lifecycle. Review of
-PR #5002 showed that those owners change independently, so that PR was
-superseded. This document re-derives only the inverse core. The adjacent work is
-tracked independently:
+PR #4473 introduced this owning document and the initial durable-inverse
+direction. This corrective successor retains its Decompiler ownership,
+owner-issued relationship boundary, and requirement for explicit physical and
+semantic accounting. Review of implementation PR #5002 then showed that #4473
+had also swept request attachment, stage application, nested-function
+embedding, and result projection into one lifecycle. PR #5002 was superseded,
+and this revision replaces those parts of #4473's contract with one re-derived
+inverse-core boundary. The adjacent work is tracked independently:
 
 - [#5277](https://github.com/richlander/dotnet-inspect/issues/5277) owns how
   Metadata relationship evidence reaches the Decompiler request boundary.
@@ -93,7 +97,8 @@ Decline(
   ancestor: if (Probe()))
 ```
 
-For the neighboring compiler-produced shape with no semantic guard:
+For the neighboring lowered shape obtained by compiling the positive test
+fixture, with no semantic guard:
 
 ```text
 try
@@ -121,8 +126,8 @@ ClassicInverseRequest
   DeclaredMethod       guarded owner-issued identity
   ExecutionMethod      guarded owner-issued identity
   Relationship         successful owner-issued classic relationship
-  KickoffBody          pristine imported body bound to DeclaredMethod
-  ExecutionBody        pristine imported body bound to ExecutionMethod
+  KickoffBody          unmodified import snapshot bound to DeclaredMethod
+  ExecutionBody        unmodified import snapshot bound to ExecutionMethod
 ```
 
 The names describe roles, not a required implementation shape. The core treats
@@ -130,6 +135,41 @@ the relationship and guards as opaque owner evidence. It neither recreates
 them from names or IR nor selects replacement identities. A missing, rejected,
 or filtered owner result never becomes a core request; preserving those result
 arms is #5277's responsibility.
+
+### Body availability and post-build artifacts
+
+`Unmodified` describes pipeline state, not provenance. The snapshots contain
+the IL found in the inspected artifact before a Decompiler raising pass edits
+it. They are not promised to be the original compiler bodies. A linker,
+instrumenter, obfuscator, or other post-build tool may already have rewritten
+them.
+
+Trimmed assemblies are not categorically excluded. The adapter can form a core
+request when the selected kickoff and execution MethodDefs both retain
+importable IL and Metadata still supplies a successful authenticated
+relationship. The core then proves a recipe against that post-trim IL. If a
+post-build transform changes the lowering shell, the current recipe declines;
+a later recipe may support a stable transformed shell when the retained IL
+still carries enough evidence to satisfy every proof obligation.
+
+A request cannot be formed from the inspected artifact when:
+
+- trimming removes the kickoff, state-machine type, or execution MethodDef;
+- a required MethodDef remains but has no IL body, represented by RVA zero;
+- trimming retains a relationship claim but removes role evidence, so the
+  Metadata relationship is rejected; or
+- the input is a metadata-only, reference, or native artifact with no managed
+  kickoff and execution IL available to import.
+
+Abstract, extern, interface, and P/Invoke methods are ordinary RVA-zero cases,
+although they are not valid classic kickoff or execution bodies. Linker output
+or malformed metadata can expose the same absence at this boundary.
+
+These cases are not repairable by broadening the inverse matcher: the current
+artifact no longer contains the executable operations, evaluation order, and
+exception structure that a reconstruction proof must account for. Supporting
+an authenticated pre-trim assembly or another body source would be a separate
+acquisition and request-adapter contract, not an inverse-core extension.
 
 The terminal result is:
 
@@ -169,10 +209,11 @@ These are three separate checks. Passing one never implies another.
 
 ### Physical partition
 
-The physical scope is fixed by the complete pristine kickoff and execution
-bodies. A nested function body is an opaque physical node in this scope; its
-descendants belong to a separate body request and cannot be searched or claimed
-by the outer recipe. The physical regions form a disjoint, complete partition:
+The physical scope is fixed by the complete unmodified import snapshots of the
+kickoff and execution bodies. A nested function body is an opaque physical node
+in this scope; its descendants belong to a separate body request and cannot be
+searched or claimed by the outer recipe. The physical regions form a disjoint,
+complete partition:
 
 - **protocol** regions are authenticated lowering scaffolding;
 - **semantic** regions contribute to reconstructed user behavior; and
