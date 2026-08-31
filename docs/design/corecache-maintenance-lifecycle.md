@@ -90,42 +90,54 @@ publishing is a different owner; see
 
 ## Maintenance progress accounting
 
-The most significant finding of this effort is a genuine accounting defect,
-not a documentation gap:
+The most significant finding of this effort was a genuine accounting defect,
+not a documentation gap. It has since been fixed.
 
-**`CancelAndWaitForMaintenance`'s reported byte count and directory count are
-not guaranteed to describe the same set of deletions, when its wait times
-out.** `CacheMaintenanceProgress` records a completed deletion's byte count
+**`CancelAndWaitForMaintenance`'s reported byte count and directory count were
+not guaranteed to describe the same set of deletions, when its wait timed
+out.** `CacheMaintenanceProgress` recorded a completed deletion's byte count
 and directory count as two independent `Interlocked` operations, and
-reads/resets both counters as two independent `Interlocked` operations.
+read/reset both counters as two independent `Interlocked` operations.
 `CancelAndWaitForMaintenance` waits only a caller-supplied timeout for the
 in-flight maintenance task; if that wait times out, it cancels the task,
 waits a further best-effort 25ms, and then reads the counters regardless of
-whether background cleanup has actually finished. A deletion that is
-mid-flight at that moment can have its byte count captured by one report and
-its directory count captured by the *next* report -- permanently, since the
-read also resets both counters to zero. Because a deletion's byte count is
-the complete measured size of one deleted directory, the shifted amount can
-be arbitrarily large, not a small drift.
+whether background cleanup has actually finished. A deletion that was
+mid-flight at that moment could have its byte count captured by one report
+and its directory count captured by the *next* report -- permanently, since
+the read also resets both counters to zero. Because a deletion's byte count
+is the complete measured size of one deleted directory, the shifted amount
+could be arbitrarily large, not a small drift.
 
-**`Clear` is not exposed to this race.** `Clear` waits for the in-flight
+**`Clear` was never exposed to this race.** `Clear` waits for the in-flight
 maintenance task with an effectively unbounded timeout, so by the time it
 reads the counters, every background task it triggered has already finished
 -- the same unconditional-drain pattern a generation transition uses. `Clear`
 also only ever returns a byte count (never a directory count), so even a
-hypothetical tear would have no visible effect on its result.
+hypothetical tear would have had no visible effect on its result.
 
 [`../models/corecache-maintenance-progress/`](../models/corecache-maintenance-progress/)
-models this precisely and confirms it with TLC: the configuration matching
-today's implementation (`BrokenTornWriteAndRead.cfg`) finds the tear in seven
-states. The model also shows that fixing only one side (a lock-guarded writer
-with an unguarded reader, or vice versa) is insufficient
+modeled this precisely and confirmed it with TLC: the configuration matching
+the pre-fix implementation (`BrokenTornWriteAndRead.cfg`) finds the tear in
+seven states. The model also showed that fixing only one side (a
+lock-guarded writer with an unguarded reader, or vice versa) is insufficient
 (`BrokenTornReadOnly.cfg`, `BrokenTornWriteOnly.cfg`); both sides guarded by
 one lock (`Safety.cfg`) eliminates the tear, regardless of how long a caller
 waited beforehand. The model's reader action is deliberately generic (it does
 not distinguish which caller invoked it) and so is a faithful abstraction of
 `CancelAndWaitForMaintenance`'s racy read specifically, not of `Clear`'s
 race-free one.
+
+**Fixed:** `CacheMaintenanceProgress` now guards all four methods (`Record`,
+`RecordDeletion`, `Snapshot`, `TakeSnapshot`) with a single lock, matching
+the model's `Safety.cfg` configuration exactly (`AllowTornWrite = FALSE`,
+`AllowTornRead = FALSE`). `BrokenTornWriteAndRead.cfg`,
+`BrokenTornReadOnly.cfg`, and `BrokenTornWriteOnly.cfg` no longer describe
+shipped behavior; they remain in the model as negative controls proving the
+lock is load-bearing, not incidental.
+`src/DotnetInspector.Services.Tests/CacheMaintenanceProgressTests.cs` proves
+the fix directly: it fails reliably against the pre-fix implementation and
+passes against the fix, for both the destructive (`TakeSnapshot`) and
+non-destructive (`Snapshot`) reader paths.
 
 **A second, distinct exposure: `RequestVersionedCategoryCleanupAsync`'s
 returned task can race a newly-scheduled background task.** That method
@@ -135,12 +147,13 @@ registered while the first task is still pending, its cleanup runs as a new
 background task against the *same* `CacheMaintenanceProgress` instance, but
 is not part of the `tasks` array the first call already captured -- so the
 first task's eventual `progress.Snapshot()` can race that new task's
-`RecordDeletion`. Unlike the `CancelAndWaitForMaintenance` case, `Snapshot()`
-does not reset the counters, so this torn read does not permanently split
-the stored totals: once every concurrent writer has become quiescent, a
-subsequent `Snapshot`/`TakeSnapshot` call observes the complete, untorn
-total -- but no specific *later* call is itself guaranteed to land after
-that quiescent point, and can tear again in the same way.
+`RecordDeletion`. The lock fix above makes each individual `Snapshot()` call
+internally consistent (never a torn byte/directory pair), but does not by
+itself guarantee a specific call lands after every concurrent writer has
+finished: `Snapshot()` still does not reset the counters, so once every
+concurrent writer has become quiescent, a subsequent `Snapshot`/`TakeSnapshot`
+call observes the complete total -- but no specific *earlier* call is
+guaranteed to land after that quiescent point.
 
 **A third, distinct exposure: a generation transition's `TakeSnapshot` can
 race an already-outstanding aggregate task's `Snapshot`.** `Initialize` and
@@ -153,25 +166,31 @@ returned to some other caller). `AwaitMaintenanceAsync`'s continuation calls
 `progress.Snapshot()` against that same progress object after its own
 `await Task.WhenAll(tasks)` completes, but that continuation's actual resumption
 can be scheduled to run after the transition's synchronous wait and
-`TakeSnapshot()` have already reset the counters -- so the aggregate task's
-caller can observe a torn `(bytes, 0)` or `(0, directories)` result. The
-transition's own carry-forward remains correct (it captures the full state
-via `TakeSnapshot()` before any further writer can touch the new progress
-object); only the *outstanding aggregate task's* result can tear.
+`TakeSnapshot()` have already reset the counters. With the lock fix above,
+this ordering race can no longer produce a torn `(bytes, 0)`/`(0, directories)`
+pair -- the two calls are now mutually exclusive, so the aggregate task's
+`Snapshot()` observes either the complete pre-reset totals or the fully-reset
+`(0, 0)` pair, never a mismatch between the two fields. Observing `(0, 0)`
+when real deletions occurred is still an incomplete report to that specific
+caller, distinct from the torn-accounting defect fixed above. The
+transition's own carry-forward remains correct regardless (it captures the
+full state via `TakeSnapshot()` before any further writer can touch the new
+progress object); only the *outstanding aggregate task's* result can still be
+incomplete this way.
 
-This model and its `Safety`/`Liveness` properties do not cover either reader
-path (see the model's Non-claims); both are noted here as known,
-self-correcting-once-quiescent gaps in this contract's coverage, not proven
-defects requiring a fix on their own.
+This model's `Safety`/`Liveness` properties do not cover either reader path
+(see the model's Non-claims); both remain known, self-correcting-once-quiescent
+gaps in this contract's coverage, not proven defects requiring a fix on their
+own -- the lock fix above resolves the torn-accounting defect that was this
+effort's primary finding, not these two lower-severity ordering gaps.
 
-**Recommendation:** guard `CacheMaintenanceProgress`'s four methods
-(`Record`, `RecordDeletion`, `Snapshot`, `TakeSnapshot`) with a single lock (or
-otherwise make each one's read/update of both fields atomic), rather than
-relying on callers to guarantee quiescence before reading. This is a code fix,
-tracked separately from this design; the practical impact is limited to
-`CancelAndWaitForMaintenance` callers whose wait times out, and is an
-accounting shift (one or more directories' full byte/count contributions
-landing in a later report) rather than data loss or corruption.
+**Fixed** (see above): `CacheMaintenanceProgress`'s four methods (`Record`,
+`RecordDeletion`, `Snapshot`, `TakeSnapshot`) are now guarded by a single
+lock, matching the model's `Safety.cfg` configuration. The practical impact
+of the pre-fix defect was limited to `CancelAndWaitForMaintenance` callers
+whose wait timed out, and was an accounting shift (one or more directories'
+full byte/count contributions landing in a later report) rather than data
+loss or corruption.
 
 ## Non-claims
 
@@ -180,4 +199,5 @@ This document does not define or change:
 - `CoreCache`'s non-maintenance read/write cache contract;
 - `CacheTelemetry`'s internals;
 - any other cache in the repository; or
-- the fix for the accounting defect above (tracked separately).
+- the second and third exposures noted above (self-correcting-once-quiescent
+  ordering gaps, not proven defects requiring a fix on their own).

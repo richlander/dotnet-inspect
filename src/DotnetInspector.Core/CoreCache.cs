@@ -689,30 +689,54 @@ internal readonly record struct VersionedCacheCleanupKey(
 
 internal sealed class CacheMaintenanceProgress
 {
+    // Both fields are read and written together under this single lock so that
+    // no caller can observe a byte count and directory count from different
+    // deletions (or a reset that only applies to one field). See
+    // docs/design/corecache-maintenance-lifecycle.md and
+    // docs/models/corecache-maintenance-progress/ for the accounting contract
+    // this enforces; the TLA+ model's Safety.cfg validates that guarding all
+    // four methods with one lock (AllowTornWrite = FALSE, AllowTornRead =
+    // FALSE) eliminates the torn-accounting race.
+    private readonly object _lock = new();
     private long _bytesFreed;
     private int _directoriesDeleted;
 
     public void RecordDeletion(long bytesFreed)
     {
-        Interlocked.Add(ref _bytesFreed, bytesFreed);
-        Interlocked.Increment(ref _directoriesDeleted);
+        lock (_lock)
+        {
+            _bytesFreed += bytesFreed;
+            _directoriesDeleted++;
+        }
     }
 
     public void Record(CacheMaintenanceResult result)
     {
-        Interlocked.Add(ref _bytesFreed, result.BytesFreed);
-        Interlocked.Add(ref _directoriesDeleted, result.DirectoriesDeleted);
+        lock (_lock)
+        {
+            _bytesFreed += result.BytesFreed;
+            _directoriesDeleted += result.DirectoriesDeleted;
+        }
     }
 
     public CacheMaintenanceResult Snapshot()
-        => new(
-            Interlocked.Read(ref _bytesFreed),
-            Volatile.Read(ref _directoriesDeleted));
+    {
+        lock (_lock)
+        {
+            return new(_bytesFreed, _directoriesDeleted);
+        }
+    }
 
     public CacheMaintenanceResult TakeSnapshot()
-        => new(
-            Interlocked.Exchange(ref _bytesFreed, 0),
-            Interlocked.Exchange(ref _directoriesDeleted, 0));
+    {
+        lock (_lock)
+        {
+            var result = new CacheMaintenanceResult(_bytesFreed, _directoriesDeleted);
+            _bytesFreed = 0;
+            _directoriesDeleted = 0;
+            return result;
+        }
+    }
 }
 
 /// <summary>
