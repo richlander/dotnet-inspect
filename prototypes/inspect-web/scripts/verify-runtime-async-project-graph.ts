@@ -13,10 +13,6 @@ import {
   sep,
 } from "node:path";
 
-interface RestoreGraph {
-  projects?: Record<string, unknown>;
-}
-
 const [repositoryArgument, graphArgument, receiptsArgument] =
   process.argv.slice(2);
 if (!repositoryArgument || !graphArgument || !receiptsArgument) {
@@ -26,16 +22,20 @@ if (!repositoryArgument || !graphArgument || !receiptsArgument) {
 }
 
 const repository = realpathSync(repositoryArgument);
-const graph = JSON.parse(
+const graph: unknown = JSON.parse(
   readFileSync(resolve(graphArgument), "utf8"),
-) as RestoreGraph;
+);
 assert.ok(
-  graph.projects && typeof graph.projects === "object",
+  graph !== null && typeof graph === "object",
+  "restore graph is not an object");
+const projects: unknown = Reflect.get(graph, "projects");
+assert.ok(
+  projects !== null && typeof projects === "object" && !Array.isArray(projects),
   "restore graph has no projects");
 
 const expected = new Set<string>();
 const projectNames = new Set<string>();
-for (const projectPath of Object.keys(graph.projects)) {
+for (const projectPath of Object.keys(projects)) {
   const canonical = realpathSync(projectPath);
   const repositoryRelative = relative(repository, canonical);
   assert.ok(
