@@ -145,6 +145,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   host-neutral request topology separating report surface, finite evidence
   universe, targeted/census mode, capability introspection, and result
   projection without owning producer semantics or presentation.
+- [Analysis universe realization](design/analysis-universe-realization.md):
+  operation-scoped binding from one exact finite universe description and
+  validated plan to owner-issued executable capabilities, deterministic
+  population and context access, retained lifetimes, and visible failure.
 - [`ts-jsexport` TypeScript facade generation](design/ts-jsexport.md): ownership,
   type views, compiler handoff, related generator categories, and migration from
   direct JavaScript plus declaration emission.
