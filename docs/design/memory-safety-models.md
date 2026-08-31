@@ -6,23 +6,9 @@ This document owns the product vocabulary for the legacy and updated C#
 memory-safety models and the rules for composing project, metadata, signature,
 method-body, and provenance evidence.
 
-It does not take implementation ownership from the participating subsystems:
-
-- Metadata owns module, member, and decoded-signature facts, including
-  version-aware caller-contract classification.
-- Analysis owns IL-body evidence and method-level compositions over Metadata
-  facts.
-- CSharp owns model-bound declaration spelling from typed Metadata facts.
-- Decompiler owns source reconstruction and safety-context rendering.
-- Research owns cross-evidence summaries.
-- JsExportSurface owns export admission and its unsupported-shape policy.
-- The CLI owns user-visible presentation.
-- Project inspection owns facts declared by or evaluated from project inputs.
-- A provenance service, when available, owns correspondence between a project
-  and a binary.
-
-The composition rules here do not authorize one implementation change to sweep
-all of those owners. Each gap must be addressed through its owning subsystem.
+Implementation remains with the focused owning designs and successor issues
+named below. This document only defines the vocabulary and typed handoffs needed
+to compose their results.
 
 ## Terms
 
@@ -154,7 +140,12 @@ In the updated model:
 - a pointer-bearing signature does not propagate unsafe unless the member has
   the v2 caller contract;
 - an inner `unsafe` block or expression establishes the body context needed for
-  operations that require it; and
+  operations that require it;
+- declarations that must make their v2 contract explicit use `safe` when they
+  do not propagate unsafe. This includes extern declarations and instance
+  fields or field-backed declarations in explicit- or extended-layout types.
+  `safe` has no dedicated metadata marker; reconstruction derives it from the
+  recognized model, declaration shape, and absence of a caller contract; and
 - the module publishes its rules version with
   `[module: MemorySafetyRulesAttribute(2)]`.
 
@@ -229,6 +220,7 @@ reapplying runtime reflection-target policy.
 | Binary model marker | Attribute absent | Module attribute version `2` |
 | What propagates unsafe? | Pointer or function-pointer callable signatures and non-fixed-buffer fields under compatibility rules | `RequiresUnsafeAttribute` |
 | Meaning of member `unsafe` | Establishes a lexical unsafe context | Publishes a caller contract; an instance constructor also establishes its initializer context |
+| Meaning of required member `safe` | Not applicable | Makes a required explicit declaration non-propagating; derived during reconstruction rather than recovered from a dedicated marker |
 | Meaning of a pointer-bearing signature | Compatibility propagator | Not a propagator by itself |
 | How a body establishes unsafe context | Enclosing type/member context or inner unsafe context | Inner unsafe block or expression |
 | Safe-boundary method | Not distinguishable as a separate caller contract | Body uses unsafe context, but member does not propagate |
@@ -418,7 +410,7 @@ dotnet-inspect evidence plane.
 | Which methods establish inner unsafe? | Model-aware context-requiring operations, including constructor initializer/body origin, plus source/build evidence where binary semantics are ambiguous | `MethodSafetyAnalysis` produces structural and operation evidence, but it does not yet expose a model-aware, completeness-qualified inner-unsafe census. |
 | Which methods are safe boundaries? | Recognized v2 module, no member propagation contract, and positive inner-unsafe evidence | Not currently exposed as a composed census. |
 | How do safe and unsafe methods connect? | Typed method roles plus bounded incoming and outgoing call traversal over a finite cross-assembly context | Call-graph infrastructure supports both directions and cross-assembly identities. It can expose a conflating `MethodSignals.Unsafe` cue, but no current query composes the separate propagation, inner-use, and safe-boundary roles onto paths. |
-| How should reconstructed C# express unsafe context? | Binary model, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
+| How should reconstructed C# express safety contracts and context? | Binary model, declaration shape, member contract, and recovered body requirements | Decompiler owns this through [memory-safety rendering modes](memory-safety-modes.md). |
 | Is the project configured for the strongest default? | Updated project policy, unsafe-context permission disabled, v2 binary, and no propagators or unsafe users | No single current query composes this answer. |
 | Did this project produce this binary? | Affirmative provenance evidence | Unverified unless supplied separately. |
 
@@ -433,7 +425,7 @@ specified here:
 | Metadata API representation | [#5253](https://github.com/richlander/dotnet-inspect/issues/5253) | After #5252 |
 | Analysis | [#5254](https://github.com/richlander/dotnet-inspect/issues/5254) | After #5252; parallel with Decompiler |
 | Decompiler | [#5255](https://github.com/richlander/dotnet-inspect/issues/5255) | After #5252; parallel with Analysis |
-| Project build-policy inspection | [#5256](https://github.com/richlander/dotnet-inspect/issues/5256) | Independent of binary work |
+| Project build-policy inspection | [#5256](https://github.com/richlander/dotnet-inspect/issues/5256) | Produces typed project-policy input for #5262; independent of binary work |
 | C# declaration spelling | [#5257](https://github.com/richlander/dotnet-inspect/issues/5257) | After #5253 |
 | JS-export admission | [#5258](https://github.com/richlander/dotnet-inspect/issues/5258) | After #5253 |
 | Research summaries | [#5259](https://github.com/richlander/dotnet-inspect/issues/5259) | After #5253 and #5254 |
