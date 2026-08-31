@@ -461,7 +461,9 @@ deferring the empty-session decision, a checkpoint diagnostic is the same
 first diagnostic that sealing the same required state under the same
 cancellation observations would produce. Sessions that never call
 supplemental acquisition retain the existing required-add and seal-time
-materialization behavior. The supplemental model treats this correctly derived
+materialization behavior for ordinary sources. A duplicate identity now
+reports the documented identity-collision diagnostic instead of an incidental
+materialization failure. The supplemental model treats this correctly derived
 checkpoint result as an owner input; the implementation gate, not that model,
 proves the simulation.
 
@@ -616,7 +618,7 @@ lease cleanup, convert failure to empty success, or commit an empty result
 violated their paired properties. These results establish the bounded model
 claims, not implementation conformance.
 
-Implementation is complete when focused gates prove:
+Implementation conformance is enforced by these focused gates:
 
 - `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
 - `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
