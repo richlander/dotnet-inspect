@@ -479,6 +479,1018 @@ public sealed class ArtifactSetSessionTests
     }
 
     [Fact]
+    public async Task SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await VerifyEquivalentAsync(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+            },
+            scope =>
+            {
+                ArtifactContribution first = scope.Register(
+                    new Provenance("first"),
+                    () => new MemoryStream([1], writable: false));
+                ArtifactContribution second = scope.Register(
+                    new Provenance("second"),
+                    () => new MemoryStream([2], writable: false));
+                return new ArtifactAcquisitionOutcome.Acquired(
+                    [first, second],
+                    ArtifactAcquisitionLeases.None);
+            });
+        await VerifyEquivalentAsync(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+                MaxArtifactBytes = 2,
+                MaxRetainedBytes = 1,
+            },
+            scope => AcquiredOutcome(
+                scope,
+                new Provenance("oversize"),
+                [1, 2, 3],
+                ArtifactAcquisitionLeases.None));
+        await VerifyEquivalentAsync(
+            new ArtifactSetSessionLimits(),
+            scope =>
+            {
+                ArtifactContribution duplicate = scope.Register(
+                    new Provenance("duplicate"),
+                    () => new MemoryStream([1], writable: false));
+                return new ArtifactAcquisitionOutcome.Acquired(
+                    [duplicate, duplicate],
+                    ArtifactAcquisitionLeases.None);
+            });
+
+        var requiredDiagnostic =
+            new Diagnostic(
+                "required.unavailable",
+                "The required source is unavailable.");
+        var failedSession = new ArtifactSetSession();
+        await failedSession.AddRequiredAcquisitionAsync(
+            (_, _) =>
+                ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Unavailable(
+                        requiredDiagnostic)),
+            cancellationToken: cancellationToken);
+        await failedSession.AddSupplementalAcquisitionAsync(
+            static (_, _, _) =>
+                throw new InvalidOperationException(
+                    "The callback must not run."),
+            cancellationToken: cancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await failedSession.AddRequiredAcquisitionAsync(
+                (scope, _) => Acquired(
+                    scope,
+                    new Provenance("late"),
+                    [1],
+                    ArtifactAcquisitionLeases.None),
+                cancellationToken: cancellationToken));
+        var requiredRejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await failedSession.SealAsync(cancellationToken));
+        ArtifactSetAdmissionFailure requiredFailure =
+            Assert.Single(requiredRejected.Failures);
+        Assert.Equal(
+            ArtifactSetAdmissionFailureKind.Unavailable,
+            requiredFailure.Kind);
+        Assert.Same(
+            requiredDiagnostic,
+            requiredFailure.Diagnostic);
+
+        async Task VerifyEquivalentAsync(
+            ArtifactSetSessionLimits limits,
+            Func<
+                ArtifactContributionScope,
+                ArtifactAcquisitionOutcome> create)
+        {
+            ArtifactSetAdmissionFailure direct =
+                await RunAsync(useCheckpoint: false);
+            ArtifactSetAdmissionFailure checkpointed =
+                await RunAsync(useCheckpoint: true);
+            Assert.Equal(direct.Kind, checkpointed.Kind);
+            Assert.Equal(
+                direct.Diagnostic.Code,
+                checkpointed.Diagnostic.Code);
+
+            async Task<ArtifactSetAdmissionFailure> RunAsync(
+                bool useCheckpoint)
+            {
+                var session = new ArtifactSetSession(limits);
+                await session.AddRequiredAcquisitionAsync(
+                    (scope, _) =>
+                        ValueTask.FromResult(create(scope)),
+                    cancellationToken: cancellationToken);
+                if (useCheckpoint)
+                {
+                    bool invoked = false;
+                    await session.AddSupplementalAcquisitionAsync(
+                        (_, _, _) =>
+                        {
+                            invoked = true;
+                            return ValueTask.FromResult<
+                                ArtifactAcquisitionOutcome>(
+                                    new ArtifactAcquisitionOutcome.Acquired(
+                                        [],
+                                        ArtifactAcquisitionLeases.None));
+                        },
+                        cancellationToken: cancellationToken);
+                    Assert.False(invoked);
+                    await Assert.ThrowsAsync<InvalidOperationException>(
+                        async () =>
+                            await session
+                                .AddRequiredAcquisitionAsync(
+                                    (scope, _) => Acquired(
+                                        scope,
+                                        new Provenance("late"),
+                                        [1],
+                                        ArtifactAcquisitionLeases.None),
+                                    cancellationToken:
+                                        cancellationToken));
+                }
+
+                var rejected =
+                    Assert.IsType<
+                        ArtifactSetPublicationOutcome.NotPublished>(
+                            await session.SealAsync(
+                                cancellationToken));
+                return Assert.Single(rejected.Failures);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_SealUsesCheckpointedSnapshots()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        byte[] source = [1, 2, 3];
+        int openCount = 0;
+        await using var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("required"),
+                    () =>
+                    {
+                        openCount++;
+                        return new MemoryStream(
+                            source,
+                            writable: false);
+                    });
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+        await session.AddSupplementalAcquisitionAsync(
+            static (_, _, _) =>
+                ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [],
+                        ArtifactAcquisitionLeases.None)),
+            cancellationToken: cancellationToken);
+
+        Assert.Equal(1, openCount);
+        source[0] = 9;
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        Assert.Equal(1, openCount);
+
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        using ArtifactQueryLease lease =
+            session.IssueLease(authorization);
+        ArtifactDescriptor artifact =
+            Assert.Single(session.GetCatalog(lease));
+        Assert.Equal(
+            [1, 2, 3],
+            ReadAll(session.OpenRead(artifact.Identity, lease)));
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_EmptyBatchPublishesNoArtifactsAndOwnsItsLease()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var emptyLease = new ThrowingLease();
+        await using var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("required"),
+                [1],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        await session.AddSupplementalAcquisitionAsync(
+            (_, capacity, _) =>
+            {
+                Assert.True(capacity.MaxArtifacts > 0);
+                Assert.True(capacity.MaxArtifactBytes > 0);
+                Assert.True(capacity.MaxRetainedBytes > 0);
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [],
+                        emptyLease));
+            },
+            [ArtifactWorkspaceRole.CallerDesignated],
+            cancellationToken);
+
+        Assert.IsType<IOException>(
+            Assert.Single(session.CleanupFailures));
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        using ArtifactQueryLease lease =
+            session.IssueLease(authorization);
+        ArtifactDescriptor required =
+            Assert.Single(session.GetCatalog(lease));
+        Assert.False(
+            session.HasRole(
+                required.Identity,
+                ArtifactWorkspaceRole.CallerDesignated,
+                lease));
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_ReservesBeforeAdapterAndCannotOverrunAtSeal()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 3,
+                MaxArtifactBytes = 3,
+                MaxRetainedBytes = 5,
+            });
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("required"),
+                [1, 2],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        await session.AddSupplementalAcquisitionAsync(
+            (scope, capacity, _) =>
+            {
+                Assert.Equal(2, capacity.MaxArtifacts);
+                Assert.Equal(3, capacity.MaxArtifactBytes);
+                Assert.Equal(3, capacity.MaxRetainedBytes);
+                return Acquired(
+                    scope,
+                    new Provenance("first-supplemental"),
+                    [3],
+                    ArtifactAcquisitionLeases.None);
+            },
+            cancellationToken: cancellationToken);
+        await session.AddSupplementalAcquisitionAsync(
+            (scope, capacity, _) =>
+            {
+                Assert.Equal(1, capacity.MaxArtifacts);
+                Assert.Equal(2, capacity.MaxArtifactBytes);
+                Assert.Equal(2, capacity.MaxRetainedBytes);
+                return Acquired(
+                    scope,
+                    new Provenance("second-supplemental"),
+                    [4, 5],
+                    ArtifactAcquisitionLeases.None);
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        using ArtifactQueryLease lease =
+            session.IssueLease(authorization);
+        Assert.Equal(3, session.GetCatalog(lease).Count);
+
+        var rejectedLease = new TrackingLease();
+        int opened = 0;
+        var overrun = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 2,
+            });
+        await overrun.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("required"),
+                [1],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        await overrun.AddSupplementalAcquisitionAsync(
+            (scope, capacity, _) =>
+            {
+                Assert.Equal(1, capacity.MaxArtifacts);
+                ArtifactContribution first = scope.Register(
+                    new Provenance("first"),
+                    () =>
+                    {
+                        opened++;
+                        return new MemoryStream([2], writable: false);
+                    });
+                ArtifactContribution second = scope.Register(
+                    new Provenance("second"),
+                    () =>
+                    {
+                        opened++;
+                        return new MemoryStream([3], writable: false);
+                    });
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [first, second],
+                        rejectedLease));
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.Equal(0, opened);
+        Assert.Equal(1, rejectedLease.DisposeCount);
+        var rejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await overrun.SealAsync(cancellationToken));
+        Assert.Equal(
+            "artifact.supplemental.count-limit",
+            Assert.Single(rejected.Failures).Diagnostic.Code);
+
+        var artifactByteSession = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifactBytes = 2,
+                MaxRetainedBytes = 3,
+            });
+        await artifactByteSession.AddSupplementalAcquisitionAsync(
+            (scope, _, _) => Acquired(
+                scope,
+                new Provenance("oversize"),
+                [1, 2, 3, 4],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        var artifactByteRejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await artifactByteSession.SealAsync(
+                    cancellationToken));
+        Assert.Equal(
+            "artifact.supplemental.artifact-byte-limit",
+            Assert.Single(
+                artifactByteRejected.Failures).Diagnostic.Code);
+
+        var retainedByteSession = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 2,
+                MaxArtifactBytes = 3,
+                MaxRetainedBytes = 3,
+            });
+        await retainedByteSession.AddSupplementalAcquisitionAsync(
+            (scope, _, _) =>
+            {
+                ArtifactContribution first = scope.Register(
+                    new Provenance("first"),
+                    () => new MemoryStream([1, 2], writable: false));
+                ArtifactContribution second = scope.Register(
+                    new Provenance("second"),
+                    () => new MemoryStream([3, 4], writable: false));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [first, second],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+        var retainedByteRejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await retainedByteSession.SealAsync(
+                    cancellationToken));
+        Assert.Equal(
+            "artifact.supplemental.byte-limit",
+            Assert.Single(
+                retainedByteRejected.Failures).Diagnostic.Code);
+
+        bool capacityCallbackInvoked = false;
+        var exhaustedSession = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+            });
+        await exhaustedSession.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("required"),
+                [1],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        await exhaustedSession.AddSupplementalAcquisitionAsync(
+            (_, _, _) =>
+            {
+                capacityCallbackInvoked = true;
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+        Assert.False(capacityCallbackInvoked);
+        var capacityRejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await exhaustedSession.SealAsync(cancellationToken));
+        Assert.Equal(
+            "artifact.supplemental.capacity-exhausted",
+            Assert.Single(capacityRejected.Failures).Diagnostic.Code);
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_PreservesAdapterOutcomeKindAndDiagnostic()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await VerifyAsync(
+            ArtifactSetAdmissionFailureKind.Unavailable,
+            diagnostic => new ArtifactAcquisitionOutcome.Unavailable(
+                diagnostic));
+        await VerifyAsync(
+            ArtifactSetAdmissionFailureKind.Rejected,
+            diagnostic => new ArtifactAcquisitionOutcome.Rejected(
+                diagnostic));
+        await VerifyAsync(
+            ArtifactSetAdmissionFailureKind.Failed,
+            diagnostic => new ArtifactAcquisitionOutcome.Failed(
+                diagnostic));
+
+        async Task VerifyAsync(
+            ArtifactSetAdmissionFailureKind expectedKind,
+            Func<Diagnostic, ArtifactAcquisitionOutcome> create)
+        {
+            var diagnostic =
+                new Diagnostic(
+                    $"adapter.{expectedKind}",
+                    "Adapter diagnostic.");
+            var session = new ArtifactSetSession();
+            await session.AddRequiredAcquisitionAsync(
+                (scope, _) => Acquired(
+                    scope,
+                    new Provenance("required"),
+                    [1],
+                    ArtifactAcquisitionLeases.None),
+                cancellationToken: cancellationToken);
+            await session.AddSupplementalAcquisitionAsync(
+                (_, _, _) =>
+                    ValueTask.FromResult(create(diagnostic)),
+                cancellationToken: cancellationToken);
+
+            var rejected =
+                Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                    await session.SealAsync(cancellationToken));
+            ArtifactSetAdmissionFailure failure =
+                Assert.Single(rejected.Failures);
+            Assert.Equal(expectedKind, failure.Kind);
+            Assert.Same(diagnostic, failure.Diagnostic);
+        }
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_NonEmptyBatchPreservesScopeAndRoleChecks()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        await using var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("required"),
+                [1],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        await session.AddSupplementalAcquisitionAsync(
+            (scope, _, _) => Acquired(
+                scope,
+                new Provenance("supplemental"),
+                [2],
+                ArtifactAcquisitionLeases.None),
+            [ArtifactWorkspaceRole.CallerDesignated],
+            cancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await session.AddRequiredAcquisitionAsync(
+                (scope, _) => Acquired(
+                    scope,
+                    new Provenance("late"),
+                    [3],
+                    ArtifactAcquisitionLeases.None),
+                cancellationToken: cancellationToken));
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await session.SealAsync(cancellationToken));
+        ArtifactQueryAuthorization authorization =
+            session.CreateQueryAuthorization();
+        using ArtifactQueryLease lease =
+            session.IssueLease(authorization);
+        IReadOnlyList<ArtifactDescriptor> catalog =
+            session.GetCatalog(lease);
+        Assert.False(
+            session.HasRole(
+                catalog[0].Identity,
+                ArtifactWorkspaceRole.CallerDesignated,
+                lease));
+        Assert.True(
+            session.HasRole(
+                catalog[1].Identity,
+                ArtifactWorkspaceRole.CallerDesignated,
+                lease));
+
+        ArtifactContribution? foreign = null;
+        await using var foreignSession = new ArtifactSetSession();
+        await foreignSession.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                foreign = scope.Register(
+                    new Provenance("foreign"),
+                    () => new MemoryStream([4], writable: false));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [foreign],
+                        ArtifactAcquisitionLeases.None));
+            },
+            cancellationToken: cancellationToken);
+        var rejectedLease = new TrackingLease();
+        var target = new ArtifactSetSession();
+        await target.AddSupplementalAcquisitionAsync(
+            (_, _, _) =>
+                ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [foreign!],
+                        rejectedLease)),
+            cancellationToken: cancellationToken);
+
+        Assert.Equal(1, rejectedLease.DisposeCount);
+        var rejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await target.SealAsync(cancellationToken));
+        Assert.Equal(
+            "artifact.supplemental.foreign",
+            Assert.Single(rejected.Failures).Diagnostic.Code);
+
+        await using var supplementalOnly = new ArtifactSetSession();
+        await supplementalOnly.AddSupplementalAcquisitionAsync(
+            (scope, _, _) => Acquired(
+                scope,
+                new Provenance("only"),
+                [5],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await supplementalOnly.SealAsync(cancellationToken));
+
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var overlap = new ArtifactSetSession();
+        Task requiredAcquisition =
+            overlap.AddRequiredAcquisitionAsync(
+                async (scope, token) =>
+                {
+                    ArtifactContribution contribution =
+                        scope.Register(
+                            new Provenance("first"),
+                            () => new MemoryStream(
+                                [1],
+                                writable: false));
+                    entered.SetResult();
+                    await release.Task.WaitAsync(token);
+                    return new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        ArtifactAcquisitionLeases.None);
+                },
+                cancellationToken: cancellationToken).AsTask();
+        await entered.Task.WaitAsync(cancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await overlap.AddSupplementalAcquisitionAsync(
+                static (_, _, _) =>
+                    ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                        new ArtifactAcquisitionOutcome.Acquired(
+                            [],
+                            ArtifactAcquisitionLeases.None)),
+                cancellationToken: cancellationToken));
+        release.SetResult();
+        await requiredAcquisition;
+        await overlap.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("second"),
+                [2],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+        Assert.IsType<ArtifactSetPublicationOutcome.Published>(
+            await overlap.SealAsync(cancellationToken));
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_IdentityAndMaterializationAreAtomic()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        int collisionOpens = 0;
+        var collisionLease = new TrackingLease();
+        var collisionSession = new ArtifactSetSession();
+        await collisionSession.AddSupplementalAcquisitionAsync(
+            (scope, _, _) =>
+            {
+                ArtifactContribution duplicate = scope.Register(
+                    new Provenance("duplicate"),
+                    () =>
+                    {
+                        collisionOpens++;
+                        return new MemoryStream([1], writable: false);
+                    });
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [duplicate, duplicate],
+                        collisionLease));
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.Equal(0, collisionOpens);
+        Assert.Equal(1, collisionLease.DisposeCount);
+        var collisionRejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await collisionSession.SealAsync(cancellationToken));
+        Assert.Equal(
+            "artifact.supplemental.identity-collision",
+            Assert.Single(collisionRejected.Failures).Diagnostic.Code);
+
+        int firstOpens = 0;
+        var materializationLease = new TrackingLease();
+        var materializationSession = new ArtifactSetSession();
+        await materializationSession.AddSupplementalAcquisitionAsync(
+            (scope, _, _) =>
+            {
+                ArtifactContribution first = scope.Register(
+                    new Provenance("first"),
+                    () =>
+                    {
+                        firstOpens++;
+                        return new MemoryStream([1], writable: false);
+                    });
+                ArtifactContribution second = scope.Register(
+                    new Provenance("second"),
+                    () => throw new IOException("read failed"));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [first, second],
+                        materializationLease));
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.Equal(1, firstOpens);
+        Assert.Equal(1, materializationLease.DisposeCount);
+        var materializationRejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await materializationSession.SealAsync(
+                    cancellationToken));
+        Assert.Equal(
+            "artifact.supplemental.materialization-failed",
+            Assert.Single(
+                materializationRejected.Failures).Diagnostic.Code);
+
+        var unexpectedLease = new TrackingLease();
+        var unexpectedSession = new ArtifactSetSession();
+        FormatException unexpected =
+            await Assert.ThrowsAsync<FormatException>(
+                async () =>
+                    await unexpectedSession
+                        .AddSupplementalAcquisitionAsync(
+                            (scope, _, _) =>
+                            {
+                                ArtifactContribution contribution =
+                                    scope.Register(
+                                        new Provenance("unexpected"),
+                                        () => throw
+                                            new FormatException(
+                                                "unexpected"));
+                                return ValueTask.FromResult<
+                                    ArtifactAcquisitionOutcome>(
+                                        new ArtifactAcquisitionOutcome.Acquired(
+                                            [contribution],
+                                            unexpectedLease));
+                            },
+                            cancellationToken: cancellationToken));
+        Assert.Equal("unexpected", unexpected.Message);
+        Assert.Equal(1, unexpectedLease.DisposeCount);
+        Assert.Throws<ObjectDisposedException>(
+            unexpectedSession.CreateQueryAuthorization);
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_RejectedAcquiredBatchCleansLeaseWithoutMaskingFailure()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var session = new ArtifactSetSession(
+            new ArtifactSetSessionLimits
+            {
+                MaxArtifacts = 1,
+            });
+        await session.AddSupplementalAcquisitionAsync(
+            (scope, _, _) =>
+            {
+                ArtifactContribution first = scope.Register(
+                    new Provenance("first"),
+                    () => new MemoryStream([1], writable: false));
+                ArtifactContribution second = scope.Register(
+                    new Provenance("second"),
+                    () => new MemoryStream([2], writable: false));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [first, second],
+                        new ThrowingLease()));
+            },
+            cancellationToken: cancellationToken);
+
+        Assert.IsType<IOException>(
+            Assert.Single(session.CleanupFailures));
+        var rejected =
+            Assert.IsType<ArtifactSetPublicationOutcome.NotPublished>(
+                await session.SealAsync(cancellationToken));
+        ArtifactSetAdmissionFailure failure =
+            Assert.Single(rejected.Failures);
+        Assert.Equal(
+            ArtifactSetAdmissionFailureKind.Rejected,
+            failure.Kind);
+        Assert.Equal(
+            "artifact.supplemental.count-limit",
+            failure.Diagnostic.Code);
+        Assert.IsType<IOException>(
+            Assert.Single(rejected.CleanupFailures));
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_ConcurrentTerminationDisposesLateOutcomeAndReservation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var lateLease = new ThrowingLease();
+        var session = new ArtifactSetSession();
+
+        Task acquisition = session.AddSupplementalAcquisitionAsync(
+            async (scope, capacity, token) =>
+            {
+                Assert.Equal(
+                    ArtifactSetSessionLimits.DefaultMaxArtifacts,
+                    capacity.MaxArtifacts);
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("late"),
+                    () => new MemoryStream([1], writable: false));
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+                return new ArtifactAcquisitionOutcome.Acquired(
+                    [contribution],
+                    lateLease);
+            },
+            cancellationToken: cancellationToken).AsTask();
+
+        await entered.Task.WaitAsync(cancellationToken);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await session.AddSupplementalAcquisitionAsync(
+                static (_, _, _) =>
+                    ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                        new ArtifactAcquisitionOutcome.Acquired(
+                            [],
+                            ArtifactAcquisitionLeases.None)),
+                cancellationToken: cancellationToken));
+        await session.DisposeAsync();
+        release.SetResult();
+
+        ObjectDisposedException disposed =
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                async () => await acquisition);
+        IReadOnlyList<Exception> attached =
+            Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
+                disposed.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+        Assert.IsType<IOException>(Assert.Single(attached));
+        Assert.Same(
+            Assert.Single(attached),
+            Assert.Single(session.CleanupFailures));
+        Assert.False(
+            disposed.Data.Contains(
+                "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"));
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_LateDiagnosticRemainsVisibleOnTermination()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var diagnostic =
+            new Diagnostic(
+                "adapter.rejected",
+                "The adapter rejected the source.");
+        var session = new ArtifactSetSession();
+
+        Task acquisition = session.AddSupplementalAcquisitionAsync(
+            async (_, _, token) =>
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+                return new ArtifactAcquisitionOutcome.Rejected(
+                    diagnostic);
+            },
+            cancellationToken: cancellationToken).AsTask();
+
+        await entered.Task.WaitAsync(cancellationToken);
+        await session.DisposeAsync();
+        release.SetResult();
+
+        ObjectDisposedException disposed =
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                async () => await acquisition);
+        IReadOnlyList<ArtifactSetAdmissionFailure> attached =
+            Assert.IsAssignableFrom<
+                IReadOnlyList<ArtifactSetAdmissionFailure>>(
+                    disposed.Data[
+                        "DotnetInspector.Artifacts.Workspaces.AdmissionFailures"]);
+        ArtifactSetAdmissionFailure failure =
+            Assert.Single(attached);
+        Assert.Equal(
+            ArtifactSetAdmissionFailureKind.Rejected,
+            failure.Kind);
+        Assert.Same(diagnostic, failure.Diagnostic);
+    }
+
+    [Fact]
+    public async Task SupplementalAcquisition_CancellationRemainsCancellation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var never = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var lease = new TrackingLease();
+        var session = new ArtifactSetSession();
+        await session.AddRequiredAcquisitionAsync(
+            (scope, _) => Acquired(
+                scope,
+                new Provenance("required"),
+                [1],
+                ArtifactAcquisitionLeases.None),
+            cancellationToken: cancellationToken);
+
+        Task acquisition = session.AddSupplementalAcquisitionAsync(
+            (scope, _, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("supplemental"),
+                    () => new GatedReadStream(
+                        [2],
+                        entered,
+                        never));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        lease));
+            },
+            cancellationToken: cancellation.Token).AsTask();
+
+        await entered.Task.WaitAsync(cancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await acquisition);
+        Assert.Equal(1, lease.DisposeCount);
+        Assert.Throws<ObjectDisposedException>(
+            session.CreateQueryAuthorization);
+
+        using var checkpointCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        var checkpointEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var checkpointNever = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var checkpointSession = new ArtifactSetSession();
+        await checkpointSession.AddRequiredAcquisitionAsync(
+            (scope, _) =>
+            {
+                ArtifactContribution contribution = scope.Register(
+                    new Provenance("required"),
+                    () => new GatedReadStream(
+                        [1],
+                        checkpointEntered,
+                        checkpointNever));
+                return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
+                    new ArtifactAcquisitionOutcome.Acquired(
+                        [contribution],
+                        new ThrowingLease()));
+            },
+            cancellationToken: cancellationToken);
+        bool callbackInvoked = false;
+        Task checkpoint =
+            checkpointSession.AddSupplementalAcquisitionAsync(
+                (_, _, _) =>
+                {
+                    callbackInvoked = true;
+                    return ValueTask.FromResult<
+                        ArtifactAcquisitionOutcome>(
+                            new ArtifactAcquisitionOutcome.Acquired(
+                                [],
+                                ArtifactAcquisitionLeases.None));
+                },
+                cancellationToken:
+                    checkpointCancellation.Token).AsTask();
+        await checkpointEntered.Task.WaitAsync(cancellationToken);
+        checkpointCancellation.Cancel();
+        OperationCanceledException checkpointCanceled =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await checkpoint);
+        Assert.False(callbackInvoked);
+        IReadOnlyList<Exception> checkpointCleanup =
+            Assert.IsAssignableFrom<IReadOnlyList<Exception>>(
+                checkpointCanceled.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]);
+        Assert.IsType<IOException>(
+            Assert.Single(checkpointCleanup));
+
+        using var cancellationFirst =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        var cancellationObserved = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var permitCancellation = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationFirstSession = new ArtifactSetSession();
+        Task cancellationFirstTask =
+            cancellationFirstSession.AddSupplementalAcquisitionAsync(
+                async (_, _, token) =>
+                {
+                    try
+                    {
+                        await Task.Delay(
+                            Timeout.InfiniteTimeSpan,
+                            token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        cancellationObserved.SetResult();
+                        await permitCancellation.Task;
+                        throw;
+                    }
+
+                    throw new InvalidOperationException(
+                        "Cancellation was not observed.");
+                },
+                cancellationToken: cancellationFirst.Token).AsTask();
+        cancellationFirst.Cancel();
+        await cancellationObserved.Task.WaitAsync(cancellationToken);
+        await cancellationFirstSession.DisposeAsync();
+        permitCancellation.SetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await cancellationFirstTask);
+
+        using var disposalFirstCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+        var adapterEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var adapterNever = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposalFirstSession = new ArtifactSetSession();
+        Task disposalFirst =
+            disposalFirstSession.AddSupplementalAcquisitionAsync(
+                async (_, _, token) =>
+                {
+                    adapterEntered.SetResult();
+                    await adapterNever.Task.WaitAsync(token);
+                    return new ArtifactAcquisitionOutcome.Acquired(
+                        [],
+                        ArtifactAcquisitionLeases.None);
+                },
+                cancellationToken:
+                    disposalFirstCancellation.Token).AsTask();
+        await adapterEntered.Task.WaitAsync(cancellationToken);
+        await disposalFirstSession.DisposeAsync();
+        disposalFirstCancellation.Cancel();
+        await Assert.ThrowsAsync<ObjectDisposedException>(
+            async () => await disposalFirst);
+    }
+
+    [Fact]
     public async Task ArtifactOpen_RejectsContentSubstitutionAfterAdmission()
     {
         CancellationToken cancellationToken =
@@ -712,15 +1724,28 @@ public sealed class ArtifactSetSessionTests
         byte[] content,
         IArtifactAcquisitionLease lease)
     {
+        return ValueTask.FromResult(
+            AcquiredOutcome(
+                scope,
+                provenance,
+                content,
+                lease));
+    }
+
+    private static ArtifactAcquisitionOutcome AcquiredOutcome(
+        ArtifactContributionScope scope,
+        IArtifactProvenance provenance,
+        byte[] content,
+        IArtifactAcquisitionLease lease)
+    {
         ArtifactContribution contribution = scope.Register(
             provenance,
             () => new MemoryStream(
                 content,
                 writable: false));
-        return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
-            new ArtifactAcquisitionOutcome.Acquired(
-                [contribution],
-                lease));
+        return new ArtifactAcquisitionOutcome.Acquired(
+            [contribution],
+            lease);
     }
 
     private static byte[] ReadAll(Stream stream)
