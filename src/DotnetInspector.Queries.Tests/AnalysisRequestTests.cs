@@ -723,6 +723,7 @@ public sealed class AnalysisRequestTests
                 typeof(AnalysisRequestPlanResult.Rejected),
             ],
             cases);
+        Assert.All(cases, type => Assert.True(type.IsNestedPublic));
         Assert.All(cases, type => Assert.True(type.IsSealed));
         Assert.All(
             cases,
