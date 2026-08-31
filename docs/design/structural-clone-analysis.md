@@ -285,6 +285,144 @@ errors, unsupported seeds, cross-image artifact-scoped identities, candidate
 metadata failure, same-MVID collision handling across separate readers, and the
 separation between ranking score and relationship.
 
+`AssemblyContextStructuralCloneRetrievalQuery` binds one exact seed and one
+explicit type or whole-assembly candidate population to workspace-retained
+content. Queries owns participant acquisition, exact metadata selection, and
+the lifetime of the same-image or independent cross-image readers. It calls
+one mutually exclusive `RetrieveSimilar` path and returns the complete product
+result unchanged beside the selected assembly subjects. The exactly-once call
+count is unverified beyond direct inspection. It does not add ranking,
+comparison, correspondence, semantic, provenance, or vulnerability
+conclusions. Query-owned exact selection uses Metadata safety ceilings for
+cumulative name, member-anchor, method-row, decode-failure, and attribute work;
+selection-budget exhaustion, rejected attribute-constructor type metadata,
+undecodable candidate type names beyond the decode-failure ceiling, and a
+TypeDef method range set that does not cover the MethodDef table exactly once
+are typed pre-retrieval metadata failures. Queries establishes that ownership
+invariant once per image, before any seed or population is resolved, so
+Analysis's own argument guards stay a backstop for programming errors rather
+than a reporting path for malformed input. Enforcing ownership once is what
+makes the guarantee independent of which projection path a caller takes; the
+pass costs 1.6 ms on `System.Private.CoreLib` (2,630 types, 38,508 methods).
+The
+`Execute_RepeatedUnequalLongLeafTypeLookupFailsAtAggregateBudget`,
+`Execute_RepeatedMalformedTypeLeavesFailAtDecodeBudget`,
+`Execute_RejectedTypeSpecificationAttributeIsVisible`,
+`Execute_TypeNameDecodeFailureCeilingIsAVisibleRejection`,
+`Execute_DuplicateProjectedMethodRowIsAVisibleRejection`,
+`Execute_WholeAssemblyDuplicateProjectionIsAVisibleRejection`,
+`Execute_CrossImageWholeAssemblyDuplicateProjectionIsAVisibleRejection`,
+`Execute_OutOfRangeMethodProjectionIsAVisibleRejection`,
+`Execute_DuplicateProjectionSeedMemberIsAMetadataRejection`,
+`Execute_AliasedMethodPtrAcrossTypesIsAVisibleRejection`,
+`Execute_MalformedMethodRangeIsAVisibleRejection`,
+`Execute_UncoveredMethodPtrRowIsAVisibleRejection`,
+`Execute_TypeDeflessImageIsAVisibleRejection`,
+`Execute_DescendingMethodListIsAVisibleRejection`,
+`Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection`,
+`Execute_DescendingReorderedMethodPtrIsAVisibleRejection`,
+`Execute_MethodListStartPastProjectedTableIsAVisibleRejection`,
+`Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection`, and
+`Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` gates cover those
+boundaries.
+Removing the range-length check fails five cases, though not in the same way:
+the three descending cases are then *accepted* as `Available`, which is the
+silent-acceptance failure the check exists to prevent, while the
+start-past-projected-table and null-after-populated-run cases are still
+rejected by coverage under a different message. The range-length
+check's unique safety contribution therefore rests on the descending cases;
+the other two exist to reach the end of the derived bound and to pin the
+leading-null restriction, not to show an otherwise-silent acceptance. Removing
+coverage fails the start-past-row-1 case; removing the `MethodPtr` row-count
+and TypeDef-presence guards each fails one more.
+
+Covering the MethodDef table does not by itself prove the `MethodPtr` table is
+a permutation of it, because a row that no TypeDef range reaches is never
+projected and so is never checked. Such a row still changes what the reader
+reports for a reachable method, since declaring-type lookup scans `MethodPtr`
+for the first row naming a MethodDef and can land on the uncovered row.
+Requiring equal row counts closes that gap: with every projected row distinct,
+in range, and covering the MethodDef table, equal counts leave no `MethodPtr`
+row uncovered.
+
+Coverage is also blind to range *order*. SRM enumerates a descending range as
+empty rather than reporting an error, so a TypeDef whose `MethodList` start
+exceeds the following TypeDef's start contributes nothing to the projection
+while a later row still covers the table on its own. That range is not silent
+in every respect, though: SRM reports its `Count` as negative. Requiring every
+range to report a non-negative length therefore restores order without reading
+the column, provided the check runs on each TypeDef row before that row's
+methods are enumerated.
+
+Order and coverage bound the column jointly, and neither is redundant. A
+non-negative length makes the starts non-decreasing, so the enumerated total is
+the projected row count less the first non-null start plus one; requiring
+distinct in-range rows totalling the MethodDef row count then forces that first
+non-null start to row 1 and holds every later start within `projectionRows + 1`.
+A *null* start is not part of that chain: ECMA-335 II.22.37 permits it and SRM
+reports its range as length zero rather than as the difference to the next
+start, so leading nulls neither rise nor break the ordering.
+`Execute_NullMethodListIsNotRejected` pins that shape, measuring `[0, 2]`.
+Only a *leading* null is expressible. Each run is delimited by the following
+TypeDef's start, so a null after a populated run would end the preceding run
+before it began; that column is malformed, and the negative length lands on the
+preceding row rather than on the null itself.
+`Execute_NullMethodListAfterPopulatedRunIsAVisibleRejection` pins that
+distinction, measuring `[-1, 0]`. A sweep of 7,058 real assemblies found no
+image carrying a null after a populated run, and none reporting a negative
+range length at all.
+A descending column passes
+coverage, and a column starting past row 1 passes the length check, so removing
+either check leaves a malformed column accepted.
+`Execute_DescendingMethodListWithoutMethodPtrIsAVisibleRejection` and
+`Execute_DescendingReorderedMethodPtrIsAVisibleRejection` pin the check on both
+metadata shapes -- a `MethodPtr`-free image and a reordering `MethodPtr` table.
+Both reject at the module row, before any row is projected, so neither reaches
+the end of the derived bound;
+`Execute_MethodListStartPastProjectedTableIsAVisibleRejection` isolates that
+end by pushing every start past the projected table, leaving the earlier ranges
+at length zero so the final range is the one that goes negative. That case is
+rejected by coverage too if the range-length check is removed, so it pins the
+bound's end rather than a silent acceptance; the descending cases are the ones
+that would otherwise be accepted outright. Each of the
+three pins its per-row range lengths, so the path it claims to exercise is
+gated rather than described. Meanwhile
+`Execute_FirstMethodListStartPastRowOneIsAVisibleRejection` pins the coverage
+half by starting the column past row 1 with every length non-negative.
+
+Ordering is required, but a *null* start is not a violation of it. ECMA-335
+II.22.37 permits a null `MethodList`, and the reader projects such a run as
+empty, so the column may legally begin at zero and a length check accepts that
+without special handling. A null that follows a populated run still fails,
+because the preceding range then reports a negative length, and a null that
+actually drops methods still fails coverage.
+`Execute_NullMethodListIsNotRejected` gates that a legal null run is not
+reported as malformed metadata.
+
+Resolving the exact seed member has a matching obligation. A sibling MethodDef
+whose anchor cannot be decoded is not evidence that it names a different
+member, so a lone healthy match does not establish uniqueness and must not be
+reported as resolved. `Execute_RejectedSeedSiblingIsAVisibleRejection` gates
+that a rejected sibling surfaces as a metadata failure rather than a confident
+result that a successful decode might have made ambiguous.
+
+The structural-name work budget bounds candidate scanning. Charging only the
+names compared understates it: a candidate whose leaf matches goes on to walk
+its declaring chain and scan the walked prefix for cycles, which is quadratic
+in chain depth. Two images with the same candidate count and the same charge,
+differing by 8 KB of nesting metadata, measured 28 ms and 1,399 ms — a 50-fold
+amplification of a budget that claimed to bound the work. Matching a leaf
+therefore charges the traversal ceiling as well. Real assemblies have ample
+headroom: the most any sampled assembly repeats a single leaf name is 435,
+against roughly 16,000 permitted by the budget.
+`Execute_RepeatedLeafNameChargesChainTraversal` gates the charge, and pins its
+fixture's declaring depth: a shallow fixture exhausts the same budget without
+ever walking a chain, so it would gate the charge's existence while leaving the
+traversal it is sized for unexercised. The gate constrains the charge's
+magnitude, not its position — removing the traversal term fails it, whereas
+moving the charge after the comparison does not, because that reordering costs
+at most one additional traversal rather than reopening the amplification.
+
 ## Correspondence and automorphisms
 
 Joint block/local refinement narrows possible correspondence classes until it

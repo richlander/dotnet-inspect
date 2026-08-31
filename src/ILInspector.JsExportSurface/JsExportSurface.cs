@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
@@ -91,6 +92,18 @@ public sealed class JsExportFunction
     public IReadOnlyList<ApiParameter> Parameters { get; init; } = [];
 
     /// <summary>
+    /// Authenticated synchronous delegate signatures, correlated to
+    /// <see cref="Parameters"/> by zero-based parameter index.
+    /// </summary>
+    /// <remarks>
+    /// These facts are published only when body analysis proves that the
+    /// generated runtime registration descriptor matches the managed delegate
+    /// definition and every ordered nested marshaler descriptor.
+    /// </remarks>
+    public IReadOnlyList<JsExportDelegateParameter> DelegateParameters
+        { get; init; } = [];
+
+    /// <summary>
     /// The DTO type actually serialized by this method's own body onto its return value, resolved
     /// from a <c>JsonSerializer.Serialize</c> call site — not inferred from the assembly's whole
     /// registered shape vocabulary. Null when the body contains no such call (e.g. <see
@@ -98,16 +111,29 @@ public sealed class JsExportFunction
     /// when more than one distinct DTO was found for the return position (an ambiguity this is
     /// left unresolved rather than guessed — see <see cref="JsonWireContractResolver"/> remarks).
     /// Compiler-state-machine and runtime-async implementations issue the same fact when Analysis
-    /// proves the same direct serializer-to-completion contract; gated by
-    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>.
-    /// Serializer values hoisted through a compiler state-machine field remain unresolved pending
-    /// issue #5025.
+    /// proves the same serializer-to-completion contract, including a serializer result carried
+    /// through an authenticated compiler state-machine field; gated by
+    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult</c>
+    /// and
+    /// <c>JsonWireContractResolverTests.Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension</c>.
     /// </summary>
     public string? ReturnWireType { get; init; }
 
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> ReturnWireTypeReferences
         { get; init; } = [];
+
+    /// <summary>
+    /// Exact structural shape of <see cref="ReturnWireType"/>. This keeps
+    /// primitive nodes distinct from producer-defined types whose C# display
+    /// spelling is identical.
+    /// </summary>
+    /// <remarks>
+    /// Gated by
+    /// <c>TypeScriptFacadeEmitterTests.Emit_PreservesPrimitivesWhenProducerTypeUsesKeywordSpelling</c>.
+    /// </remarks>
+    [JsonIgnore]
+    public ApiTypeShape? ReturnWireTypeShape { get; init; }
 
     /// <summary>
     /// DTO type(s) this method's own body deserializes from a JSON-string argument, resolved from
@@ -119,4 +145,28 @@ public sealed class JsExportFunction
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> ParameterWireTypeReferences
         { get; init; } = [];
+}
+
+public enum JsExportDelegateKind
+{
+    Action,
+    Func,
+}
+
+/// <summary>
+/// One authenticated synchronous delegate parameter. TypeScript and other
+/// consumers may choose their own function-type spelling from these
+/// target-language-neutral managed facts.
+/// </summary>
+public sealed class JsExportDelegateParameter
+{
+    public required int ParameterIndex { get; init; }
+
+    public required JsExportDelegateKind Kind { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<TypeRef> ParameterTypes { get; init; } = [];
+
+    [JsonIgnore]
+    public TypeRef? ReturnType { get; init; }
 }

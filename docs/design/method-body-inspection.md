@@ -319,10 +319,16 @@ exception-type assembly projections, and constructs the immutable
 output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
 gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
-unsafe/generated attribute judgments, token/member/type/field/calli/value-type
-and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `LibraryBodyStableReceiverGetterClassifier` owns the narrow
-PE-backed readonly-field getter judgment and its acquisition-scoped cache;
+memory-safety opt-in and unsafe/generated attribute judgments,
+token/member/type/field/calli/value-type and delegate facts,
+async-state-machine caching, and the narrow resolver adapters. The assembly
+builder consumes its method identities, while the result accumulator publishes
+the same memory-safety judgment.
+`CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn` and
+`CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn` gate the legacy
+and updated-rule states. `LibraryBodyStableReceiverGetterClassifier` owns the
+narrow PE-backed readonly-field getter judgment and its acquisition-scoped
+cache;
 `OptimizationOpportunities_StableReceiverGetter_IsClassifiedOnce` gates that
 the optimization adapter shares one classification. The classifier does not
 own optimization policy or general method-body scheduling.
@@ -334,6 +340,14 @@ selection or opportunity policy.
 `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
 `OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
 judgments.
+`LibraryBodyGeneratedProvenanceClassifier` owns primary-image
+source-generated type/enclosing-type classification and its acquisition-scoped
+ancestry cache. It consumes the primary resolver's generated-code attribute
+judgment, while the assembly builder retains scheduling and the async-source
+resolver retains source mapping.
+`OptimizationOpportunities_SuppressesSourceGeneratedTypes` and
+`OptimizationOpportunities_SourceGeneratedAncestryIsClassifiedOncePerType`
+gate suppression and shared classification.
 `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
@@ -380,6 +394,51 @@ require identity equality without reconstructing correspondence.
 `ResultSinks_DoNotAttributeSynchronousIteratorBodiesAsAsync` gate the typed
 projection, mixed runtime/state-machine assembly behavior, and the close
 negative.
+After that authentication, Analysis may compose the existing result-sink,
+resolved-value, field-access, and suspension facts into
+`AsyncStateMachineFieldResultSource`. This preserves direct-call provenance
+across one exact compiler state-machine field without relying on generated
+field names. The source store must dominate the initial suspension, the result
+field must have neither a possible-alias store nor a possible-alias address
+escape outside the physical state-machine body, and the whole-assembly
+field-access census must be complete. Every recognizable trusted framework
+builder suspension must use the same exact local builder field, match the
+kickoff source's task/value-task family and result type, pass the current state
+machine as its by-ref state-machine argument, and have no control-flow path to
+the selected result load. The suspension census enumerates generic,
+non-generic, pooled, void, and iterator framework builder families so an
+incompatible family rejects the proof instead of disappearing; only the exact
+result-compatible generic builder can qualify. Every recognizable
+reachable-or-unknown trusted framework `SetResult` completion must have the
+exact compatible result signature and use that same builder field, or Analysis
+withholds every field source for the body. A reference-type state-machine local
+remains the current
+instance only when no earlier address use that can reach its selected
+registration may replace it. A whole-current-instance indirect write or
+unrecognized by-ref escape in any analyzed method on the physical state-machine
+type invalidates its candidates. Result-field address escapes inside the body,
+custom or spoofed builders, re-entering null cleanup, and every ambiguous
+identity, store, census, or reachability case also remain unresolved. Scoped
+body indexes withhold this whole-assembly absence proof. The shared
+exception-aware block graph conservatively joins a finally handler's possible
+leave continuations, so a suspension enclosed by `try`/`finally` may remain
+unresolved when that join can reach the result load.
+`ResultSinks_WithholdFieldSourceForConservativeFinallyFlow` gates this
+fail-closed boundary.
+`ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField` and
+`ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources` and
+`ResultSinks_RejectAddressMutatedReferenceStateMachineArgument`,
+`ResultSinks_RejectWholeStateMachineInstanceWrite`,
+`ResultSinks_InventoryNonGenericFrameworkBuilderSuspensions`,
+`ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias` and
+`ResultSinks_RejectUnresolvedExternalFieldStoreAlias`,
+`ResultSinks_AuthenticateStateMachineCompletionBuilderField`,
+`ResultSinks_SuppressStateMachineFieldSourceForScopedCensus`,
+`ResultSinks_SuppressFieldSourceWhenAssemblyCensusIsIncomplete`,
+`ResultSinks_SuppressFieldSourceWhenBodyClassificationFails`,
+`ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
+`AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate that
+composition.
 `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
 `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
 `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and

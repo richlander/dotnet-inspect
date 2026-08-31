@@ -19,6 +19,11 @@ Related designs:
   `Window`, and `Top` execution after L2 resolves every order identity.
 - [Output shapes](output-shapes.md) owns declared row units and the
   Document-to-Scalar shape ladder.
+- [Section-row shaping](section-row-shaping.md) owns declared-row-set binding,
+  projection roles, terminal Count, and typed result binding.
+- [Source delegation](source-delegation.md) owns delegation planning and
+  completion-evidence binding without changing this design's query
+  semantics.
 - [Schema query](schema-query.md) owns section and projection discovery. Its
   current field spellings are not row-query identities.
 - [The package query CLI](package-query-cli.md) contains provisional CLI
@@ -224,14 +229,26 @@ A `Top` stage performs its own ranking at its position in the semantic plan.
 Other semantic stages consume the current sequence order without changing the
 meaning of the baseline-order binding.
 
-This reference order defines observable row-query meaning. A future source
-owner may execute predicates, ordering, or semantic selection elsewhere only
-under the composition contract's exact-equivalence and honest-completion rule.
-This design does not define that optimization or its evidence.
+This reference order defines observable row-query meaning. A source owner may
+execute predicates, ordering, or semantic selection elsewhere only through the
+[source delegation](source-delegation.md) contract's exact-equivalence and
+honest-completion rules. This design does not
+define that optimization or its evidence. Delegation follows that owner's
+[source-closed boundary](source-delegation.md#source-closed-operations);
+operations this design does not declare source-closed remain on the reference
+or row-handoff residual path.
 
-Field and column projection, count, and payload operations are intentionally
-absent from this sequence. Their focused L2 and L3 designs will define which
-logical result they observe without changing predicate or order semantics.
+If this owner declares an operation source-closed, it proves that declaration
+with `SourceClosedDeclarationsMatchOwnerContracts` against this design's
+resolution, callback, exception, ordering, and failure-precedence contract.
+
+Membership projection is outside this owner and supplies the rows entering this
+sequence. Cell projection, Count, and payload operations are also outside this
+owner.
+[Section-row shaping](section-row-shaping.md#reference-composition) defines
+those two projection positions and where Count observes the result without
+changing predicate or order semantics; the focused payload design remains
+separate.
 
 ## Failure model
 

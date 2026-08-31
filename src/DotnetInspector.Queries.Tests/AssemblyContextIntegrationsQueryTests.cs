@@ -236,6 +236,16 @@ public sealed class AssemblyContextIntegrationsQueryTests
             opportunities.Opportunities,
             opportunity =>
                 opportunity.Integration == EcosystemIntegrationNames.Aspire);
+        IntegrationOpportunityInfo aspireOpportunity = Assert.Single(
+            opportunities.Opportunities,
+            opportunity =>
+                opportunity.Integration == EcosystemIntegrationNames.Aspire);
+        Assert.Same(
+            IntegrationConceptCatalog.Aspire,
+            aspireOpportunity.GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.Opportunity,
+            aspireOpportunity.GetProducerPolicy());
         Assert.DoesNotContain(
             opportunities.Opportunities,
             opportunity =>

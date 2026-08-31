@@ -154,8 +154,10 @@ retains ambiguous handles with amortized-linear growth. Existing signature,
 custom-attribute, serialized-name, and metadata-relationship guards bound
 recursive or allocated decoding.
 
-Exhausting a bound rejects the index with `BudgetExceeded`; malformed SRM data
-rejects it with `Malformed`. Neither becomes an empty successful index.
+Exhausting a bound makes valid keyed queries reject with `BudgetExceeded`;
+malformed SRM data makes them reject with `Malformed`. Neither keyed path
+becomes `Absent`. `Relationships` carries no failure status; see
+[C2](#c2--keyed-failure-queries-are-never-success-shaped).
 `StateMachineRelationshipIndex_PropagatesTypedBudgetFailure` and
 `StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`,
 `StateMachineRelationshipIndex_ReportsTypeDefNameBudget`, and
@@ -209,6 +211,197 @@ value-blob preflight; and
 `StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce` gates that
 kickoff-by-duplicate fan-out stays linear while preserving every kickoff and
 type-definition candidate in the merged failure.
+
+## Completeness
+
+The sections above specify what one query returns. C1, C3, and C6 below specify
+what must hold across *every structural async state machine* in an image at
+once; synchronous iterator state machines are outside those population
+invariants. C2, C4, and C5 concern index failure and rejection merging rather
+than that async-only population. The distinction matters because a single
+lookup can be correct while the index as a whole has silently lost rows.
+
+A **structural async state machine** is a `TypeDef` in the image that directly
+declares `System.Runtime.CompilerServices.IAsyncStateMachine`, judged by
+namespace and name only. That is deliberately more inclusive than any trust
+policy the index applies, so it cannot under-count the population the index is
+answerable for. It is also deliberately *narrow* in one respect: synchronous
+iterator state machines are outside it, because the cross-check that recomputes
+this population matches only that one interface.
+
+Each invariant below names the gate that enforces it, or is marked
+`unverified`, per
+[`Asserted properties name their gate`](../evidence-and-validation.md#asserted-properties-name-their-gate).
+
+### C1 — Totality
+
+A published index classifies every structural async state machine the way an
+**independent recount of the population** would: resolved where a claim
+authenticates, rejected where one is refused, absent where none exists.
+
+The independence is the entire content of the invariant, and it is easy to
+state too weakly. An index that loses a row does not answer with some
+distinguished "not reached" value — it answers `Absent`, which is exactly what
+it answers for a machine that genuinely has no claim. Nothing *inside* the
+index separates those two cases. Totality is therefore only checkable against a
+population computed without the index, which is what C6 requires.
+
+Gate: `unverified` as stated.
+`StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralAsyncStateMachineIsAuthenticated`,
+`StateMachineCompletenessTests.Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated`,
+and
+`StateMachineCompletenessTests.CoreLibrary_EveryStructuralAsyncStateMachineIsAuthenticated`
+provide narrower implementation evidence. They independently recount
+structural machines in deterministic build outputs and require
+`Structural == Resolved` with no rejections or absences. They cover only
+populations in which every machine is expected to resolve; the absent and
+rejected columns remain unverified.
+
+### C2 — Keyed failure queries are never success-shaped
+
+After construction fails, every valid `GetByKickoff`, `GetByStateMachine`, and
+`GetByImplementation` query reports that failure. Exhausting a bound yields
+`BudgetExceeded`; malformed SRM data yields `Malformed`. Neither keyed path
+answers `Absent` for rows construction never examined.
+
+This invariant does **not** cover `Relationships`. That public enumeration is
+empty after whole-module failure and carries no status, so by itself it is
+indistinguishable from a successful index with no relationships. A consumer
+that needs to enumerate and detect global failure has no supported operation
+today; #4833 tracks that missing contract.
+
+Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_PropagatesTypedBudgetFailure`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsMethodTableBeyondScanBudget`.
+
+Both gates are narrower than the invariant. Each asserts that **one** queried
+kickoff returns `Rejected` with kind `BudgetExceeded`. Neither exercises the
+`Malformed` whole-module path, and neither asserts that *no* machine in a
+failed module answers `Absent`. That second half is `unverified`.
+
+### C3 — Whole-module failure rejects the whole module
+
+When construction fails for the module, **every** structural async state machine
+in that module reports `Rejected` — not `Absent`, and not a mixture.
+
+This does **not** make the two failure paths distinguishable by shape, and an
+earlier draft of this section wrongly claimed it did. The implication runs one
+way only. A whole-module failure is always total; a per-claim refusal *may*
+also be total, because a claim can reach every machine in the module, and in a
+single-machine module it necessarily does. So observing a **partial** rejection
+proves the failure was per-claim, while observing a total one proves nothing
+about which path produced it. Combined with C4, a consumer that needs the
+distinction cannot obtain it from the index as it stands.
+
+Trimming is explicitly **not** evidence for this invariant. A trimmed artifact
+can retain a claim while losing required role evidence, producing per-claim
+refusal rather than whole-module failure. Making that refusal total does not
+change which failure path produced it.
+
+Gate: `unverified`.
+`StateMachineCompletenessTests.Sweep_RejectedStateMachine_FailsTheSweep`
+provides the total per-claim negative control; it is evidence for the sweep,
+not a C3 gate. C2's budget gates reach the whole-module path, but each inspects
+one kickoff rather than the whole module. No current test asserts that a global
+failure rejects every machine.
+
+### C4 — `Failure.Kind` does not identify the cause
+
+`Failure.Kind` alone does not separate a refused claim from a module that
+failed to index. `Malformed` and `BudgetExceeded` each arise from both paths.
+`Unresolved`, `Ambiguous`, `CrossKind`, and `Duplicate` arise only from the
+per-claim path, so the kinds are informative but not decisive.
+
+A consumer needing the distinction must not infer it from `Failure.Kind` and
+must not infer it from rendered failure text. Per C3 it cannot reliably infer
+it from shape either: a total rejection is consistent with both paths.
+
+Gate: `unverified`. No test currently forces a consumer to respect this, and
+the index exposes no discriminator that would make one meaningful. #4833 tracks
+consolidating the failure contract so that this invariant becomes enforceable
+rather than advisory.
+
+### C5 — Merged rejections agree
+
+A **rejection publication** is the atomic input to merging; a machine is not.
+One publication can carry several kickoff, state-machine, and implementation
+tokens, several claimed names, one `(Kind, Detail)` pair, and diagnostic
+evidence from those identity domains.
+
+A **merge key** is a domain-tagged identity: kickoff MethodDef,
+state-machine TypeDef, implementation MethodDef, or a claimed type name
+admitted for reuse. The tag matters because equal numeric tokens in different
+metadata tables are not the same key. A claimed name carried only as
+diagnostic evidence is not thereby a merge key. Two publications are adjacent
+when they share a merge key. The component they belong to is the connected
+component of that undirected publication graph, so overlap is transitive. This
+statement is conditional on a fixed set of publications and keys; it does not
+claim that arbitrarily reordering discovery would produce the same
+publications.
+
+The published projection of each connected component guarantees:
+
+- Every kickoff, state-machine, and implementation query into the component
+  returns the same immutable `Failure` instance.
+- Each evidence array contains the distinct union of that evidence contributed
+  by every publication in the component.
+- The selected `(Kind, Detail)` pair comes intact from one contributing
+  publication.
+
+Those are membership and agreement properties, not ordering or selection
+properties. Evidence order and the contributing publication chosen for the
+reason are unspecified; consumers must not depend on either.
+
+Gate: `StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_MergesEveryOverlappingRejection`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_RejectsSharedStateMachineClaims`,
+`StateMachineRelationshipIndexTests.StateMachineRelationshipIndex_ExpandsAmbiguousClaimsOnce`.
+
+Together these narrower gates cover shared projection across kickoff and
+state-machine keys, direct overlap, claimed-name connectivity, unioned kickoff
+evidence, and 4,000-item accumulation. Their ordered-token assertion is
+stronger than C5 requires.
+
+Transitive closure through mixed key domains, implementation merge keys, the
+union of `ClaimedTypes`, state-machine evidence contributed by multiple
+publications, and intact selection of `(Kind, Detail)` are `unverified`.
+
+### C6 — Completeness is externally checkable
+
+The population in C1 is derivable from raw metadata without loading the
+assembly, without the index, and without trusting either. A cross-check may
+therefore recompute it independently and compare.
+
+This is what keeps C1 from being self-certifying, and per C1 it is not optional
+garnish: a consumer that asked the index for both the population and the
+classification could not detect a lost row at all.
+
+Gate: partial.
+`StateMachineCompletenessTests.OwnBuildOutputs_EveryStructuralAsyncStateMachineIsAuthenticated`,
+`StateMachineCompletenessTests.Neighbours_EveryStructuralAsyncStateMachineIsAuthenticated`,
+and
+`StateMachineCompletenessTests.CoreLibrary_EveryStructuralAsyncStateMachineIsAuthenticated`
+recount the population from raw metadata without index discovery. The recount
+recognizes `TypeReference` and `TypeDefinition` interface encodings;
+`TypeSpecification` remains `unverified`.
+
+### Model
+
+[`models/state-machine-completeness/`](models/state-machine-completeness/)
+holds two small TLA+ models rather than conflating their state domains.
+`StateMachineCompleteness.tla` checks C1, C3, and the structural-async
+`GetByStateMachine` fragment of C2, plus cause-specific failure mapping,
+absorption, and termination.
+`RejectionComponentMerge.tla` checks C5 over published rejections, tagged
+merge keys, and diagnostic payloads.
+
+Neither models C4, which is a statement about what a consumer may infer rather
+than about system state, or C6 — though C6 licenses C1's formulation, since the
+completeness model checks classification against an independently modeled
+population rather than against the index's own report.
+
+The model establishes evidence about the model. It is not evidence about the
+implementation; the gates named above are. Its assumptions, bounds, checked
+properties, and deliberate counterexamples are recorded in its
+[`README.md`](models/state-machine-completeness/README.md).
 
 ## Ownership boundaries
 

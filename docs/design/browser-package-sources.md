@@ -97,7 +97,6 @@ id
 display name
 kind
 endpoint, when the kind requires one
-enabled state
 ```
 
 Credentials, resolved resources, response caches, and runtime health are not
@@ -1016,11 +1015,12 @@ Its limitations remain visible:
 - endpoint changes can make the implementation unavailable until the built-in
   source is updated.
 
-The Gallery source is the browser default. Desktop configuration may continue
-to represent NuGet.org through its canonical v3 service index while sharing the
-same producer provenance label. Package composition determines whether their
-configured authorities are equivalent. Transport strategy is a host capability,
-not a second visible producer.
+The Gallery source is the browser's initial selected source. This is bootstrap
+state, not an ongoing `Default feed` preference. Desktop configuration may
+continue to represent NuGet.org through its canonical v3 service index while
+sharing the same producer provenance label. Package composition determines
+whether their configured authorities are equivalent. Transport strategy is a
+host capability, not a second visible producer.
 
 Both transports use the owner-issued canonical NuGet.org producer constant. Its
 safe display is `https://api.nuget.org/v3/index.json`; its key follows the
@@ -1087,6 +1087,126 @@ collisions are allowed only when every UI and output projection disambiguates
 custom sources with their redacted canonical endpoint, including the path that
 distinguishes feeds on a shared host.
 
+### Default-feed decision
+
+The browser has no persisted `Default feed` or source-preference field. The
+selected source set already defines which configured sources are active for a
+new operation. Adding one preferred source would create undeclared precedence
+among peer HTTP feeds: it could change which bytes satisfy an exact coordinate
+without narrowing package source mapping or the selected authority set.
+
+The built-in Gallery source instead supplies one behavior-safe bootstrap:
+
+```text
+BrowserInitialSourcePolicy
+  RegisteredSourceIds  gallery
+  EnabledSourceIds     gallery
+  SelectedSourceIds    gallery
+```
+
+The host applies that policy only when no persisted browser source-registry
+record exists. A persisted empty selected set is an intentional no-source
+configuration, not absence, and never re-enables Gallery. Resetting package
+sources explicitly removes the persisted registry record; the next
+initialization may then apply the bootstrap again.
+
+The persisted registry record has exactly this version-1 envelope:
+
+```json
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "id": "gallery",
+      "kind": "nuget-gallery"
+    },
+    {
+      "id": "corp",
+      "kind": "nuget-v3",
+      "name": "Corporate mirror",
+      "url": "https://packagefeedproxy.microsoft.io/nuget/v3/index.json"
+    }
+  ],
+  "enabled": [
+    "gallery",
+    "corp"
+  ],
+  "selected": [
+    "gallery",
+    "corp"
+  ]
+}
+```
+
+`sources` is the sole registry of descriptors; enablement is represented only
+by the top-level `enabled` IDs. All three arrays are required, unique, and
+ordered by ordinal source ID. Every `enabled` ID must resolve to one source,
+and every `selected` ID must resolve to one enabled source. The canonical
+built-in Gallery descriptor occurs exactly once and cannot be replaced;
+custom descriptors follow the admission rules above.
+
+Version 1 has no default or preference member. Duplicate or unknown properties
+at any depth, unsupported versions, duplicate or dangling IDs,
+selected-but-disabled IDs, noncanonical array order, and partially written or
+malformed records produce a typed configuration failure with an empty active
+set and a visible reset action. They are not treated as first run. A future
+format must define an explicit migration before its fields are accepted.
+
+There is no implemented legacy browser default-feed record to migrate: the
+current browser has no persisted package-source policy. If storage or a source
+bundle nevertheless contains `default`, `defaultFeed`, `preferredSource`, or
+any other unknown preference field, strict version-1 decoding rejects the
+whole value rather than ignoring or honoring hidden precedence.
+
+After bootstrap, source registration and the selected set are the complete
+browser policy. Search, latest, wildcard, version enumeration, and range
+operations use every selected capable source that is eligible for the package
+ID. Exact payload acquisition follows the package owner's candidate, mapping,
+cache-authority, and failover contract without a browser preference. If one
+producer must be authoritative, the caller must select only that source or use
+package source mapping or an equivalent host policy. Source order and the
+built-in status of Gallery do not decide.
+
+The browser-to-package-owner handoff contains the selected configured
+authorities and no default, preferred-source, or source-order signal. Package
+composition #4797 may apply its owner-documented local-versus-HTTP tiers,
+authority composition, transport selection, and failover, but it must not
+derive browser precedence from registry insertion order, source ID, display
+name, built-in status, or the first element of the selected set.
+
+Settings therefore exposes the package-source owner's enablement and
+multi-selection descriptors but no `Default feed` action. Its explanatory text
+states that every selected source participates subject to capability and
+package-ID eligibility. Feed tabs and in-workspace source switching remain
+outside this contract.
+
+Portable source bundles already carry the complete selected source set and add
+no default or preference field. A confirmed import writes the previewed
+selection exactly; declining leaves the existing registry untouched. Importing
+an empty selection does not restore Gallery, and importing a selected custom
+source does not grant it precedence. Strict bundle decoding rejects unknown
+preference fields under the same closed-shape rule; it never strips them and
+continues.
+
+For example, suppose Gallery and `Corporate mirror` are selected. Searching for
+`dotnet-inspect` queries both. If Gallery reports `0.18.0` and the mirror
+reports only `0.16.0`, latest selects `0.18.0` by semantic version. If both
+authorized sources report `Foo@1.2.3`, payload acquisition retains whichever
+authorized producer actually supplies the bytes; the browser does not call
+either one default. Mapping `Foo` only to Gallery excludes the mirror.
+
+These semantics are unverified pending
+`BrowserPackageSourcePolicyTests.FirstRunSelectsGallery`,
+`PersistedEmptySelectionDoesNotRestoreGallery`,
+`MalformedOrUnsupportedPolicyFailsWithoutBootstrap`,
+`EnabledAndSelectedIdsAreCanonicalResolvedSubsets`,
+`UnknownPreferenceFieldIsRejected`,
+`ResetRemovesPolicyBeforeGalleryBootstrap`,
+`SelectedSourcesHaveNoDefaultOrPreference`,
+`PackageOwnerHandoffHasNoBrowserPrecedenceSignal`,
+`SelectedSourcesRemainMultiSource`, and
+`PortableBundleRejectsPreferenceAndPreservesEmptySelection`.
+
 ## Multi-source resolution
 
 Source order is not version precedence. The positive source-composition
@@ -1129,13 +1249,15 @@ or marks the answer partial. A pinned payload operation may succeed from one
 authorized authority without proving every peer source readable.
 
 Complete listing-aware Gallery enumeration also depends on registration
-metadata. If registration cannot be read, raw enumeration may expose the
+metadata. If registration is missing, malformed, incomplete, or unavailable
+for a non-timeout transport reason, raw enumeration may expose the
 flat-container versions only as a typed partial result with listing status
 `unknown`; it does not report them as listed and does not populate a complete
-candidate cache. Auto-selecting wildcard or range operations that depend on
-complete enumeration fail closed when the missing listing evidence could change
-the selected coordinate. Search-backed latest selection remains available
-because Gallery search returns listed versions.
+candidate cache. A library-owned timeout remains a terminal source failure
+rather than a partial result. Auto-selecting wildcard or range operations that
+depend on complete enumeration fail closed when the missing listing evidence
+could change the selected coordinate. Search-backed latest selection remains
+available because Gallery search returns listed versions.
 
 The target listing contract is source-relative:
 
@@ -1242,21 +1364,116 @@ visible failure with exact-pin guidance and does not reset or escape the
 enclosing resolution policy. Explicit `Name@latest` continues to use the
 configured request deadline and operation ceiling.
 
-The current implementation separately caps several body reads at
-`min(configured timeout, 30 seconds)`, so increasing `--http-timeout` does not
-extend those reads today. The target request deadline deliberately replaces
-that one-way clamp with the validated configured value in either direction;
-the larger operation ceiling preserves a finite failover bound. Implementation
-must update the private-feed timeout guidance with that behavior change.
+Metadata body readers receive the request cancellation token. An explicitly
+configured stricter metadata-body timeout remains an additional nested bound,
+but there is no implicit 30-second body clamp when the validated request
+deadline is larger.
 
 Timeouts remain visible source failures. They are not converted into not-found,
 an empty version list, a partial successful search, or an automatic stale-cache
 answer. Cache fallback follows the explicit version-resolution policy and
 retains the timeout diagnostic.
 
-Required gates include stalled-header, stalled-metadata-body, stalled-payload,
-retry, authentication, multi-source, and redirect cases that terminate without
-JavaScript cooperation.
+### Operation-context handoff
+
+`NuGetOperationContext` is the owner-issued carrier for these bounds. One
+instance records the original caller token and one monotonic operation start.
+Its explicit configuration is limited to request and operation deadlines;
+metadata-body and byte/resource bounds remain source-client policy rather than
+context state.
+Passing it to another built-in `IPackageSourceClient` operation creates a new
+request deadline inside the remaining shared ceiling; it does not create
+another operation ceiling. Retries, authentication exchanges, and retry delays
+reuse that request's deadline adapter. Gallery pagination and manifest
+acquisition likewise reuse one adapter for their complete public source
+operation.
+
+A caller-supplied context is caller-owned and must outlive every payload stream
+returned through it. Disposing it cancels outstanding work. The invocation
+token is either default or the same original caller token; a different token
+is rejected rather than losing cancellation identity. When no context is
+supplied, each existing source-client call creates and owns one context, which
+preserves the standalone API behavior. `DotnetInspector.Packages` exposes the
+same context handoff at typed coordinate resolution and payload acquisition;
+multi-source policy and composition remain with that owner.
+
+An operation-ceiling failure is terminal. A request-deadline failure may be
+returned while the context still permits another authorized source.
+When concurrent requests produce multiple failures, the same precedence
+applies to the aggregate; a transport failure cannot hide a library-owned
+deadline failure.
+`PackageSourceTimeout` records `Request`, `MetadataBody`, or `Operation` plus
+the configured duration for a library-owned deadline. A transport-originated
+`TimeoutException`, including one carried by a transport
+`TaskCanceledException`, retains the existing timeout classification without
+falsely claiming one of those owner-issued bounds, so its typed timeout detail
+is null.
+An elapsed owner-issued deadline still outranks a concurrent or later
+transport failure, including an inner-stream `ObjectDisposedException`.
+Caller cancellation remains an exception carrying the original caller token.
+
+After payload transfer, `PackageSourceStreamException` retains the exact
+producer and transport kind, timeout-versus-transport classification, typed
+deadline detail when applicable, and whether payload cleanup failed. It does
+not retain the transport exception or its endpoint-bearing message. The same
+translation applies to synchronous and asynchronous reads and disposal.
+Caller disposal translates an already-started read released by that disposal
+as a source-safe transport failure; a read started after disposal retains the
+ordinary disposed-stream result.
+
+The implementation gates are:
+
+- `PackageSourceClientTests.SharedContext_RequestTimeoutCanContinueWithAnotherSource`;
+- `PackageSourceClientTests.SharedContext_MetadataBodyTimeoutUsesEffectiveRequestDeadline`;
+- `PackageSourceClientTests.SharedContext_ExpiredCeilingPreventsAnotherSource`;
+- `PackageSourceClientTests.SharedContext_ExpiredUnsupportedCapabilityIsTypedTimeout`;
+- `PackageSourceClientTests.SharedContext_CallerCancellationRetainsOriginalToken`;
+- `PackageSourceClientTests.SharedContext_RejectsDifferentInvocationToken`;
+- `PackageSourceClientTests.SharedContext_DisposalIsTypedOperationTimeout`;
+- `PackageSourceClientTests.PayloadTimeoutRetainsSourceAndConfiguredDuration`;
+- `PackageSourceClientTests.PayloadTimeoutRetainsCleanupFailureWithoutInnerException`;
+- `PackageSourceClientTests.DisposingSharedContextCancelsOutstandingPayloadRead`;
+- `PackageSourceClientTests.PayloadTransportFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadCanceledTransportTimeoutRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadCanceledTransportTimeoutDuringDisposalRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadTransportFailureOutranksRacingReadCancellation`;
+- `PackageSourceClientTests.PayloadCallerCancellationDoesNotRetainTransportFailure`;
+- `PackageSourceClientTests.PayloadDisposalFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesOutstandingRead`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalEofTranslatesOutstandingRead`;
+- `PackageSourceClientTests.PayloadConcurrentDisposalTranslatesSynchronousEof`;
+- `PackageSourceClientTests.PayloadObjectDisposedFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadObjectDisposedFailurePreservesRequestDeadline`;
+- `PackageSourceClientTests.PayloadInvalidDataFailureRetainsSafeSourceIdentity`;
+- `PackageSourceClientTests.PayloadInvalidDataFailurePreservesRequestDeadline`;
+- `PackageSourceClientTests.PayloadReadAfterDisposalRemainsObjectDisposed`;
+  and
+- `PackageSourceClientTests.PayloadAsyncDisposalFailureRetainsSafeSourceIdentity`.
+
+`PackageSourceClientTests.GalleryConcurrentTransportFaultCannotHideTimeout`
+gates deadline precedence across concurrent Gallery page requests.
+`GalleryConcurrentTransportFaultCannotHideTransportTimeout` and
+`GalleryConcurrentTransportFaultCannotHideCanceledTransportTimeout` gate
+faulted and canceled transport-timeout tasks respectively.
+`GalleryLateProtocolFailureCannotBecomePartial` gates the lower-precedence
+protocol-failure case.
+`GalleryLateMetadataProtocolFailurePreservesBodyDeadline`,
+`GalleryLateInvalidDataPreservesRequestDeadline`, and
+`GalleryLateStreamingTimeoutPreservesDeadline` gate the same precedence at the
+remaining metadata-body, decode, and streaming-acquisition boundaries.
+`PackagePayloadAcquisitionTests.TypedAcquisition_PreservesPayloadStreamTimeout`
+is the non-vacuity gate for the `DotnetInspector.Packages` stream handoff.
+`PackagePayloadAcquisitionTests.TypedCacheHit_DoesNotEscapeExpiredOperationContext`
+and
+`PackageCoordinateResolverTests.TypedExactPin_DoesNotEscapeExpiredOperationContext`
+pin context enforcement on the local fast paths.
+
+The existing deadline suites additionally cover stalled headers and metadata
+bodies, retry, authentication, redirects, delayed timer callbacks, EOF, and
+synchronous and asynchronous abort/disposal races without JavaScript
+cooperation. The
+[`DeadlineStreamLifecycle`](models/nuget-deadline-stream/README.md)
+implementation-alignment table names those concurrency gates.
 
 ## Portable source bundles
 
@@ -1290,8 +1507,8 @@ An illustrative payload is:
 ```
 
 Base64 is an encoding, not a secrecy mechanism. A bundle may contain only
-portable HTTPS descriptors and selected source IDs. It has no credential
-fields and must not contain:
+portable HTTPS descriptors and selected source IDs. It has no default or
+source-preference field and no credential fields. It must not contain:
 
 - credentials, PATs, API keys, or authorization headers;
 - local paths or `file://` URLs;
@@ -1580,13 +1797,14 @@ cannot grow retained registration state. Inline and external leaf traversal
 checks cancellation and the monotonic operation deadline every 128 observations;
 on single-threaded Browser/Wasm it also yields at those checkpoints so pending
 timer and caller-cancellation work can run. A complete join reports authoritative
-`listed` and `unlisted` candidates. Missing, malformed, incomplete, unavailable,
-or over-budget registration data returns the flat-container candidates as a
-typed partial result with `unknown` state. Duplicate JSON properties are
-malformed rather than allowing one of several possible listing readings to
-become authoritative. Deadline expiry during traversal, coverage, or final
-authority projection also returns the partial result, while caller cancellation
-outranks a concurrent page failure.
+`listed` and `unlisted` candidates. Missing, malformed, incomplete,
+transport-unavailable, or over-budget registration data returns the
+flat-container candidates as a typed partial result with `unknown` state.
+Duplicate JSON properties are malformed rather than allowing one of several
+possible listing readings to become authoritative. Library-owned deadline
+expiry during traversal, coverage, or final authority projection remains a
+terminal source failure, while caller cancellation outranks a concurrent page
+failure.
 
 Canonical NuGet.org and custom v3 enumeration still report `unknown`, because
 a raw flat-container list can include unlisted versions without carrying their
@@ -1643,7 +1861,8 @@ The local-folder descriptor remains modeled without a runtime client.
 `V3MalformedAdvertisedSearchIsTypedInvalidResponse`,
 `V3SearchWithoutAdvertisedResourceIsTypedUnsupported`,
 `V3SearchUsesLibraryDeadline`,
-`V3SearchTransportTimeoutIsTypedTimeout`,
+`V3SearchTransportTimeoutRemainsTypedTimeout`,
+`V3SearchCanceledTransportTimeoutRemainsTypedTimeout`,
 `V3SearchDoesNotFailOverAuthenticationRejection`,
 `GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
 `GalleryEnumerationJoinsAuthoritativeListingState`,
@@ -1671,7 +1890,7 @@ The local-folder descriptor remains modeled without a runtime client.
 `GalleryIncompleteRegistrationIsTypedPartialEnumeration`,
 `GalleryCallerCancellationDuringRegistrationRemainsCancellation`,
 `GalleryCallerCancellationOutranksConcurrentRegistrationFault`,
-`GalleryFinalListingProjectionExpiresToPartial`,
+`GalleryFinalListingProjectionPreservesOperationTimeout`,
 `GalleryEscapesUnicodePackageIdsAsOneSegment`,
 `GalleryRequestsUseLibraryDeadlines`,
 `V3InvalidVersionMetadataIsTypedFailure`,
@@ -1690,13 +1909,13 @@ The local-folder descriptor remains modeled without a runtime client.
 `LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
 `BrowserEngineBoundaryTests.DependencyRangeUsesAuthoritativeGalleryListingState`
 gates the Browser's listing-aware dependency range selection, and
-`BrowserEngineBoundaryTests.DependencyRangeFailsClosedWhenGalleryRegistrationTimesOut`
-gates that a partial result cannot select an unknown candidate.
-`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForPartialRegistration`
+`BrowserEngineBoundaryTests.DependencyRangePreservesGalleryRegistrationTimeout`
+gates that a source timeout cannot become a listing-state fallback.
+`BrowserEngineBoundaryTests.BrowserGalleryDeadlineLeavesTimeForSourceTimeout`
 and
-`BrowserEngineBoundaryTests.VersionPickerRetainsFlatListWhenRegistrationTimesOut`
-gate the deadline margin that preserves partial version-picker enumeration when
-optional registration stalls.
+`BrowserEngineBoundaryTests.VersionPickerPreservesGalleryRegistrationTimeout`
+gate the deadline margin and terminal timeout behavior when optional
+registration stalls.
 The existing `NuGetSearchSourcesTests` continue to gate the package-layer
 service-index search behavior and credential-scope canonicalization.
 
@@ -1711,7 +1930,8 @@ should:
 3. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
 4. Replace the browser's singleton `default versus mirror` state with a source
-   registry and selected source set.
+   registry and selected source set; bootstrap Gallery only when no persisted
+   registry record exists.
 
 The product libraries must own these contracts. A browser harness may present
 configuration and cancellation, but it must not reconstruct package resolution,
@@ -1731,6 +1951,15 @@ Implementation is not complete until gates prove:
   fetch targets;
 - v3 resource discovery remains source-relative;
 - multi-source latest selection retains every reporting source;
+- first-run bootstrap selects Gallery only when no persisted registry record
+  exists, while an explicitly empty selection remains empty across reload;
+- malformed, unsupported, partial, or preference-bearing persisted records
+  fail visibly without being reinterpreted as first run;
+- no browser default or preference changes multi-source search, semantic
+  version selection, package source mapping, actual producer provenance, or
+  partial-source reporting;
+- portable bundles preserve their explicit selected set without carrying or
+  reconstructing a default source, and reject unknown preference fields;
 - when package-owner composition establishes one configured authority,
   selecting Gallery and canonical NuGet.org v3 transports reports one producer,
   succeeds when either applicable transport succeeds, and fails only when both

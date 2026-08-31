@@ -33,11 +33,13 @@ This table identifies authority; it does not define a participant's behavior.
 | Responsibility | Architectural owner | Focused design |
 | --- | --- | --- |
 | Ordered Head, Tail, Window, and Top stages | Shared `DotnetInspector.RowSelection` leaf component | [Semantic row selection](semantic-row-selection.md) |
-| Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | Pending focused adoption ([#5162](https://github.com/richlander/dotnet-inspect/issues/5162)) |
+| Row predicates, schema-defined ordering, and ranking metadata | L2 `DotnetInspector.Sections` | [Row query and ordering](row-query-order.md) |
 | Declared row units and the Document-to-Scalar shape ladder | L2 `DotnetInspector.Sections` | [Output shapes](output-shapes.md#the-shape-ladder) |
-| Declared-row-set binding, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | Pending focused design |
+| Declared-row-set binding, field/column shape projection, logical reductions such as count, and common result binding | L2 `DotnetInspector.Sections` | [Section-row shaping](section-row-shaping.md) |
+| Source-delegation planning, the delegated result contract, completion-evidence binding, and exact upstream Count acceptance | Cross-cutting L1 source-delegation pattern | [Source delegation](source-delegation.md) |
 | CLI aliases, argv lowering, conflicts, and diagnostics | L3 `dotnet-inspect` | Pending focused design |
-| Source execution, exact upstream optimization, post-selection payload acquisition, merge, deduplication, and completion evidence | L1 query or source-owning component | Pending focused design |
+| Source-specific acquisition, pagination, retries, caching, merge, deduplication, and proof construction | Each adopting L1 query or source owner | Pending focused adoptions |
+| Post-selection payload acquisition | L1 query or source-owning component | Pending focused design |
 | Payload projection, printing, export, and rendered-line selection | L3 `dotnet-inspect` | Pending focused design |
 | Rendering already-selected rows and values | Markout | Existing presentation contracts |
 
@@ -72,8 +74,12 @@ option strings, field names, or rendered text.
 Source optimization changes physical execution, not logical ownership or
 meaning. A source may satisfy part or all of a typed request only when its
 focused design can prove an exact equivalent result and report honest
-completion. Otherwise it returns sufficient rows for the owning L2 and
-semantic components to finish the residual request.
+completion. Before acceptance, an unsupported exact-result candidate may be
+declined, or the caller may choose a row-handoff candidate that returns
+sufficient rows for the owning L2 and semantic components to finish the
+residual request. After acceptance, the
+[source-delegation effect protocol](source-delegation.md#effect-protocol)
+forbids switching result shapes or retrying another strategy.
 
 The later source handoff is distinct from row execution. When projection needs
 content for already-selected payload identities, L3 sends a typed
@@ -81,11 +87,14 @@ post-selection acquisition request and consumes the source owner's typed
 payload result. The focused source and payload designs own capabilities,
 fan-out bounds, budgets, and failure behavior.
 
-`--count` is one example of that separation. The focused L2 design will define
-which logical row set and stage a count observes. A source such as package
-search may answer that count upstream when it can prove exact equivalence and
-completion; otherwise L2 counts the applicable rows. This map does not define
-the proof, source capability, or count semantics.
+Count is one example of that separation.
+[Section-row shaping](section-row-shaping.md#count-semantics) defines the
+logical row sets and stage it observes. A source such as package search may
+answer that count upstream when it can prove exact equivalence and completion;
+before source acceptance, the caller otherwise retains a strategy in which L2
+counts the applicable rows. After exact-Count acceptance, insufficient evidence
+returns `NotSatisfied` rather than falling back. This map does not define the
+proof or source capability.
 
 Every presentation format receives the same typed result. A renderer may add
 headings, table headers, graph context, framing, or other presentation, but it
@@ -96,10 +105,10 @@ does not choose which logical rows or values survive.
 1. Semantic row-selection behavior is locked by
    [Semantic row selection](semantic-row-selection.md).
 2. This document locks only owner sequencing and typed handoffs.
-3. Define L2 declared-row-set binding, field/column projection, and logical
-   reductions, including count.
-4. Define L1/source execution and exact upstream optimization against that L2
-   contract.
+3. Lock L2 row-query and section-row-shaping contracts.
+4. Lock the
+   [source delegation](source-delegation.md) pattern against that
+   L2 contract.
 5. Define L3 CLI grammar and lowering against the locked typed contracts.
 6. Define payload projection, post-selection acquisition, export, and
    rendered-line behavior.

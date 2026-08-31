@@ -1,9 +1,10 @@
 # `ts-jsexport` TypeScript facade generation
 
-Status: **proposed**. The current `tsbindgen` implementation emits TypeScript
-declarations and can also emit a JavaScript runtime wrapper. This document
-defines the replacement architecture; its target properties are **unverified**
-until the gates under [Acceptance](#acceptance) exist.
+Status: **implemented at the generator boundary**. The repository contains the
+`ts-jsexport` tool, typed facade emitter, canonical compiled fixture, and the
+compiler/runtime gates under [Acceptance](#acceptance). Inspect-web adoption
+and browser deployment canaries remain separate work under #5003, #4792, and
+issue #4842.
 
 This is the owning document for the `ts-jsexport` TypeScript facade. It defines
 how one
@@ -348,12 +349,13 @@ the input surface, owned by `ILInspector.JsExportSurface`. The paired compiled
 fixture gate
 `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
 proves that owner issues equivalent authenticated return facts when the
-serializer result reaches completion with direct call provenance. Analysis
-does not yet carry that provenance through a compiler state-machine field when
-the value is serialized before a suspension and returned afterward; issue
-[#5025](https://github.com/richlander/dotnet-inspect/issues/5025) owns that
-prerequisite. The target supports both lowerings by consuming
-owner-issued facts, not by reconstructing missing evidence.
+serializer result reaches completion with direct call provenance.
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension`
+proves the same equivalence when Analysis carries the result through one
+authenticated compiler state-machine field. The target supports both lowerings
+by consuming owner-issued facts, not by reconstructing field flow.
+`Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings` proves that a
+branch-local serializer overwrite does not hide the raw kickoff-supplied value.
 
 Inspect-web's paired deployment canary is a separate consumer responsibility.
 [#4792](https://github.com/richlander/dotnet-inspect/issues/4792) owns its
@@ -607,9 +609,10 @@ evidence.
 - bundle the generated runtime module with inspect-web's application assets; or
 - provide runtime JSON schema validation.
 
-## Current mismatches
+## Legacy coexistence
 
-The current implementation predates this decision:
+The legacy `tsbindgen` command temporarily remains for inspect-web's current
+generated artifacts. It still has the pre-decision behavior:
 
 - the command, project, and configured package identity are named `tsbindgen`;
 - stdout is a generated `.d.ts` declaration surface;
@@ -625,26 +628,31 @@ The current implementation predates this decision:
   that remain reachable for hand-composed surfaces, although the SDK's
   JavaScript interop source generator rejects a compiled `[JSExport]`
   `ValueTask` signature with `SYSLIB1072`;
-- owner-issued return-wire facts can differ when compiler lowering hoists a
-  serialized result through a state-machine field, pending Analysis issue
-  #5025;
+- owner-issued return-wire facts cover direct serializer completion and
+  Analysis-authenticated compiler state-machine fields across suspension;
 - `JsExportSurfaceBuilder` authenticates each generated registration's
   signature hash and preserves the exact dispatch identity as
-  `JsExportFunction.RuntimeDispatchKey`, but the current emitter does not
+  `JsExportFunction.RuntimeDispatchKey`, but the legacy emitter does not
   consume it; and
-- the current emitter traverses declaring-type paths with ordinary property
+- `JsExportSurfaceBuilder` authenticates synchronous `System.Action` and
+  `System.Func` descriptor graphs and the current declaration emitter projects
+  those owner-issued facts as TypeScript function types; the replacement
+  TypeScript-module emitter must retain that boundary rather than parsing
+  delegate-looking display text; and
+- the legacy emitter traverses declaring-type paths with ordinary property
   lookup, invokes a bare runtime method name, rejects same-spelling managed
   operations, and rejects distinct enum or DTO identities with the same simple
   name instead of allocating distinct public names.
 
-Those are migration inputs, not compatibility requirements.
-
-The replacement should retain the surface-authentication and mapping work while
-removing the dual-emitter and direct-JavaScript architecture.
+Those behaviors are compatibility inputs, not requirements for
+`ts-jsexport`. Shared host-side mapping and declaration mechanics live in
+`ILInspector.TypeScriptGeneration`; neither executable project references the
+other. Issue #5003 owns switching the current consumer and removing the legacy
+path.
 
 ## Migration
 
-The implementation effort should:
+The generator implementation performs this migration:
 
 1. rename the command, package, project-facing documentation, and generated
    headers to `ts-jsexport`;
@@ -662,26 +670,31 @@ The implementation effort should:
    the same private runtime, without invoking it from initialization or leaking
    `RuntimeAPI` into the public declaration;
 8. consume wire facts issued by `ILInspector.JsExportSurface` without
-   inspecting lowering or reconstructing the missing #5025 field provenance;
-9. consume each exact owner-issued runtime dispatch identity after the
-   `ILInspector.JsExportSurface` prerequisite in
-   [#4791](https://github.com/richlander/dotnet-inspect/issues/4791) lands;
+   inspecting lowering or reconstructing state-machine field provenance;
+9. consume each exact owner-issued runtime dispatch identity established by
+   the completed `ILInspector.JsExportSurface` prerequisite in
+   [#4791](https://github.com/richlander/dotnet-inspect/issues/4791);
 10. traverse owner-issued declaring-type paths and dispatch keys only through
     own data-property descriptors, failing initialization before publication
     for an inherited, accessor-backed, absent, or non-callable path;
 11. remove `ValueTask` mapping branches, reject such a hand-composed input
     visibly, and retain the SDK compile-time negative;
-12. allocate deterministic operation, parameter, enum, and DTO names from
+12. retain authenticated synchronous delegate facts, preserve callback
+    parameter order and nullability, and reject Promise-returning delegates
+    rather than inventing a JavaScript async callback contract. `Action`
+    callbacks use `(...args) => undefined`, not `void`, because TypeScript
+    otherwise accepts Promise-returning functions; named callbacks must
+    likewise declare or infer an `undefined` return;
+13. allocate deterministic operation, parameter, enum, and DTO names from
     complete managed identities, route every typed reference through that
     allocation, and preserve parameter order and types instead of rejecting
     legal spelling collisions; and
-13. preserve deterministic output and failure-before-publication behavior.
+14. preserve deterministic output and failure-before-publication behavior.
 
-Steps 9 and 12 are atomic for methods sharing one declaring-type path and
-managed name. Until the exact runtime dispatch identity from #4791 is consumed,
-such overloads remain a visible generation rejection; allocating two facade
-names that both call the ambiguous bare runtime key is never an intermediate
-state.
+Steps 9 and 13 are atomic for methods sharing one declaring-type path and
+managed name. The generator consumes the exact runtime dispatch identity from
+issue #4791; allocating two facade names that both call an ambiguous bare
+runtime key is never an intermediate state.
 
 ## Consumer migration residual
 
@@ -704,13 +717,29 @@ and retain assembly-specific dispatch without turning its fixture assemblies
 into a proposed production-layer split; #4497 remains the owner of any such
 product decision.
 
+Browser callback-lifetime canaries are likewise consumer evidence rather than
+generator ownership. Same-operation callback routing belongs to the managed
+operation bridge in
+[#5094](https://github.com/richlander/dotnet-inspect/issues/5094), worker-epoch
+lifetime belongs to the worker protocol in
+[#5093](https://github.com/richlander/dotnet-inspect/issues/5093), and both
+depend on inspect-web adopting the generated facade under
+[#5003](https://github.com/richlander/dotnet-inspect/issues/5003). A canary
+against the current main-thread handcrafted browser contract would prove a
+superseded placement rather than the intended architecture.
+
 ## Acceptance
 
-The target remains unverified until all of these gates exist:
+The complete generator-and-consumer architecture is accepted through these
+gates. Generator-owned gates are implemented by
+`TypeScriptFacadeEmitterTests`, `TsJsExportCommandTests`, and
+`eng/test-ts-jsexport-typescript.sh`; consumer-owned residuals retain their
+issue references below.
 
-- a project-graph and publish-artifact gate proves that inspect-web's runtime
-  dependency closure contains neither `ts-jsexport` nor
-  `ILInspector.JsExportSurface`;
+- `InspectWebProjectGraphPolicy` and the `Verify browser site artifact` CI step
+  prove that inspect-web's runtime dependency closure contains none of
+  `ts-jsexport`, `ILInspector.JsExportSurface`, or
+  `ILInspector.TypeScriptGeneration`;
 - a set-equality gate proves that supported `[JSExport]` methods and generated
   managed-operation facade functions have exact one-to-one correspondence,
   excluding separately identified `initializeRuntime` and `runEntryPoint`
@@ -729,20 +758,47 @@ The target remains unverified until all of these gates exist:
   TypeScript without any lowering-specific generator branch;
 - an integration gate gives the command paired compiler-async and
   runtime-async assemblies and proves structurally equal owner-issued surface
-  facts generate byte-identical TypeScript; direct serializer-to-completion
-  lowering and authentication remain gated by
+  facts generate byte-identical TypeScript; direct and state-machine-field
+  serializer-to-completion lowering and authentication remain gated by
   `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
-  in the prerequisite owner, while #5025 must close the cross-suspension field
-  provenance residual;
+  and
+  `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension`
+  in the prerequisite owner;
 - an SDK compile-negative fixture requires method-scoped `SYSLIB1072` to be
   present for `[JSExport]` `ValueTask` and `ValueTask<T>` signatures without
   assuming it is the build's only cascading diagnostic, while a hand-composed
   surface test proves the TypeScript mapper also rejects those unsupported
   inputs visibly;
+- compiled synchronous `Action` and `Func` fixtures prove that the owner
+  authenticates the exact generated `Action(...)` and `Function(...)`
+  descriptors, every nested payload descriptor, managed parameter order,
+  supported callback arity, signature hash, and wrapper target before
+  publishing delegate facts;
+- TypeScript mapping tests prove that only those authenticated facts become
+  synchronous function types, preserving callback parameter order,
+  nullability, primitive payload types, and return type after every display
+  type is correlated with its authenticated assembly and type identity.
+  Framework mappings require exact metadata names and generic arity; local
+  mappings require retained resolution origin, complete containing-assembly
+  identity, exact structured metadata definition name, and declaration kind
+  before nullable-reference spelling is accepted. Every delegate fact must
+  associate uniquely with an in-range managed parameter. Authenticated
+  framework payloads retain their framework meaning during rendering even when
+  a local declaration has the same display spelling. Unauthenticated,
+  untrusted-framework, mismatched, unclassified-nullable, malformed-arity,
+  unassociated, over-arity, `Void`-payload, or async-disguising evidence
+  remains a diagnosed `unknown`;
+- an SDK compile-negative fixture requires method-scoped `SYSLIB1072` for a
+  Promise-returning `Func<..., Task<T>>` callback and a callback with more than
+  three parameters without assuming either is the build's only cascading
+  diagnostic;
 - a compiler test resolves the generated runtime import against the
   SDK-owned `dotnet.d.ts`, with no generator-owned ambient or copied substitute,
   rejects an invalid use of the generic runtime API, and proves the
-  assembly-specific `getAssemblyExports()` narrowing;
+  assembly-specific `getAssemblyExports()` narrowing. The compiled fixture
+  includes synchronous `Action` and `Func` exports; valid inline and named
+  `undefined`-returning callbacks compile and execute through the runtime seam,
+  while async and `void`-returning `Action` callbacks fail compilation;
 - a declaration-emission test proves the public facade declaration does not
   expose or import SDK runtime types;
 - a compiler test proves the generated TypeScript emits executable JavaScript
@@ -756,7 +812,7 @@ The target remains unverified until all of these gates exist:
   without renaming or replacing module infrastructure, parameter order and
   types remain unchanged, and every wire-type reference resolves to the
   allocated declaration for its exact typed identity;
-- after #4791, an overloaded compiled fixture with distinct results proves each
+- an overloaded compiled fixture with distinct results proves each
   generated facade function indexes the owner-issued exact runtime key rather
   than the ambiguous bare method name;
 - runtime export-aggregate fixtures cover both intermediate path segments and

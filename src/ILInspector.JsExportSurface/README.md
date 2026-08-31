@@ -44,9 +44,14 @@ applications do not need it in their runtime bundle.
   compatibility alias. The
   `ReadOnlySpan<JSMarshalerType>` descriptor argument must resolve to one
   element per export return and parameter, each built by a
-  `JSMarshalerType` factory compatible with that managed type. A diagnosed
-  registration, wrapper, or stub body, prefix sibling, or handwritten candidate
-  cannot publish another export.
+  `JSMarshalerType` factory compatible with that managed type. Trusted
+  `System.Action` and `System.Func` parameters require the generated
+  `Action(...)` or `Function(...)` factory respectively, with every nested
+  parameter and synchronous return descriptor authenticated in managed order.
+  The resulting target-language-neutral `JsExportDelegateParameter` facts are
+  correlated to the containing method parameter by index. A diagnosed
+  registration, wrapper, or stub body, prefix sibling, or handwritten
+  candidate cannot publish another export.
   An attributed body in a non-partial type is rejected because it has no
   runtime publication glue.
 - **Records** — the transitive closure of record shapes reachable from the
@@ -60,7 +65,7 @@ applications do not need it in their runtime bundle.
 
 This library intentionally stays free of any target-language opinion (naming
 policy, `Promise` unwrapping, `.d.ts` syntax); that "personality" belongs to a
-consumer such as the proposed
+consumer such as the
 [`ts-jsexport` TypeScript facade](../../docs/design/ts-jsexport.md).
 The single-argument `Build(surface)` overload is a declaration-only
 compatibility seam for metadata-focused tests and hand-composed surfaces. It
@@ -131,22 +136,24 @@ For a direct serializer-to-completion contract, return JSON-wire facts are
 lowering-independent. A synchronous `string` export must return only
 authenticated source-generated `Serialize<T>` results. A compiler-async
 `Task<string>` export must feed those results into the authenticated `MoveNext`
-builder completion sink. A runtime-async `Task<string>` export must instead
-carry Analysis's explicit `Runtime` attribution on the exact exported physical
-method and return those same serializer results from that method's own `ret`.
+builder completion sink, either directly or through Analysis's typed proof of
+one exact state-machine field across suspension. A runtime-async `Task<string>`
+export must instead carry Analysis's explicit `Runtime` attribution on the
+exact exported physical method and return those same serializer results from
+that method's own `ret`.
 The resolver does not infer lowering from identity coincidences or recognize
 runtime-async IL shapes.
 Incomplete coverage, a raw/serialized mixture, an untrusted `Task<string>`
 declaration, or serializer evidence from a lifted local function or another
 method leaves `ReturnWireType` unset.
-When compiler lowering hoists a serialized value across a suspension,
-Analysis does not yet carry its call provenance through the state-machine
-field. Issue #5025 owns that prerequisite; this layer leaves the compiler form
-unresolved rather than reconstructing field flow or weakening the runtime
-form.
 `Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult`
-gates equal owner-issued facts from paired compilations of the same genuinely
-awaited direct-result export.
+and
+`Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension`
+gate equal owner-issued facts from paired compilations of genuinely awaited
+direct and field-carried exports.
+`Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings` gates the close
+negative where only one branch overwrites a kickoff-initialized parameter field
+with a serializer result.
 `RuntimeAsyncAuthenticationRejectsForgedAttributionAndMetadata`,
 `Build_RuntimeAsyncRejectsMixedSerializerAndRawReturns`,
 `Build_RuntimeAsyncRejectsIncompleteReturnCoverage`, and
@@ -221,6 +228,23 @@ publishes:
 - `Build_RejectsRegistrationWithSwappedDescriptorElement` — the registration
   keeps its name, hash, and element count; only the marshaler the element holds
   stops matching the export's own return type.
+- `Build_RejectsDelegateRegistrationWithWrongNestedDescriptor` and
+  `Build_RejectsDelegateRegistrationWithWrongResultDescriptor` — the generated
+  delegate factory remains, but one argument or result payload descriptor
+  changes.
+- `Build_RejectsDelegateRegistrationWithReorderedDescriptors` and
+  `Build_RejectsDelegateRegistrationWithWrongOuterFactory` — the authenticated
+  managed order is swapped or the same-arity `Function` factory is replaced by
+  `Action`.
+- `Build_RejectsDelegateRegistrationWithMismatchedSignatureHash` and
+  `Build_RejectsDelegateWrapperThatCallsDifferentExport` — a delegate export
+  cannot borrow another generated registration or wrapper target.
+- `Build_PublishesAuthenticatedSynchronousDelegateSignatures` — the unmodified
+  compiled `Action` and `Func` controls publish their exact managed parameter
+  and return shapes.
+- `TryGetDelegateShape_RejectsDecodedFourArgumentAction` — decoded callback
+  metadata beyond the SDK's three-parameter limit is not authenticated even
+  when its generic definition is otherwise `Action`.
 - `Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` — the positive
   control, a real source-generated context whose user partial adds an unrelated
   static `JsonSerializerOptions`.
@@ -235,9 +259,17 @@ slot is threaded correctly inside the generated stub. And the descriptor check
 compares the generated descriptor graph against the export's managed signature
 through a compatibility table; it is not a reimplementation of the runtime's
 `JSExportGenerator`. An export whose managed type that table does not recognize
-— a delegate parameter, or a `[JSMarshalAs]` override that redirects marshaling
-— fails visibly with an unsupported-surface message rather than being published
-on weaker evidence.
+— such as a custom delegate definition or an unsupported `[JSMarshalAs]`
+override — fails visibly rather than being published on weaker evidence. The
+SDK source generator itself rejects a Promise-returning
+`Func<..., Task<T>>` callback and callbacks with more than three parameters
+with method-scoped `SYSLIB1072`;
+`UnsupportedDelegateShapes_AreRejectedBySdkGenerator` gates that boundary.
+Consumers independently reject over-arity hand-composed delegate facts;
+`MapParameterType_RejectsDelegateFactsBeyondSdkArity` gates that containment.
+They also reject `Void` parameters and `Func<..., Void>` returns that this
+producer cannot publish;
+`MapParameterType_RejectsVoidDelegatePayloads` gates that boundary.
 
 `[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
 rejects for a different reason: the descriptor is real and the wrapper is

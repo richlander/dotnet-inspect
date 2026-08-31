@@ -19,12 +19,31 @@ namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class JsExportSurfaceBuilderTests
 {
+    static void FourArgumentCallback(
+        Action<int, int, int, int> callback)
+    {
+    }
+
     private static ILInspector.JsExportSurface.JsExportSurface BuildFixtureSurface(bool includeAll = false)
     {
         using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: includeAll);
         return JsExportSurfaceBuilder.Build(apiSurface);
+    }
+
+    private static ILInspector.JsExportSurface.JsExportSurface
+        BuildFixtureSurfaceWithBodies()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: false);
+        return JsExportSurfaceBuilder.Build(
+            apiSurface,
+            OpenWireContractBodyIndex(path));
     }
 
     [Fact]
@@ -53,9 +72,13 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(46, surface.Functions.Count);
+        Assert.Equal(53, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
+        Assert.Contains("GetWidgetSerializedBeforeAwait", names);
+        Assert.Contains(
+            "GetWidgetConditionallySerializedBeforeAwait",
+            names);
         Assert.Contains("GetStringArrayAsyncAfterAwait", names);
         Assert.Contains("GetWidgetOrRawAfterAwait", names);
         Assert.Contains(
@@ -63,6 +86,11 @@ public sealed class JsExportSurfaceBuilderTests
             names);
         Assert.Contains("GetWidgetThroughLocalAsync", names);
         Assert.Contains("EchoBytes", names);
+        Assert.Contains("ReportValue", names);
+        Assert.Contains("ReportValueAgain", names);
+        Assert.Contains("ReportNullableText", names);
+        Assert.Contains("TransformValue", names);
+        Assert.Contains("ObserveValues", names);
         Assert.Contains("GetRegisteredString", names);
         Assert.Contains("Ping", names);
         Assert.Contains("RenameWidget", names);
@@ -117,6 +145,57 @@ public sealed class JsExportSurfaceBuilderTests
 
         JsExportFunction ping = surface.Functions.Single(f => f.Name == "Ping");
         Assert.Contains("Task", ping.ReturnType, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_PublishesAuthenticatedSynchronousDelegateSignatures()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildFixtureSurfaceWithBodies();
+
+        JsExportDelegateParameter action = Assert.Single(
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "ReportValue")
+            .DelegateParameters);
+        Assert.Equal(0, action.ParameterIndex);
+        Assert.Equal(JsExportDelegateKind.Action, action.Kind);
+        Assert.Equal(
+            "int",
+            Assert.Single(action.ParameterTypes).ToDisplayString());
+        Assert.Null(action.ReturnType);
+
+        JsExportDelegateParameter func = Assert.Single(
+            Assert.Single(
+                surface.Functions,
+                function => function.Name == "TransformValue")
+            .DelegateParameters);
+        Assert.Equal(JsExportDelegateKind.Func, func.Kind);
+        Assert.Collection(
+            func.ParameterTypes,
+            type => Assert.Equal("int", type.ToDisplayString()),
+            type => Assert.Equal("string", type.ToDisplayString()));
+        Assert.Equal("bool", func.ReturnType?.ToDisplayString());
+    }
+
+    [Fact]
+    public void TryGetDelegateShape_RejectsDecodedFourArgumentAction()
+    {
+        LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(
+            typeof(JsExportSurfaceBuilderTests).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity method = Assert.Single(
+            bodyIndex.DeclaredMethods,
+            candidate => candidate.Name
+                == nameof(FourArgumentCallback));
+        TypeRef callbackType = Assert.Single(method.ParameterTypes);
+
+        Assert.False(
+            JsExportSurfaceBuilder.TryGetDelegateShape(
+                callbackType,
+                out _,
+                out _,
+                out _));
     }
 
     [Theory]

@@ -14,7 +14,9 @@ using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.MalformedOwnershipFixtures;
+using ILInspector.Analysis.UnoptimizedAsyncFixtures;
 using ILInspector.CallGraph;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -1775,6 +1777,1267 @@ public class LibraryBodyIndexTests
         Assert.Equal(
             AsyncLoweringKind.StateMachine,
             attribution.Lowering);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_PreserveCallSourceAcrossAsyncStateMachineField()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == source
+                && candidate.StateMachineFieldSource is not null);
+        AsyncStateMachineFieldResultSource fieldSource =
+            sink.StateMachineFieldSource!;
+
+        Assert.False(sink.IsComplete);
+        Assert.Empty(sink.SourceCallOffsets);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            sink.AsyncBody?.Lowering);
+        Assert.Equal("MoveNext", sink.EvidenceMethod.Name);
+        Assert.Equal(
+            sink.EvidenceMethod.DeclaringType,
+            fieldSource.Field.DeclaringType);
+        Assert.NotEqual(0, fieldSource.Field.LocalDefinitionToken);
+        Assert.True(fieldSource.StoreOffset < fieldSource.LoadOffset);
+        DirectCall producer = Assert.Single(
+            index.DirectCalls,
+            call => call.EvidenceMethod == sink.EvidenceMethod
+                && fieldSource.SourceCallOffsets.Contains(
+                    call.ILOffset));
+        Assert.Equal("ProducePayload", producer.Callee.Name);
+
+        MethodIdentity multipleAwaits = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeMultipleAwaits));
+        MethodResultSink multipleAwaitSink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == multipleAwaits
+                && candidate.StateMachineFieldSource is not null);
+        Assert.Equal(
+            2,
+            index.DirectCalls.Count(call =>
+                call.Caller == multipleAwaits
+                && call.Callee.Name
+                    is "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"));
+        Assert.Equal(
+            "ProducePayload",
+            Assert.Single(
+                index.DirectCalls,
+                call => call.EvidenceMethod
+                        == multipleAwaitSink.EvidenceMethod
+                    && multipleAwaitSink.StateMachineFieldSource!
+                        .SourceCallOffsets.Contains(
+                            call.ILOffset))
+                .Callee.Name);
+
+        var unoptimized = LibraryBodyIndex.Open(
+            typeof(UnoptimizedAsyncFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures
+                    .JsonWireContractFlow);
+        MethodIdentity referenceStateMachine = Assert.Single(
+            unoptimized.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(UnoptimizedAsyncFixture)
+                && method.Name == nameof(
+                    UnoptimizedAsyncFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink referenceSink = Assert.Single(
+            unoptimized.ResultSinks,
+            candidate => candidate.Caller
+                    == referenceStateMachine
+                && candidate.StateMachineFieldSource
+                    is not null);
+        DirectCall referenceSuspension = Assert.Single(
+            unoptimized.DirectCalls,
+            call => call.Caller == referenceStateMachine
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        Assert.Contains(
+            typeof(UnoptimizedAsyncFixture).Assembly.GetTypes(),
+            type => type.IsClass
+                && typeof(IAsyncStateMachine)
+                    .IsAssignableFrom(type));
+        Assert.True(
+            referenceSuspension
+                .SecondByRefArgumentIsCurrentInstance);
+
+        MethodIdentity multipleReferenceAwaits = Assert.Single(
+            unoptimized.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(UnoptimizedAsyncFixture)
+                && method.Name == nameof(
+                    UnoptimizedAsyncFixture
+                        .ReturnsCallStoredBeforeMultipleAwaits));
+        Assert.Single(
+            unoptimized.ResultSinks,
+            candidate => candidate.Caller
+                    == multipleReferenceAwaits
+                && candidate.StateMachineFieldSource
+                    is not null);
+        DirectCall[] multipleReferenceSuspensions =
+        [
+            .. unoptimized.DirectCalls.Where(call =>
+                call.Caller == multipleReferenceAwaits
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"),
+        ];
+        Assert.Equal(2, multipleReferenceSuspensions.Length);
+        Assert.All(
+            multipleReferenceSuspensions,
+            suspension => Assert.True(
+                suspension
+                    .SecondByRefArgumentIsCurrentInstance));
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectAddressMutatedReferenceStateMachineArgument()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .AddressMutatedReferenceStateMachineSource));
+        DirectCall replacement = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name == "ReplaceStateMachine");
+        DirectCall suspension = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+
+        Assert.True(replacement.ILOffset < suspension.ILOffset);
+        Assert.Equal(
+            suspension.EvidenceMethod.DeclaringType,
+            suspension.Callee.ParameterTypes[1].ElementType);
+        Assert.False(
+            suspension.SecondByRefArgumentIsCurrentInstance);
+        Assert.DoesNotContain(
+            index.ResultSinks,
+            sink => sink.Caller == source
+                && sink.StateMachineFieldSource is not null);
+    }
+
+    [Fact]
+    public async Task
+        ResultSinks_RejectWholeStateMachineInstanceWrite()
+    {
+        string? actual = await ClassicAsyncSiblingFixture
+            .WholeInstanceWriteStateMachineSource();
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .WholeInstanceWriteStateMachineSource));
+        MethodResultSink completion = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == source
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                    FieldIdentity: { } field,
+                }
+                && field.Name == "Payload");
+
+        Assert.Null(actual);
+        Assert.Single(
+            index.FieldStores,
+            store => store.EvidenceMethod
+                    == completion.EvidenceMethod
+                && store.Identity?.Name == "Payload");
+        Assert.DoesNotContain(
+            index.FieldLoads,
+            load => load.EvidenceMethod
+                    == completion.EvidenceMethod
+                && load.Identity?.Name == "Payload"
+                && load.IsAddress);
+        Assert.Null(completion.StateMachineFieldSource);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_InventoryNonGenericFrameworkBuilderSuspensions()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .NonGenericSuspensionBuilderSource));
+        DirectCall[] suspensions =
+        [
+            .. index.DirectCalls.Where(call =>
+                call.Caller == source
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"),
+        ];
+
+        Assert.Equal(2, suspensions.Length);
+        Assert.Contains(
+            suspensions,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder`1"));
+        Assert.Contains(
+            suspensions,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder"));
+        Assert.DoesNotContain(
+            index.ResultSinks,
+            sink => sink.Caller == source
+                && sink.StateMachineFieldSource is not null);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectAmbiguousAsyncStateMachineFieldSources()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        string[] rejected =
+        [
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .DoesNotBorrowUnrelatedFieldStore),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .HasMultipleStoresBeforeAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ConditionallyOverwritesParameterBeforeAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ConditionallySuspendsAfterParameterOverwrite),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ConditionallyInitializesLocalBeforeSuspension),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .MutatesFieldByReferenceAfterAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .StoresInLoopBeforeAwait),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .UsesCustomAsyncBuilder),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .CustomBuilderSecondarySource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ExternalAddressSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .MismatchedBuilderSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ReenteringCleanupSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .MixedSuspensionBuilderSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .ImmediateCompletionSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .WrongStateMachineArgumentSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .FailedExternalStoreSource),
+            nameof(
+                ClassicAsyncSiblingFixture
+                    .StoresAfterDifferentSuspension),
+        ];
+
+        foreach (string methodName in rejected)
+        {
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == methodName);
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                sink => sink.Caller == source
+                    && sink.StateMachineFieldSource is not null);
+        }
+
+        MethodIdentity multipleStores = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .HasMultipleStoresBeforeAwait));
+        MethodResultSink multipleStoreSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == multipleStores
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                    FieldIdentity: not null,
+                });
+        ResolvedValueSource multipleStoreLoad =
+            multipleStoreSink.ResolvedValue!.Single!;
+        Assert.Equal(
+            2,
+            index.FieldStores.Count(store =>
+                store.EvidenceMethod
+                    == multipleStoreSink.EvidenceMethod
+                && store.ILOffset < multipleStoreLoad.ILOffset
+                && multipleStoreLoad.FieldIdentity!.Equals(
+                    store.Identity)
+                && store.Value.Single?.Kind
+                    == ResolvedValueSourceKind.CallResult));
+
+        MethodIdentity byReference = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .MutatesFieldByReferenceAfterAwait));
+        DirectCall byReferenceCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == byReference
+                && call.Callee.Name == "SetResult");
+        MethodResultSink byReferenceSink = Assert.Single(
+            index.ResultSinks,
+            sink =>
+                sink.EvidenceMethod
+                    == byReferenceCompletion.EvidenceMethod
+                && sink.ILOffset
+                    == byReferenceCompletion.ILOffset);
+        FieldIdentity byReferenceField =
+            byReferenceSink.ResolvedValue!.Single!.FieldIdentity!;
+        Assert.Contains(
+            index.FieldLoads,
+            load => load.EvidenceMethod
+                    == byReferenceSink.EvidenceMethod
+                && load.IsAddress
+                && byReferenceField.Equals(load.Identity));
+
+        MethodIdentity conditionalSuspension = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ConditionallySuspendsAfterParameterOverwrite));
+        FieldIdentity conditionalField = Assert.IsType<FieldIdentity>(
+            Assert.Single(
+                index.ResultSinks,
+                sink => sink.Caller == conditionalSuspension
+                    && sink.ResolvedValue?.Single is
+                    {
+                        Kind:
+                            ResolvedValueSourceKind.InstanceFieldLoad,
+                    })
+                .ResolvedValue!.Single!.FieldIdentity);
+        Assert.Contains(
+            index.FieldStores,
+            store => store.EvidenceMethod
+                    == conditionalSuspension
+                && conditionalField.Equals(store.Identity));
+        Assert.Contains(
+            index.FieldStores,
+            store => store.Caller == conditionalSuspension
+                && store.EvidenceMethod
+                    != conditionalSuspension
+                && conditionalField.Equals(store.Identity));
+
+        MethodIdentity conditionalLocal = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ConditionallyInitializesLocalBeforeSuspension));
+        FieldIdentity conditionalLocalField =
+            Assert.IsType<FieldIdentity>(
+                Assert.Single(
+                    index.ResultSinks,
+                    sink => sink.Caller == conditionalLocal
+                        && sink.ResolvedValue?.Single is
+                        {
+                            Kind:
+                                ResolvedValueSourceKind.InstanceFieldLoad,
+                        })
+                    .ResolvedValue!.Single!.FieldIdentity);
+        FieldStoreFact[] conditionalLocalStores =
+        [
+            .. index.FieldStores.Where(store =>
+                store.EvidenceMethod.DeclaringType.Equals(
+                    conditionalLocalField.DeclaringType)
+                && conditionalLocalField.Equals(
+                    store.Identity)),
+        ];
+        Assert.Contains(
+            conditionalLocalStores,
+            store => store.Value.Single?.Kind
+                == ResolvedValueSourceKind.CallResult);
+        Assert.Contains(
+            conditionalLocalStores,
+            store => store.Value.Single?.Kind
+                == ResolvedValueSourceKind.NullReference);
+
+        MethodIdentity looped = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .StoresInLoopBeforeAwait));
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.Caller == looped
+                && call.Callee.Name == "ProducePayload"
+                && call.InLoop);
+
+        MethodIdentity customBuilder = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .UsesCustomAsyncBuilder));
+        DirectCall customCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == customBuilder
+                && call.Callee.Name == "SetResult");
+        MethodResultSink customSink = Assert.Single(
+            index.ResultSinks,
+            sink =>
+                sink.EvidenceMethod
+                    == customCompletion.EvidenceMethod
+                && sink.ILOffset == customCompletion.ILOffset);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            customSink.AsyncBody?.Lowering);
+        Assert.Equal(
+            TypeRefKind.GenericInstance,
+            customCompletion.Callee.DeclaringType.Kind);
+        Assert.Equal(
+            typeof(AnalysisCustomTaskMethodBuilder<>).Name,
+            customCompletion.Callee.DeclaringType
+                .ElementType?.Name);
+        Assert.Null(customSink.StateMachineFieldSource);
+
+        MethodIdentity customSecondary = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .CustomBuilderSecondarySource));
+        DirectCall customSecondaryCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == customSecondary
+                && call.Callee.Name == "SetResult");
+        MethodResultSink customSecondarySink = Assert.Single(
+            index.ResultSinks,
+            sink =>
+                sink.EvidenceMethod
+                    == customSecondaryCompletion.EvidenceMethod
+                && sink.ILOffset
+                    == customSecondaryCompletion.ILOffset);
+        Assert.Equal(
+            AsyncLoweringKind.StateMachine,
+            customSecondarySink.AsyncBody?.Lowering);
+        Assert.Equal(
+            TypeRef.CoreLibrary,
+            customSecondaryCompletion.Callee
+                .DeclaringType.ElementType?.Assembly);
+        Assert.Null(
+            customSecondarySink.StateMachineFieldSource);
+
+        MethodIdentity externalAddress = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ExternalAddressSource));
+        MethodResultSink externalAddressSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == externalAddress
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                    FieldIdentity: not null,
+                });
+        Assert.Contains(
+            index.FieldLoads,
+            load => load.EvidenceMethod.Name == "Corrupt"
+                && load.IsAddress
+                && externalAddressSink.ResolvedValue!.Single!
+                    .FieldIdentity!.Equals(load.Identity));
+
+        MethodIdentity mismatchedBuilder = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .MismatchedBuilderSource));
+        DirectCall mismatchedCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == mismatchedBuilder
+                && call.Callee.Name == "SetResult");
+        Assert.True(
+            FrameworkIdentity.IsCoreLibraryType(
+                mismatchedBuilder.ReturnType,
+                "System.Threading.Tasks",
+                "Task`1"));
+        Assert.True(
+            FrameworkIdentity.IsCoreLibraryType(
+                mismatchedCompletion.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncValueTaskMethodBuilder`1"));
+
+        MethodIdentity mixedSuspension = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .MixedSuspensionBuilderSource));
+        DirectCall[] mixedSuspensionCalls =
+        [
+            .. index.DirectCalls.Where(call =>
+                call.Caller == mixedSuspension
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted"),
+        ];
+        Assert.Equal(2, mixedSuspensionCalls.Length);
+        Assert.Contains(
+            mixedSuspensionCalls,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncTaskMethodBuilder`1"));
+        Assert.Contains(
+            mixedSuspensionCalls,
+            call => FrameworkIdentity.IsCoreLibraryType(
+                call.Callee.DeclaringType,
+                "System.Runtime.CompilerServices",
+                "AsyncValueTaskMethodBuilder`1"));
+
+        MethodIdentity immediateCompletion = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ImmediateCompletionSource));
+        DirectCall immediateSuspension = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == immediateCompletion
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        MethodResultSink immediateSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.Caller == immediateCompletion
+                && sink.ResolvedValue?.Single is
+                {
+                    Kind:
+                        ResolvedValueSourceKind.InstanceFieldLoad,
+                });
+        Assert.True(
+            immediateSuspension.ILOffset
+                < immediateSink.ResolvedValue!.Single!.ILOffset);
+
+        MethodIdentity wrongStateMachineArgument = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .WrongStateMachineArgumentSource));
+        DirectCall wrongArgumentSuspension = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == wrongStateMachineArgument
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        Assert.Equal(
+            wrongArgumentSuspension.EvidenceMethod.DeclaringType,
+            wrongArgumentSuspension.Callee.ParameterTypes[1]
+                .ElementType);
+        Assert.False(
+            wrongArgumentSuspension
+                .SecondByRefArgumentIsCurrentInstance);
+
+        MethodIdentity reenteringCleanup = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReenteringCleanupSource));
+        DirectCall reenteringCompletion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == reenteringCleanup
+                && call.Callee.Name == "SetResult");
+        MethodResultSink reenteringSink = Assert.Single(
+            index.ResultSinks,
+            sink => sink.EvidenceMethod
+                    == reenteringCompletion.EvidenceMethod
+                && sink.ILOffset == reenteringCompletion.ILOffset);
+        FieldIdentity reenteringField = Assert.IsType<FieldIdentity>(
+            reenteringSink.ResolvedValue?.Single?.FieldIdentity);
+        Assert.True(reenteringCompletion.InLoop);
+        Assert.Contains(
+            index.FieldStores,
+            store => store.EvidenceMethod
+                    == reenteringSink.EvidenceMethod
+                && store.ILOffset
+                    > reenteringSink.ResolvedValue!.Single!.ILOffset
+                && reenteringField.Equals(store.Identity)
+                && store.Value.Single?.Kind
+                    == ResolvedValueSourceKind.NullReference);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_WithholdFieldSourceForConservativeFinallyFlow()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredAcrossFinally));
+        DirectCall completion = Assert.Single(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name == "SetResult");
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.EvidenceMethod
+                    == completion.EvidenceMethod
+                && candidate.ILOffset == completion.ILOffset);
+
+        Assert.Contains(
+            index.DirectCalls,
+            call => call.Caller == source
+                && call.Callee.Name is
+                    "AwaitOnCompleted"
+                        or "AwaitUnsafeOnCompleted");
+        Assert.Equal(
+            ResolvedValueSourceKind.InstanceFieldLoad,
+            sink.ResolvedValue?.Single?.Kind);
+        Assert.Null(sink.StateMachineFieldSource);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_SuppressFieldSourceWhenAssemblyCensusIsIncomplete()
+    {
+        string sourcePath =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int corruptMethodToken;
+        using (var stream = new MemoryStream(
+            image,
+            writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreStateMachine));
+            MethodDefinitionHandle corruptHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Corrupt");
+            MethodDefinition corrupt =
+                reader.GetMethodDefinition(corruptHandle);
+            corruptMethodToken =
+                MetadataTokens.GetToken(corruptHandle);
+            DecodedInstruction call = MethodInstructions
+                .Decode(peReader.GetMethodBody(
+                    corrupt.RelativeVirtualAddress))
+                .Instructions
+                .First(instruction =>
+                    instruction.OpCode == ILOpCode.Call);
+            int bodyOffset = RvaToFileOffset(
+                peReader.PEHeaders,
+                corrupt.RelativeVirtualAddress);
+            int headerSize = MethodHeaderSize(
+                image,
+                bodyOffset);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    bodyOffset
+                        + headerSize
+                        + call.OperandOffset,
+                    sizeof(int)),
+                0x06FFFFFF);
+        }
+
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"analysis-census-{Guid.NewGuid():N}");
+        string path = Path.Combine(
+            scratchDirectory,
+            "fixture.dll");
+        try
+        {
+            Directory.CreateDirectory(scratchDirectory);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .JsonWireContractFlow);
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreSource));
+
+            Assert.Contains(
+                index.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                    == corruptMethodToken);
+            MethodResultSink sink = Assert.Single(
+                index.ResultSinks,
+                candidate => candidate.Caller == source
+                    && candidate.ResolvedValue?.Single is
+                    {
+                        Kind:
+                            ResolvedValueSourceKind.InstanceFieldLoad,
+                        FieldIdentity: not null,
+                    });
+            FieldIdentity field =
+                sink.ResolvedValue!.Single!.FieldIdentity!;
+            Assert.DoesNotContain(
+                index.FieldStores,
+                store => store.EvidenceMethod
+                        != sink.EvidenceMethod
+                    && store.IsReachable != false
+                    && field.MightBeSameFieldAs(
+                        store.Identity));
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                candidate => candidate.Caller == source
+                    && candidate.StateMachineFieldSource
+                        is not null);
+            AssertCompilerPositiveSuppressedByCensus(index);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            if (Directory.Exists(scratchDirectory))
+                Directory.Delete(scratchDirectory);
+        }
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectUnresolvedExternalFieldStoreAlias()
+    {
+        string sourcePath =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int fieldOperandToken;
+        int corruptMethodToken;
+        using (var stream = new MemoryStream(
+            image,
+            writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreStateMachine));
+            MethodDefinitionHandle corruptHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Corrupt");
+            MethodDefinitionHandle probeHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Probe");
+            fieldOperandToken =
+                MetadataTokens.GetToken(probeHandle);
+            corruptMethodToken =
+                MetadataTokens.GetToken(corruptHandle);
+            MethodDefinition corrupt =
+                reader.GetMethodDefinition(corruptHandle);
+            DecodedInstruction store = MethodInstructions
+                .Decode(peReader.GetMethodBody(
+                    corrupt.RelativeVirtualAddress))
+                .Instructions
+                .Single(instruction =>
+                    instruction.OpCode == ILOpCode.Stfld);
+            int bodyOffset = RvaToFileOffset(
+                peReader.PEHeaders,
+                corrupt.RelativeVirtualAddress);
+            int headerSize = MethodHeaderSize(
+                image,
+                bodyOffset);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    bodyOffset
+                        + headerSize
+                        + store.OperandOffset,
+                    sizeof(int)),
+                fieldOperandToken);
+        }
+
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"analysis-alias-{Guid.NewGuid():N}");
+        string path = Path.Combine(
+            scratchDirectory,
+            "fixture.dll");
+        try
+        {
+            Directory.CreateDirectory(scratchDirectory);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .JsonWireContractFlow);
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreSource));
+
+            Assert.Contains(
+                index.FieldStores,
+                store => store.FieldToken == fieldOperandToken
+                    && store.Identity is null);
+            Assert.DoesNotContain(
+                index.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                    == corruptMethodToken);
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                sink => sink.Caller == source
+                    && sink.StateMachineFieldSource is not null);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            if (Directory.Exists(scratchDirectory))
+                Directory.Delete(scratchDirectory);
+        }
+    }
+
+    [Fact]
+    public void
+        ResultSinks_SuppressFieldSourceWhenBodyClassificationFails()
+    {
+        string sourcePath =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        byte[] image = File.ReadAllBytes(sourcePath);
+        int corruptMethodToken;
+        using (var stream = new MemoryStream(
+            image,
+            writable: false))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            TypeDefinition stateMachine = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreStateMachine));
+            MethodDefinitionHandle corruptHandle =
+                stateMachine.GetMethods().Single(handle =>
+                    reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Corrupt");
+            corruptMethodToken =
+                MetadataTokens.GetToken(corruptHandle);
+            Assert.True(
+                reader.GetHeapSize(HeapIndex.Blob)
+                    <= ushort.MaxValue
+                && reader.GetHeapSize(HeapIndex.String)
+                    <= ushort.MaxValue);
+            int signatureHandleOffset =
+                peReader.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.MethodDef)
+                + (MetadataTokens.GetRowNumber(
+                        corruptHandle)
+                    - 1)
+                    * reader.GetTableRowSize(
+                        TableIndex.MethodDef)
+                + sizeof(int)
+                + sizeof(ushort)
+                + sizeof(ushort)
+                + sizeof(ushort);
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                image.AsSpan(
+                    signatureHandleOffset,
+                    sizeof(ushort)),
+                ushort.MaxValue);
+        }
+
+        string scratchDirectory = Path.Combine(
+            "artifacts",
+            $"analysis-signature-{Guid.NewGuid():N}");
+        string path = Path.Combine(
+            scratchDirectory,
+            "fixture.dll");
+        try
+        {
+            Directory.CreateDirectory(scratchDirectory);
+            File.WriteAllBytes(path, image);
+            LibraryBodyIndex index = LibraryBodyIndex.Open(
+                path,
+                LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .JsonWireContractFlow);
+            MethodIdentity source = Assert.Single(
+                index.DeclaredMethods,
+                method => method.DeclaringType.Name
+                        == nameof(ClassicAsyncSiblingFixture)
+                    && method.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .FailedExternalStoreSource));
+
+            Assert.Contains(
+                index.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                    == corruptMethodToken);
+            Assert.DoesNotContain(
+                index.ResultSinks,
+                sink => sink.Caller == source
+                    && sink.StateMachineFieldSource is not null);
+            AssertCompilerPositiveSuppressedByCensus(index);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            if (Directory.Exists(scratchDirectory))
+                Directory.Delete(scratchDirectory);
+        }
+    }
+
+    static void AssertCompilerPositiveSuppressedByCensus(
+        LibraryBodyIndex index)
+    {
+        MethodIdentity compilerPositive = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        Assert.DoesNotContain(
+            index.ResultSinks,
+            sink => sink.Caller == compilerPositive
+                && sink.StateMachineFieldSource is not null);
+    }
+
+    static int MethodHeaderSize(
+        byte[] image,
+        int bodyOffset)
+    {
+        byte first = image[bodyOffset];
+        if ((first & 0x3) == 0x2)
+            return 1;
+        ushort flagsAndSize =
+            BinaryPrimitives.ReadUInt16LittleEndian(
+                image.AsSpan(
+                    bodyOffset,
+                    sizeof(ushort)));
+        return (flagsAndSize >> 12) * 4;
+    }
+
+    static int RvaToFileOffset(
+        PEHeaders headers,
+        int rva)
+    {
+        foreach (SectionHeader section
+            in headers.SectionHeaders)
+        {
+            int size = Math.Max(
+                section.VirtualSize,
+                section.SizeOfRawData);
+            if (rva >= section.VirtualAddress
+                && rva < section.VirtualAddress + size)
+            {
+                return section.PointerToRawData
+                    + rva
+                    - section.VirtualAddress;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"RVA 0x{rva:X8} was not found.");
+    }
+
+    [Fact]
+    public void
+        ResultSinks_SuppressStateMachineFieldSourceForScopedCensus()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            full.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink fullSink = Assert.Single(
+            full.ResultSinks,
+            sink => sink.Caller == source
+                && sink.StateMachineFieldSource is not null);
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow,
+            bodyScope:
+                new HashSet<int>
+                {
+                    fullSink.EvidenceMethod.MetadataToken,
+                });
+
+        Assert.DoesNotContain(
+            scoped.ResultSinks,
+            sink => sink.StateMachineFieldSource is not null);
+        Assert.Contains(
+            scoped.ResultSinks,
+            sink => sink.Caller == source
+                && sink.EvidenceMethod.MetadataToken
+                    == fullSink.EvidenceMethod.MetadataToken);
+    }
+
+    [Fact]
+    public void
+        ResultSinks_WithStateMachineFieldSourceRemainEqualityStable()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        LibraryBodyAnalysisFeatures features =
+            LibraryBodyAnalysisFeatures.MethodEvidence
+            | LibraryBodyAnalysisFeatures.JsonWireContractFlow;
+        LibraryBodyIndex left = LibraryBodyIndex.Open(
+            path,
+            features);
+        LibraryBodyIndex right = LibraryBodyIndex.Open(
+            path,
+            features);
+
+        static MethodResultSink Select(
+            LibraryBodyIndex index) =>
+            Assert.Single(
+                index.ResultSinks,
+                sink => sink.Caller.Name == nameof(
+                        ClassicAsyncSiblingFixture
+                            .ReturnsCallStoredBeforeAwait)
+                    && sink.StateMachineFieldSource is not null);
+
+        MethodResultSink leftSink = Select(left);
+        MethodResultSink rightSink = Select(right);
+
+        Assert.Equal(leftSink, rightSink);
+        Assert.Equal(
+            leftSink.GetHashCode(),
+            rightSink.GetHashCode());
+        Assert.Single(
+            new[] { leftSink, rightSink }.Distinct());
+    }
+
+    [Fact]
+    public void
+        ResultSinks_AuthenticateStateMachineCompletionBuilderField()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .UsesSecondaryBuilderAfterAwait));
+        DirectCall[] completions =
+        [
+            .. index.DirectCalls.Where(call =>
+                call.Caller == source
+                && call.EvidenceMethod != source
+                && call.Callee.Name == "SetResult"),
+        ];
+        Assert.Equal(2, completions.Length);
+
+        MethodResultSink[] completionSinks =
+        [
+            .. completions.Select(completion => Assert.Single(
+                index.ResultSinks,
+                sink =>
+                    sink.EvidenceMethod
+                        == completion.EvidenceMethod
+                    && sink.ILOffset == completion.ILOffset)),
+        ];
+        Assert.All(
+            completionSinks,
+            sink => Assert.Null(
+                sink.StateMachineFieldSource));
+    }
+
+    [Fact]
+    public void
+        ResultSinks_RejectUnresolvedStateMachineFieldStoreAlias()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location,
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures.JsonWireContractFlow);
+        MethodIdentity source = Assert.Single(
+            index.DeclaredMethods,
+            method => method.DeclaringType.Name
+                    == nameof(ClassicAsyncSiblingFixture)
+                && method.Name == nameof(
+                    ClassicAsyncSiblingFixture
+                        .ReturnsCallStoredBeforeAwait));
+        MethodResultSink sink = Assert.Single(
+            index.ResultSinks,
+            candidate => candidate.Caller == source
+                && candidate.StateMachineFieldSource is not null);
+        AsyncStateMachineFieldResultSource fieldSource =
+            sink.StateMachineFieldSource!;
+        FieldStoreFact store = Assert.Single(
+            index.FieldStores,
+            candidate =>
+                candidate.EvidenceMethod == sink.EvidenceMethod
+                && candidate.ILOffset == fieldSource.StoreOffset);
+        FieldStoreFact physicalStore = store with
+        {
+            Caller = sink.EvidenceMethod,
+        };
+
+        Assert.True(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore],
+                    out FieldStoreFact? exact));
+        Assert.Equal(physicalStore, exact);
+
+        Assert.False(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore with { Identity = null }],
+                    out _));
+        FieldIdentity possibleAlias = Assert.IsType<FieldIdentity>(
+            FieldIdentity.TryCreate(
+                fieldSource.Field.DeclaringType,
+                fieldSource.Field.Name));
+        Assert.True(
+            fieldSource.Field.MightBeSameFieldAs(possibleAlias));
+        Assert.NotEqual(fieldSource.Field, possibleAlias);
+        Assert.False(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore with { Identity = possibleAlias }],
+                    out _));
+        Assert.False(
+            MethodCallAnalysis
+                .TryFindAsyncStateMachineFieldSourceStore(
+                    sink.EvidenceMethod,
+                    fieldSource.Field,
+                    fieldSource.LoadOffset,
+                    [physicalStore with { IsReachable = null }],
+                    out _));
     }
 
     [Fact]
@@ -10680,6 +11943,19 @@ public class LibraryBodyIndexTests
         var pointerRead = Assert.Single(index.Methods.Where(m =>
             m.Name == nameof(UnsafeEvidenceFixtures.UnsafePointerRead)));
         Assert.Equal(CallerUnsafeMode.Implicit, pointerRead.CallerUnsafeMode);
+    }
+
+    [Fact]
+    public void CallerUnsafeMode_RequiresUnsafeIsExplicitWhenModuleOptedIn()
+    {
+        var index = LibraryBodyIndex.Open(
+            FixtureCatalog.DecompilerUnsafeNew.AssemblyPath());
+
+        Assert.True(index.MemorySafetyRulesEnabled);
+        Assert.NotEqual(0, index.UnsafeModes.Explicit);
+        Assert.DoesNotContain(
+            index.Methods,
+            method => method.CallerUnsafeMode == CallerUnsafeMode.Implicit);
     }
 
     [Fact]
