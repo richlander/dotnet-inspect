@@ -449,12 +449,12 @@ specified here:
 | Analysis | [#5254](https://github.com/richlander/dotnet-inspect/issues/5254) | After #5252; parallel with Decompiler |
 | Decompiler | [#5255](https://github.com/richlander/dotnet-inspect/issues/5255) | After #5252; parallel with Analysis |
 | Project build-policy inspection | [#5256](https://github.com/richlander/dotnet-inspect/issues/5256) | Produces typed project-policy input for #5262; independent of binary work |
-| C# declaration spelling | [#5257](https://github.com/richlander/dotnet-inspect/issues/5257) | After #5253 |
+| C# declaration spelling | [#5257](https://github.com/richlander/dotnet-inspect/issues/5257) | After #5253; consumes #5255 primary-constructor fallback shape |
 | JS-export admission | [#5258](https://github.com/richlander/dotnet-inspect/issues/5258) | After #5253 |
 | Research summaries | [#5259](https://github.com/richlander/dotnet-inspect/issues/5259) | After #5253 and #5254 |
 | Library Signals | [#5260](https://github.com/richlander/dotnet-inspect/issues/5260) | After #5252 |
 | V2 audit census and call paths | [#5270](https://github.com/richlander/dotnet-inspect/issues/5270) | After #5252 and #5254 |
-| Cross-evidence posture query | [#5262](https://github.com/richlander/dotnet-inspect/issues/5262) | After #5256 and #5270 |
+| Cross-evidence posture query | [#5262](https://github.com/richlander/dotnet-inspect/issues/5262) | After #5252, #5256, and #5270 |
 
 Each successor re-derives its own contract in the named owning document. This
 composition document owns only the vocabulary, evidence-plane boundaries, and

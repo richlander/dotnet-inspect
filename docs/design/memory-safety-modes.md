@@ -1,10 +1,10 @@
 # Memory-Safety Rendering Modes (Conservative vs Optimistic)
 
-This note records a decision about how the decompiler renders `unsafe` and related
-constructs in light of .NET's updated memory-safety rules (the redefined `unsafe`
-context, the `MemorySafetyRulesAttribute`, and the per-member `RequiresUnsafeAttribute`).
-See [decompiler.md](../decompiler.md) — "Unsafe contexts under the updated
-memory-safety rules" — for the mechanics this note frames.
+This note records how the decompiler places reconstructed body `unsafe`
+contexts under .NET's updated memory-safety rules. See
+[decompiler.md](../decompiler.md) — "Unsafe contexts under the updated
+memory-safety rules" — for the mechanics this note frames. CSharp owns
+declaration modifiers.
 For the legacy and updated rule models that supply this binary evidence, see
 [Memory-safety models and evidence](memory-safety-models.md).
 
@@ -26,8 +26,7 @@ principled and self-gating: new-rules behavior keys off the module-level
 `MemorySafetyRulesAttribute` (`IrImporter.ModuleUsesUpdatedMemorySafetyRules`),
 so a legacy module's output is byte-identical to what it was before the feature
 existed, and a new-rules module synthesizes only the `unsafe` contexts justified
-by recoverable contracts and reconstructed operations. It is the path Features
-C (body contexts) and D (signature `unsafe`) already follow.
+by recoverable contracts and reconstructed operations.
 
 Optimistic ("simulate") mode is selected explicitly
 (`MetadataSource.SimulateNewRules`; the decompiler harness exposes it as
@@ -126,54 +125,3 @@ statements. Tracked: #2021.
 Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
 contexts. Expression emission remains tracked by #2021 until the pinned
 compile-back compiler can validate it.
-
-## Opaque-contract classification (analysis surface)
-
-Separate from rendering, the analysis layer flags **opaque-contract** methods:
-a requires-unsafe method (`CallerUnsafeMode != None`) whose signature carries no
-pointer (`OpaqueUnsafe.IsOpaque` / `LibraryBodyIndex.OpaqueUnsafeMethods`). The
-requires-unsafe obligation is then visible only via `RequiresUnsafeAttribute` or
-the `unsafe` modifier — a caller reading the parameter and return types alone sees
-nothing unsafe. This is the new-rules analogue of the pointerless `unsafe` method
-discussed above: under the updated rules the attribute survives, so the fact is
-*recoverable as an annotation* even though the signature hides it.
-
-The classification is **positive and sound** — it states that the contract is
-invisible in the signature, never that the body is safe (a `mode != None`
-pointerless method may still do real unsafe work, e.g. `ContractUnsafe(int[])`
-which hardcodes an element index as an unenforced caller precondition). It joins
-no body evidence; it reads `CallerUnsafeMode` alone. Specimens in
-`UnsafeChainA.LibraryA`: positives `M1`, `HollowUnsafe`, `ContractUnsafe`;
-negatives are the pointer-signature methods (`RealUnsafePointer`,
-`SignatureOnlyUnsafe`, `DelegatedUnsafe`, `EscapingStackPointer`) and the safe
-control (`Safe`).
-
-## Hollow-unsafe classification (analysis surface)
-
-The dual axis to opaque-contract is **hollow-unsafe**: a requires-unsafe method
-(`CallerUnsafeMode != None`) whose body shows no directly-visible unsafe operation
-(`HollowUnsafe.IsHollow` / `LibraryBodyIndex.HollowUnsafeMethods`). A *realized*
-unsafe operation (a pointer dereference, `calli`, `localloc`/`cpblk`/`initblk`, or
-a call into the unsafe surface) is anchored to an IL offset in `UnsafeEvidence`;
-structural evidence (a pointer in the signature, a pointer/pinned local) is not.
-The IL offset is the discriminator — a method is hollow when none of its evidence
-carries one.
-
-Unlike opaque-contract, this is an **absence** claim, so it is deliberately
-caveated: it states only that no unsafe operation is *directly visible* in the
-scanned body — never that the method is safe or that its `unsafe` is removable.
-A pointer local can be optimized away in Release, erasing the IL trace of a real
-dereference: the `M1` specimen derefs in source yet records no body op, so it is
-reported hollow *despite being genuinely unsafe*. That false hollow is the
-standing proof that "no visible op" must never be read as "safe". Specimens in
-`UnsafeChainA.LibraryA`: positives `M1` (false hollow), `HollowUnsafe` and
-`SignatureOnlyUnsafe` (genuinely hollow); negatives are the methods with a
-realized op (`RealUnsafePointer`, `ContractUnsafe`, `EscapingStackPointer`),
-`DelegatedUnsafe` (forwards the pointer — a realized unsafe call), and the safe
-control (`Safe`).
-
-The two classifications are orthogonal: opaque-contract is about the *signature*
-(is the obligation visible to a caller?), hollow-unsafe about the *body* (does the
-IL realize an unsafe op?). Their intersection — pointerless-signature **and** no
-body op (`HollowUnsafe`, plus the `M1` trap) — is the strongest "this `unsafe`
-might be reducible" signal, but the `M1` recall gap keeps even that advisory.
