@@ -103,7 +103,7 @@ asking costs*.
 
 | Invariant | Holds today? | Basis |
 | --- | --- | --- |
-| **I1 — Alignment** | Believed to hold on the resolver-supplied path; unverified | Pinned by example only. The resolver-less overload is explicitly out of scope; see [Known gaps](#known-gaps). |
+| **I1 — Alignment** | Believed to hold on the resolver-supplied path; gated on a generated corpus, not established | Pinned by example, plus the differential oracle below, which invokes the guard exactly as `AttributeDecoder.TryDecode` does — the enum-width resolver drawn from the same `ArgTypeProvider` instance SRM is then handed — over 600 generated blobs. The resolver-less overload remains explicitly out of scope; see [Known gaps](#known-gaps). The corpus is a sample, not the domain, so this is evidence rather than closure; see [why this slice's method cannot close](#why-this-slices-method-cannot-close-and-what-replaces-it). |
 | **I2 — Bounding the decoder** | **No.** Violated by #5098 | SRM's per-argument re-derivation of the generic context is not bounded by anything the guard checks. |
 | **I3 — Bounding ourselves** | **No.** Violated by #5091, #5047, #5130, and #5132 | Four independent amplifications on our own side, spanning one walk and the cross-row loop. |
 
@@ -321,9 +321,16 @@ are load-bearing rather than incidental:
 - **The observer axis is absent**, so gap 4 remains invisible to this slice by
   construction.
 - **Named arguments, generic substitution, custom modifiers, nesting near
-  `MaxSerializedDepth`, and the malformed extensions** below are all
-  ungenerated. The named-argument count is a literal zero on every generated
-  blob, so even the count-bounding path never runs.
+  `MaxSerializedDepth`, nested arrays, the metadata states, and the malformed
+  extensions** below are all ungenerated. The named-argument count is a literal
+  zero on every generated blob, so even the count-bounding path never runs.
+  Nested arrays deserve separate mention because an earlier version of this
+  work believed they had no legal spelling: a fixed argument *declared*
+  `int[][]` is indeed impossible (C# rejects it with CS0181), but an
+  `object[]` element carries its own `FieldOrPropType` byte and may spell
+  `SZARRAY` itself. Roslyn emits that form, SRM decodes it, and the guard
+  approves it, so it sits inside the certified must-approve set and is also a
+  depth vector.
 - **Every generated blob is legal and approved.** The corpus contains no
   must-refuse case at all: the non-vacuity assertion holds at 600 of 600
   approved. Refusal is the guard's entire security function and I2 is stated
@@ -379,10 +386,27 @@ the thing that should be reviewed.
 
 That successor closes I1 and the refusal half of the contract. It does not
 close I2 or I3: amplification needs large declared counts and a work-per-byte
-measurement, which is a different instrument and a separate slice. The bounds
-and disposition model are being settled docs-first, as issue #5288, because the
+measurement, which is a different instrument and a separate slice.
+
+The bounds and disposition model are being settled docs-first, because the
 bounds argument is the artifact that needs review — the prior slice's trouble
-was never the assertions themselves.
+was never the assertions themselves. That work is staged, because the two axes
+it rests on do not narrow the same way:
+
+- **Stage 1 — certification bounds, issue #5288.** Pin the SRM version, which
+  is what makes I1 well-formed at all: "the guard agrees with SRM" names a
+  specific implementation only once that implementation is pinned. Then certify
+  the producing compilers, which makes the must-approve half of the disposition
+  map empirically derivable from what those compilers actually emit, rather
+  than argued from the grammar.
+- **Stage 2 — the adversarial remainder, issue #5304.** Certifying producers
+  narrows *fidelity*, never *safety*: an attacker does not use an SDK. Every
+  input outside the certified set must still be refused safely, and stage 2 is
+  what gates that.
+
+What stage 1 defers is the gate, not the contract. The guard is responsible for
+refusing arbitrary bytes from the moment stage 1 lands; stage 2 supplies the
+evidence that it does.
 
 ### Generated grammar
 

@@ -63,6 +63,21 @@ static class CustomAttributeDifferentialOracle
 
         /// <summary>Every SerString form a string argument actually took.</summary>
         public HashSet<SerStringForm> StringForms { get; } = [];
+
+        /// <summary>
+        /// Every SZARRAY element count a value blob actually carried. The null
+        /// encoding, the empty encoding, and a populated array are three
+        /// distinct blob shapes, so they are read from the bytes rather than
+        /// from the shape tree that asked for them.
+        /// </summary>
+        public HashSet<int> ArrayCounts { get; } = [];
+
+        /// <summary>
+        /// Every underlying width an enum argument's value actually used.
+        /// Reading this from the image's configuration instead would credit a
+        /// width to an image that contains no enum argument at all.
+        /// </summary>
+        public HashSet<PrimitiveTypeCode> EnumWidths { get; } = [];
     }
 
     /// <summary>
@@ -109,7 +124,7 @@ static class CustomAttributeDifferentialOracle
 
         public override void WriteValue(BlobBuilder value, Context context)
         {
-            value.WriteInt32(Count);
+            WriteRecordedArrayCount(value, Count, context);
             for (int index = 0; index < Count; index++)
                 Element.WriteValue(value, context);
         }
@@ -159,7 +174,7 @@ static class CustomAttributeDifferentialOracle
             => encoder.Type(context.EnumType, isValueType: true);
 
         public override void WriteValue(BlobBuilder value, Context context)
-            => WritePrimitiveValue(value, context.EnumUnderlying);
+            => WriteRecordedEnumValue(value, context.EnumUnderlying, context);
 
         public override string ToString() => "enum(handle)";
     }
@@ -262,6 +277,34 @@ static class CustomAttributeDifferentialOracle
         WritePrimitiveValue(value, code);
     }
 
+    /// <summary>
+    /// Writes an SZARRAY's element count and records the count that was
+    /// written. The null encoding, the empty encoding, and a populated array
+    /// are three distinct blob shapes, so the coverage gate reads them from the
+    /// bytes: a writer emitting one count while the shape tree said another
+    /// would otherwise still be credited with covering both.
+    /// </summary>
+    static void WriteRecordedArrayCount(BlobBuilder value, int count, Context context)
+    {
+        context.ArrayCounts.Add(count);
+        value.WriteInt32(count);
+    }
+
+    /// <summary>
+    /// Writes an enum argument's value at the image's underlying width and
+    /// records the width actually used, so the width assertions cannot be
+    /// satisfied by an image that merely declares that underlying type while
+    /// containing no enum argument.
+    /// </summary>
+    static void WriteRecordedEnumValue(
+        BlobBuilder value,
+        PrimitiveTypeCode code,
+        Context context)
+    {
+        context.EnumWidths.Add(code);
+        WritePrimitiveValue(value, code);
+    }
+
     static void WritePrimitiveValue(BlobBuilder value, PrimitiveTypeCode code)
     {
         switch (code)
@@ -320,16 +363,26 @@ static class CustomAttributeDifferentialOracle
     /// Produces one fixed-argument shape.
     /// </summary>
     /// <remarks>
-    /// The custom-attribute grammar admits an <c>SZARRAY</c> of scalars or of
-    /// <c>object</c>, but not an array of arrays: ECMA-335 §II.23.3 allows one
-    /// <c>SZARRAY</c> prefix before an <c>Elem</c>, and <c>Elem</c> does not
-    /// itself include <c>SZARRAY</c>. Jagged arrays therefore have no spelling
-    /// here and SRM refuses them outright, so generating them would compare the
-    /// two walkers on inputs neither is contracted to agree about. An
-    /// <c>object[]</c> is a different case and is legal: the array's declared
-    /// element type is <c>object</c>, and each element carries its own
-    /// <c>FieldOrPropType</c> byte. Array elements are therefore leaves or
-    /// boxed leaves — never boxed arrays, which would reintroduce nesting.
+    /// Array elements here are leaves or boxed leaves, never boxed arrays. That
+    /// is a deliberate restriction of this generator, not a property of the
+    /// format, and the distinction matters because an earlier version of this
+    /// comment asserted the stronger claim and was wrong.
+    /// <para>
+    /// What is genuinely impossible is a fixed-argument parameter *declared* as
+    /// <c>int[][]</c>: C# rejects it at the declaration with CS0181, so no such
+    /// attribute exists to decode. Nesting is nevertheless reachable through an
+    /// <c>object[]</c>, whose elements each carry their own
+    /// <c>FieldOrPropType</c> byte and may therefore spell <c>SZARRAY</c>
+    /// themselves. Roslyn emits exactly that — <c>1d 08</c> for an
+    /// <c>int[]</c> element and <c>1d 51</c> for an <c>object[]</c> element —
+    /// SRM decodes both, and the guard approves both.
+    /// </para>
+    /// <para>
+    /// Nested arrays are consequently inside the certified must-approve set and
+    /// are a depth vector, so their absence here is a coverage omission that the
+    /// successor work must close, not a case the two walkers are uncontracted to
+    /// agree about.
+    /// </para>
     /// </remarks>
     internal static Shape NextShape(Random random)
     {
@@ -399,7 +452,9 @@ static class CustomAttributeDifferentialOracle
         int seed,
         IReadOnlySet<byte> inlineElementTypes,
         IReadOnlySet<PrimitiveTypeCode> primitives,
-        IReadOnlySet<SerStringForm> stringForms) : IDisposable
+        IReadOnlySet<SerStringForm> stringForms,
+        IReadOnlySet<int> arrayCounts,
+        IReadOnlySet<PrimitiveTypeCode> enumWidths) : IDisposable
     {
         /// <summary>The inline element-type bytes this blob actually carried.</summary>
         public IReadOnlySet<byte> InlineElementTypes => inlineElementTypes;
@@ -409,6 +464,12 @@ static class CustomAttributeDifferentialOracle
 
         /// <summary>The SerString forms this blob actually carried.</summary>
         public IReadOnlySet<SerStringForm> StringForms => stringForms;
+
+        /// <summary>The SZARRAY element counts this blob actually carried.</summary>
+        public IReadOnlySet<int> ArrayCounts => arrayCounts;
+
+        /// <summary>The enum underlying widths this blob's values actually used.</summary>
+        public IReadOnlySet<PrimitiveTypeCode> EnumWidths => enumWidths;
 
         readonly PEReader _peReader = new(new MemoryStream(image, writable: false));
 
@@ -589,7 +650,9 @@ static class CustomAttributeDifferentialOracle
             seed,
             context.InlineElementTypes,
             context.Primitives,
-            context.StringForms);
+            context.StringForms,
+            context.ArrayCounts,
+            context.EnumWidths);
     }
 
     static byte[] Serialize(MetadataBuilder metadata)

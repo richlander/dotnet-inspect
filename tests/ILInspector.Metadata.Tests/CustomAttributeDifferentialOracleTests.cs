@@ -23,6 +23,38 @@ public sealed class CustomAttributeDifferentialOracleTests
     /// </summary>
     const int SeedCount = 600;
 
+    /// <summary>
+    /// Invokes the guard the way the product's <c>AttributeDecoder.TryDecode</c>
+    /// does: with the enum-width resolver taken from the very
+    /// <c>ArgTypeProvider</c> instance SRM is then handed, so the two walkers
+    /// share one width decision rather than re-deriving it.
+    /// </summary>
+    /// <remarks>
+    /// I1 is a claim about <em>that</em> configuration. The resolver-less
+    /// overload reaches enum widths by a different route
+    /// (<c>FromSerializedName</c>/<c>FromHandle</c>) that the design document
+    /// places outside I1, so asserting the boundary against it would gate a
+    /// path the product never runs.
+    /// </remarks>
+    static bool GuardAsProductInvokesIt(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        out CustomAttributeValueGuard.Boundary boundary)
+    {
+        var provider = new AttributeDecoder.ArgTypeProvider(
+            reader,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize: null,
+            enumUnderlyingType: null);
+
+        return CustomAttributeValueGuard.IsSafeToDecode(
+            reader,
+            attribute,
+            out boundary,
+            beforeMaterialize: null,
+            provider.GetUnderlyingEnumType);
+    }
+
     [Fact]
     public void GeneratedBlobs_GuardStopsExactlyWhereTheBlobEnds()
     {
@@ -33,7 +65,7 @@ public sealed class CustomAttributeDifferentialOracleTests
             using var generated = CustomAttributeDifferentialOracle.Generate(seed);
             CustomAttribute attribute = generated.Attribute;
 
-            bool safe = CustomAttributeValueGuard.IsSafeToDecode(
+            bool safe = GuardAsProductInvokesIt(
                 generated.Reader,
                 attribute,
                 out var boundary);
@@ -118,7 +150,7 @@ public sealed class CustomAttributeDifferentialOracleTests
                 trailingGarbageBytes: 7);
             CustomAttribute attribute = generated.Attribute;
 
-            bool safe = CustomAttributeValueGuard.IsSafeToDecode(
+            bool safe = GuardAsProductInvokesIt(
                 generated.Reader,
                 attribute,
                 out var boundary);
@@ -167,17 +199,15 @@ public sealed class CustomAttributeDifferentialOracleTests
     {
         bool array = false;
         bool boxed = false;
-        bool nullArray = false;
-        bool emptyArray = false;
         bool objectArray = false;
         bool systemType = false;
         bool enumHandleSpelled = false;
-        bool int32Enum = false;
-        bool int64Enum = false;
 
         var emitted = new HashSet<byte>();
         var primitives = new HashSet<PrimitiveTypeCode>();
         var stringForms = new HashSet<CustomAttributeDifferentialOracle.SerStringForm>();
+        var arrayCounts = new HashSet<int>();
+        var enumWidths = new HashSet<PrimitiveTypeCode>();
 
         for (int seed = 0; seed < SeedCount; seed++)
         {
@@ -185,19 +215,17 @@ public sealed class CustomAttributeDifferentialOracleTests
             emitted.UnionWith(generated.InlineElementTypes);
             primitives.UnionWith(generated.Primitives);
             stringForms.UnionWith(generated.StringForms);
+            arrayCounts.UnionWith(generated.ArrayCounts);
+            enumWidths.UnionWith(generated.EnumWidths);
             foreach (var shape in generated.Shapes)
-                Visit(shape, boxedContext: false, generated.EnumUnderlying);
+                Visit(shape, boxedContext: false);
         }
 
         Assert.True(array, "no SZARRAY was generated");
         Assert.True(boxed, "no boxed argument was generated");
-        Assert.True(nullArray, "no null array was generated");
-        Assert.True(emptyArray, "no zero-length array was generated");
         Assert.True(objectArray, "no object[] was generated");
         Assert.True(systemType, "no System.Type argument was generated");
         Assert.True(enumHandleSpelled, "no handle-spelled enum was generated");
-        Assert.True(int32Enum, "no enum over an Int32 underlying type was generated");
-        Assert.True(int64Enum, "no enum over an Int64 underlying type was generated");
 
         // Emitted bytes, not inferred ones.
         Assert.Contains((byte)0x50, emitted);   // System.Type, spelled inline
@@ -235,34 +263,40 @@ public sealed class CustomAttributeDifferentialOracleTests
             Enum.GetValues<CustomAttributeDifferentialOracle.SerStringForm>().ToHashSet(),
             stringForms);
 
+        // The three distinct SZARRAY encodings, read from the counts actually
+        // written rather than from the shape tree that requested them.
+        Assert.Contains(arrayCounts, count => count < 0);  // null array
+        Assert.Contains(0, arrayCounts);                   // zero-length array
+        Assert.Contains(arrayCounts, count => count > 0);  // populated array
+
+        // Enum widths, read from the values actually written. Reading these
+        // from the image's configuration would credit a width to an image whose
+        // blob carries no enum argument at all.
+        Assert.Contains(PrimitiveTypeCode.Int32, enumWidths);
+        Assert.Contains(PrimitiveTypeCode.Int64, enumWidths);
+
         void Visit(
             CustomAttributeDifferentialOracle.Shape shape,
-            bool boxedContext,
-            PrimitiveTypeCode underlying)
+            bool boxedContext)
         {
             switch (shape)
             {
                 case CustomAttributeDifferentialOracle.ArrayShape a:
                     array = true;
-                    nullArray |= a.Count < 0;
-                    emptyArray |= a.Count == 0;
                     objectArray |= a.Element is CustomAttributeDifferentialOracle.BoxedShape;
                     // An array element inherits its parent's encoding context.
-                    Visit(a.Element, boxedContext, underlying);
+                    Visit(a.Element, boxedContext);
                     break;
                 case CustomAttributeDifferentialOracle.BoxedShape b:
                     boxed = true;
-                    Visit(b.Inner, boxedContext: true, underlying);
+                    Visit(b.Inner, boxedContext: true);
                     break;
                 case CustomAttributeDifferentialOracle.EnumHandleShape:
-                    // Recorded only where an enum actually occurs, so an image
-                    // that happens to be configured Int64 but contains no enum
-                    // cannot satisfy the width assertions. The serialized-name
-                    // spelling is asserted from the emitted bytes instead.
+                    // Recorded only where an enum actually occurs. The
+                    // serialized-name spelling is asserted from the emitted
+                    // bytes, and the width from the values written.
                     if (!boxedContext)
                         enumHandleSpelled = true;
-                    int32Enum |= underlying == PrimitiveTypeCode.Int32;
-                    int64Enum |= underlying == PrimitiveTypeCode.Int64;
                     break;
                 case CustomAttributeDifferentialOracle.SystemTypeShape:
                     systemType = true;
