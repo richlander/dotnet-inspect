@@ -65,8 +65,8 @@ work before the worker event loop processes the request.
 An explicit planned restart or a justified epoch failure can destroy the
 entire worker. That is hard cancellation: all in-flight managed work and
 worker-local caches are lost. Planned restart produces
-`canceled("worker-restarted")`; an unexpected startup, crash, protocol, or
-watchdog loss produces a boundary failure.
+`canceled("worker-restarted")`; an unexpected startup, crash, worker-declared,
+protocol, or watchdog loss produces a boundary failure.
 
 ### Shared physical work
 
@@ -164,6 +164,7 @@ type WorkerRuntimeFailureKind =
   | "protocol"
   | "watchdog"
   | "control-response"
+  | "worker-declared"
   | "worker-message";
 
 interface WorkerRuntimeFailure {
@@ -412,6 +413,12 @@ The worker responds:
 high-water mark. It never proves cancellation. The main host accepts it only
 with the operation's `Rejected` or `Settled` closure.
 
+No cancellation acknowledgment can commit while the operation is still
+awaiting its `Accepted` or `Rejected` response. While the realm remains live,
+`queued` constrains that operation's later `Settled` outcome to the same
+cancellation reason; ordinary success or failure after `queued` is a protocol
+violation.
+
 The main protocol record is released when:
 
 - `Rejected` or `Settled` has arrived; and
@@ -444,9 +451,9 @@ watchdog stage-one timestamp when applicable:
 - a first watchdog expiry with an outstanding control-response probe adopts
   that probe instead of sending a second one, and starts the second watchdog
   interval at the adoption time;
-- a control-response grace that expires while any outstanding probe predates
-  the command cannot add that command to the immutable snapshot, so it records
-  a deferred control-probe need; and
+- a control-response grace that expires while any outstanding probe lacks that
+  command in its immutable snapshot cannot add it after send, so it records a
+  deferred control-probe need; and
 - after the matching acknowledgment retires the outstanding probe, any still
   unresolved deferred obligation is covered by the next probe.
 
@@ -578,8 +585,15 @@ proof, or prompt-cancellation guarantee.
 Epoch closure has one cause:
 
 - planned restart; or
-- unexpected startup, worker crash, message, protocol, control-response, or
-  watchdog failure.
+- unexpected startup, worker crash, worker-declared, message, protocol,
+  control-response, or watchdog failure.
+
+A valid current-epoch `EpochFailed(diagnostic)` is the worker's cooperative
+declaration that its managed bridge or epoch-work reporter reached an
+unrecoverable boundary failure. Receipt commits unexpected closure with
+failure kind `worker-declared` and begins bounded draining. It is neither a
+feature outcome nor task-loop liveness evidence, and later operation or work
+messages cannot replace the committed closure.
 
 Entering draining atomically refuses new assignments and fixes that cause.
 Every still-pending assigned producer receives one physical closure:
@@ -660,11 +674,15 @@ than the owner of all asynchronous feature behavior.
 
 ## Model evidence
 
-The companion model directory contains three finite models:
+The companion model directory contains four finite models:
 
+- `InspectWebWorkerValidation.tla` covers registered versus advertised
+  operation allowances, epoch-work identity validation, and mismatch-driven
+  failed draining.
 - `InspectWebWorkerProtocol.tla` covers held starts, admission ordering,
-  cancellation acknowledgment closure, atomic settlement, replay high-water
-  marks, missing-response proof, epoch-work identity, and stale epochs.
+  cancellation acknowledgment order and closure, atomic settlement, replay
+  high-water marks, missing-response proof, epoch-work identity, and stale
+  epochs.
 - `InspectWebWorkerLifecycle.tla` covers startup active time, matching
   readiness, bounded and unbounded silence, probes, lifecycle and main-loop
   discontinuities, planned versus unexpected closure, draining, termination,
@@ -673,11 +691,11 @@ The companion model directory contains three finite models:
   triggers over the one physical probe register, including adoption, deferred
   coverage, exact acknowledgment, and missing-response failure.
 
-The models separate protocol bookkeeping, clock and worker lifetime, and the
-cross-cutting probe arbitration seam. Their README records assumptions,
-bounds, checked properties, counterexample mutations, and exact TLC results.
-They prove no TypeScript, browser, worker, managed, or feature implementation
-behavior.
+The models separate allowance validation, protocol bookkeeping, clock and
+worker lifetime, and the cross-cutting probe arbitration seam. Their README
+records assumptions, bounds, checked properties, counterexample mutations, and
+exact TLC results. They prove no TypeScript, browser, worker, managed, or
+feature implementation behavior.
 
 ## Required implementation gates
 
@@ -699,9 +717,10 @@ behavior.
 - atomic `Settled` mapping to diagnostic, terminal, and quiescence call order;
 - managed Promise rejection entering epoch failure rather than becoming a
   feature result;
-- queued and running cancellation, `not-active` race validation, one
-  acknowledgment, closure-before-record-release, and compact
-  post-settlement acknowledgment retention;
+- queued and running cancellation, queued cancellation preserving its requested
+  reason through settlement, `not-active` race validation, one acknowledgment,
+  closure-before-record-release, and compact post-settlement acknowledgment
+  retention;
 - unanswered start and cancellation requests where matching probe
   acknowledgment from the serialized command lane proves a missing covered
   response and begins bounded draining, plus asynchronous cancellation that
@@ -711,6 +730,8 @@ behavior.
 - worker and main-side epoch-work high-water and active-set validation,
   unmatched or duplicate finish, allowance mismatch, and release on epoch
   close;
+- `EpochFailed` mapping to `worker-declared` unexpected draining, with no
+  continued admission and no feature-result reinterpretation;
 - registered idle-compatible producer classes receiving opaque capabilities,
   with unregistered or over-budget classes requiring epoch-work leases;
 - current-epoch invalid ordering as protocol failure and old-epoch messages as
@@ -753,7 +774,7 @@ behavior.
   main-thread-task scenarios;
 - valid liveness, matching probe acknowledgment, malformed message, worker
   `error`, worker `messageerror`, bootstrap rejection, protocol failure, and
-  watchdog loss;
+  worker-declared failure, and watchdog loss;
 - planned restart cancellation versus unexpected boundary failure;
 - preparation followed by epoch closure before activation, preserving planned
   versus unexpected classification;

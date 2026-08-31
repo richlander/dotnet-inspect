@@ -1,12 +1,22 @@
 # Inspect-web worker runtime models
 
-This directory model-checks three mechanisms owned by
+This directory model-checks four mechanisms owned by
 [Inspect-web worker runtime](../../inspect-web-worker-runtime.md). The models
 supplement the readable design. They prove nothing about TypeScript, browser
 workers, clocks, .NET, generated facades, managed callbacks, or feature
 implementations.
 
 ## Model split
+
+`InspectWebWorkerValidation.tla` models registered and worker-advertised
+allowances plus epoch-work inputs. It covers:
+
+- exact allowance echo on `Accepted`;
+- mismatched allowance entering protocol-failure draining rather than active
+  liveness accounting;
+- replayed work starts and unmatched work finishes entering protocol-failure
+  draining; and
+- eventual realm closure after invalid input.
 
 `InspectWebWorkerProtocol.tla` models two operation references assigned to one
 worker epoch. It covers:
@@ -15,7 +25,7 @@ worker epoch. It covers:
 - cancellation before dispatch;
 - explicit acceptance or rejection;
 - progress/settlement ordering through one atomic physical `Settled` record;
-- cancellation acknowledgment retention;
+- cancellation acknowledgment ordering, meaning, and retention;
 - serialized command-response commitment and response-probe proof of a missing
   earlier response;
 - operation-sequence high-water replay rejection without completed-ID
@@ -51,16 +61,17 @@ probe register. It covers:
 - lifecycle recovery preserving an outstanding register and acknowledgment.
 
 Keeping the models separate prevents protocol bookkeeping from multiplying
-every clock state. The protocol model abstracts time and liveness arithmetic.
+every clock state. The validation model isolates response-field and epoch-work
+input validation. The protocol model abstracts time and liveness arithmetic.
 The lifecycle model abstracts payload parsing, sequence replay, and operation
 message inventory. The probe model isolates the cross-cutting arbitration seam
-that would otherwise be abstracted differently by those two models.
+that would otherwise be abstracted differently by those models.
 
 ## Assumptions and bounds
 
-Both models use two abstract operations. Their identities stand for complete
-opaque operation-ID and numeric-sequence pairs; they do not model string
-construction or feature meaning.
+The validation, protocol, and lifecycle models use two abstract operations.
+Their identities stand for complete opaque operation-ID and numeric-sequence
+pairs; they do not model string construction or feature meaning.
 
 The protocol model assumes:
 
@@ -74,6 +85,9 @@ The protocol model assumes:
   and a same-operation later control waits until that probe retires;
 - a handler can complete without its required response, after which a later
   matching probe acknowledgment supplies positive evidence of the omission;
+- cancellation acknowledgment commits only after the earlier Start response;
+  `queued` requires an accepted record and constrains ordinary settlement to
+  canceled;
 - cancellation and settlement may race in either order;
 - `MaxWorkSequence = 2` is a state-space bound, not a product limit; and
 - weak fairness applies only to realm destruction after draining.
@@ -98,7 +112,9 @@ The lifecycle model assumes:
 - lifecycle resume and main-loop recovery discard the interrupted judgment and
   grant one fresh interval while preserving an outstanding probe;
 - an operation or work lease can release naturally during draining;
-- worker crash has already destroyed the realm; and
+- worker crash has already destroyed the realm;
+- worker-declared epoch failure refines the same unexpected-closure transition
+  as other live-realm failures; and
 - weak fairness covers lifecycle and main-loop resume, startup ticking and
   expiry, both silence-expiry stages, drain ticking, and realm destruction.
 
@@ -120,6 +136,15 @@ The probe model assumes:
   ordinary mismatched-acknowledgment failure; and
 - `MaxProbeSequence = 2` is a state-space bound, not a product limit.
 
+The validation model assumes:
+
+- operation A is registered as bounded and operation B as unbounded;
+- `Accepted` carries exactly one of those two abstract allowance classes; and
+- `MaxWorkSequence = 2` is a state-space bound, not a product limit.
+
+Weak fairness applies to realm destruction after invalid-input-driven
+draining.
+
 The models do not establish that any concrete operation is structurally
 bounded. That requires the product-owned event-loop-return gate and browser
 measurement required by the design. The lifecycle model represents bounded
@@ -140,13 +165,15 @@ among several distinct bounded durations.
 | One `Settled` record includes physical quiescence | `AtomicSettlementIncludesQuiescence` |
 | An operation settles at most once | `OneSettlementPerOperation` |
 | A canceled record retains its pending acknowledgment before retirement | `RetirementRequiresClosureAndAcknowledgment` |
+| Cancellation acknowledgment follows committed admission | `CancellationAcknowledgmentRequiresCommittedAdmission` |
+| Queued cancellation settles as canceled while the realm remains live | `QueuedCancellationRequiresCanceledSettlement` |
 | A sequence at or below high-water cannot reenter admission | `ReplayNeverReentersAdmission` |
 | Probe proof of a missing response fails the epoch | `MissingResponseProofFailsEpoch` |
 | Missing-response proof requires a completed omission | `MissingResponseProofRequiresCompletedOmission` |
 | Probe acknowledgment cannot overtake its earlier command | `ProbeCannotOvertakeControl` |
 | `not-active` cannot acknowledge a future sequence | `NotActiveRequiresReceivedSequence` |
 | Epoch-work sequences do not restart or reuse | `WorkSequenceNeverReused`, `StartedWorkTracksHighWater` |
-| Work finish requires an active start | `WorkFinishRequiresActiveStart` |
+| Work finish requires a recorded start | `WorkFinishRequiresActiveStart` |
 | An old epoch cannot mutate the current host | `StaleEpochCannotMutateCurrentState` |
 | No callback runs after realm release | `NoCallbackAfterRealmRelease` |
 | Protocol failure leaves ready operation | `ProtocolFailureLeavesReadyState` |
@@ -159,7 +186,6 @@ among several distinct bounded durations.
 | Startup messages and resume cannot renew the budget | `StartupBudgetDoesNotRenew` |
 | Only matching readiness opens the epoch | `MatchingReadyIsRequired`, `ProbeCannotSatisfyStartup`, `MismatchedReadyCannotOpenEpoch` |
 | Draining refuses assignments | `DrainingRefusesAssignments` |
-| Accepted liveness matches the registered declaration | `RegisteredAllowanceMustMatch` |
 | Progress-like non-task messages do not renew liveness | `NonTaskMessagesDoNotRenewWatchdog` |
 | First bounded expiry probes rather than terminates | `FirstWatchdogExpiryOnlyProbes` |
 | Suspect state retains the issued probe | `SuspectRequiresIssuedProbe` |
@@ -167,6 +193,7 @@ among several distinct bounded durations.
 | A main-loop gap cannot fail the worker watchdog | `MainLoopGapCannotFailWatchdog` |
 | Planned restart cancels pending work | `PlannedRestartCancelsPendingOperations` |
 | Unexpected loss fails pending work | `UnexpectedLossFailsPendingOperations` |
+| Worker-declared failure uses unexpected closure | `WorkerDeclaredEpochFailure`, `ClosureCauseDeterminesOutcome` |
 | One fixed closure cause determines every affected outcome | `ClosureCauseDeterminesOutcome` |
 | Quiescence follows natural or realm release | `QuiescenceRequiresPhysicalRelease` |
 | Realm destruction revokes the source and leaves no live records | `RealmReleaseRevokesSource`, `ClosedEpochHasNoLiveResources` |
@@ -174,6 +201,16 @@ among several distinct bounded durations.
 | Startup eventually succeeds or fails | `StartingEventuallyLeaves` |
 | Draining eventually destroys the realm | `DrainingEventuallyCloses` |
 | Continuous bounded silence drains despite bounded callback churn | `ContinuousBoundedSilenceEventuallyDrains` |
+
+### Input validation
+
+| Design property | Model property |
+| --- | --- |
+| Accepted allowance matches the registered declaration | `AcceptedAllowanceMatchesRegistration` |
+| Mismatched allowance fails and drains the epoch | `MismatchedAllowanceFailsEpoch` |
+| Active work was not already finished | `ActiveWorkWasNotFinished` |
+| Finished work has a recorded start | `FinishedWorkWasStarted` |
+| Invalid-input draining eventually closes | `DrainingEventuallyCloses` |
 
 ### Probe arbitration
 
@@ -194,6 +231,11 @@ Use the repository-pinned tools from the
 ```bash
 TLA_TOOLS_JAR=/path/to/tla2tools.jar
 cd docs/design/models/inspect-web-worker-runtime
+
+java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
+  -workers 4 -cleanup \
+  -config InspectWebWorkerValidation.cfg \
+  InspectWebWorkerValidation.tla
 
 java -XX:+UseParallelGC -cp "$TLA_TOOLS_JAR" tlc2.TLC \
   -workers 4 -cleanup \
@@ -227,9 +269,10 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 
 | Configuration | Bounds | Generated | Distinct | Depth | Result |
 | --- | --- | ---: | ---: | ---: | --- |
-| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 455,220 | 129,105 | 20 | No error |
-| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 131,999 | 28,872 | 19 | No error |
-| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 3,713 | 1,424 | 14 | No error |
+| `InspectWebWorkerValidation.cfg` | 2 operations, 2 allowance classes, `MaxWorkSequence = 2` | 622 | 351 | 11 | No error |
+| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 234,201 | 73,962 | 20 | No error |
+| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 137,903 | 28,872 | 19 | No error |
+| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 3,881 | 1,424 | 14 | No error |
 | `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 827 | 316 | 10 | No error |
 
 ## Mutation results
@@ -248,6 +291,8 @@ violation.
 | `InspectWebWorkerProtocolSettleBeforeAccepted.cfg` | Settles before acceptance | `SettlementRequiresAcceptance` |
 | `InspectWebWorkerProtocolDuplicateSettlement.cfg` | Emits a second settlement | `OneSettlementPerOperation` |
 | `InspectWebWorkerProtocolRetireBeforeAck.cfg` | Drops a canceled record before acknowledgment | `RetirementRequiresClosureAndAcknowledgment` |
+| `InspectWebWorkerProtocolCancelAckBeforeAdmission.cfg` | A cancellation acknowledgment overtakes the Start response | `CancellationAcknowledgmentRequiresCommittedAdmission` |
+| `InspectWebWorkerProtocolQueuedAckAllowsNonCanceled.cfg` | Queued cancellation settles successfully | `QueuedCancellationRequiresCanceledSettlement` |
 | `InspectWebWorkerProtocolIgnoreMissingResponse.cfg` | Ignores probe proof of a missing response | `MissingResponseProofFailsEpoch` |
 | `InspectWebWorkerProtocolProbeOvertakesControl.cfg` | A probe overtakes unfinished cancellation for an accepted operation | `MissingResponseProofRequiresCompletedOmission` |
 | `InspectWebWorkerProtocolFutureCancelNotActive.cfg` | Acknowledges a never-received future sequence | `NotActiveRequiresReceivedSequence` |
@@ -274,7 +319,6 @@ violation.
 | `InspectWebWorkerLifecycleQuiesceBeforeRelease.cfg` | Quiescence precedes physical release | `QuiescenceRequiresPhysicalRelease` |
 | `InspectWebWorkerLifecycleCallbackAfterRelease.cfg` | Callback survives realm release | `NoCallbackAfterRealmRelease` |
 | `InspectWebWorkerLifecycleDrainNeverCloses.cfg` | Failed draining cannot destroy the realm | `DrainingEventuallyCloses` |
-| `InspectWebWorkerLifecycleAllowanceMismatch.cfg` | Acceptance uses an unregistered allowance | `RegisteredAllowanceMustMatch` |
 | `InspectWebWorkerLifecycleNonTaskMessageRenews.cfg` | Progress-like callback activity renews the watchdog | `NonTaskMessagesDoNotRenewWatchdog` |
 | `InspectWebWorkerLifecycleAllowanceChurnRenews.cfg` | Bounded allowance churn repeatedly clears suspicion and renews the origin | `ContinuousBoundedSilenceEventuallyDrains` |
 
@@ -289,6 +333,14 @@ violation.
 | `InspectWebWorkerProbe_MutationAcceptWrongAck.cfg` | Acknowledgment accepts the wrong probe sequence | `ProbeSequenceIsExact` |
 | `InspectWebWorkerProbe_MutationResumeRetiresRegister.cfg` | Lifecycle recovery replaces a live probe and the old acknowledgment fails the epoch | `ProtocolFailureIsOnlyCoveredOmission` |
 | `InspectWebWorkerProbe_MutationTaskEvidenceRetiresRegister.cfg` | Non-acknowledgment task evidence discards a covered omission | `CoveredOmissionFails` |
+
+### Input-validation mutations
+
+| Configuration | Injected defect | Observed violation |
+| --- | --- | --- |
+| `InspectWebWorkerValidationAcceptMismatch.cfg` | Mismatched advertised allowance becomes active | `AcceptedAllowanceMatchesRegistration` |
+| `InspectWebWorkerValidationAcceptReusedWork.cfg` | Replayed completed work sequence becomes active | `ActiveWorkWasNotFinished` |
+| `InspectWebWorkerValidationAcceptUnmatchedFinish.cfg` | Unstarted work sequence becomes finished | `FinishedWorkWasStarted` |
 
 ## Abstraction boundary
 

@@ -78,6 +78,8 @@ UnmatchedWorkFinish == "UnmatchedWorkFinish"
 AcceptDuringDrain == "AcceptDuringDrain"
 StaleEpochMutation == "StaleEpochMutation"
 CallbackAfterClose == "CallbackAfterClose"
+CancelAckBeforeAdmission == "CancelAckBeforeAdmission"
+QueuedAckAllowsNonCanceled == "QueuedAckAllowsNonCanceled"
 Mutations ==
     {NoMutation,
      DispatchBeforeReady,
@@ -94,7 +96,9 @@ Mutations ==
      UnmatchedWorkFinish,
      AcceptDuringDrain,
      StaleEpochMutation,
-     CallbackAfterClose}
+     CallbackAfterClose,
+     CancelAckBeforeAdmission,
+     QueuedAckAllowsNonCanceled}
 
 ASSUME
     /\ Cardinality(Operations) = 2
@@ -659,6 +663,10 @@ WorkerCancelAck(o, ack) ==
     /\ o \in cancelSent
     /\ cancelAck[o] = NoAck
     /\ ack \in CommittedCancelAcks
+    /\ CASE ack \in {AckQueued, AckRunning} ->
+                recordPhase[o] = Accepted
+            [] ack = AckNotActive ->
+                recordPhase[o] \in {Rejected, Settled}
     /\ cancelAck' = [cancelAck EXCEPT ![o] = ack]
     /\ UNCHANGED
         <<epochState,
@@ -685,8 +693,64 @@ WorkerSettle(o, result) ==
     /\ ~sourceRevoked
     /\ recordPhase[o] = Accepted
     /\ result \in {SucceededOutcome, FailedOutcome, CanceledOutcome}
+    /\ cancelAck[o] = AckQueued => result = CanceledOutcome
     /\ recordPhase' = [recordPhase EXCEPT ![o] = Settled]
     /\ outcome' = [outcome EXCEPT ![o] = result]
+    /\ quiesced' = quiesced \cup {o}
+    /\ settlementCount' = [settlementCount EXCEPT ![o] = @ + 1]
+    /\ UNCHANGED
+        <<epochState,
+          readyMatched,
+          acceptedEver,
+          rejectedEver,
+          dispatched,
+          canceledHeld,
+          operationHighWater,
+          cancelSent,
+          cancelAck,
+          responseProbeOutstanding,
+          missingResponseProven,
+          protocolFailure,
+          sourceRevoked>>
+    /\ UnchangedWork
+    /\ UnchangedProtocolFlags
+
+CancelAckBeforeAdmissionMutation(o) ==
+    /\ Mutation = CancelAckBeforeAdmission
+    /\ epochState = Ready
+    /\ ~sourceRevoked
+    /\ recordPhase[o] = AwaitingAdmission
+    /\ o \in cancelSent
+    /\ cancelAck[o] = NoAck
+    /\ cancelAck' = [cancelAck EXCEPT ![o] = AckQueued]
+    /\ UNCHANGED
+        <<epochState,
+          readyMatched,
+          recordPhase,
+          acceptedEver,
+          rejectedEver,
+          dispatched,
+          canceledHeld,
+          operationHighWater,
+          outcome,
+          quiesced,
+          cancelSent,
+          settlementCount,
+          responseProbeOutstanding,
+          missingResponseProven,
+          protocolFailure,
+          sourceRevoked>>
+    /\ UnchangedWork
+    /\ UnchangedProtocolFlags
+
+QueuedAckAllowsNonCanceledMutation(o) ==
+    /\ Mutation = QueuedAckAllowsNonCanceled
+    /\ epochState = Ready
+    /\ ~sourceRevoked
+    /\ recordPhase[o] = Accepted
+    /\ cancelAck[o] = AckQueued
+    /\ recordPhase' = [recordPhase EXCEPT ![o] = Settled]
+    /\ outcome' = [outcome EXCEPT ![o] = SucceededOutcome]
     /\ quiesced' = quiesced \cup {o}
     /\ settlementCount' = [settlementCount EXCEPT ![o] = @ + 1]
     /\ UNCHANGED
@@ -1274,10 +1338,12 @@ Next ==
     \/ \E o \in Operations:
            \E ack \in {AckQueued, AckRunning, AckNotActive}:
                WorkerCancelAck(o, ack)
+    \/ \E o \in Operations: CancelAckBeforeAdmissionMutation(o)
     \/ \E o \in Operations: WorkerOmitsCancelAck(o)
     \/ \E o \in Operations:
            \E result \in {SucceededOutcome, FailedOutcome, CanceledOutcome}:
                WorkerSettle(o, result)
+    \/ \E o \in Operations: QueuedAckAllowsNonCanceledMutation(o)
     \/ \E o \in Operations: SettleBeforeAcceptedMutation(o)
     \/ \E o \in Operations: DuplicateSettlementMutation(o)
     \/ \E o \in Operations: Retire(o)
@@ -1373,6 +1439,21 @@ RetirementRequiresClosureAndAcknowledgment ==
            \/ o \notin cancelSent
            \/ cancelAck[o] \in CommittedCancelAcks
 
+CancellationAcknowledgmentRequiresCommittedAdmission ==
+    \A o \in Operations:
+        cancelAck[o] \in CommittedCancelAcks
+        =>
+        recordPhase[o]
+            \notin {NoRecord, Held, AwaitingAdmission,
+                    AdmissionResponseOmitted}
+
+QueuedCancellationRequiresCanceledSettlement ==
+    \A o \in Operations:
+        cancelAck[o] = AckQueued
+          /\ outcome[o] # NoOutcome
+          /\ ~sourceRevoked
+        => outcome[o] = CanceledOutcome
+
 ReplayNeverReentersAdmission ==
     ~replayAcceptedObserved
 
@@ -1389,10 +1470,10 @@ NotActiveRequiresReceivedSequence ==
     ~futureNotActiveObserved
 
 WorkSequenceNeverReused ==
-    ~workSequenceReuseObserved
+    activeWork \cap finishedWork = {}
 
 WorkFinishRequiresActiveStart ==
-    ~unmatchedWorkFinishObserved
+    finishedWork \subseteq startedWork
 
 StartedWorkTracksHighWater ==
     \A sequence \in startedWork: sequence <= workHighWater

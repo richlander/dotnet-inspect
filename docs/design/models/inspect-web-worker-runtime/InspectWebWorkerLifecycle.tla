@@ -66,7 +66,6 @@ UnexpectedAsCancellation == "UnexpectedAsCancellation"
 QuiesceBeforeRelease == "QuiesceBeforeRelease"
 CallbackAfterRelease == "CallbackAfterRelease"
 DrainNeverCloses == "DrainNeverCloses"
-AllowanceMismatch == "AllowanceMismatch"
 NonTaskMessageRenews == "NonTaskMessageRenews"
 BoundedSilenceRun == "BoundedSilenceRun"
 AllowanceChurnRenews == "AllowanceChurnRenews"
@@ -85,7 +84,6 @@ Mutations ==
      QuiesceBeforeRelease,
      CallbackAfterRelease,
      DrainNeverCloses,
-     AllowanceMismatch,
      NonTaskMessageRenews,
      BoundedSilenceRun,
      AllowanceChurnRenews}
@@ -138,7 +136,6 @@ VARIABLES
     unexpectedOutcomeMismatch,
     quiescedBeforeRelease,
     callbackAfterReleaseObserved,
-    allowanceMismatchObserved,
     nonTaskMessageRenewed
 
 vars ==
@@ -175,7 +172,6 @@ vars ==
       unexpectedOutcomeMismatch,
       quiescedBeforeRelease,
       callbackAfterReleaseObserved,
-      allowanceMismatchObserved,
       nonTaskMessageRenewed>>
 
 Init ==
@@ -212,7 +208,6 @@ Init ==
     /\ unexpectedOutcomeMismatch = FALSE
     /\ quiescedBeforeRelease = FALSE
     /\ callbackAfterReleaseObserved = FALSE
-    /\ allowanceMismatchObserved = FALSE
     /\ nonTaskMessageRenewed = FALSE
 
 UnchangedMutationFlags ==
@@ -227,7 +222,6 @@ UnchangedMutationFlags ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 AssignOperation(o) ==
@@ -292,48 +286,6 @@ AcceptOperation(o) ==
           assignedAtClosure>>
     /\ UnchangedMutationFlags
 
-AllowanceMismatchMutation(o) ==
-    /\ Mutation = AllowanceMismatch
-    /\ epochState \in {Ready, Suspect}
-    /\ o \in assigned
-    /\ o \notin accepted
-    /\ accepted' = accepted \cup {o}
-    /\ allowanceMismatchObserved' = TRUE
-    /\ UNCHANGED
-        <<epochState,
-          closureCause,
-          startupRemaining,
-          startupRenewed,
-          readyMatched,
-          lifecycleActive,
-          suspensionBudget,
-          mainLoopContinuous,
-          gapBudget,
-          assigned,
-          released,
-          outcome,
-          quiesced,
-          workState,
-          silenceRemaining,
-          probeOutstanding,
-          probeWasSent,
-          firstExpiryObserved,
-          drainRemaining,
-          realmDestroyed,
-          sourceRevoked,
-          assignedAtClosure,
-          startDuringDrain,
-          mismatchedReadyAccepted,
-          probeSatisfiedStartup,
-          watchdogWithoutProbe,
-          unboundedWatchdogFailure,
-          mainGapWatchdogFailure,
-          plannedOutcomeMismatch,
-          unexpectedOutcomeMismatch,
-          quiescedBeforeRelease,
-          callbackAfterReleaseObserved,
-          nonTaskMessageRenewed>>
-
 AcceptDuringDrainMutation(o) ==
     /\ Mutation = AcceptDuringDrain
     /\ epochState = Draining
@@ -372,7 +324,6 @@ AcceptDuringDrainMutation(o) ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 StartupTick ==
@@ -479,7 +430,6 @@ StartupProbeAcknowledged ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 ReceiveReady ==
@@ -555,7 +505,6 @@ ReceiveMismatchedReady ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 StartupExpires ==
@@ -826,8 +775,7 @@ NonTaskMessage ==
           plannedOutcomeMismatch,
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
-          callbackAfterReleaseObserved,
-          allowanceMismatchObserved>>
+          callbackAfterReleaseObserved>>
 
 SilenceTick ==
     /\ epochState \in {Ready, Suspect}
@@ -916,7 +864,6 @@ FirstSilenceExpiry ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 AllowanceChurnRenewalMutation ==
@@ -958,7 +905,6 @@ AllowanceChurnRenewalMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 SecondSilenceExpiry ==
@@ -1039,7 +985,6 @@ TerminateWhileUnboundedMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 TerminateAcrossMainGapMutation ==
@@ -1084,7 +1029,6 @@ TerminateAcrossMainGapMutation ==
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 StartEpochWork(work) ==
@@ -1242,7 +1186,6 @@ EnterClosure(cause) ==
           mainGapWatchdogFailure,
           quiescedBeforeRelease,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 ReleaseDuringDrain(o) ==
@@ -1274,6 +1217,9 @@ ReleaseDuringDrain(o) ==
           sourceRevoked,
           assignedAtClosure>>
     /\ UnchangedMutationFlags
+
+WorkerDeclaredEpochFailure ==
+    EnterClosure(UnexpectedCause)
 
 QuiesceBeforeReleaseMutation(o) ==
     /\ Mutation = QuiesceBeforeRelease
@@ -1313,7 +1259,6 @@ QuiesceBeforeReleaseMutation(o) ==
           plannedOutcomeMismatch,
           unexpectedOutcomeMismatch,
           callbackAfterReleaseObserved,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 DrainTick ==
@@ -1451,13 +1396,11 @@ CallbackAfterReleaseMutation ==
           plannedOutcomeMismatch,
           unexpectedOutcomeMismatch,
           quiescedBeforeRelease,
-          allowanceMismatchObserved,
           nonTaskMessageRenewed>>
 
 Next ==
     \/ \E o \in Operations: AssignOperation(o)
     \/ \E o \in Operations: AcceptOperation(o)
-    \/ \E o \in Operations: AllowanceMismatchMutation(o)
     \/ \E o \in Operations: AcceptDuringDrainMutation(o)
     \/ StartupTick
     \/ StartupMessage
@@ -1483,6 +1426,7 @@ Next ==
     \/ \E o \in Operations: SettleOperation(o)
     \/ EnterClosure(PlannedCause)
     \/ EnterClosure(UnexpectedCause)
+    \/ WorkerDeclaredEpochFailure
     \/ \E o \in Operations: ReleaseDuringDrain(o)
     \/ \E o \in Operations: QuiesceBeforeReleaseMutation(o)
     \/ DrainTick
@@ -1537,7 +1481,6 @@ TypeOK ==
     /\ unexpectedOutcomeMismatch \in BOOLEAN
     /\ quiescedBeforeRelease \in BOOLEAN
     /\ callbackAfterReleaseObserved \in BOOLEAN
-    /\ allowanceMismatchObserved \in BOOLEAN
     /\ nonTaskMessageRenewed \in BOOLEAN
 
 StartupBudgetDoesNotRenew ==
@@ -1554,9 +1497,6 @@ MismatchedReadyCannotOpenEpoch ==
 
 DrainingRefusesAssignments ==
     ~startDuringDrain
-
-RegisteredAllowanceMustMatch ==
-    ~allowanceMismatchObserved
 
 NonTaskMessagesDoNotRenewWatchdog ==
     ~nonTaskMessageRenewed
