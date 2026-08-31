@@ -123,6 +123,47 @@ public sealed class PluginAuthenticationHandlerTests
             transport.Requests);
     }
 
+    [Theory]
+    [InlineData(
+        "https://feed.example/v3/index.json?sig=one",
+        "https://FEED.example:443/flat/index.json?sig=two",
+        false)]
+    [InlineData(
+        "https://bücher.example/v3/index.json",
+        "https://xn--bcher-kva.example:443/flat/index.json",
+        false)]
+    [InlineData(
+        "https://feed.example/v3/index.json",
+        "http://feed.example:80/flat/index.json",
+        true)]
+    [InlineData(
+        "https://feed.example/v3/index.json",
+        "https://feed.example:8443/flat/index.json",
+        true)]
+    [InlineData(
+        "not-an-origin",
+        "https://feed.example/flat/index.json",
+        true)]
+    public void PluginAuthenticationOriginUsesSchemeIdnHostAndEffectivePort(
+        string credentialAuthorityUrl,
+        string requestUrl,
+        bool expectedSuppression)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            requestUrl);
+
+        NuGetSourceRequest
+            .SuppressPluginAuthenticationOutsideCredentialOrigin(
+                request,
+                credentialAuthorityUrl,
+                requestUrl);
+
+        Assert.Equal(
+            expectedSuppression,
+            NuGetSourceRequest.IsPluginAuthenticationSuppressed(request));
+    }
+
     [Fact]
     public async Task BrowserStreamingOptionSurvivesCredentialReplay()
     {

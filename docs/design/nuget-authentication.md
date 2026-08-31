@@ -346,26 +346,40 @@ Configured credentials already follow the same-origin boundary described
 above. Plugin credentials follow it through a NuGetFetch-owned per-request
 eligibility option.
 
+The **credential authority origin** is the origin of the
+caller-selected/configured source endpoint: its URI scheme, canonical IDN host,
+and effective port after default-port normalization. The implementation obtains
+those values from `Uri.Scheme`, `Uri.IdnHost`, and `Uri.Port` and compares the
+scheme and host case-insensitively. Path, query, fragment, user information, and
+display text do not participate. The **request origin** is the same tuple
+derived from the actual request target. The request is same-origin only when
+both tuples are equal.
+
 Requests are plugin-eligible by default. A source client that has both the
-configured producer endpoint and a feed-derived target uses
-`NuGetSourceRequest.SuppressPluginAuthenticationForCrossOrigin` to mark the
-request ineligible unless scheme, IDN host, and port match. Failure to establish
-either origin is not same-origin. Requests without a configured producer
-endpoint retain the default because NuGetFetch cannot invent caller authority.
+credential authority URL and a feed-derived request target uses
+`NuGetSourceRequest.SuppressPluginAuthenticationOutsideCredentialOrigin` to
+mark the request ineligible unless their origins match. Failure to establish
+either origin is not same-origin. Requests without a configured authority
+retain the default because NuGetFetch cannot invent caller authority.
 
 `PluginAuthenticationHandler` checks eligibility before reading its credential
 cache or invoking a provider. An ineligible request is sent once without plugin
 acquisition or replay, so its challenge remains visible to the caller. The
 option survives NuGetFetch-owned request clones, retries, and redirect
-handoffs. A redirect to a different origin is marked ineligible even when the
-original request was eligible; returning to the configured origin does not
-inherit authority from an intermediate origin.
+handoffs. For an eligible request, the initially authorized request origin
+remains the credential authority origin across every redirect hop. A
+`Location` target and an intermediate hop cannot replace that anchor. A
+redirect target outside the anchor is marked ineligible; a target that returns
+to the anchor is eligible only from that original authority, not from the
+intermediate origin. A request already marked ineligible remains so across
+same-origin redirects.
 
 This policy changes only plugin participation. It does not remove an
 `Authorization` header supplied directly by a caller, reinterpret configured
 source authority, or define package-layer compatibility routes.
 `PluginIneligibleRequestBypassesCachedCredentialAndAcquisition`,
 `PluginIneligibleRequestSurvivesSameOriginRedirect`,
+`PluginAuthenticationOriginUsesSchemeIdnHostAndEffectivePort`,
 `V3CrossOriginResourcesSuppressPluginAuthentication`,
 `V3CrossOriginSearchRetryRetainsPluginSuppression`,
 `V3CrossOriginRedirectSuppressesPluginAuthentication`, and

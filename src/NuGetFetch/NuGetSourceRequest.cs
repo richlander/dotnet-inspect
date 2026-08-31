@@ -305,15 +305,15 @@ internal static class NuGetSourceRequest
             request.Headers.Authorization = Authentication(credential);
     }
 
-    internal static void SuppressPluginAuthenticationForCrossOrigin(
+    internal static void SuppressPluginAuthenticationOutsideCredentialOrigin(
         HttpRequestMessage request,
-        string? sourceUrl,
-        string endpointUrl)
+        string? credentialAuthorityUrl,
+        string requestUrl)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(endpointUrl);
-        if (sourceUrl is not null
-            && !SameOrigin(sourceUrl, endpointUrl))
+        ArgumentNullException.ThrowIfNull(requestUrl);
+        if (credentialAuthorityUrl is not null
+            && !SameOrigin(credentialAuthorityUrl, requestUrl))
         {
             SuppressPluginAuthenticationForRequest(request);
         }

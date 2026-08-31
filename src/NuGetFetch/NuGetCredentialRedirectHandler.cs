@@ -13,7 +13,7 @@ internal sealed class NuGetCredentialRedirectHandler(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        Uri credentialOrigin = request.RequestUri
+        Uri credentialAuthorityOrigin = request.RequestUri
             ?? throw new InvalidOperationException(
                 "A NuGet request must have a request URI.");
         AuthenticationHeaderValue? authorization =
@@ -59,7 +59,7 @@ internal sealed class NuGetCredentialRedirectHandler(
 
                 redirectedRequest?.Dispose();
                 bool sameOrigin =
-                    SameOrigin(credentialOrigin, target);
+                    SameOrigin(credentialAuthorityOrigin, target);
                 redirectedRequest = CreateRedirectRequest(
                     request,
                     target,

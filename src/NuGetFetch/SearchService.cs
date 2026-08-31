@@ -76,7 +76,7 @@ public partial class SearchService
             prerelease,
             auth,
             operation,
-            pluginAuthenticationSourceUrl: null).ConfigureAwait(false);
+            credentialAuthorityUrl: null).ConfigureAwait(false);
     }
 
     internal async Task<IReadOnlyList<SearchResult>> SearchAsync(
@@ -85,7 +85,7 @@ public partial class SearchService
         bool prerelease,
         AuthenticationHeaderValue? auth,
         NuGetOperationDeadline operation,
-        string? pluginAuthenticationSourceUrl = null) =>
+        string? credentialAuthorityUrl = null) =>
         await SearchPageAsync(
             query,
             skip: 0,
@@ -93,7 +93,7 @@ public partial class SearchService
             prerelease,
             auth,
             operation,
-            pluginAuthenticationSourceUrl).ConfigureAwait(false);
+            credentialAuthorityUrl).ConfigureAwait(false);
 
     private async Task<IReadOnlyList<SearchResult>> SearchPageAsync(
         string query,
@@ -102,7 +102,7 @@ public partial class SearchService
         bool prerelease,
         AuthenticationHeaderValue? auth,
         NuGetOperationDeadline operation,
-        string? pluginAuthenticationSourceUrl = null)
+        string? credentialAuthorityUrl = null)
     {
         string pre = prerelease ? "true" : "false";
         if (!SearchRequestUri.TryCompose(
@@ -132,10 +132,11 @@ public partial class SearchService
             {
                 request.Headers.Authorization = auth;
             }
-            NuGetSourceRequest.SuppressPluginAuthenticationForCrossOrigin(
-                request,
-                pluginAuthenticationSourceUrl,
-                url);
+            NuGetSourceRequest
+                .SuppressPluginAuthenticationOutsideCredentialOrigin(
+                    request,
+                    credentialAuthorityUrl,
+                    url);
 
             using HttpResponseMessage response = await _client.SendAsync(
                 request,
