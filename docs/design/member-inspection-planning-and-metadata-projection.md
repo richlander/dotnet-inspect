@@ -1336,6 +1336,13 @@ declaration. Those are result shapes, not separate validity implementations.
 The current implementation branches are evidence and a source of tests, not
 the design authority.
 
+The required commit-level harvest is recorded in
+[Member inspection migration disposition](member-inspection-migration-disposition.md).
+It freezes the evidence heads, assigns each coherent claim to a migration slice
+or focused successor, and dispositions implementation separately from tests
+and fixtures. That record must be updated before reusing work discovered on a
+frozen branch; it does not make any branch a merge candidate.
+
 | Existing work | Disposition |
 | --- | --- |
 | Compiler-produced and hostile metadata fixtures | Retain and move to the owning boundary gates |

@@ -90,6 +90,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
 | [Platform Composition and Overlays](design/platform-composition-and-overlays.md) | Platform library composition, overlays, and core-library entitlement. |
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
+| [Member Inspection Migration Disposition](design/member-inspection-migration-disposition.md) | Frozen implementation and evidence assignments for the accepted member-inspection migration. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
