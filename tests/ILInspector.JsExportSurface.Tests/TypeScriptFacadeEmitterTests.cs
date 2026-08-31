@@ -5,8 +5,6 @@ using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
-using tsbindgen;
-
 namespace ILInspector.JsExportSurface.Tests;
 
 public sealed class TypeScriptFacadeEmitterTests
@@ -166,7 +164,7 @@ public sealed class TypeScriptFacadeEmitterTests
     [Fact]
     public void Emit_DoesNotRebindAuthenticatedDelegatePayloadThroughLocalAlias()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var assembly = new ApiAssemblyIdentity(
             "Fixture",
             new Version(1, 0, 0, 0),
@@ -650,7 +648,7 @@ public sealed class TypeScriptFacadeEmitterTests
     [Fact]
     public void Emit_ReportsRejectedAsyncEnvelopeWithoutThrowing()
     {
-        var diagnostics = new TsBindGenDiagnostics();
+        var diagnostics = new TypeScriptGenerationDiagnostics();
         var dto = new ApiType
         {
             Namespace = "Fixture",

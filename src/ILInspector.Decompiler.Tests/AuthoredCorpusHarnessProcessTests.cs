@@ -779,6 +779,9 @@ public class AuthoredCorpusHarnessProcessTests
     [InlineData(new[] { "--integrity-only" }, "--integrity-only applies to")]
     [InlineData(new[] { "--ratchet-baseline", "/does-not-exist.jsonl" }, "--ratchet-baseline applies to")]
     [InlineData(new[] { "--source-oracle-manifest", "/does-not-exist.json" }, "--source-oracle-manifest applies to")]
+    [InlineData(
+        new[] { "--baseline-source-oracle-report", "/does-not-exist.json" },
+        "--baseline-source-oracle-report applies to")]
     public void Harness_RefusesAModifierWithoutItsGate(string[] flags, string expected)
     {
         var run = RunHarness(flags);
@@ -1057,6 +1060,8 @@ public class AuthoredCorpusHarnessProcessTests
         ("--enumerate-real-methods", ["--enumerate-real-methods"]),
         ("--harvest-authored-corpus", ["--harvest-authored-corpus", UnusedOutputPath]),
         ("--harvest-evil-corpus", ["--harvest-evil-corpus", UnusedOutputPath]),
+        ("--source-oracle-candidates",
+            ["--source-oracle-candidates", "--baseline-source-oracle-report", UnusedOutputPath]),
         ("--benchmark-authored-corpus", ["--benchmark-authored-corpus", "/does-not-exist.jsonl"]),
         ("--verify-authored-corpus", ["--verify-authored-corpus", "/does-not-exist.jsonl"]),
         ("--append-authored-corpus-history", ["--append-authored-corpus-history", "/does-not-exist.json"]),
@@ -1698,6 +1703,82 @@ public class AuthoredCorpusHarnessProcessTests
     }
 
     sealed record HarnessRun(int ExitCode, string Output);
+
+    /// <summary>
+    /// The candidate ledger refuses without its baseline rather than ranking against an
+    /// empty feature set, which would report every enrolled feature as new coverage.
+    /// </summary>
+    [Fact]
+    public void Harness_RefusesTheCandidateLedgerWithoutItsBaseline()
+    {
+        var run = RunHarness("--source-oracle-candidates");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains(
+            "--source-oracle-candidates requires --baseline-source-oracle-report",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The baseline path the caller passed is the one the ledger reads.
+    ///
+    /// <para>Non-vacuous because the refusal names the exact path: a mode that dispatched
+    /// but forwarded a different value, or forwarded nothing, cannot produce this
+    /// message. The path is deliberately absent — reaching "not found" proves the flags
+    /// were accepted, dispatch reached the ledger, and the value survived the trip.</para>
+    /// </summary>
+    [Fact]
+    public void Harness_ForwardsTheCandidateLedgerBaselinePath()
+    {
+        const string baseline = "/does-not-exist/candidate-baseline.json";
+
+        var run = RunHarness("--source-oracle-candidates", "--baseline-source-oracle-report", baseline);
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.DoesNotContain("runs instead of", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("applies to", run.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            $"Baseline source-oracle report not found: {baseline}",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The ledger verifies the forwarded baseline rather than trusting it: a source-oracle
+    /// manifest supplied in place of a benchmark report is refused, which also proves the
+    /// verification runs inside the dispatched mode and not only in-process.
+    /// </summary>
+    [Fact]
+    public void Harness_VerifiesTheForwardedCandidateLedgerBaseline()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"candidate-baseline-{Guid.NewGuid():N}.json");
+        File.WriteAllText(
+            path,
+            """
+            {
+              "version": 1,
+              "printerComparisonVersion": 1,
+              "syntaxInventoryVersion": 1,
+              "files": []
+            }
+            """);
+
+        try
+        {
+            var run = RunHarness("--source-oracle-candidates", "--baseline-source-oracle-report", path);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains(
+                "is not a current benchmark report",
+                run.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
     static HarnessRun RunHarness(params string[] arguments)
         => RunHarness(environment: null, arguments);

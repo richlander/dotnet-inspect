@@ -190,7 +190,7 @@ negative boundaries.
 `Build_RejectsGeneratedRootGetterWithoutTrustedBodyFlow`,
 `Build_RejectsGeneratedContextWithoutTrustedDefaultInitialization`,
 `Build_RejectsCustomSerializerContextInstanceReceiver`, and
-`TsBindGenCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
+`TsJsExportCommandTests.Invoke_FilteredGeneratedTypeExportFailsBeforePublication`
 gate these publishability and provenance boundaries against compiled fixtures.
 
 ## Linked evidence, not adjacent evidence
@@ -248,9 +248,10 @@ publishes:
 - `Build_AcceptsGeneratedContextWithUnrelatedStaticOptions` — the positive
   control, a real source-generated context whose user partial adds an unrelated
   static `JsonSerializerOptions`.
-- `TsBindGen_ReadsOneImageForMetadataAndBodyEvidence` — `tsbindgen` reads the
-  assembly once and shares one immutable image, so a metadata surface cannot be
-  composed with bodies read separately from different content.
+- `GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence` — the TypeScript
+  generator loader reads the assembly once and shares one immutable image, so
+  a metadata surface cannot be composed with bodies read separately from
+  different content.
 
 Two boundaries are deliberately *not* claimed. The wrapper's pointer and byref
 argument marshaling is out of scope: publication proves the chain is reachable
@@ -273,7 +274,7 @@ producer cannot publish;
 
 `[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
 rejects for a different reason: the descriptor is real and the wrapper is
-genuine, but no consumer can describe it yet. `tsbindgen`'s `TsTypeMapper` emits
+genuine, but no consumer can describe it yet. `TsTypeMapper` emits
 every `long` as TypeScript `number`, which is the wrong type for a JavaScript
 `BigInt` and would silently truncate at 2^53. Until descriptor-aware TypeScript
 types exist, an export carrying the `get_BigInt64` descriptor fails with a
@@ -311,10 +312,9 @@ explicit `Replace` remains supported.
 `Emit_BlocksReachedPopulateObjectCreationHandlingAttribute`,
 `Extract_AcceptsExplicitReplaceObjectCreationHandlingAttribute`,
 `Build_IgnoresUnusedUnsupportedScalarContextAndResolvesVectorSibling`, and
-`TsBindGenCommandTests.Invoke_UnsupportedScalarContextOptionsFailsBeforeDeclarationOrWrapperPublication`
-are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication`,
-`SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers`, and
-`TsBindGenCommandTests.Invoke_JsExportOperatorFailsBeforeDeclarationOrWrapperPublication` gate the
+`TsJsExportCommandTests.Invoke_DoesNotPublishPartialOutputWhenSurfaceIsUnsupported`
+are the gates. `Build_RejectsAuthenticJsExportOperatorBeforePublication` and
+`SourceGeneratedJsExport_EmitsOnlyOrdinaryMethodWrappers` gate the
 ordinary-method boundary.
 
 Run its test suite in Release:
@@ -323,6 +323,6 @@ Run its test suite in Release:
 dotnet run --project tests/ILInspector.JsExportSurface.Tests -c Release
 ```
 
-Tests validate this library and `tsbindgen` together against
+Tests validate this library and `ts-jsexport` together against
 `ILInspector.JsExportSurface.Fixtures`, a small purpose-built `[JSExport]`
 surface used only as a regression fixture.
