@@ -411,26 +411,35 @@ public sealed class StateMachineRelationshipIndex
                 {
                     attribute =
                         _reader.GetCustomAttribute(attributeHandle);
-                    if (!_attributeConstructors.TryGetValue(
-                            attribute.Constructor,
-                            out classification))
+                }
+                catch (Exception ex) when (
+                    IsRecoverableMetadataFailure(ex))
+                {
+                    unreadableConstructor = true;
+                    continue;
+                }
+
+                if (!_attributeConstructors.TryGetValue(
+                        attribute.Constructor,
+                        out classification))
+                {
+                    try
                     {
                         classification =
                             _signatures.ClassifyAttributeConstructor(
                                 attribute.Constructor);
-                        _attributeConstructors.Add(
-                            attribute.Constructor,
-                            classification);
                     }
-                }
-                catch (Exception ex) when (
-                    ex is BadImageFormatException
-                        or ArgumentOutOfRangeException
-                        or InvalidOperationException
-                        or OverflowException)
-                {
-                    unreadableConstructor = true;
-                    continue;
+                    catch (Exception ex) when (
+                        IsRecoverableMetadataFailure(ex))
+                    {
+                        classification = new(
+                            StateMachineClaimKind.ClassicAsync,
+                            AttributeConstructorStatus.Unreadable);
+                    }
+
+                    _attributeConstructors.Add(
+                        attribute.Constructor,
+                        classification);
                 }
 
                 if (classification.Status

@@ -183,8 +183,11 @@ results and TypeDef indexing cost;
 `StateMachineRelationshipIndex_ChargesUnrelatedAttributeRows` and
 `StateMachineRelationshipIndex_RejectsOversizedTypeBeforeDecode` gate the
 attribute-row and serialized-name bounds;
-`StateMachineRelationshipIndex_CachesConstructorAuthentication` gates
-constructor-classification reuse;
+`StateMachineRelationshipIndex_CachesConstructorAuthentication` and
+`StateMachineRelationshipIndex_CachesThrownConstructorAuthenticationFailure`
+gate reuse of both returned and recoverably thrown constructor
+classifications, so repeated references to one damaged constructor cannot
+convert its kickoff-local rejection into whole-module budget failure;
 `StateMachineRelationshipIndex_BoundsAttributeNameMaterialization` gates that a
 name-work budget is enforced during attribute classification at all, but note
 that its one-unit budget is spent by the assembly-key charge before any

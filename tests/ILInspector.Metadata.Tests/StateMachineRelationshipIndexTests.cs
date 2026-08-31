@@ -1025,6 +1025,42 @@ public sealed class StateMachineRelationshipIndexTests
 
     [Fact]
     public void
+        StateMachineRelationshipIndex_CachesThrownConstructorAuthenticationFailure()
+    {
+        using var image = new LoadedImage(
+            BuildClassicRelationshipImage(
+                ClassicRelationshipMutation.None,
+                repeatedThrowingConstructorAttributes: 100));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(
+                image.Reader,
+                relationshipBudget: 256,
+                signatureWorkBudget: 10_000);
+        var relationships =
+            Assert.IsType<StateMachineRelationshipsResult.Available>(
+                index.Relationships);
+        StateMachineRelationship relationship =
+            Assert.Single(relationships.Relationships);
+        var damaged =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(4)));
+
+        Assert.Equal(0x06000001, relationship.Kickoff.Token);
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByKickoff(
+                MetadataTokens.MethodDefinitionHandle(1)));
+        Assert.Equal(
+            StateMachineRelationshipFailureKind.Malformed,
+            damaged.Failure.Kind);
+        Assert.Equal(
+            "A custom-attribute constructor could not be read.",
+            damaged.Failure.Detail);
+    }
+
+    [Fact]
+    public void
         StateMachineRelationshipIndex_BoundsCumulativeSerializedTypeNames()
     {
         using var image = new LoadedImage(
@@ -2742,8 +2778,12 @@ public sealed class StateMachineRelationshipIndexTests
             ConstructorTypeNameRejection.None,
         ConstructorTypeSpecificationRejection
             rejectedConstructorTypeSpecification =
-                ConstructorTypeSpecificationRejection.None)
+                ConstructorTypeSpecificationRejection.None,
+        int repeatedThrowingConstructorAttributes = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            repeatedThrowingConstructorAttributes);
+
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
@@ -2917,7 +2957,8 @@ public sealed class StateMachineRelationshipIndexTests
                 || rejectedConstructorTypeName
                     != ConstructorTypeNameRejection.None
                 || rejectedConstructorTypeSpecification
-                    != ConstructorTypeSpecificationRejection.None)
+                    != ConstructorTypeSpecificationRejection.None
+                || repeatedThrowingConstructorAttributes > 0)
             && !malformedConstructorOnRelationshipKickoff)
         {
             damagedKickoff =
@@ -3035,6 +3076,31 @@ public sealed class StateMachineRelationshipIndexTests
                 damagedKickoff,
                 rejectedConstructor,
                 metadata.GetOrAddBlob(value));
+        }
+        if (repeatedThrowingConstructorAttributes > 0)
+        {
+            var malformedSignature = new BlobBuilder();
+            malformedSignature.WriteByte(0x20);
+            malformedSignature.WriteCompressedInteger(1);
+            malformedSignature.WriteByte(0x01);
+            for (int i = 0; i < 500; i++)
+                malformedSignature.WriteByte(0x0F);
+
+            MemberReferenceHandle throwingConstructor =
+                metadata.AddMemberReference(
+                    asyncAttribute,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(
+                        malformedSignature));
+            for (int i = 0;
+                i < repeatedThrowingConstructorAttributes;
+                i++)
+            {
+                metadata.AddCustomAttribute(
+                    damagedKickoff,
+                    throwingConstructor,
+                    metadata.GetOrAddBlob(value));
+            }
         }
         if (addMalformedConstructorRow)
         {
