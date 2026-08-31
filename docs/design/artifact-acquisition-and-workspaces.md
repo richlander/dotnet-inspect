@@ -1437,12 +1437,15 @@ retains:
   `InvalidImplementationAssets`.
 
 Here, a compile asset is a package assembly selected as a compile-time
-reference. NuGet package layout prefers a reference assembly under
-`ref/<tfm>/` and falls back to a library assembly under `lib/<tfm>/`; a project
-or build file such as a `.csproj`, or an arbitrary binary in the package, is not
-a compile asset. The implementation asset is the executable counterpart,
-potentially selected from a runtime-specific `runtimes/<rid>/lib/<tfm>/`
-directory. A `lib/<tfm>/` assembly may serve as both.
+reference. NuGet package layout prefers an applicable reference assembly under
+`ref/<tfm>/`. When no applicable reference group exists, selection falls back
+to a library assembly under `lib/<tfm>/`. An applicable `ref/<tfm>/_._` marker
+is an explicit empty compile group: the package deliberately contributes no
+compile assembly, and library fallback is suppressed. A project or build file
+such as a `.csproj`, or an arbitrary binary in the package, is not a compile
+asset. The implementation asset is the executable counterpart, potentially
+selected from a runtime-specific `runtimes/<rid>/lib/<tfm>/` directory. A
+`lib/<tfm>/` assembly may serve as both.
 
 The related identity concepts have distinct jobs:
 
