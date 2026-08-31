@@ -63,7 +63,8 @@ the ownership boundaries below, not the project count.
 layer. L3 does not reach the leaf directly; its boundary output is typed
 operation intent. L2 owns resolution into the executable plan and typed source
 request. L1 or source owners may analyze that request for equivalent execution
-and return a typed result with completion evidence. The
+and return a typed result with completion evidence through the
+[source delegation](source-delegation.md) pattern. The
 [composition map](item-and-line-limits.md#composition) owns the exact sequence.
 L2 and L1/source owners reach the leaf without depending on one another.
 
