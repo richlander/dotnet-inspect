@@ -483,24 +483,25 @@ parent-relative. Discovery-only options are rejected outright on the pairwise
 path rather than being silently accepted and ignored.
 
 A selector's origin is a physical-file identity, so it is canonicalized and then
-compared the way the host volume resolves that identity. The spelling arrives by
-three routes — a forwarded type's defining image, a resolved type's extraction
-path, and, for a token the projection cannot name, the caller's own `--library`
-spelling — and `./Foo.dll` and its absolute path are one file. Canonicalizing
-alone is not enough, because it preserves case while a case-insensitive volume
-opens `Foo.dll` and `foo.dll` as one file. Reporting one image as two both stops
-retrieval from suppressing its own seed and rejects a pairwise pair that the
-discovery output just told the caller to run.
+compared ordinally. The spelling arrives by three routes — a forwarded type's
+defining image, a resolved type's extraction path, and, for a token the
+projection cannot name, the caller's own `--library` spelling — and `./Foo.dll`
+and its absolute path are one file. Canonicalizing reconciles those routes.
 
-The case rule belongs to the volume rather than to the operating system. macOS
-and Windows both support case-sensitive volumes, on which two case-only siblings
-are two different assemblies; merging them is the more damaging error, because
-discovery then ranks candidates out of the seed's image, labels them with the
-candidate image's names, omits the candidate assembly, and emits the same-image
-disclosure — a wrong answer with no failure. So when two canonical spellings
-differ by case alone, and only then, identity is decided by whether both
-spellings open the same directory entry. A spelling that opens nothing is not
-the same image as one that opens a file.
+Canonicalizing preserves case, so two case-only spellings of one file on a
+case-insensitive volume are reported as two images. That is a deliberate choice,
+not an oversight. Case sensitivity is a property of the volume rather than of
+the operating system, so the path text alone cannot decide it, and probing the
+filesystem has to be exhaustive over every path component to be sound — three
+review rounds each found a component an earlier probe had not asked about.
+
+The two errors are not symmetric, which is what settles the rule. Reporting one
+image as two costs a redundant candidate group and a cross-image disclosure that
+promises strictly less than the run could have delivered; the output stays true.
+Reporting two images as one makes discovery rank candidates out of the seed's
+image, label them with the candidate image's names, omit the candidate assembly,
+and emit the same-image disclosure — a wrong answer with no failure. Discovery
+therefore takes the cheap, total comparison and accepts the harmless direction.
 
 Containment is a property of the structured document, not of its callers. The
 Markout row gate covers views, and a JSON document is not one, so the document

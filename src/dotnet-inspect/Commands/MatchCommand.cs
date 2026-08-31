@@ -190,82 +190,33 @@ public static class MatchCommand
     internal static string CanonicalImagePath(string path) => Path.GetFullPath(path);
 
     /// <summary>
-    /// Matches image identity the way the host volume actually resolves it.
-    /// <see cref="CanonicalImagePath"/> makes two spellings of one file structurally comparable,
-    /// but it preserves case, and a case-insensitive volume opens <c>Foo.dll</c> and
-    /// <c>foo.dll</c> as one file. Comparing those spellings ordinally reports one image as two,
-    /// which rejects a valid pairwise pair and lets retrieval rank its own seed. Choosing the
-    /// opposite rule from the operating system is wrong in the more damaging direction: macOS and
-    /// Windows both support case-sensitive volumes, where two case-only siblings are two different
-    /// assemblies, and merging them makes discovery rank candidates out of the seed's image while
-    /// labelling them with the candidate's names. Case-sensitivity is a property of the volume
-    /// rather than of the OS, so ask the volume — and only in the narrow branch where the two
-    /// spellings differ by nothing else.
+    /// Reports whether two spellings name one image, deliberately erring toward "two".
+    /// <see cref="CanonicalImagePath"/> already reconciles the spelling differences that ordinary
+    /// callers produce — a relative path, a <c>./</c> prefix, or a redundant separator — so an
+    /// ordinal comparison of canonical paths answers the question these callers actually ask.
+    /// <para>
+    /// What it deliberately does not do is decide whether the volume treats two case-only
+    /// spellings as one file. That is undecidable from the path text, because case sensitivity
+    /// belongs to the volume rather than to the operating system, and probing the filesystem for
+    /// it has to be exhaustive over every path component to be sound: three review rounds each
+    /// found a component this comparison had not asked about. The two possible errors are not
+    /// symmetric. Reporting one file as two costs a redundant candidate group and a cross-image
+    /// disclosure that promises strictly less than the run could have; reporting two files as one
+    /// makes discovery rank candidates out of the seed's image, label them with the other image's
+    /// names, drop <c>candidate_assembly</c>, and claim a pairwise transition that cannot be
+    /// performed — a silent wrong answer. So this comparison keeps the cheap, total rule and
+    /// accepts the harmless error.
+    /// </para>
     /// </summary>
     internal static bool SameImage(string? left, string? right)
     {
         if (left is null || right is null)
             return left is null && right is null;
 
-        string leftPath = Path.TrimEndingDirectorySeparator(CanonicalImagePath(left));
-        string rightPath = Path.TrimEndingDirectorySeparator(CanonicalImagePath(right));
-
-        if (string.Equals(leftPath, rightPath, StringComparison.Ordinal))
-            return true;
-
-        if (!string.Equals(leftPath, rightPath, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        string? leftEntry = OpenedEntryName(leftPath);
-        string? rightEntry = OpenedEntryName(rightPath);
-        return leftEntry is not null
-            && rightEntry is not null
-            && string.Equals(leftEntry, rightEntry, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Names the directory entry a spelling actually opens, or <c>null</c> when it opens nothing.
-    /// A case-insensitive volume answers both spellings with the single entry it holds, so the two
-    /// spellings agree; a case-sensitive volume answers each spelling with its own entry or with
-    /// nothing, so they disagree. Enumerating instead of passing the name as a search pattern
-    /// keeps a literal <c>*</c> or <c>?</c> in a file name from matching a sibling.
-    /// </summary>
-    static string? OpenedEntryName(string fullPath)
-    {
-        if (!File.Exists(fullPath))
-            return null;
-
-        string? directory = Path.GetDirectoryName(fullPath);
-        string name = Path.GetFileName(fullPath);
-        if (directory is null || name.Length == 0)
-            return null;
-
-        string? caseInsensitiveMatch = null;
-        try
-        {
-            foreach (string entry in Directory.EnumerateFileSystemEntries(directory))
-            {
-                string entryName = Path.GetFileName(entry);
-                if (string.Equals(entryName, name, StringComparison.Ordinal))
-                    return entryName;
-
-                if (caseInsensitiveMatch is null
-                    && string.Equals(entryName, name, StringComparison.OrdinalIgnoreCase))
-                {
-                    caseInsensitiveMatch = entryName;
-                }
-            }
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return null;
-        }
-
-        return caseInsensitiveMatch;
+        return string.Equals(
+            Path.TrimEndingDirectorySeparator(CanonicalImagePath(left)),
+            Path.TrimEndingDirectorySeparator(CanonicalImagePath(right)),
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -290,9 +241,11 @@ public static class MatchCommand
     internal static ResolvedSelector ResolveSelector(ApiSurface api, string apiDllPath, string selector)
     {
         // A MethodDef token addresses a row directly, so it resolves without a name. This is what
-        // makes every discovery row addressable here: an overloaded member and a property with
-        // both accessors have no unambiguous Type.Member spelling, but they always have a token,
-        // and `match --similar` prints one on every row for exactly this purpose.
+        // makes a same-image discovery row addressable here: an overloaded member and a property
+        // with both accessors have no unambiguous Type.Member spelling, but they always have a
+        // token, and `match --similar` prints one on every row for exactly this purpose. A token
+        // from a cross-image ranking is not addressable here, because a MethodDef row names
+        // nothing outside its own image; that output withdraws the promise rather than making it.
         if (MatchDiscovery.TryParseMethodToken(selector, out int methodToken))
         {
             ApiType? tokenType = api.Types.FirstOrDefault(

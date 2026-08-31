@@ -149,11 +149,12 @@ internal static class MatchDiscovery
 
         // The population's defining image, not the image the caller named: a facade resolves a
         // forwarded type without defining it, and retrieval reads TypeDefs.
-        // Both sides are canonicalized and compared the way the host volume resolves file
-        // identity: the seed origin is already canonical, and the caller's own --library spelling
-        // may be relative or, on a case-insensitive volume, differently cased. A raw ordinal
-        // comparison reports one file as two images, which stops the retrieval from suppressing
-        // the seed and ranks the seed as its own best candidate.
+        // Both sides are canonicalized before comparison, because the caller's own --library
+        // spelling may be relative while the seed origin is absolute, and a raw ordinal
+        // comparison would report one file as two images, stopping retrieval from suppressing the
+        // seed and ranking the seed as its own best candidate. Canonical paths that still differ
+        // are treated as two images even when a case-insensitive volume would open one file; see
+        // MatchCommand.SameImage for why that error direction is the safe one.
         string seedImage = resolvedSeed.OriginAssemblyPath!;
         string callerImage = MatchCommand.CanonicalImagePath(candidate.ApiDllPath);
         string candidateImage = populationImage is null

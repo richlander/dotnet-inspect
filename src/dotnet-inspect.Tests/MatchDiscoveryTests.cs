@@ -135,7 +135,7 @@ public sealed class MatchDiscoveryTests
 
         var (_, markdown, _) = await RunAsync(Seeded(SampleSeed) with { Top = 1 });
         Assert.Equal(1, CountRankedRows(markdown));
-        Assert.Contains($"1 of {all} ranked candidates", markdown);
+        Assert.Contains($"1 of {all} returned candidates", markdown);
     }
 
     static int CountRankedRows(string markdown)
@@ -453,6 +453,62 @@ public sealed class MatchDiscoveryTests
         Assert.Equal(0, exitCode);
         Assert.Contains("does not establish", error);
         Assert.DoesNotContain("does not establish", output);
+    }
+
+    /// <summary>
+    /// Table, TSV, and JSONL persist rows without prose, so retrieval-budget and truncation
+    /// provenance must travel with them on stderr. A persisted table that omits the limits and
+    /// the truncation note reads as the complete ranking under default budgets rather than the
+    /// first --top rows of a bounded search.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Similar_TabularRenderings_CarryLimitAndTruncationProvenance(bool tsv, bool jsonl)
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyWide = true,
+            Tabular = true,
+            Tsv = tsv,
+            Jsonl = jsonl,
+            Top = 1,
+        };
+
+        var (exitCode, _, error) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Limits:", error);
+        Assert.Contains("max-methods", error);
+        Assert.Contains("Showing:", error);
+    }
+
+    /// <summary>
+    /// --max-results bounds the returned candidate array and --top bounds the rendered rows, so
+    /// the "showing" note counts returned candidates. Calling that denominator "ranked" restates
+    /// the receipt's own ranked count as a smaller number, which is the one reading the receipt
+    /// exists to prevent.
+    /// </summary>
+    [Fact]
+    public async Task Similar_ShowingNote_CountsReturnedCandidatesNotRankedOnes()
+    {
+        MatchOptions options = Seeded(SampleSeed) with
+        {
+            AssemblyWide = true,
+            MaximumResults = 3,
+            Top = 1,
+        };
+
+        var (exitCode, output, _) = await RunAsync(options);
+
+        Assert.Equal(0, exitCode);
+
+        // The receipt ranks more than it returns, so "ranked" and "returned" are different
+        // numbers here and naming the wrong one is observable.
+        Assert.Contains("3 returned", output);
+        Assert.Contains("1 of 3 returned candidates", output);
+        Assert.DoesNotContain("ranked candidates", output);
     }
 
     /// <summary>
@@ -1036,14 +1092,16 @@ public sealed class MatchDiscoveryTests
     }
 
     /// <summary>
-    /// Canonicalizing preserves case, but Windows and macOS resolve <c>Foo.dll</c> and
-    /// <c>foo.dll</c> to one file. Comparing those spellings ordinally reported one image as two on
-    /// exactly the hosts where they are one, so retrieval stopped suppressing the seed and ranked
-    /// it as its own best candidate. Skipped where the host volume really is case-sensitive, since
-    /// there the two spellings name different files and must stay distinct.
+    /// A case-variant spelling of one file is reported as two images. Deciding otherwise requires
+    /// asking the volume about every path component, which is what three review rounds got wrong
+    /// in three different ways. The cost of this direction is visible and bounded — the run opens
+    /// a redundant candidate group, names the candidate assembly, emits the cross-image disclosure
+    /// that promises less, and no longer suppresses the seed — whereas the opposite error ranks
+    /// candidates out of the wrong image and claims a transition it cannot perform. Skipped where
+    /// the case variant does not exist, since then there is no second spelling to compare.
     /// </summary>
     [Fact]
-    public async Task Similar_CaseVariantLibraryPath_IsOneImageWhenTheVolumeSaysSo()
+    public async Task Similar_CaseVariantLibraryPath_IsReportedAsTwoImages()
     {
         string lowered = LoweredPath(TestAssembly);
         if (!File.Exists(lowered) || string.Equals(lowered, TestAssembly, StringComparison.Ordinal))
@@ -1061,21 +1119,20 @@ public sealed class MatchDiscoveryTests
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
         JsonElement document = Parse(output);
-        Assert.False(document.TryGetProperty("candidate_assembly", out _));
-        Assert.Contains("Run pairwise `match` on a candidate", document.GetProperty("disclosure").GetString()!);
 
-        int seedToken = Convert.ToInt32(
-            document.GetProperty("seed_outcome").GetProperty("token").GetString()!, 16);
-
+        Assert.True(document.TryGetProperty("candidate_assembly", out _));
+        Assert.Contains(
+            "no checked relation is available across images",
+            document.GetProperty("disclosure").GetString()!);
         Assert.DoesNotContain(
-            document.GetProperty("candidates").EnumerateArray(),
-            candidate => Convert.ToInt32(candidate.GetProperty("token").GetString()!, 16) == seedToken);
+            "Run pairwise `match` on a candidate",
+            document.GetProperty("disclosure").GetString()!);
     }
 
     /// <summary>
-    /// Relaxing image comparison to the host's own case rules must not merge two genuinely
-    /// different files. The V1 and V2 fixtures share a file name and differ only by directory,
-    /// which is exactly the pair a careless case-insensitive comparison would conflate.
+    /// Image identity separates two files that share a name and differ only by directory, and
+    /// unifies the spellings of one file that canonicalization reconciles — a relative path and
+    /// its absolute form. A case-only variant is two images by the rule above.
     /// </summary>
     [Fact]
     public void SameImage_DistinguishesDifferentFilesAndUnifiesSpellingsOfOne()
@@ -1091,11 +1148,7 @@ public sealed class MatchDiscoveryTests
 
         string lowered = LoweredPath(v1);
         if (!string.Equals(lowered, v1, StringComparison.Ordinal))
-        {
-            // The host volume decides: where both spellings open one file they are one image, and
-            // where they do not they must stay two.
-            Assert.Equal(File.Exists(lowered), MatchCommand.SameImage(v1, lowered));
-        }
+            Assert.False(MatchCommand.SameImage(v1, lowered));
     }
 
     static string LoweredPath(string path)
@@ -1161,42 +1214,76 @@ public sealed class MatchDiscoveryTests
     // ---- Round 5 review findings ----
 
     /// <summary>
-    /// Two spellings that differ only by case are one image exactly when the volume opens one
-    /// file, so the question belongs to the volume rather than to the operating system. An
-    /// OS-wide case rule answers it wrongly on case-sensitive macOS and Windows volumes, where
-    /// the two spellings name two different assemblies and merging them makes discovery rank
-    /// candidates out of the seed's image without reporting a failure. This gate asserts the
-    /// volume's own answer, so it is correct on either kind of volume.
+    /// Image identity errs toward "two images", because the two errors are not symmetric.
+    /// Reporting one image as two costs a redundant candidate group and a disclosure that
+    /// promises less than the run could have; reporting two images as one makes discovery rank
+    /// candidates out of the seed's image and claim a transition it cannot perform. Case-only
+    /// spellings are undecidable from the path text, so they take the safe direction. Paths that
+    /// canonicalize to the same spelling are still one image, which is what lets a relative
+    /// --library spelling match an absolute seed origin.
     /// </summary>
     [Fact]
-    public void SameImage_AsksTheVolumeWhetherCaseOnlySiblingsAreOneFile()
+    public void SameImage_ErrsTowardTwoImagesWhenSpellingsDiffer()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"match-image-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
             string upper = Path.Combine(directory, "Image.dll");
-            string lower = Path.Combine(directory, "image.dll");
             File.WriteAllText(upper, "upper");
-            File.WriteAllText(lower, "lower");
 
-            // A case-sensitive volume now holds two entries; a case-insensitive one holds one.
-            bool volumeKeptBothFiles = Directory.GetFiles(directory).Length == 2;
-            Assert.Equal(!volumeKeptBothFiles, MatchCommand.SameImage(upper, lower));
+            // Canonicalization is what makes differently spelled routes to one file comparable.
+            string relative = Path.Combine(directory, ".", "Image.dll");
+            Assert.True(MatchCommand.SameImage(upper, relative));
+            Assert.True(MatchCommand.SameImage(upper, upper));
 
-            // A spelling that opens nothing is never the same image as one that opens a file.
-            string absent = Path.Combine(directory, "Missing.dll");
-            Assert.False(MatchCommand.SameImage(upper, absent));
+            // Case-only siblings take the safe direction on every volume, so this gate does not
+            // depend on the kind of volume the test happens to run on.
+            string lower = Path.Combine(directory, "image.dll");
+            Assert.False(MatchCommand.SameImage(upper, lower));
 
-            // Neither spelling opens anything here, so there is no file for them to share. An
-            // OS-wide case rule answers this from the path strings alone and calls them one
-            // image on macOS and Windows; asking the volume is what makes the answer depend on
-            // what is actually there.
-            string emptyDirectory = Path.Combine(directory, "empty");
-            Directory.CreateDirectory(emptyDirectory);
+            // The defect two review rounds missed: identity must cover the whole path, not just
+            // its final component. Both spellings are materialized so this binds on a
+            // case-insensitive volume too, where a leaf-only probe answers "one image".
+            string parent = Path.Combine(directory, "Parent");
+            Directory.CreateDirectory(parent);
+            File.WriteAllText(Path.Combine(parent, "Sample.dll"), "sample");
             Assert.False(MatchCommand.SameImage(
-                Path.Combine(emptyDirectory, "Absent.dll"),
-                Path.Combine(emptyDirectory, "absent.dll")));
+                Path.Combine(directory, "Parent", "Sample.dll"),
+                Path.Combine(directory, "parent", "Sample.dll")));
+
+            // A spelling that differs by more than case is never one image.
+            Assert.False(MatchCommand.SameImage(upper, Path.Combine(directory, "Other.dll")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Image identity answers from the path text alone, so the same pair of spellings gets the
+    /// same answer whether or not the file is there. Probing the filesystem made the answer depend
+    /// on what happened to exist and on whether a directory could be enumerated, which is what
+    /// produced three rounds of defects in three different path components.
+    /// </summary>
+    [Fact]
+    public void SameImage_DoesNotDependOnWhetherThePathsExist()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"match-exists-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string upper = Path.Combine(directory, "Image.dll");
+            string lower = Path.Combine(directory, "image.dll");
+
+            bool absentAnswer = MatchCommand.SameImage(upper, lower);
+
+            File.WriteAllText(upper, "upper");
+            bool presentAnswer = MatchCommand.SameImage(upper, lower);
+
+            Assert.Equal(absentAnswer, presentAnswer);
+            Assert.False(presentAnswer);
         }
         finally
         {

@@ -53,7 +53,9 @@ internal sealed class MatchDiscoveryNames
     /// <summary>
     /// The member's display name, or its token when the extracted surface does not name it (a
     /// non-public method without <c>--all</c>, or a compiler-generated body). The token is always
-    /// shown so every row stays addressable by pairwise <c>match</c>.
+    /// shown so a same-image row stays addressable by pairwise <c>match</c>. Across two images
+    /// the token still identifies the row within its own image, but it is not addressable by
+    /// pairwise <c>match</c>, which compares two methods inside one retained assembly.
     /// </summary>
     internal string Display(MetadataMethodAddress address)
         => names.TryGetValue(address.Token, out string? name)
@@ -345,8 +347,14 @@ internal static class MatchDiscoveryFormatter
             yield return $"Candidate assembly: {assembly}";
 
         yield return $"Disposition: {view.Disposition}";
+        yield return $"Limits: {view.Limits}";
         if (view.Receipt is string receipt)
             yield return $"Receipt: {receipt}";
+
+        // Truncation provenance travels with the rows it truncates. A persisted table that omits
+        // it reads as the complete ranking rather than the first --top rows of it.
+        if (view.Showing is string showing)
+            yield return $"Showing: {showing}";
 
         foreach (MatchDiscoveryBlockerRow blocker in view.Blockers ?? [])
             yield return $"Blocker {blocker.Kind}: {blocker.Detail}";
@@ -491,7 +499,7 @@ internal static class MatchDiscoveryFormatter
                 .ToList();
 
             if (request.Top is int limit && candidates.Length > limit)
-                view.Showing = $"{limit} of {candidates.Length} ranked candidates";
+                view.Showing = $"{limit} of {candidates.Length} returned candidates";
         }
 
         var document = new MatchDiscoveryDocument
