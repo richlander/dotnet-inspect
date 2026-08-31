@@ -9,7 +9,7 @@
     <IsAotCompatible>false</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
-    <Description>Compiler-produced scalar JSON context fixtures for tsbindgen.</Description>
+    <Description>Compiler-produced scalar JSON context fixtures for TypeScript facade generation.</Description>
   </PropertyGroup>
 
 </Project>

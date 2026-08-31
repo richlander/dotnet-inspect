@@ -8,7 +8,7 @@ using System.Text.Json.Serialization.Metadata;
 namespace ILInspector.JsExportSurface.Fixtures;
 
 /// <summary>
-/// A small, purpose-built <c>[JSExport]</c> surface exercising the cases <c>tsbindgen</c> needs to
+/// A small, purpose-built <c>[JSExport]</c> surface exercising the cases TypeScript facade generation needs to
 /// handle: a plain record DTO, array and nullable properties, a nested record, an async
 /// (<c>Task&lt;string&gt;</c>) export, and a non-generic <c>Task</c> export. Deliberately not a
 /// real product surface — kept minimal and stable as a regression fixture.
