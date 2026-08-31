@@ -179,6 +179,11 @@ inspector actions but are not annotation instances. The browser must not
 invent coordinates to include them in **Default**, **All**, **Clear**, or
 **Custom**.
 
+The modal inspector presents **Selection** and **Findings** as peer sections.
+It does not add a second heading that renames the Findings section. With no
+primary selection, **Selection** renders a non-action **Nothing selected** tile
+in the same content position that selected-node tiles occupy.
+
 Targets on a medium unsupported by the current document do not make a Finding
 annotatable and do not produce a toggle. The default set is the
 catalog-selected subset of that document-relative universe. Initially:
@@ -288,6 +293,11 @@ Escape is layered inside the viewer:
    through the shell owner.
 3. In the embedded reader with no transient layer, leave viewer state and
    focus unchanged and return Escape unhandled to the workspace.
+
+Embedded viewer-local Escape is eligible only while the embedded reader is the
+active workspace surface and no shell overlay owns focus. Opening Spotlight or
+another shell overlay leaves embedded detail state intact, but that hidden
+detail cannot consume Escape or receive restored focus through the overlay.
 
 Pointer activation of **Close** may dismiss the whole modal even while detail
 is open. It is not the keyboard Escape transition. The shell then restores

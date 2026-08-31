@@ -2280,7 +2280,7 @@ kbd {
 .annotated-source-code[data-annotated-surface="modal"] .annotated-row { grid-template-columns: 4ch 4ch minmax(max-content, 1fr); gap: 10px; }
 .annotated-row-content { display: flex; align-items: stretch; min-width: max-content; }
 .annotated-row-prefix { flex: 0 0 auto; visibility: hidden; white-space: pre; user-select: none; }
-.annotated-row-items { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin: 2px 0 1px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
+.annotated-row-items { display: flex; align-items: stretch; flex-wrap: wrap; gap: 6px; margin: 2px 0 1px; }
 .annotated-row:first-child .annotated-row-items { margin-top: 5px; }
 .annotated-finding-chip,
 .annotated-finding-toggle { display: inline-flex; align-items: center; gap: 8px; border-left: 3px solid var(--accent) !important; border-radius: 3px; font: 11px var(--mono); text-align: left; }
@@ -2310,6 +2310,9 @@ kbd {
 .annotated-modal-source .annotated-source-code { min-height: 100%; }
 .annotated-modal-inspector { min-height: 0; overflow: auto; background: var(--panel); }
 .annotated-inspector-section { padding: 14px; border-bottom: 1px solid var(--line); }
+.annotated-selection-empty { display: grid; gap: 5px; margin-top: 10px; padding: 8px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--panel-raised); }
+.annotated-selection-empty strong { color: var(--text); }
+.annotated-selection-empty span { color: var(--dim); font: 12px/1.5 var(--mono); }
 .annotated-empty,
 .annotated-unavailable { color: var(--dim); font: 12px/1.5 var(--mono); }
 .annotated-node-list,

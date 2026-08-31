@@ -261,6 +261,20 @@ test("modal controls are exactly catalog-supported media and annotatable Finding
   assert.match(html, /data-annotated-source-start/);
 });
 
+test("Selection and Findings are peer inspector sections with a tiled empty state", () => {
+  const html = modalHtml();
+  const selection = html.indexOf('class="section-eyebrow">Selection');
+  const findings = html.indexOf('class="section-eyebrow">Findings');
+
+  assert.ok(selection >= 0);
+  assert.ok(findings > selection);
+  assert.match(
+    html,
+    /class="annotated-selection-empty">\s*<strong>Nothing selected<\/strong>\s*<span>Select addressable source or inspect a Finding\.<\/span>/,
+  );
+  assert.doesNotMatch(html, /Persistent inspector/);
+});
+
 test("modal inspector has one persistent action for every Finding including unanchored", () => {
   const html = modalHtml();
 
@@ -401,4 +415,9 @@ test("persistent source affordances use no underline treatment", () => {
 
   assert.ok(sourceRules.length > 0);
   assert.doesNotMatch(sourceRules, /text-decoration|border-bottom|inset 0 -/);
+
+  const annotationRows =
+    /\.annotated-row-items\s*\{([^}]*)\}/.exec(styles)?.[1] ?? "";
+  assert.ok(annotationRows.length > 0);
+  assert.doesNotMatch(annotationRows, /border-left|padding-left/);
 });

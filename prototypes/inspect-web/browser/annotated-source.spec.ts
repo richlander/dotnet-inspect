@@ -27,8 +27,9 @@ test("annotation rows preserve the anchored source indentation", async ({ page }
   const invocation = page.locator(
     `#annotated-source-modal [data-annotated-source-start="${anchorStart}"]`,
   );
+  const annotation = page.locator("#annotated-chip-modal-0-1-CSharp");
   const invocationBox = await invocation.boundingBox();
-  const annotationBox = await annotationRow.boundingBox();
+  const annotationBox = await annotation.boundingBox();
   if (!invocationBox || !annotationBox) {
     throw new Error("Anchored annotation has no browser geometry");
   }

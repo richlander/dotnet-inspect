@@ -423,16 +423,19 @@ function renderPrimary(context: SourceRenderContext): string {
   return `
     <section class="annotated-inspector-section">
       <p class="section-eyebrow">Selection</p>
-      <h3>${session.primary
-        ? session.primary.kind === "finding"
-          ? `Finding #${session.primary.id}`
-          : `Node #${session.primary.id}`
-        : "Nothing selected"}</h3>
-      ${nodes.length
-        ? `<div class="annotated-node-list">
-            ${nodes.map(node => renderNode(node, session, escapeHtml)).join("")}
-          </div>`
-        : `<p class="annotated-empty">Select addressable source or inspect a Finding.</p>`}
+      ${session.primary
+        ? `<h3>${session.primary.kind === "finding"
+            ? `Finding #${session.primary.id}`
+            : `Node #${session.primary.id}`}</h3>
+          ${nodes.length
+            ? `<div class="annotated-node-list">
+                ${nodes.map(node => renderNode(node, session, escapeHtml)).join("")}
+              </div>`
+            : `<p class="annotated-empty">This Finding has no product-issued source target.</p>`}`
+        : `<div class="annotated-selection-empty">
+            <strong>Nothing selected</strong>
+            <span>Select addressable source or inspect a Finding.</span>
+          </div>`}
     </section>`;
 }
 
@@ -466,7 +469,6 @@ function renderFindingInspector(context: SourceRenderContext): string {
   return `
     <section class="annotated-inspector-section">
       <p class="section-eyebrow">Findings</p>
-      <h3>Persistent inspector</h3>
       <div class="annotated-inspector-list">
         ${model.document.facts.map(fact => `
           <button id="annotated-inspector-${fact.id}" type="button"

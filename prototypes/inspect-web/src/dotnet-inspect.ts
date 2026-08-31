@@ -10235,10 +10235,14 @@ const graphSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.graphSourceOpen;
 const annotatedSourceContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.memberAnnotatedModal !== null;
+const embeddedAnnotatedSourceDetailContextIsActive = () =>
+  workspaceKeyboardContextIsActive()
+  && !workbenchOverlayOwnsFocus()
+  && state.memberSection === "annotated"
+  && Boolean(state.memberAnnotatedEmbedded?.detail);
 const annotatedSourceEscapeContextIsActive = () =>
   annotatedSourceContextIsActive()
-  || (state.memberSection === "annotated"
-    && Boolean(state.memberAnnotatedEmbedded?.detail));
+  || embeddedAnnotatedSourceDetailContextIsActive();
 const documentViewerContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.docViewerOpen;
 const spotlightContextIsActive = () =>
