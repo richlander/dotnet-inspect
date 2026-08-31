@@ -65,6 +65,14 @@ public sealed record ExtensionMemberAnchorInfo(
 /// </summary>
 public static class ApiMemberIdentity
 {
+    internal static ImmutableArray<string> ConversionOperatorNames { get; } =
+    [
+        "op_Implicit",
+        "op_Explicit",
+        "op_CheckedImplicit",
+        "op_CheckedExplicit",
+    ];
+
     abstract class AnchorSignatureType
     {
         protected AnchorSignatureType(int length)
@@ -2217,5 +2225,5 @@ public static class ApiMemberIdentity
     }
 
     public static bool IsConversionOperator(string memberName)
-        => memberName is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
+        => ConversionOperatorNames.Contains(memberName, StringComparer.Ordinal);
 }
