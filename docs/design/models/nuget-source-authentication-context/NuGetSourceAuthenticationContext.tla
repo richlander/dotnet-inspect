@@ -24,6 +24,8 @@ CONSTANTS
     NoContext,
     NoRequest,
     NoCredential,
+    ParticipationMode,
+    ContextTwoSendMode,
     CredentialSelectionMode,
     PublicationMode
 
@@ -39,6 +41,8 @@ ASSUME
     /\ NoRequest \notin Requests
     /\ NoCredential \notin Contexts
     /\ SharedScope # ForeignScope
+    /\ ParticipationMode \in {"LiveOnly", "AllowRetired"}
+    /\ ContextTwoSendMode \in {"Unrestricted", "AfterContextOneCredential"}
     /\ CredentialSelectionMode \in {"ContextBound", "ResourceScoped"}
     /\ PublicationMode \in {"LiveOnly", "PublishStale"}
 
@@ -93,13 +97,25 @@ VARIABLES
     publicationWitness,
     independentFlightWitness,
     retiredPopulated,
-    postRetirementSendWitness
+    postRetirementSendWitness,
+    retiredChallengedWitness,
+    retiredActiveWitness,
+    retiredCacheReadViolation,
+    retiredChallengeAuthorizationViolation,
+    retiredAcquisitionStartViolation,
+    retiredAcquisitionJoinViolation,
+    retiredCredentialUseViolation,
+    retiredPublicationViolation
 
 vars ==
     <<live, credential, requestState, usedCredential, cacheReadContext,
       authorizedChallenges, rejectedChallenges, joinedAttempt, attemptState,
       attemptContext, publicationWitness, independentFlightWitness,
-      retiredPopulated, postRetirementSendWitness>>
+      retiredPopulated, postRetirementSendWitness, retiredChallengedWitness,
+      retiredActiveWitness, retiredCacheReadViolation,
+      retiredChallengeAuthorizationViolation,
+      retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+      retiredCredentialUseViolation, retiredPublicationViolation>>
 
 ActiveAttempts(c) ==
     {a \in Requests :
@@ -108,11 +124,20 @@ ActiveAttempts(c) ==
 
 ActiveAttempt(c) == CHOOSE a \in ActiveAttempts(c) : TRUE
 
+ChallengedRequests(c) ==
+    {r \in Requests :
+        /\ RequestContext(r) = c
+        /\ requestState[r] = "Challenged"}
+
+ContextMayParticipate(c) ==
+    /\ c \in Contexts
+    /\ (ParticipationMode = "AllowRetired" \/ live[c])
+
 MayParticipateNow(r) ==
     LET c == RequestContext(r)
     IN
     /\ StaticRequestAuthorization(r, c)
-    /\ live[c]
+    /\ ContextMayParticipate(c)
 
 ScopeCredentialContext(r) ==
     IF /\ credential[ContextOne] # NoCredential
@@ -140,7 +165,9 @@ SendPrerequisite(r) ==
     CASE r \in {ContextOneFirst, ContextOneConcurrent} ->
             credential[ContextOne] = NoCredential
       [] r = ContextTwoFirst ->
-            credential[ContextTwo] = NoCredential
+            /\ credential[ContextTwo] = NoCredential
+            /\ (ContextTwoSendMode = "Unrestricted"
+                \/ credential[ContextOne] = CredentialFor(ContextOne))
       [] r = ContextOneLater ->
             credential[ContextOne] # NoCredential
             \/ ContextOne \in retiredPopulated
@@ -162,6 +189,14 @@ Init ==
     /\ independentFlightWitness = FALSE
     /\ retiredPopulated = {}
     /\ postRetirementSendWitness = FALSE
+    /\ retiredChallengedWitness = FALSE
+    /\ retiredActiveWitness = FALSE
+    /\ retiredCacheReadViolation = FALSE
+    /\ retiredChallengeAuthorizationViolation = FALSE
+    /\ retiredAcquisitionStartViolation = FALSE
+    /\ retiredAcquisitionJoinViolation = FALSE
+    /\ retiredCredentialUseViolation = FALSE
+    /\ retiredPublicationViolation = FALSE
 
 SendRequest(r) ==
     LET selected == SelectedCredential(r)
@@ -177,34 +212,57 @@ SendRequest(r) ==
     /\ usedCredential' = [usedCredential EXCEPT ![r] = selected]
     /\ cacheReadContext' =
         [cacheReadContext EXCEPT ![r] = selectedContext]
+    /\ retiredCacheReadViolation' =
+        (retiredCacheReadViolation
+         \/ (/\ selectedContext \in Contexts
+             /\ ~live[selectedContext]))
+    /\ retiredCredentialUseViolation' =
+        (retiredCredentialUseViolation
+         \/ (/\ selected # NoCredential
+             /\ selectedContext \in Contexts
+             /\ ~live[selectedContext]))
+    \* Latches on the later send itself, whatever that send selected, so
+    \* PostRetirementRequestCannotUsePlugin remains an obligation about the
+    \* selection rather than a restatement of it.
     /\ postRetirementSendWitness' =
         (postRetirementSendWitness
          \/ (/\ r = ContextOneLater
              /\ ContextOne \in retiredPopulated
-             /\ ~live[ContextOne]
-             /\ selectedContext = NoContext
-             /\ selected = NoCredential))
+             /\ ~live[ContextOne]))
     /\ UNCHANGED
         <<live, credential, authorizedChallenges, rejectedChallenges,
           joinedAttempt, attemptState, attemptContext, publicationWitness,
-          independentFlightWitness, retiredPopulated>>
+          independentFlightWitness, retiredPopulated,
+          retiredChallengedWitness, retiredActiveWitness,
+          retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredPublicationViolation>>
 
 ReceiveChallenge(r) ==
+    LET c == RequestContext(r)
+    IN
     /\ requestState[r] = "SentAnonymous"
     /\ IF MayParticipateNow(r)
        THEN
            /\ requestState' = [requestState EXCEPT ![r] = "Challenged"]
            /\ authorizedChallenges' = authorizedChallenges \cup {r}
+           /\ retiredChallengeAuthorizationViolation' =
+               (retiredChallengeAuthorizationViolation
+                \/ ~live[c])
            /\ UNCHANGED rejectedChallenges
        ELSE
            /\ requestState' = [requestState EXCEPT ![r] = "Done"]
            /\ rejectedChallenges' = rejectedChallenges \cup {r}
+           /\ UNCHANGED retiredChallengeAuthorizationViolation
            /\ UNCHANGED authorizedChallenges
     /\ UNCHANGED
         <<live, credential, usedCredential, cacheReadContext, joinedAttempt,
           attemptState, attemptContext, publicationWitness,
           independentFlightWitness, retiredPopulated,
-          postRetirementSendWitness>>
+          postRetirementSendWitness, retiredChallengedWitness,
+          retiredActiveWitness, retiredCacheReadViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredCredentialUseViolation, retiredPublicationViolation>>
 
 CompleteWithoutChallenge(r) ==
     /\ requestState[r] = "SentAnonymous"
@@ -214,7 +272,29 @@ CompleteWithoutChallenge(r) ==
           authorizedChallenges, rejectedChallenges, joinedAttempt,
           attemptState, attemptContext, publicationWitness,
           independentFlightWitness, retiredPopulated,
-          postRetirementSendWitness>>
+          postRetirementSendWitness, retiredChallengedWitness,
+          retiredActiveWitness, retiredCacheReadViolation,
+          retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredCredentialUseViolation, retiredPublicationViolation>>
+
+RejectRetiredChallenge(r) ==
+    LET c == RequestContext(r)
+    IN
+    /\ requestState[r] = "Challenged"
+    /\ c \in Contexts
+    /\ ~live[c]
+    /\ requestState' = [requestState EXCEPT ![r] = "Done"]
+    /\ rejectedChallenges' = rejectedChallenges \cup {r}
+    /\ UNCHANGED
+        <<live, credential, usedCredential, cacheReadContext,
+          authorizedChallenges, joinedAttempt, attemptState, attemptContext,
+          publicationWitness, independentFlightWitness, retiredPopulated,
+          postRetirementSendWitness, retiredChallengedWitness,
+          retiredActiveWitness, retiredCacheReadViolation,
+          retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredCredentialUseViolation, retiredPublicationViolation>>
 
 StartOrJoinChallenge(r) ==
     LET c == RequestContext(r)
@@ -231,6 +311,9 @@ StartOrJoinChallenge(r) ==
            /\ joinedAttempt' = [joinedAttempt EXCEPT ![r] = r]
            /\ attemptState' = [attemptState EXCEPT ![r] = "Pending"]
            /\ attemptContext' = [attemptContext EXCEPT ![r] = c]
+           /\ retiredAcquisitionStartViolation' =
+               (retiredAcquisitionStartViolation \/ ~live[c])
+           /\ UNCHANGED retiredAcquisitionJoinViolation
            /\ independentFlightWitness' =
                (independentFlightWitness
                 \/ (\E other \in Contexts \ {c} :
@@ -241,12 +324,18 @@ StartOrJoinChallenge(r) ==
            IN
            /\ requestState' = [requestState EXCEPT ![r] = "Waiting"]
            /\ joinedAttempt' = [joinedAttempt EXCEPT ![r] = a]
+           /\ retiredAcquisitionJoinViolation' =
+               (retiredAcquisitionJoinViolation \/ ~live[c])
            /\ UNCHANGED
-                <<attemptState, attemptContext, independentFlightWitness>>
+                <<attemptState, attemptContext, independentFlightWitness,
+                  retiredAcquisitionStartViolation>>
     /\ UNCHANGED
         <<live, credential, usedCredential, cacheReadContext,
           authorizedChallenges, rejectedChallenges, publicationWitness,
-          retiredPopulated, postRetirementSendWitness>>
+          retiredPopulated, postRetirementSendWitness,
+          retiredChallengedWitness, retiredActiveWitness,
+          retiredCacheReadViolation, retiredChallengeAuthorizationViolation,
+          retiredCredentialUseViolation, retiredPublicationViolation>>
 
 ConsumePublishedCredential(r) ==
     LET c == RequestContext(r)
@@ -258,11 +347,17 @@ ConsumePublishedCredential(r) ==
     /\ requestState' = [requestState EXCEPT ![r] = "Done"]
     /\ usedCredential' =
         [usedCredential EXCEPT ![r] = CredentialFor(c)]
+    /\ retiredCredentialUseViolation' =
+        (retiredCredentialUseViolation \/ ~live[c])
     /\ UNCHANGED
         <<live, credential, cacheReadContext, authorizedChallenges,
           rejectedChallenges, joinedAttempt, attemptState, attemptContext,
           publicationWitness, independentFlightWitness, retiredPopulated,
-          postRetirementSendWitness>>
+          postRetirementSendWitness, retiredChallengedWitness,
+          retiredActiveWitness, retiredCacheReadViolation,
+          retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredPublicationViolation>>
 
 ResolveAuthorizedChallenge(r) ==
     \/ StartOrJoinChallenge(r)
@@ -276,13 +371,17 @@ ProvideOutcome(a, outcome) ==
         <<live, credential, requestState, usedCredential, cacheReadContext,
           authorizedChallenges, rejectedChallenges, joinedAttempt,
           attemptContext, publicationWitness, independentFlightWitness,
-          retiredPopulated, postRetirementSendWitness>>
+          retiredPopulated, postRetirementSendWitness,
+          retiredChallengedWitness, retiredActiveWitness,
+          retiredCacheReadViolation, retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredCredentialUseViolation, retiredPublicationViolation>>
 
+\* Retirement is exogenous: the configured authority can be replaced at any
+\* time, so any live context may retire in any state. Nothing about the
+\* context's own progress enables or delays it.
 RetireContext(c) ==
     /\ live[c]
-    /\ (ActiveAttempts(c) # {}
-        \/ /\ c = ContextOne
-           /\ credential[c] # NoCredential)
     /\ live' = [live EXCEPT ![c] = FALSE]
     /\ credential' = [credential EXCEPT ![c] = NoCredential]
     /\ retiredPopulated' =
@@ -291,16 +390,23 @@ RetireContext(c) ==
            /\ ActiveAttempts(c) = {}
         THEN retiredPopulated \cup {c}
         ELSE retiredPopulated
+    /\ retiredChallengedWitness' =
+        (retiredChallengedWitness \/ ChallengedRequests(c) # {})
+    /\ retiredActiveWitness' =
+        (retiredActiveWitness \/ ActiveAttempts(c) # {})
     /\ UNCHANGED
         <<requestState, usedCredential, cacheReadContext,
           authorizedChallenges, rejectedChallenges, joinedAttempt,
           attemptState, attemptContext, publicationWitness,
-          independentFlightWitness, postRetirementSendWitness>>
+          independentFlightWitness, postRetirementSendWitness,
+          retiredCacheReadViolation, retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredCredentialUseViolation, retiredPublicationViolation>>
 
 CompleteAcquisition(a) ==
     LET c == attemptContext[a]
         success == attemptState[a] = "SuccessAvailable"
-        publishAllowed == success /\ live[c]
+        publishAllowed == success /\ ContextMayParticipate(c)
         publish == publishAllowed
         retryCredential ==
             IF publishAllowed THEN CredentialFor(c) ELSE NoCredential
@@ -320,6 +426,10 @@ CompleteAcquisition(a) ==
             IF requestState[r] = "Waiting" /\ joinedAttempt[r] = a
             THEN retryCredential
             ELSE usedCredential[r]]
+    /\ retiredCredentialUseViolation' =
+        (retiredCredentialUseViolation
+         \/ (/\ retryCredential # NoCredential
+             /\ ~live[c]))
     /\ attemptState' = [attemptState EXCEPT ![a] = "Completed"]
     /\ publicationWitness' =
         publicationWitness
@@ -327,10 +437,16 @@ CompleteAcquisition(a) ==
             \/ /\ publishAllowed
                /\ c \in Contexts
                /\ credential[c] \in {NoCredential, CredentialFor(c)})
+    /\ retiredPublicationViolation' =
+        (retiredPublicationViolation
+         \/ (publish /\ ~live[c]))
     /\ UNCHANGED
         <<live, cacheReadContext, authorizedChallenges, rejectedChallenges,
           joinedAttempt, attemptContext, independentFlightWitness,
-          retiredPopulated, postRetirementSendWitness>>
+          retiredPopulated, postRetirementSendWitness,
+          retiredChallengedWitness, retiredActiveWitness,
+          retiredCacheReadViolation, retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation>>
 
 CompleteAcquisitionWithStalePublication(a) ==
     LET c == attemptContext[a]
@@ -347,16 +463,22 @@ CompleteAcquisitionWithStalePublication(a) ==
             ELSE requestState[r]]
     /\ attemptState' = [attemptState EXCEPT ![a] = "Completed"]
     /\ publicationWitness' = FALSE
+    /\ retiredPublicationViolation' = TRUE
     /\ UNCHANGED
         <<live, usedCredential, cacheReadContext, authorizedChallenges,
           rejectedChallenges, joinedAttempt, attemptContext,
           independentFlightWitness, retiredPopulated,
-          postRetirementSendWitness>>
+          postRetirementSendWitness, retiredChallengedWitness,
+          retiredActiveWitness, retiredCacheReadViolation,
+          retiredChallengeAuthorizationViolation,
+          retiredAcquisitionStartViolation, retiredAcquisitionJoinViolation,
+          retiredCredentialUseViolation>>
 
 Next ==
     \/ \E r \in Requests : SendRequest(r)
     \/ \E r \in Requests : ReceiveChallenge(r)
     \/ \E r \in Requests : CompleteWithoutChallenge(r)
+    \/ \E r \in Requests : RejectRetiredChallenge(r)
     \/ \E r \in Requests : ResolveAuthorizedChallenge(r)
     \/ \E a \in Requests :
         \E outcome \in {"SuccessAvailable", "FailureAvailable"} :
@@ -367,6 +489,7 @@ Next ==
 
 Fairness ==
     /\ \A r \in Requests : WF_vars(ResolveAuthorizedChallenge(r))
+    /\ \A r \in Requests : WF_vars(RejectRetiredChallenge(r))
     /\ \A a \in Requests : WF_vars(CompleteAcquisition(a))
 
 Spec ==
@@ -389,6 +512,14 @@ TypeOK ==
     /\ independentFlightWitness \in BOOLEAN
     /\ retiredPopulated \subseteq Contexts
     /\ postRetirementSendWitness \in BOOLEAN
+    /\ retiredChallengedWitness \in BOOLEAN
+    /\ retiredActiveWitness \in BOOLEAN
+    /\ retiredCacheReadViolation \in BOOLEAN
+    /\ retiredChallengeAuthorizationViolation \in BOOLEAN
+    /\ retiredAcquisitionStartViolation \in BOOLEAN
+    /\ retiredAcquisitionJoinViolation \in BOOLEAN
+    /\ retiredCredentialUseViolation \in BOOLEAN
+    /\ retiredPublicationViolation \in BOOLEAN
 
 DistinctContextsShareResourceScope ==
     /\ ContextOne # ContextTwo
@@ -420,6 +551,67 @@ PostRetirementRequestCannotUsePlugin ==
 
 PopulatedRetirementAndLaterSendNotObserved ==
     ~postRetirementSendWitness
+
+ChallengedRetirementNotObserved ==
+    ~retiredChallengedWitness
+
+ActiveRetirementNotObserved ==
+    ~retiredActiveWitness
+
+IndependentFlightsNotObserved ==
+    ~independentFlightWitness
+
+SourceIsolationNotObserved ==
+    ~(/\ credential[ContextOne] = CredentialFor(ContextOne)
+      /\ requestState[ContextTwoFirst] = "SentAnonymous"
+      /\ cacheReadContext[ContextTwoFirst] = ContextTwo
+      /\ usedCredential[ContextTwoFirst] = NoCredential)
+
+ExcludedAndGalleryNonParticipationNotObserved ==
+    LET excluded ==
+        {UnassociatedRequest, IneligibleRequest, OutOfScopeRequest,
+         GalleryRequest}
+    IN
+    ~(/\ excluded \subseteq rejectedChallenges
+      /\ \A r \in excluded :
+            /\ cacheReadContext[r] = NoContext
+            /\ usedCredential[r] = NoCredential
+            /\ attemptState[r] = "Unused"
+            /\ joinedAttempt[r] = NoRequest)
+
+NoRetiredCacheRead ==
+    ~retiredCacheReadViolation
+
+NoRetiredChallengeAuthorization ==
+    ~retiredChallengeAuthorizationViolation
+
+NoRetiredAcquisitionStart ==
+    ~retiredAcquisitionStartViolation
+
+NoRetiredAcquisitionJoin ==
+    ~retiredAcquisitionJoinViolation
+
+NoRetiredCredentialUse ==
+    ~retiredCredentialUseViolation
+
+NoRetiredPublication ==
+    ~retiredPublicationViolation
+
+RetiredParticipationEventsAreContained ==
+    /\ NoRetiredCacheRead
+    /\ NoRetiredChallengeAuthorization
+    /\ NoRetiredAcquisitionStart
+    /\ NoRetiredAcquisitionJoin
+    /\ NoRetiredCredentialUse
+    /\ NoRetiredPublication
+
+AllRetiredParticipationViolationsNotObserved ==
+    ~(/\ retiredCacheReadViolation
+      /\ retiredChallengeAuthorizationViolation
+      /\ retiredAcquisitionStartViolation
+      /\ retiredAcquisitionJoinViolation
+      /\ retiredCredentialUseViolation
+      /\ retiredPublicationViolation)
 
 CredentialUseIsAuthorized ==
     \A r \in Requests :

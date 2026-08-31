@@ -474,11 +474,16 @@ one context consume a credential published while they waited before asking the
 provider again. Different contexts are independent and may acquire
 concurrently even when their resource scopes are equal.
 
-Refresh after a rejected cached credential remains within the same context.
+Refresh after a rejected cached credential remains single-flight within the
+same context. Concurrent requests may reject the same observed credential
+version, but only one provider acquisition runs. A waiter consumes a newer
+credential published while it waited before deciding whether another
+acquisition is needed. Same-context provider acquisitions therefore do not
+overlap and cannot complete out of order.
+
 Only a completion authorized by the current live context state may publish.
-Retirement, replacement, or a newer successful refresh makes an older
-completion stale; stale work cannot populate, clear, or replay from the
-context.
+Retirement or replacement makes an in-progress completion stale; stale work
+cannot populate, clear, or replay from the context.
 
 The existing retry bound, `IsRetry` behavior, provider ordering, cancellation,
 and challenge reporting do not change.
@@ -508,29 +513,62 @@ The target is unverified until Release gates establish:
   one context coalesces acquisition without serializing another;
 - `RetiredContextRejectsLateCredentialPublication`: retirement during
   acquisition cannot publish or replay the result;
+- `RetiredContextRejectsPendingChallengeAndLaterRequest`: retirement after an
+  authorized challenge but before acquisition, and a later request through the
+  retired context, cannot read cache state, invoke the provider, or replay
+  authorization;
+- `ConcurrentRejectedCredentialRefreshesPublishOneNewVersion`: two requests
+  that reject one cached version produce one provider acquisition, one newer
+  published version, and waiter replay from that newer version without a stale
+  overwrite or clear;
 - `RequestClonePropagationPreservesContextAndRejection`: retries and redirects
   cannot drop or replace association or resource rejection; and
 - `NuGetGalleryTransportCannotReachPluginAuthentication`: the built-in Gallery
   transport has no plugin handler or context path.
 
 The
-[source-authentication context model](models/nuget-source-authentication-context/README.md)
-checks context isolation, authorized acquisition and publication,
-single-flight, retirement, Gallery non-participation, and admitted-request
-progress under finite bounds. Those checks establish the design interaction,
-not implementation correspondence.
+[source-authentication context models](models/nuget-source-authentication-context/README.md)
+are two focused TLA+ modules. The context model checks context isolation,
+target authorization, authorized acquisition and publication, single-flight
+acquisition within a context and independence across contexts, exogenous
+retirement, Gallery and excluded-request non-participation, and
+admitted-request progress. The refresh model checks one bounded rejected-version
+refresh episode: single-flight refresh, joining an in-flight refresh,
+superseded requests consuming the newer version instead of acquiring, read-only
+consumption, and monotonic publication. Those checks establish the design
+interaction, not implementation correspondence.
 
-The checked bound contains two distinct configurable contexts sharing one
+The context bound contains two distinct configurable contexts sharing one
 resource scope, one foreign scope, and nine requests covering concurrent
 challenges, later cache use, unassociated/ineligible/foreign targets, and
-Gallery. TLC explored 3,908,973 generated and 850,544 distinct states to depth
-28 without an invariant or liveness violation. A reachability configuration
-observed populated-context retirement and later anonymous use at depth 8.
-Mutations that selected credentials by resource scope or published after
-retirement violated `CacheReadsStayContextBound` and
-`PublicationIsAuthorized` at depth 7. Refresh, redirect mechanics,
-target-scope derivation, plugin protocol, and implementation correspondence
-remain outside the model.
+Gallery. Retirement is enabled for any live context in any state. TLC explored
+6,794,613 generated and 1,485,245 distinct states to depth 29 without an
+invariant or liveness violation. Separate reachability configurations exhibit
+pre-acquisition retirement, retirement during active provider work,
+populated-context retirement followed by a later request, simultaneous
+equal-scope acquisitions, source isolation, and excluded/Gallery
+non-participation. Mutations that removed the live-context gate, selected
+credentials by resource scope, or published after retirement violated
+`AllRetiredParticipationViolationsNotObserved`,
+`PostRetirementRequestCannotUsePlugin`, `CacheReadsStayContextBound`, and
+`PublicationIsAuthorized`.
+
+The refresh bound contains one live context, two requests, one initial cached
+version, and two distinct possible provider results. Sending, rejection, and
+provider progress interleave freely inside one episode. TLC explored 91
+generated and 65 distinct states to depth 11 without a violation.
+Reachability configurations exhibit an in-flight join followed by follower
+consumption, a rejection arriving after publication, and a request that first
+observes the published version being accepted outside the episode. Mutations
+that removed single-flight admission, admitted superseded requests to provider
+work, let consumption write back an older observation, or published a
+candidate verbatim violated `AtMostOneProviderAcquisition`,
+`AtMostOneProviderCompletion`, `StaleObservedRequestCannotAcquire`,
+`StaleObservedConsumptionIsReadOnly`, and `CredentialVersionNeverRegresses`.
+
+Redirect mechanics, target-scope derivation, provider failure and
+cancellation, HTTP retry bounds, plugin protocol, more than one refresh
+episode, and implementation correspondence remain outside both models.
 
 The `-IsRetry` flag matters more than it looks. The provider's own help says that without it
 "INVALID CREDENTIALS MAY BE RETURNED. The caller is required to validate returned credentials
