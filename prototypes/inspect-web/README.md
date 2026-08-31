@@ -1596,20 +1596,23 @@ lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
 hook before and after artifact transfer.
 
 Both deployment builds run `verify-inspect-web-async-deployment.sh` immediately
-after their clean engine publish. The gate classifies
-`AsyncLoweringCanary` in that publish's
+after their clean engine publish. The gate enumerates every public async method
+in that publish's
 `bin/Release/net11.0/InspectWeb.Engine.dll` as compiler async for Mono and
-runtime async for CoreCLR. This is the exact pre-link assembly that retains the
-compiler-generated runtime wrappers authenticated by `ts-jsexport`; the linker
-removes those wrappers from its intermediate assembly before packaging the
-shipped WebCIL. The gate generates a declaration from each pre-link assembly
-with `generate-inspect-web-engine-facade.sh --contract`, requires both to equal
-the checked-in declaration, and invokes the canary through the generated facade
-in each published WebCIL application. The uploaded receipt records the publish
-assembly, shipped WebCIL, and facade-contract digests. Build, staging, and
-production artifact checks require the one named WebCIL file and recompute its
-digest without executing candidate code in an environment-gated deployment
-job.
+runtime async for CoreCLR, requires the entire census to use the expected
+physical lowering, and separately authenticates `AsyncLoweringCanary`. This is
+the exact pre-link assembly that retains the compiler-generated runtime wrappers
+authenticated by `ts-jsexport`; the linker removes those wrappers from its
+intermediate assembly before packaging the shipped WebCIL. The gate generates a
+declaration from each pre-link assembly with
+`generate-inspect-web-engine-facade.sh --contract`, requires both to equal the
+checked-in declaration, and invokes the canary through the generated facade in
+each published WebCIL application. The uploaded receipt records total,
+compiler-async, and runtime-async method counts plus the publish assembly,
+shipped WebCIL, and facade-contract digests. Build, staging, and production
+artifact checks require the expected all-or-nothing lowering census, require the
+one named WebCIL file, and recompute its digest without executing candidate code
+in an environment-gated deployment job.
 
 The CoreCLR publish also imports `InspectWebRuntimeAsyncReceipt.targets`.
 Every project that reaches `CoreCompile` fails unless its exact `Features`

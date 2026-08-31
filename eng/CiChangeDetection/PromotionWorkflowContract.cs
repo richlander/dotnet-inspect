@@ -42,7 +42,7 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         receipt=artifacts/inspect-web-publish/async-lowering.json
         test -f "$index"
-        jq -e '.schema == 1 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        jq -e '.schema == 2 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
         webcil=$(jq -r '.published_webcil_file' "$receipt")
         test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
         test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
@@ -81,7 +81,7 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         receipt=artifacts/inspect-web-coreclr-publish/async-lowering.json
         test -f "$index"
-        jq -e '.schema == 1 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+        jq -e '.schema == 2 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
         webcil=$(jq -r '.published_webcil_file' "$receipt")
         test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
         test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
@@ -297,6 +297,12 @@ internal static class PromotionWorkflowContract
             "",
             ValidateAsyncDeploymentVerifier,
             "Async deployment verifier accepted a skipped browser invocation.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "    async_method_count: census.async_method_count,\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without the async census.");
         AssertMutationRejected(
             runtimeAsyncReceiptTarget,
             "Condition=\"$([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
@@ -1403,6 +1409,7 @@ internal static class PromotionWorkflowContract
             "\"$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts\" \\\n  \"$scratch/inspect-web-engine.d.ts\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-runtime-async-project-graph.ts\"",
+            "async_method_count: census.async_method_count",
             "published_webcil_file: webcil[0]",
         ];
         string[] missing = required

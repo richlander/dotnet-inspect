@@ -31,12 +31,14 @@ dotnet=${DOTNET:-dotnet}
 node=${NODE:-node}
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
+census="$scratch/async-census.json"
 
 "$dotnet" run \
   "$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs" \
   -- \
   "$assembly" \
-  "$lowering"
+  "$lowering" \
+  "$census"
 
 "$repo_root/eng/generate-inspect-web-engine-facade.sh" \
   --contract \
@@ -71,14 +73,33 @@ fi
 mkdir -p "$(dirname "$receipt")"
 "$node" --input-type=module - "$assembly" "$site" "$lowering" \
   "$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts" \
-  "$receipt" <<'JS'
+  "$census" "$receipt" <<'JS'
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const [assembly, site, lowering, contract, receipt] = process.argv.slice(2);
-if (!assembly || !site || !lowering || !contract || !receipt) {
+const [assembly, site, lowering, contract, censusPath, receipt] =
+  process.argv.slice(2);
+if (!assembly || !site || !lowering || !contract || !censusPath || !receipt) {
   throw new Error("missing async deployment receipt argument");
+}
+const census = JSON.parse(readFileSync(censusPath, "utf8"));
+const counts = [
+  census.async_method_count,
+  census.compiler_async_method_count,
+  census.runtime_async_method_count,
+];
+if (!counts.every(Number.isInteger)
+    || census.async_method_count <= 0
+    || census.async_method_count
+      !== census.compiler_async_method_count + census.runtime_async_method_count
+    || (lowering === "compiler"
+      && (census.compiler_async_method_count !== census.async_method_count
+        || census.runtime_async_method_count !== 0))
+    || (lowering === "runtime"
+      && (census.runtime_async_method_count !== census.async_method_count
+        || census.compiler_async_method_count !== 0))) {
+  throw new Error("invalid async method census");
 }
 const frameworkFiles = readdirSync(resolve(site, "_framework"));
 const webcil = frameworkFiles.filter(
@@ -93,10 +114,13 @@ function sha256(path) {
 writeFileSync(
   receipt,
   `${JSON.stringify({
-    schema: 1,
+    schema: 2,
     method: "InspectionEngine.AsyncLoweringCanary",
     lowering,
     result: "inspect-web-async-lowering-ok",
+    async_method_count: census.async_method_count,
+    compiler_async_method_count: census.compiler_async_method_count,
+    runtime_async_method_count: census.runtime_async_method_count,
     publish_assembly_sha256: sha256(assembly),
     published_webcil_file: webcil[0],
     published_webcil_sha256: sha256(resolve(site, "_framework", webcil[0])),

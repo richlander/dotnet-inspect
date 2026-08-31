@@ -2,11 +2,14 @@
 #:property OwnsItsOwnStderr=true
 
 using ILInspector.Metadata;
+using System.Text.Json;
 
-if (args is not [string assemblyPath, string expectedLowering])
+if (args is not
+    [string assemblyPath, string expectedLowering, string censusPath])
 {
     Console.Error.WriteLine(
-        "Usage: verify-async-lowering.cs <assembly> <compiler|runtime>");
+        "Usage: verify-async-lowering.cs "
+        + "<assembly> <compiler|runtime> <census.json>");
     return 1;
 }
 
@@ -20,7 +23,36 @@ MethodClassification expected = expectedLowering switch
 };
 
 using FileStream stream = File.OpenRead(assemblyPath);
-ClassifiedMethodInfo[] matches = MethodClassificationScanner.Scan(stream)
+ClassifiedMethodInfo[] asyncMethods = MethodClassificationScanner.Scan(stream)
+    .Where(method =>
+        method.Classification is MethodClassification.StateMachineAsync
+            or MethodClassification.RuntimeAsync)
+    .ToArray();
+int compilerAsyncCount = asyncMethods.Count(method =>
+    method.Classification == MethodClassification.StateMachineAsync);
+int runtimeAsyncCount = asyncMethods.Count(method =>
+    method.Classification == MethodClassification.RuntimeAsync);
+if (asyncMethods.Length == 0)
+{
+    Console.Error.WriteLine(
+        $"Expected public async methods in {assemblyPath}; found none.");
+    return 1;
+}
+
+int expectedAsyncCount =
+    expected == MethodClassification.StateMachineAsync
+        ? compilerAsyncCount
+        : runtimeAsyncCount;
+if (expectedAsyncCount != asyncMethods.Length)
+{
+    Console.Error.WriteLine(
+        $"Expected all {asyncMethods.Length} public async methods in "
+        + $"{assemblyPath} to use {expectedLowering} lowering; found "
+        + $"compiler={compilerAsyncCount}, runtime={runtimeAsyncCount}.");
+    return 1;
+}
+
+ClassifiedMethodInfo[] matches = asyncMethods
     .Where(method =>
         method.DeclaringType == "InspectionEngine"
         && method.MethodName == "AsyncLoweringCanary")
@@ -41,7 +73,28 @@ if (canary.Classification != expected)
     return 1;
 }
 
+Directory.CreateDirectory(
+    Path.GetDirectoryName(Path.GetFullPath(censusPath))!);
+using (FileStream censusStream = File.Create(censusPath))
+{
+    using (var writer = new Utf8JsonWriter(censusStream))
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("async_method_count", asyncMethods.Length);
+        writer.WriteNumber(
+            "compiler_async_method_count",
+            compilerAsyncCount);
+        writer.WriteNumber(
+            "runtime_async_method_count",
+            runtimeAsyncCount);
+        writer.WriteEndObject();
+    }
+
+    censusStream.WriteByte((byte)'\n');
+}
+
 Console.WriteLine(
-    $"InspectWeb async canary has {expectedLowering} lowering in "
-    + $"{assemblyPath}.");
+    $"InspectWeb async census found {asyncMethods.Length} public async methods "
+    + $"in {assemblyPath}: compiler={compilerAsyncCount}, "
+    + $"runtime={runtimeAsyncCount}; canary={expectedLowering}.");
 return 0;
