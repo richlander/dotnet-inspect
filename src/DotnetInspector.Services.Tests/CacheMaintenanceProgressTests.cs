@@ -35,15 +35,30 @@ public class CacheMaintenanceProgressTests
     {
         var progress = new CacheMaintenanceProgress();
         using var cts = new CancellationTokenSource();
+        using var writersStarted = new CountdownEvent(WriterCount);
         var violations = new ConcurrentBag<CacheMaintenanceResult>();
 
         Task[] writers = Enumerable.Range(0, WriterCount)
             .Select(_ => Task.Run(() =>
             {
+                bool signaled = false;
                 while (!cts.IsCancellationRequested)
+                {
                     progress.RecordDeletion(BytesPerDeletion);
+                    if (!signaled)
+                    {
+                        signaled = true;
+                        writersStarted.Signal();
+                    }
+                }
             }))
             .ToArray();
+
+        // Wait for every writer to have recorded at least once so the reader
+        // loop below overlaps genuine concurrent writes from the start,
+        // rather than spending early iterations reading the trivially
+        // consistent (0, 0) initial state.
+        writersStarted.Wait();
 
         for (int i = 0; i < IterationsPerReader; i++)
         {
