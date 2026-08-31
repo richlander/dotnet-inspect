@@ -359,6 +359,8 @@ This contract consumes, without redefining:
   decision;
 - the browser-package-source design's caller-created
   `PackageSourceAssociation` reference for that configured authority;
+- the configured-authority owner's provider-query URI for that canonical
+  source;
 - V3 source clients' already-resolved service-index and resource targets; and
 - the built-in NuGet Gallery's credential-free transport boundary.
 
@@ -405,7 +407,7 @@ the configured-credential policy and neither reads nor seeds the plugin
 context. A challenge to that request remains visible rather than silently
 switching credential mechanisms.
 
-#### Association and resource authorization are separate
+#### Association, provider query, and resource authorization are separate
 
 Plugin participation requires two independent owner facts:
 
@@ -418,6 +420,15 @@ Association answers *which source could own a credential*. Resource
 authorization answers *whether this target may ask for or receive it*. Sharing
 a network origin or resource scope does not create context association.
 Feed-advertised metadata cannot mint or replace the context reference.
+
+The configured-authority owner supplies one provider-query URI when it creates
+the context. That URI is the canonical configured service-index endpoint
+selected by the owner's alias decision, retained privately by the context
+solely for `GetAuthenticationCredentials`. Every authorized challenge for the
+context queries the plugin with that URI, including when an advertised resource
+or redirect target supplies the first challenge. The concrete challenge target
+never becomes provider lookup identity and feed-advertised metadata cannot
+replace it. Provider-query identity does not authorize a target.
 
 The configured service-index endpoint establishes the context's
 credential-resource scope. For ordinary hosts the scope is the endpoint's URI
@@ -516,6 +527,11 @@ The target is unverified until Release gates establish:
   provider;
 - `AuthorizedResourceReusesItsSourceContextCredential`: a source challenge
   populates one context and its associated resource reuses that credential;
+- `ResourceFirstChallengeUsesConfiguredProviderQuery`: an anonymous service
+  index advertises an authorized resource that supplies the first challenge;
+  a provider that answers only for the configured service-index URI is queried
+  with that URI, and the resulting credential is replayed only to the
+  authorized resource;
 - `SharedAssociationPipelinesShareAuthenticationContext`: two V3 pipelines
   constructed with the same `PackageSourceAssociation` share credential
   publication and coalesce concurrent challenges into one provider
@@ -552,12 +568,18 @@ The target is unverified until Release gates establish:
   that reject one cached version produce one provider acquisition, one newer
   published version, and waiter replay from that newer version without a stale
   overwrite or clear;
+- `ExplicitAuthorizationBypassesPluginContext`: an explicit configured
+  `Authorization` header neither reads nor populates the plugin context, never
+  invokes the provider, and leaves a resulting challenge visible;
 - `RequestClonePropagationPreservesContextAndRejection`: the source-owned
   redirect layer wraps the authentication handler so every clone re-enters
   target authorization, preserves its association and any resource rejection,
   and carries no plugin-produced header unless the new target is independently
   authorized; an Azure cross-organization redirect cannot read cache state,
-  invoke the provider, or replay authorization; and
+  invoke the provider, or replay authorization;
+- `AuthenticationContextReferenceIsOpaque`: the public context reference
+  exposes no credential, configured-source text, serialization value, or
+  display value; and
 - `NuGetGalleryTransportCannotReachPluginAuthentication`: the built-in Gallery
   transport has no plugin handler or context path.
 
@@ -576,8 +598,9 @@ acquisition within a context and independence across contexts, exogenous
 retirement, Gallery and excluded-request non-participation, and
 admitted-request progress. It consumes the association-to-context mapping as
 an input; `SharedAssociationPipelinesShareAuthenticationContext` is the
-required implementation gate for that mapping. It also consumes already
-derived resource scopes and has no pipeline lifetime; the ordinary-scope and
+required implementation gate for that mapping. It also omits provider-query
+identity, consumes already derived resource scopes, and has no pipeline
+lifetime; the resource-first challenge, ordinary-scope, and
 individual-pipeline-disposal gates named above establish those implementation
 boundaries. The refresh model checks one bounded rejected-version refresh
 episode: single-flight refresh, joining an in-flight refresh, superseded

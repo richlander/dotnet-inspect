@@ -46,10 +46,14 @@ implementation gate for that mapping.
 `ResourceScope` and `TargetScope` are also input facts; this model does not
 derive them from URIs. `OrdinaryResourceScopeUsesCanonicalOrigin` and the Azure
 scope gate named by the design provide implementation correspondence for that
-derivation. Pipeline creation and disposal are absent. `RetireContext` denotes
-configured-authority retirement or replacement, never disposal of an
-individual pipeline; `SharedContextSurvivesIndividualPipelineDisposal` is the
-required implementation gate for that lifetime boundary.
+derivation. Provider-query identity is absent;
+`ResourceFirstChallengeUsesConfiguredProviderQuery` establishes that a
+resource-first challenge queries the plugin with the configured service-index
+URI rather than the resource target. Pipeline creation and disposal are absent.
+`RetireContext` denotes configured-authority retirement or replacement, never
+disposal of an individual pipeline;
+`SharedContextSurvivesIndividualPipelineDisposal` is the required
+implementation gate for that lifetime boundary.
 
 `ParticipationMode = "LiveOnly"` is the specified policy.
 `"AllowRetired"` is a negative-control policy equivalent to removing the live
@@ -162,9 +166,14 @@ configuration sets all four to the specified policy:
 | `AvailableRefreshEventuallyCompletes` | Under weak fairness, an outcome-available refresh completes. |
 | `StaleObservedRequestsEventuallyConsume` | Under weak fairness, a superseded rejected request or joined waiter consumes the newer version. |
 
-The last three are action properties, stated over the transition rather than
-over a latched witness, so they are not restatements of the guard on any one
-action. Each has a mode that falsifies it.
+`StaleObservedRequestCannotAcquire`,
+`StaleObservedConsumptionIsReadOnly`, and
+`CredentialVersionNeverRegresses` are action properties stated over a
+transition rather than a latched witness. Each has a dedicated mutation mode
+and configuration that falsifies it. `AvailableRefreshEventuallyCompletes`
+and `StaleObservedRequestsEventuallyConsume` are conditional leads-to
+properties checked under weak fairness by the normal configuration; no
+dedicated mutation configuration is claimed for either.
 
 ## Configurations
 
@@ -282,10 +291,12 @@ stopped and the depth is the search depth reached, not a complete graph.
 | `BrokenCrossContextReuse.cfg` | `CacheReadsStayContextBound` violated | 439 | 240 | 7 |
 | `BrokenStalePublication.cfg` | `PublicationIsAuthorized` violated | 1,505 | 713 | 7 |
 
-The complete graph carries exogenous retirement, so it contains every state the
-reachability configurations reach: those configurations differ from it only in
-which invariant they check. Each retired-event violation witness remained false
-throughout the complete graph.
+The complete graph carries exogenous retirement and reaches every named
+source-context witness. Most reachability configurations differ only in which
+invariant they check. `SourceIsolationReachability.cfg` additionally restricts
+the second context's first send until after the first context publishes, which
+selects a subset of the complete graph. Each retired-event violation witness
+remained false throughout the complete graph.
 
 The retirement reachability traces respectively:
 
