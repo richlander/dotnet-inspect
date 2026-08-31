@@ -237,6 +237,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Member ordering](design/member-order.md): canonical type/member section order and member-kind mapping.
 - [Package source model](design/package-source-model.md): source eligibility,
   mapping, local stores, source-bound caches, selection, and enrichment.
+- [Package dependency evidence](design/package-dependency-evidence.md):
+  normalized declared dependency observations across typed package-manifest
+  and restored-project inputs, additive resolution and owner evidence,
+  cross-input equivalence, completion, and query-result `InertString`
+  containment.
 - [NuGetFetch source-result identity](design/browser-package-sources.md#nugetfetch-typed-source-result-identity):
   credential-free producer provenance, caller association, transport evidence,
   factory-bound result propagation, and safe retained failures. It consumes
