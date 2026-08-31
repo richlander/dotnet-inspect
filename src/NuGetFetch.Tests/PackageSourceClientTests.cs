@@ -868,16 +868,26 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public async Task V3SameOriginResourceRetainsPluginAuthentication()
+    public async Task V3AzureSameOriginResourceRetainsPluginAuthentication()
     {
+        const string azureServiceIndex =
+            "https://pkgs.dev.azure.com/org/project-name/"
+            + "_packaging/feed-name/nuget/v3/index.json";
+        const string azureBaseAddress =
+            "https://pkgs.dev.azure.com/org/"
+            + "11111111-1111-1111-1111-111111111111/"
+            + "_packaging/22222222-2222-2222-2222-222222222222/"
+            + "nuget/v3/flat2/";
+        const string azureVersions =
+            azureBaseAddress + "contoso/index.json";
         var transport = new RecordingHandler
         {
-            [ServiceIndex] = $$"""
+            [azureServiceIndex] = $$"""
                 {
                   "version": "3.0.0",
                   "resources": [
                     {
-                      "@id": "{{FlatContainer}}",
+                      "@id": "{{azureBaseAddress}}",
                       "@type": "PackageBaseAddress/3.0.0"
                     }
                   ]
@@ -885,12 +895,12 @@ public sealed class PackageSourceClientTests
                 """,
         };
         transport.SetResponse(
-            Versions,
+            azureVersions,
             ChallengeOrContent("""{"versions":["1.0.0"]}"""));
         var credentials = new RecordingCredentialSource();
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
-                new PackageSource("private", ServiceIndex),
+                new PackageSource("private", azureServiceIndex),
                 new PluginAuthenticationHandler(
                     credentials,
                     transport));
@@ -902,7 +912,7 @@ public sealed class PackageSourceClientTests
 
         Assert.Single(versions.Candidates);
         Assert.Equal(
-            [Versions],
+            [azureVersions],
             credentials.Requested
                 .Select(uri => uri.AbsoluteUri)
                 .ToArray());

@@ -357,6 +357,21 @@ same tuple derived from the actual request URL. The request is same-origin only
 when both tuples are equal. This comparison creates no additional package
 source, endpoint, route, or fallback.
 
+Neither tuple is the browser page or application origin. Credential plugins
+run in the desktop HTTP pipeline; browser CORS and Fetch authorization remain a
+separate transport boundary. A single NuGet source may advertise both
+same-origin and cross-origin resources:
+
+| Configured source | Advertised resource | Relationship |
+| --- | --- | --- |
+| `https://api.nuget.org/v3/index.json` | `https://api.nuget.org/v3-flatcontainer/` | Same origin |
+| `https://api.nuget.org/v3/index.json` | `https://azuresearch-usnc.nuget.org/query` | Cross-origin |
+| `https://pkgs.dev.azure.com/org/project/_packaging/feed/nuget/v3/index.json` | `https://pkgs.dev.azure.com/org/<project-guid>/_packaging/<feed-guid>/nuget/v3/flat2/` | Same origin |
+
+NuGet.org does not normally challenge these public resources. The Azure
+Artifacts row is the positive plugin-authentication case: path aliases change,
+but the scheme, host, and effective port remain equal.
+
 Requests are plugin-eligible by default. A source client that has both the
 configured source URL and a feed-derived request target uses
 `NuGetSourceRequest.SuppressPluginAuthenticationForDifferentNetworkOrigin` to
@@ -386,7 +401,7 @@ source authority, or define package-layer compatibility routes.
 `V3CrossOriginResourcesSuppressPluginAuthentication`,
 `V3CrossOriginSearchRetryRetainsPluginSuppression`,
 `V3CrossOriginRedirectSuppressesPluginAuthentication`, and
-`V3SameOriginResourceRetainsPluginAuthentication` are the Release gates.
+`V3AzureSameOriginResourceRetainsPluginAuthentication` are the Release gates.
 
 The `-IsRetry` flag matters more than it looks. The provider's own help says that without it
 "INVALID CREDENTIALS MAY BE RETURNED. The caller is required to validate returned credentials
