@@ -46,8 +46,11 @@ inverse-core boundary. The adjacent work is tracked independently:
   member and whole-type projection of typed body results.
 - [#5292](https://github.com/richlander/dotnet-inspect/issues/5292) owns stage
   application and no-edit treatment of exact execution and support bodies.
+- [#5293](https://github.com/richlander/dotnet-inspect/issues/5293) owns the
+  declaration disposition produced from classic decisions and pre-decision
+  outcomes.
 
-All five efforts are unstacked and target `main`.
+All six efforts are unstacked and target `main`.
 
 ## Claim and non-claims
 
@@ -61,7 +64,7 @@ The core does **not** own or claim:
 - Metadata classification or state-machine relationship construction;
 - request attachment, body acquisition, or importer policy;
 - mutation of Raised or Lowered stage snapshots;
-- declaration-modifier policy or honest-decline presentation;
+- declaration-modifier policy or honest-decline presentation (#5293);
 - local-function or lambda embedding;
 - direct member, whole-type, Research, CLI, or harness projection;
 - general CFG, CLR exception-flow, or behavioral-equivalence soundness;
@@ -87,8 +90,10 @@ return await WorkAsync();
 ```
 
 That output erases `Probe()` and changes conditional execution into
-unconditional execution. A physical-region ledger alone can miss the defect:
-the store can be marked consumed while its `if` ancestor remains preserved.
+unconditional execution. A physical-region ledger over importer output alone
+can miss the defect: the store's IL region can be marked consumed while the
+control dependency that a derived view structures as `if` remains
+unclassified.
 
 The inverse core instead requires this decision:
 
@@ -158,8 +163,8 @@ A request cannot be formed from the inspected artifact when:
 
 - trimming removes the kickoff, state-machine type, or execution MethodDef;
 - a required MethodDef fails Metadata's managed-IL-body predicate because it
-  has RVA zero, is P/Invoke, uses a non-IL code type, or is runtime-implemented;
-  or
+  has RVA zero, is P/Invoke, uses a non-IL code type, is unmanaged, is
+  runtime-implemented, or is an internal call; or
 - trimming retains a relationship claim but removes role evidence, so the
   Metadata relationship is rejected.
 
@@ -401,6 +406,7 @@ where supported, and the accepted-population delta required by
 3. Add the effectful-expression and structured-ancestor negatives.
 4. Migrate each remaining accepted recipe through the same boundary, measuring
    every acceptance loss as an honesty correction.
-5. Only after every accepted recipe uses the proof boundary may callers consume
-   `Reconstruct`; the independent #5277, #5278, and #5279 owners then adopt the
-   typed result without redefining this contract.
+5. Only after every accepted recipe uses the proof boundary may downstream
+   owners consume `Reconstruct`. The independent #5277 adapter forms requests;
+   #5278, #5279, #5292, and #5293 consume typed decisions or results without
+   redefining this contract.
