@@ -236,6 +236,33 @@ public sealed class IntegrationAnalysisCatalogTests
         }
     }
 
+    [Fact]
+    public void IntegrationCatalog_RevisionMirrorsDeclarationShapeAndPolicyMapping()
+    {
+        IntegrationConceptCatalogRevision revision =
+            IntegrationConceptCatalog.Revision;
+
+        Assert.Equal(1, revision.Number);
+        Assert.Equal(
+            IntegrationConceptCatalog.Concepts.Select(concept => concept.Id),
+            revision.ConceptIds);
+        Assert.Equal(
+            IntegrationConceptCatalog.ProducerPolicies.Length,
+            revision.ProducerPolicies.Length);
+        for (int index = 0; index < revision.ProducerPolicies.Length; index++)
+        {
+            IntegrationProducerPolicyDescriptor descriptor =
+                IntegrationConceptCatalog.ProducerPolicies[index];
+            IntegrationProducerPolicyRevision policy =
+                revision.ProducerPolicies[index];
+            Assert.Equal(descriptor.Id, policy.Id);
+            Assert.Equal(descriptor.RelationshipId, policy.RelationshipId);
+            Assert.Equal(
+                descriptor.Concepts.Select(concept => concept.Id),
+                policy.ConceptIds);
+        }
+    }
+
     static void AssertPolicy(
         IntegrationProducerPolicyBinding binding,
         IEnumerable<IntegrationConceptDescriptor> expectedConcepts)
