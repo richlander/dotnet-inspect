@@ -22,6 +22,8 @@ allowances plus epoch-work inputs. It covers:
 worker epoch. It covers:
 
 - held starts and readiness-ordered dispatch;
+- readiness flush excluding a later warm activation until every held start is
+  posted;
 - cancellation before dispatch;
 - explicit acceptance or rejection;
 - progress/settlement ordering through one atomic physical `Settled` record;
@@ -44,7 +46,8 @@ operations. It covers:
 - bounded and unbounded silence;
 - task-loop evidence distinguished from progress and managed-callback activity;
 - the two-stage post-readiness probe;
-- planned restart versus unexpected loss;
+- immediate startup rejection, planned restart, worker-declared failure, and
+  other unexpected loss;
 - bounded draining, natural release, hard realm destruction, and quiescence;
   and
 - source and callback revocation after release.
@@ -78,6 +81,9 @@ The protocol model assumes:
 - operation A has sequence one and operation B has sequence two;
 - page operation authority supplies non-reused IDs and increasing safe-integer
   sequences;
+- matching readiness enters an internal flush phase in which held starts are
+  posted in sequence order before the epoch becomes available to warm
+  activation or cancellation;
 - one `Settled` message carries both the managed terminal result and proof that
   the operation-scoped managed release barrier has completed;
 - `Start`, `Cancel`, and `Probe` use one serialized command lane; operation A
@@ -86,9 +92,9 @@ The protocol model assumes:
 - a handler can complete without its required response, after which a later
   matching probe acknowledgment supplies positive evidence of the omission;
 - cancellation acknowledgment commits only after the earlier Start response;
-  `queued` requires an accepted record and constrains ordinary settlement to
-  canceled;
 - cancellation and settlement may race in either order;
+- `AckNotActive` on an accepted wire record abstracts the managed bridge's
+  settling state before physical `Settled`; and
 - `MaxWorkSequence = 2` is a state-space bound, not a product limit; and
 - weak fairness applies only to realm destruction after draining.
 
@@ -113,8 +119,11 @@ The lifecycle model assumes:
   grant one fresh interval while preserving an outstanding probe;
 - an operation or work lease can release naturally during draining;
 - worker crash has already destroyed the realm;
+- bootstrap rejection is a distinct startup cause that destroys and releases
+  the partial realm immediately;
 - worker-declared epoch failure refines the same unexpected-closure transition
-  as other live-realm failures; and
+  as other post-readiness live-realm failures while retaining its distinct
+  cause; and
 - weak fairness covers lifecycle and main-loop resume, startup ticking and
   expiry, both silence-expiry stages, drain ticking, and realm destruction.
 
@@ -166,7 +175,8 @@ among several distinct bounded durations.
 | An operation settles at most once | `OneSettlementPerOperation` |
 | A canceled record retains its pending acknowledgment before retirement | `RetirementRequiresClosureAndAcknowledgment` |
 | Cancellation acknowledgment follows committed admission | `CancellationAcknowledgmentRequiresCommittedAdmission` |
-| Queued cancellation settles as canceled while the realm remains live | `QueuedCancellationRequiresCanceledSettlement` |
+| A warm activation cannot strand an older held start | `HeldStartsRemainDispatchable` |
+| Startup failure cannot overwrite a completed held cancellation | `CanceledHeldKeepsCanceledOutcome` |
 | A sequence at or below high-water cannot reenter admission | `ReplayNeverReentersAdmission` |
 | Probe proof of a missing response fails the epoch | `MissingResponseProofFailsEpoch` |
 | Missing-response proof requires a completed omission | `MissingResponseProofRequiresCompletedOmission` |
@@ -193,7 +203,9 @@ among several distinct bounded durations.
 | A main-loop gap cannot fail the worker watchdog | `MainLoopGapCannotFailWatchdog` |
 | Planned restart cancels pending work | `PlannedRestartCancelsPendingOperations` |
 | Unexpected loss fails pending work | `UnexpectedLossFailsPendingOperations` |
-| Worker-declared failure uses unexpected closure | `WorkerDeclaredEpochFailure`, `ClosureCauseDeterminesOutcome` |
+| Startup failure closes and releases the partial realm immediately | `StartupFailureClosesImmediately` |
+| Failed draining begins only after matching readiness | `FailedDrainingRequiresReadiness` |
+| Worker-declared failure records an unexpected cause and fails pending work | `ClosureCauseDeterminesOutcome` |
 | One fixed closure cause determines every affected outcome | `ClosureCauseDeterminesOutcome` |
 | Quiescence follows natural or realm release | `QuiescenceRequiresPhysicalRelease` |
 | Realm destruction revokes the source and leaves no live records | `RealmReleaseRevokesSource`, `ClosedEpochHasNoLiveResources` |
@@ -270,9 +282,9 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 | Configuration | Bounds | Generated | Distinct | Depth | Result |
 | --- | --- | ---: | ---: | ---: | --- |
 | `InspectWebWorkerValidation.cfg` | 2 operations, 2 allowance classes, `MaxWorkSequence = 2` | 622 | 351 | 11 | No error |
-| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 234,201 | 73,962 | 20 | No error |
-| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 137,903 | 28,872 | 19 | No error |
-| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 3,881 | 1,424 | 14 | No error |
+| `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 209,761 | 65,283 | 21 | No error |
+| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 172,553 | 39,564 | 19 | No error |
+| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 4,965 | 1,964 | 14 | No error |
 | `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 827 | 316 | 10 | No error |
 
 ## Mutation results
@@ -287,12 +299,14 @@ violation.
 | `InspectWebWorkerProtocolDispatchBeforeReady.cfg` | Posts a held start during startup | `NoDispatchBeforeReady` |
 | `InspectWebWorkerProtocolDispatchCanceledHeld.cfg` | Posts a locally canceled held start | `CanceledHeldNeverDispatches` |
 | `InspectWebWorkerProtocolAcceptMismatchedReady.cfg` | Opens on mismatched readiness | `MatchingReadyRequired` |
+| `InspectWebWorkerProtocolMismatchedReadyDrains.cfg` | Mismatched readiness enters draining instead of closing the partial realm | `MatchingReadyRequired` |
+| `InspectWebWorkerProtocolOverwriteCanceledHeldOnStartupFailure.cfg` | Startup failure overwrites an already completed held cancellation | `CanceledHeldKeepsCanceledOutcome` |
 | `InspectWebWorkerProtocolReplayAccepted.cfg` | Re-admits a sequence at high-water | `ReplayNeverReentersAdmission` |
 | `InspectWebWorkerProtocolSettleBeforeAccepted.cfg` | Settles before acceptance | `SettlementRequiresAcceptance` |
 | `InspectWebWorkerProtocolDuplicateSettlement.cfg` | Emits a second settlement | `OneSettlementPerOperation` |
 | `InspectWebWorkerProtocolRetireBeforeAck.cfg` | Drops a canceled record before acknowledgment | `RetirementRequiresClosureAndAcknowledgment` |
 | `InspectWebWorkerProtocolCancelAckBeforeAdmission.cfg` | A cancellation acknowledgment overtakes the Start response | `CancellationAcknowledgmentRequiresCommittedAdmission` |
-| `InspectWebWorkerProtocolQueuedAckAllowsNonCanceled.cfg` | Queued cancellation settles successfully | `QueuedCancellationRequiresCanceledSettlement` |
+| `InspectWebWorkerProtocolWarmActivationBeforeHeldFlush.cfg` | A warm activation advances high-water before an older held start flushes | `HeldStartsRemainDispatchable` |
 | `InspectWebWorkerProtocolIgnoreMissingResponse.cfg` | Ignores probe proof of a missing response | `MissingResponseProofFailsEpoch` |
 | `InspectWebWorkerProtocolProbeOvertakesControl.cfg` | A probe overtakes unfinished cancellation for an accepted operation | `MissingResponseProofRequiresCompletedOmission` |
 | `InspectWebWorkerProtocolFutureCancelNotActive.cfg` | Acknowledges a never-received future sequence | `NotActiveRequiresReceivedSequence` |
@@ -316,6 +330,8 @@ violation.
 | `InspectWebWorkerLifecycleAcceptDuringDrain.cfg` | Draining accepts another operation | `DrainingRefusesAssignments` |
 | `InspectWebWorkerLifecyclePlannedAsFailure.cfg` | Planned restart reports failure | `PlannedRestartCancelsPendingOperations` |
 | `InspectWebWorkerLifecycleUnexpectedAsCancellation.cfg` | Unexpected loss reports cancellation | `UnexpectedLossFailsPendingOperations` |
+| `InspectWebWorkerLifecycleBootstrapFailureDrains.cfg` | Bootstrap rejection waits in draining instead of releasing the partial realm | `StartupFailureClosesImmediately` |
+| `InspectWebWorkerLifecycleWorkerDeclaredAsCancellation.cfg` | Worker-declared failure reports cancellation | `ClosureCauseDeterminesOutcome` |
 | `InspectWebWorkerLifecycleQuiesceBeforeRelease.cfg` | Quiescence precedes physical release | `QuiescenceRequiresPhysicalRelease` |
 | `InspectWebWorkerLifecycleCallbackAfterRelease.cfg` | Callback survives realm release | `NoCallbackAfterRealmRelease` |
 | `InspectWebWorkerLifecycleDrainNeverCloses.cfg` | Failed draining cannot destroy the realm | `DrainingEventuallyCloses` |

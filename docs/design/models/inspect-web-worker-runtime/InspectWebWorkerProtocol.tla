@@ -25,10 +25,11 @@ Operations == {OperationA, OperationB}
 OperationSequence(o) == IF o = OperationA THEN 1 ELSE 2
 
 Starting == "Starting"
+Flushing == "Flushing"
 Ready == "Ready"
 Draining == "Draining"
 Closed == "Closed"
-EpochStates == {Starting, Ready, Draining, Closed}
+EpochStates == {Starting, Flushing, Ready, Draining, Closed}
 
 NoRecord == "NoRecord"
 Held == "Held"
@@ -55,17 +56,17 @@ CanceledOutcome == "CanceledOutcome"
 Outcomes == {NoOutcome, SucceededOutcome, FailedOutcome, CanceledOutcome}
 
 NoAck == "NoAck"
-AckQueued == "AckQueued"
 AckRunning == "AckRunning"
 AckNotActive == "AckNotActive"
 AckOmitted == "AckOmitted"
-CancelAcks == {NoAck, AckQueued, AckRunning, AckNotActive, AckOmitted}
-CommittedCancelAcks == {AckQueued, AckRunning, AckNotActive}
+CancelAcks == {NoAck, AckRunning, AckNotActive, AckOmitted}
+CommittedCancelAcks == {AckRunning, AckNotActive}
 
 NoMutation == "None"
 DispatchBeforeReady == "DispatchBeforeReady"
 DispatchCanceledHeld == "DispatchCanceledHeld"
 AcceptMismatchedReady == "AcceptMismatchedReady"
+MismatchedReadyDrains == "MismatchedReadyDrains"
 ReplayAccepted == "ReplayAccepted"
 SettleBeforeAccepted == "SettleBeforeAccepted"
 DuplicateSettlement == "DuplicateSettlement"
@@ -79,12 +80,15 @@ AcceptDuringDrain == "AcceptDuringDrain"
 StaleEpochMutation == "StaleEpochMutation"
 CallbackAfterClose == "CallbackAfterClose"
 CancelAckBeforeAdmission == "CancelAckBeforeAdmission"
-QueuedAckAllowsNonCanceled == "QueuedAckAllowsNonCanceled"
+WarmActivationBeforeHeldFlush == "WarmActivationBeforeHeldFlush"
+OverwriteCanceledHeldOnStartupFailure ==
+    "OverwriteCanceledHeldOnStartupFailure"
 Mutations ==
     {NoMutation,
      DispatchBeforeReady,
      DispatchCanceledHeld,
      AcceptMismatchedReady,
+     MismatchedReadyDrains,
      ReplayAccepted,
      SettleBeforeAccepted,
      DuplicateSettlement,
@@ -98,7 +102,8 @@ Mutations ==
      StaleEpochMutation,
      CallbackAfterClose,
      CancelAckBeforeAdmission,
-     QueuedAckAllowsNonCanceled}
+     WarmActivationBeforeHeldFlush,
+     OverwriteCanceledHeldOnStartupFailure}
 
 ASSUME
     /\ Cardinality(Operations) = 2
@@ -291,6 +296,7 @@ WorkerOmitsStartResponse(o) ==
     /\ UnchangedProtocolFlags
 
 CancelHeld(o) ==
+    /\ epochState = Starting
     /\ recordPhase[o] = Held
     /\ recordPhase' = [recordPhase EXCEPT ![o] = Retired]
     /\ canceledHeld' = canceledHeld \cup {o}
@@ -342,7 +348,7 @@ WorkerOmitsCancelAck(o) ==
 ReceiveReady ==
     /\ epochState = Starting
     /\ ~sourceRevoked
-    /\ epochState' = Ready
+    /\ epochState' = Flushing
     /\ readyMatched' = TRUE
     /\ UNCHANGED
         <<recordPhase,
@@ -411,25 +417,46 @@ ProbeOvertakesControlMutation ==
 ReceiveMismatchedReady ==
     /\ epochState = Starting
     /\ ~sourceRevoked
-    /\ IF Mutation = AcceptMismatchedReady
+    /\ IF Mutation \in {AcceptMismatchedReady, MismatchedReadyDrains}
        THEN
-           /\ epochState' = Ready
+           /\ epochState' =
+               IF Mutation = AcceptMismatchedReady THEN Ready ELSE Draining
            /\ readyMatched' = FALSE
-           /\ UNCHANGED <<protocolFailure, sourceRevoked>>
+           /\ protocolFailure' = (Mutation = MismatchedReadyDrains)
+           /\ UNCHANGED
+               <<recordPhase,
+                 outcome,
+                 quiesced,
+                 sourceRevoked>>
        ELSE
-           /\ epochState' = Draining
+           /\ epochState' = Closed
            /\ readyMatched' = FALSE
-           /\ protocolFailure' = TRUE
-           /\ UNCHANGED sourceRevoked
+           /\ recordPhase' =
+               [o \in Operations |->
+                   IF recordPhase[o] = NoRecord
+                   THEN NoRecord
+                   ELSE Retired]
+           /\ outcome' =
+               [o \in Operations |->
+                   IF Mutation = OverwriteCanceledHeldOnStartupFailure
+                      /\ recordPhase[o] # NoRecord
+                   THEN FailedOutcome
+                   ELSE
+                       IF outcome[o] = NoOutcome
+                          /\ recordPhase[o] # NoRecord
+                       THEN FailedOutcome
+                       ELSE outcome[o]]
+           /\ quiesced' =
+               quiesced \cup
+                   {o \in Operations: recordPhase[o] # NoRecord}
+           /\ protocolFailure' = FALSE
+           /\ sourceRevoked' = TRUE
     /\ UNCHANGED
-        <<recordPhase,
-          acceptedEver,
+        <<acceptedEver,
           rejectedEver,
           dispatched,
           canceledHeld,
           operationHighWater,
-          outcome,
-          quiesced,
           cancelSent,
           cancelAck,
           settlementCount,
@@ -445,7 +472,7 @@ HeldInSequenceOrder(o) ==
 DispatchHeld(o) ==
     /\ recordPhase[o] = Held
     /\ HeldInSequenceOrder(o)
-    /\ IF epochState = Ready
+    /\ IF epochState = Flushing
        THEN
            /\ dispatchBeforeReadyObserved' = dispatchBeforeReadyObserved
        ELSE
@@ -483,6 +510,32 @@ DispatchHeld(o) ==
           staleEpochChangedState,
           callbackAfterCloseObserved>>
     /\ UnchangedWork
+
+FinishReadyFlush ==
+    /\ epochState = Flushing
+    /\ IF Mutation = WarmActivationBeforeHeldFlush
+       THEN TRUE
+       ELSE \A o \in Operations: recordPhase[o] # Held
+    /\ epochState' = Ready
+    /\ UNCHANGED
+        <<readyMatched,
+          recordPhase,
+          acceptedEver,
+          rejectedEver,
+          dispatched,
+          canceledHeld,
+          operationHighWater,
+          outcome,
+          quiesced,
+          cancelSent,
+          cancelAck,
+          settlementCount,
+          responseProbeOutstanding,
+          missingResponseProven,
+          protocolFailure,
+          sourceRevoked>>
+    /\ UnchangedWork
+    /\ UnchangedProtocolFlags
 
 DispatchCanceledHeldMutation(o) ==
     /\ Mutation = DispatchCanceledHeld
@@ -524,6 +577,36 @@ DispatchCanceledHeldMutation(o) ==
 ActivateReady(o) ==
     /\ epochState = Ready
     /\ recordPhase[o] = NoRecord
+    /\ \A p \in Operations: recordPhase[p] # Held
+    /\ OperationSequence(o) > operationHighWater
+    /\ recordPhase' = [recordPhase EXCEPT ![o] = AwaitingAdmission]
+    /\ dispatched' = dispatched \cup {o}
+    /\ operationHighWater' = OperationSequence(o)
+    /\ UNCHANGED
+        <<epochState,
+          readyMatched,
+          acceptedEver,
+          rejectedEver,
+          canceledHeld,
+          outcome,
+          quiesced,
+          cancelSent,
+          cancelAck,
+          settlementCount,
+          responseProbeOutstanding,
+          missingResponseProven,
+          protocolFailure,
+          sourceRevoked>>
+    /\ UnchangedWork
+    /\ UnchangedProtocolFlags
+
+WarmActivationBeforeHeldFlushMutation(o) ==
+    /\ Mutation = WarmActivationBeforeHeldFlush
+    /\ epochState = Ready
+    /\ recordPhase[o] = NoRecord
+    /\ \E p \in Operations:
+           /\ recordPhase[p] = Held
+           /\ OperationSequence(p) < OperationSequence(o)
     /\ OperationSequence(o) > operationHighWater
     /\ recordPhase' = [recordPhase EXCEPT ![o] = AwaitingAdmission]
     /\ dispatched' = dispatched \cup {o}
@@ -633,6 +716,7 @@ WorkerReject(o) ==
     /\ UnchangedProtocolFlags
 
 SendCancel(o) ==
+    /\ epochState = Ready
     /\ recordPhase[o] \in {AwaitingAdmission, Accepted}
     /\ o \notin cancelSent
     /\ o # OperationA \/ ~responseProbeOutstanding
@@ -663,10 +747,10 @@ WorkerCancelAck(o, ack) ==
     /\ o \in cancelSent
     /\ cancelAck[o] = NoAck
     /\ ack \in CommittedCancelAcks
-    /\ CASE ack \in {AckQueued, AckRunning} ->
+    /\ CASE ack = AckRunning ->
                 recordPhase[o] = Accepted
             [] ack = AckNotActive ->
-                recordPhase[o] \in {Rejected, Settled}
+                recordPhase[o] \in {Accepted, Rejected, Settled}
     /\ cancelAck' = [cancelAck EXCEPT ![o] = ack]
     /\ UNCHANGED
         <<epochState,
@@ -693,7 +777,6 @@ WorkerSettle(o, result) ==
     /\ ~sourceRevoked
     /\ recordPhase[o] = Accepted
     /\ result \in {SucceededOutcome, FailedOutcome, CanceledOutcome}
-    /\ cancelAck[o] = AckQueued => result = CanceledOutcome
     /\ recordPhase' = [recordPhase EXCEPT ![o] = Settled]
     /\ outcome' = [outcome EXCEPT ![o] = result]
     /\ quiesced' = quiesced \cup {o}
@@ -722,7 +805,7 @@ CancelAckBeforeAdmissionMutation(o) ==
     /\ recordPhase[o] = AwaitingAdmission
     /\ o \in cancelSent
     /\ cancelAck[o] = NoAck
-    /\ cancelAck' = [cancelAck EXCEPT ![o] = AckQueued]
+    /\ cancelAck' = [cancelAck EXCEPT ![o] = AckRunning]
     /\ UNCHANGED
         <<epochState,
           readyMatched,
@@ -736,33 +819,6 @@ CancelAckBeforeAdmissionMutation(o) ==
           quiesced,
           cancelSent,
           settlementCount,
-          responseProbeOutstanding,
-          missingResponseProven,
-          protocolFailure,
-          sourceRevoked>>
-    /\ UnchangedWork
-    /\ UnchangedProtocolFlags
-
-QueuedAckAllowsNonCanceledMutation(o) ==
-    /\ Mutation = QueuedAckAllowsNonCanceled
-    /\ epochState = Ready
-    /\ ~sourceRevoked
-    /\ recordPhase[o] = Accepted
-    /\ cancelAck[o] = AckQueued
-    /\ recordPhase' = [recordPhase EXCEPT ![o] = Settled]
-    /\ outcome' = [outcome EXCEPT ![o] = SucceededOutcome]
-    /\ quiesced' = quiesced \cup {o}
-    /\ settlementCount' = [settlementCount EXCEPT ![o] = @ + 1]
-    /\ UNCHANGED
-        <<epochState,
-          readyMatched,
-          acceptedEver,
-          rejectedEver,
-          dispatched,
-          canceledHeld,
-          operationHighWater,
-          cancelSent,
-          cancelAck,
           responseProbeOutstanding,
           missingResponseProven,
           protocolFailure,
@@ -1328,22 +1384,23 @@ Next ==
     \/ ReceiveReady
     \/ ReceiveMismatchedReady
     \/ \E o \in Operations: DispatchHeld(o)
+    \/ FinishReadyFlush
     \/ \E o \in Operations: DispatchCanceledHeldMutation(o)
     \/ \E o \in Operations: ActivateReady(o)
+    \/ \E o \in Operations: WarmActivationBeforeHeldFlushMutation(o)
     \/ \E o \in Operations: AcceptDuringDrainMutation(o)
     \/ \E o \in Operations: WorkerAccept(o)
     \/ \E o \in Operations: WorkerReject(o)
     \/ \E o \in Operations: WorkerOmitsStartResponse(o)
     \/ \E o \in Operations: SendCancel(o)
     \/ \E o \in Operations:
-           \E ack \in {AckQueued, AckRunning, AckNotActive}:
+           \E ack \in {AckRunning, AckNotActive}:
                WorkerCancelAck(o, ack)
     \/ \E o \in Operations: CancelAckBeforeAdmissionMutation(o)
     \/ \E o \in Operations: WorkerOmitsCancelAck(o)
     \/ \E o \in Operations:
            \E result \in {SucceededOutcome, FailedOutcome, CanceledOutcome}:
                WorkerSettle(o, result)
-    \/ \E o \in Operations: QueuedAckAllowsNonCanceledMutation(o)
     \/ \E o \in Operations: SettleBeforeAcceptedMutation(o)
     \/ \E o \in Operations: DuplicateSettlementMutation(o)
     \/ \E o \in Operations: Retire(o)
@@ -1404,7 +1461,7 @@ TypeOK ==
     /\ callbackAfterCloseObserved \in BOOLEAN
 
 MatchingReadyRequired ==
-    epochState = Ready => readyMatched
+    epochState \in {Ready, Draining} => readyMatched
 
 NoDispatchBeforeReady ==
     ~dispatchBeforeReadyObserved
@@ -1447,13 +1504,6 @@ CancellationAcknowledgmentRequiresCommittedAdmission ==
             \notin {NoRecord, Held, AwaitingAdmission,
                     AdmissionResponseOmitted}
 
-QueuedCancellationRequiresCanceledSettlement ==
-    \A o \in Operations:
-        cancelAck[o] = AckQueued
-          /\ outcome[o] # NoOutcome
-          /\ ~sourceRevoked
-        => outcome[o] = CanceledOutcome
-
 ReplayNeverReentersAdmission ==
     ~replayAcceptedObserved
 
@@ -1467,7 +1517,17 @@ ProbeCannotOvertakeControl ==
     ~probeOvertakeObserved
 
 NotActiveRequiresReceivedSequence ==
-    ~futureNotActiveObserved
+    \A o \in Operations:
+        cancelAck[o] = AckNotActive /\ ~sourceRevoked
+        => OperationSequence(o) <= operationHighWater
+
+HeldStartsRemainDispatchable ==
+    \A o \in Operations:
+        recordPhase[o] = Held
+        => OperationSequence(o) > operationHighWater
+
+CanceledHeldKeepsCanceledOutcome ==
+    \A o \in canceledHeld: outcome[o] = CanceledOutcome
 
 WorkSequenceNeverReused ==
     activeWork \cap finishedWork = {}

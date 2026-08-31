@@ -58,9 +58,10 @@ the remaining held starts; startup failure fails and quiesces them.
 ### Cooperative cancellation and hard recovery
 
 Once a start has been posted, cancellation is a protocol request addressed by
-the operation identity. It can prevent queued managed invocation or signal the
-managed active-operation table. It cannot interrupt synchronous managed CPU
-work before the worker event loop processes the request.
+the operation identity. It signals the managed active-operation table after
+the serialized Start command has entered the managed bridge. It cannot
+interrupt synchronous managed CPU work before the worker event loop processes
+the request.
 
 An explicit planned restart or a justified epoch failure can destroy the
 entire worker. That is hard cancellation: all in-flight managed work and
@@ -236,9 +237,8 @@ epoch, and configured idle-heartbeat interval. A mismatch is startup failure,
 not a partially compatible realm.
 
 Worker creation starts one non-renewable active-time startup budget. Only a
-matching `Ready` succeeds. Startup diagnostics, heartbeats, or probe
-acknowledgments can demonstrate a responsive JavaScript realm but cannot
-renew, reset, or satisfy that budget. Lifecycle suspension and a detected
+matching `Ready` succeeds. Heartbeats or probe acknowledgments can demonstrate a responsive JavaScript
+realm but cannot renew, reset, or satisfy that budget. Lifecycle suspension and a detected
 main-loop discontinuity pause active elapsed time; they preserve the remaining
 budget rather than grant a fresh one.
 
@@ -272,9 +272,9 @@ failure. Both paths report quiescence and do not throw.
 Held records are ordered by operation sequence. A held cancellation removes
 the record without sending `Start` or `Cancel`, reports the supplied canceled
 outcome, and reports quiescence. Matching readiness posts every remaining held
-start in sequence order. A held record never becomes an accepted worker
-record merely because the realm became ready; it remains awaiting the worker's
-explicit `Accepted` response.
+start in sequence order before the ready epoch accepts a new warm activation.
+A held record never becomes an accepted worker record merely because the realm
+became ready; it remains awaiting the worker's explicit `Accepted` response.
 
 Admission stops synchronously when an epoch enters draining. Preparation then
 rejects new work, while already prepared bindings either abandon or activate
@@ -307,9 +307,10 @@ The worker-to-main inventory is:
 
 ```text
 Ready(idleHeartbeatInterval)
+StartupFailed(diagnostic)
 Accepted(operation, allowance)
 Rejected(operation, error, diagnostic)
-CancelAcknowledged(operation, queued | running | not-active)
+CancelAcknowledged(operation, running | not-active)
 Progress(operation, payload)
 Settled(operation,
   Succeeded(result)
@@ -358,9 +359,10 @@ epoch. Historical operation-ID uniqueness remains an operation-authority
 precondition; the runtime does not retain every completed opaque ID to
 re-prove it.
 
-A valid start installs a queued record and sends `Accepted` before invoking
-managed code. `Accepted` means worker queue admission. It does not mean the
-managed body started. The worker checks that the operation kind's registered
+A valid start installs its protocol record and sends `Accepted` before invoking
+managed code. `Accepted` means the operation passed worker admission. The same
+serialized Start command then synchronously enters the managed bridge before a
+later command can run. The worker checks that the operation kind's registered
 allowance exactly matches the advertised allowance. The main host performs the
 same comparison against its feature adapter. A mismatch fails the epoch and
 uses the registered allowance while draining; it never silently narrows the
@@ -402,22 +404,20 @@ operation would prevent cancellation and starts for every other operation.
 
 The worker responds:
 
-- `queued` after removing a queued record before managed invocation, then sends
-  `Settled(Canceled(reason))`;
 - `running` after the managed keyed-cancellation export returns an active
   result; or
-- `not-active` when the operation is absent at the cancellation
-  linearization point.
+- `not-active` when the managed bridge reports no cancellable active entry at
+  the cancellation linearization point, including an entry whose settlement
+  has already begun.
 
 `not-active` is legal only for a sequence no greater than the worker's received
-high-water mark. It never proves cancellation. The main host accepts it only
-with the operation's `Rejected` or `Settled` closure.
+high-water mark. It never proves cancellation or physical closure. It may
+arrive while the wire record is still accepted when managed settlement has
+sealed cancellation but has not yet crossed the release barrier. The main host
+retains the record until its `Rejected` or `Settled` closure also arrives.
 
 No cancellation acknowledgment can commit while the operation is still
-awaiting its `Accepted` or `Rejected` response. While the realm remains live,
-`queued` constrains that operation's later `Settled` outcome to the same
-cancellation reason; ordinary success or failure after `queued` is a protocol
-violation.
+awaiting its `Accepted` or `Rejected` response.
 
 The main protocol record is released when:
 
@@ -595,6 +595,13 @@ failure kind `worker-declared` and begins bounded draining. It is neither a
 feature outcome nor task-loop liveness evidence, and later operation or work
 messages cannot replace the committed closure.
 
+A valid current-epoch `StartupFailed(diagnostic)` is legal only before
+matching readiness. It commits unexpected closure with failure kind `startup`,
+revokes the partial realm, terminates it immediately, and closes every
+activated held producer with that boundary failure. It is distinct from
+post-readiness `EpochFailed`, which permits bounded draining of admitted
+managed work and epoch-work leases.
+
 Entering draining atomically refuses new assignments and fixes that cause.
 Every still-pending assigned producer receives one physical closure:
 
@@ -706,9 +713,10 @@ feature implementation behavior.
   wrong-epoch negatives;
 - non-reused epoch identity bound to the exact worker source;
 - preparation, abandonment, activation, held starts, sequence-order readiness
-  flush, held cancellation, startup-failure closure, and activation after a
-  committed close preserving planned-restart cancellation versus unexpected
-  boundary failure without posting `Start`;
+  flush without warm-start overtaking, held cancellation,
+  `StartupFailed`-driven startup closure, and activation after a committed
+  close preserving planned-restart cancellation versus unexpected boundary
+  failure without posting `Start`;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, active duplicate IDs, and visible sequence
   exhaustion;
@@ -717,8 +725,7 @@ feature implementation behavior.
 - atomic `Settled` mapping to diagnostic, terminal, and quiescence call order;
 - managed Promise rejection entering epoch failure rather than becoming a
   feature result;
-- queued and running cancellation, queued cancellation preserving its requested
-  reason through settlement, `not-active` race validation, one acknowledgment,
+- running cancellation, `not-active` race validation, one acknowledgment,
   closure-before-record-release, and compact post-settlement acknowledgment
   retention;
 - unanswered start and cancellation requests where matching probe
@@ -773,8 +780,9 @@ feature implementation behavior.
 - hide, freeze, back-forward-cache, resume, overdue watchdog-task, and long
   main-thread-task scenarios;
 - valid liveness, matching probe acknowledgment, malformed message, worker
-  `error`, worker `messageerror`, bootstrap rejection, protocol failure, and
-  worker-declared failure, and watchdog loss;
+  `error`, worker `messageerror`, bootstrap rejection sending
+  `StartupFailed` and immediately releasing the partial realm, protocol
+  failure, worker-declared failure, and watchdog loss;
 - planned restart cancellation versus unexpected boundary failure;
 - preparation followed by epoch closure before activation, preserving planned
   versus unexpected classification;

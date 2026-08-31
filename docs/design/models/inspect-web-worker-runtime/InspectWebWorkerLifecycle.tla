@@ -39,7 +39,11 @@ EpochStates == {Starting, Ready, Suspect, Draining, Closed}
 NoCause == "NoCause"
 PlannedCause == "PlannedCause"
 UnexpectedCause == "UnexpectedCause"
-ClosureCauses == {NoCause, PlannedCause, UnexpectedCause}
+StartupFailureCause == "StartupFailureCause"
+WorkerDeclaredCause == "WorkerDeclaredCause"
+UnexpectedCauses ==
+    {UnexpectedCause, StartupFailureCause, WorkerDeclaredCause}
+ClosureCauses == {NoCause, PlannedCause} \cup UnexpectedCauses
 
 NoOutcome == "NoOutcome"
 SucceededOutcome == "SucceededOutcome"
@@ -69,6 +73,8 @@ DrainNeverCloses == "DrainNeverCloses"
 NonTaskMessageRenews == "NonTaskMessageRenews"
 BoundedSilenceRun == "BoundedSilenceRun"
 AllowanceChurnRenews == "AllowanceChurnRenews"
+BootstrapFailureDrains == "BootstrapFailureDrains"
+WorkerDeclaredAsCancellation == "WorkerDeclaredAsCancellation"
 Mutations ==
     {NoMutation,
      RenewStartupFromMessage,
@@ -86,7 +92,9 @@ Mutations ==
      DrainNeverCloses,
      NonTaskMessageRenews,
      BoundedSilenceRun,
-     AllowanceChurnRenews}
+     AllowanceChurnRenews,
+     BootstrapFailureDrains,
+     WorkerDeclaredAsCancellation}
 
 BoundedSilenceScenario ==
     Mutation \in {BoundedSilenceRun, AllowanceChurnRenews}
@@ -460,27 +468,53 @@ ReceiveReady ==
           assignedAtClosure>>
     /\ UnchangedMutationFlags
 
-ReceiveMismatchedReady ==
+ClosePartialRealm ==
     /\ epochState = Starting
-    /\ IF Mutation = AcceptMismatchedReady
-       THEN
-           /\ epochState' = Ready
-           /\ readyMatched' = FALSE
-           /\ mismatchedReadyAccepted' = TRUE
-           /\ UNCHANGED <<closureCause, assignedAtClosure, outcome>>
-       ELSE
-           /\ epochState' = Draining
-           /\ readyMatched' = FALSE
-           /\ closureCause' = UnexpectedCause
-           /\ assignedAtClosure' = assigned \ released
-           /\ outcome' =
-               [o \in Operations |->
-                   IF o \in assigned THEN FailedOutcome ELSE outcome[o]]
-           /\ mismatchedReadyAccepted' = FALSE
-    /\ drainRemaining' = MaxDrainBudget
+    /\ epochState' = Closed
+    /\ closureCause' = StartupFailureCause
+    /\ assignedAtClosure' = assigned \ released
+    /\ outcome' =
+        [o \in Operations |->
+            IF o \in assigned \ released
+            THEN FailedOutcome
+            ELSE outcome[o]]
+    /\ released' = released \cup (assigned \ released)
+    /\ quiesced' = quiesced \cup (assigned \ released)
+    /\ accepted' = {}
+    /\ workState' = NoWork
+    /\ realmDestroyed' = TRUE
+    /\ sourceRevoked' = TRUE
     /\ probeOutstanding' = FALSE
     /\ UNCHANGED
         <<startupRemaining,
+          startupRenewed,
+          readyMatched,
+          lifecycleActive,
+          suspensionBudget,
+          mainLoopContinuous,
+          gapBudget,
+          assigned,
+          silenceRemaining,
+          probeWasSent,
+          firstExpiryObserved,
+          drainRemaining>>
+    /\ UnchangedMutationFlags
+
+ReceiveMismatchedReady ==
+    /\ Mutation # AcceptMismatchedReady
+    /\ ClosePartialRealm
+
+AcceptMismatchedReadyMutation ==
+    /\ Mutation = AcceptMismatchedReady
+    /\ epochState = Starting
+    /\ epochState' = Ready
+    /\ readyMatched' = FALSE
+    /\ mismatchedReadyAccepted' = TRUE
+    /\ drainRemaining' = MaxDrainBudget
+    /\ probeOutstanding' = FALSE
+    /\ UNCHANGED
+        <<closureCause,
+          startupRemaining,
           startupRenewed,
           lifecycleActive,
           suspensionBudget,
@@ -489,6 +523,7 @@ ReceiveMismatchedReady ==
           assigned,
           accepted,
           released,
+          outcome,
           quiesced,
           workState,
           silenceRemaining,
@@ -496,6 +531,7 @@ ReceiveMismatchedReady ==
           firstExpiryObserved,
           realmDestroyed,
           sourceRevoked,
+          assignedAtClosure,
           startDuringDrain,
           probeSatisfiedStartup,
           watchdogWithoutProbe,
@@ -508,14 +544,24 @@ ReceiveMismatchedReady ==
           nonTaskMessageRenewed>>
 
 StartupExpires ==
-    /\ epochState = Starting
     /\ startupRemaining = 0
+    /\ ClosePartialRealm
+
+ReceiveBootstrapFailure ==
+    /\ Mutation # BootstrapFailureDrains
+    /\ ClosePartialRealm
+
+BootstrapFailureDrainsMutation ==
+    /\ Mutation = BootstrapFailureDrains
+    /\ epochState = Starting
     /\ epochState' = Draining
-    /\ closureCause' = UnexpectedCause
+    /\ closureCause' = StartupFailureCause
     /\ assignedAtClosure' = assigned \ released
     /\ outcome' =
         [o \in Operations |->
-            IF o \in assigned THEN FailedOutcome ELSE outcome[o]]
+            IF o \in assigned \ released
+            THEN FailedOutcome
+            ELSE outcome[o]]
     /\ drainRemaining' = MaxDrainBudget
     /\ probeOutstanding' = FALSE
     /\ UNCHANGED
@@ -1136,7 +1182,8 @@ SettleOperation(o) ==
 
 EnterClosure(cause) ==
     /\ epochState \in {Starting, Ready, Suspect}
-    /\ cause \in {PlannedCause, UnexpectedCause}
+    /\ cause \in {PlannedCause} \cup UnexpectedCauses
+    /\ cause \in UnexpectedCauses => epochState \in {Ready, Suspect}
     /\ epochState' = Draining
     /\ closureCause' = cause
     /\ assignedAtClosure' = assigned \ released
@@ -1151,6 +1198,8 @@ EnterClosure(cause) ==
                     ELSE CanceledOutcome
                 ELSE
                     IF Mutation = UnexpectedAsCancellation
+                        \/ /\ Mutation = WorkerDeclaredAsCancellation
+                           /\ cause = WorkerDeclaredCause
                     THEN CanceledOutcome
                     ELSE FailedOutcome
             ELSE outcome[o]]
@@ -1219,7 +1268,8 @@ ReleaseDuringDrain(o) ==
     /\ UnchangedMutationFlags
 
 WorkerDeclaredEpochFailure ==
-    EnterClosure(UnexpectedCause)
+    /\ epochState \in {Ready, Suspect}
+    /\ EnterClosure(WorkerDeclaredCause)
 
 QuiesceBeforeReleaseMutation(o) ==
     /\ Mutation = QuiesceBeforeRelease
@@ -1407,7 +1457,10 @@ Next ==
     \/ StartupProbeAcknowledged
     \/ ReceiveReady
     \/ ReceiveMismatchedReady
+    \/ AcceptMismatchedReadyMutation
     \/ StartupExpires
+    \/ ReceiveBootstrapFailure
+    \/ BootstrapFailureDrainsMutation
     \/ SuspendLifecycle
     \/ ResumeLifecycle
     \/ DetectMainLoopGap
@@ -1527,9 +1580,20 @@ ClosureCauseDeterminesOutcome ==
     /\ closureCause = PlannedCause
        =>
        \A o \in assignedAtClosure: outcome[o] = CanceledOutcome
-    /\ closureCause = UnexpectedCause
+    /\ closureCause \in UnexpectedCauses
        =>
        \A o \in assignedAtClosure: outcome[o] = FailedOutcome
+
+StartupFailureClosesImmediately ==
+    closureCause = StartupFailureCause
+    =>
+    /\ epochState = Closed
+    /\ realmDestroyed
+    /\ sourceRevoked
+
+FailedDrainingRequiresReadiness ==
+    epochState = Draining /\ closureCause \in UnexpectedCauses
+    => readyMatched
 
 QuiescenceRequiresPhysicalRelease ==
     /\ ~quiescedBeforeRelease
