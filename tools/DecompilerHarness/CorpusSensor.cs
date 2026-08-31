@@ -90,8 +90,8 @@ internal static class CorpusSensor
         bool sequential = false,
         CorpusFidelityOracle fidelityOracle = CorpusFidelityOracle.CompileBack,
         CorpusProfile profile = CorpusProfile.RealWorld,
-        string? rtsParityBurndown = null,
-        string? emitRtsParityBurndown = null)
+        string? rtsParityKnownGaps = null,
+        string? emitRtsParityKnownGaps = null)
     {
         if (assemblies.Count == 0)
         {
@@ -121,13 +121,13 @@ internal static class CorpusSensor
             return 1;
         }
 
-        if (rtsParityBurndown is not null || emitRtsParityBurndown is not null)
+        if (rtsParityKnownGaps is not null || emitRtsParityKnownGaps is not null)
         {
-            var burndownError = ValidateRtsParityBurndownFlags(
-                fidelityOracle, fidelityCompileCaps, rtsParityBurndown, emitRtsParityBurndown);
-            if (burndownError is not null)
+            var knownGapError = ValidateRtsParityKnownGapFlags(
+                fidelityOracle, fidelityCompileCaps, rtsParityKnownGaps, emitRtsParityKnownGaps);
+            if (knownGapError is not null)
             {
-                Console.Error.WriteLine(burndownError);
+                Console.Error.WriteLine(knownGapError);
                 return 1;
             }
         }
@@ -147,7 +147,7 @@ internal static class CorpusSensor
 
         bool rtsParityRegressed = false;
         if (fidelityOracle == CorpusFidelityOracle.ReturnToSender)
-            rtsParityRegressed = EnforceRtsParityBurndown(current, rtsParityBurndown, emitRtsParityBurndown, qualityDiffCard);
+            rtsParityRegressed = EnforceRtsParityKnownGaps(current, rtsParityKnownGaps, emitRtsParityKnownGaps, qualityDiffCard);
 
         if (emitBaseline is not null)
         {
@@ -1264,10 +1264,10 @@ internal static class CorpusSensor
     static string FidelityResultKey(FidelityCheck.CompileBackResult result)
         => $"{result.Type}::{result.Method}::{result.Overload}::{result.Signature}";
 
-    // The RTS-parity burn-down set: methods the product oracle recompiled Exact but
+    // The RTS-parity known-gap set: methods the product oracle recompiled Exact but
     // ReturnToSender could not (RecompileFail/ContextFail). These are the parity gaps
     // the RTS-orchestrator migration must close; the gate fails only when a NEW row
-    // appears versus the committed burn-down manifest, so the known set stays a visible,
+    // appears versus the committed known-gap manifest, so the known set stays a visible,
     // shrinking checklist rather than a silent tolerance.
     internal static ImmutableArray<CorpusMethodSnapshot> ExactReferenceRecompileRegressions(
         CorpusSensorSnapshot snapshot)
@@ -1292,54 +1292,54 @@ internal static class CorpusSensor
         return builder.ToImmutable();
     }
 
-    // Guards that make the RTS-parity burn-down flags refuse to run toothless: they
-    // require the rts-parity oracle (else EnforceRtsParityBurndown never fires) AND a
+    // Guards that make the RTS-parity known-gap flags refuse to run toothless: they
+    // require the rts-parity oracle (else EnforceRtsParityKnownGaps never fires) AND a
     // positive fidelity cap (else the parity population is empty and every manifest row
     // is spuriously "resolved" while the run exits 0). Enforcing against a just-emitted
     // manifest (same path) would self-certify new regressions, so that is rejected too.
     // Returns an error message, or null when the flags are usable.
-    internal static string? ValidateRtsParityBurndownFlags(
+    internal static string? ValidateRtsParityKnownGapFlags(
         CorpusFidelityOracle fidelityOracle,
         IReadOnlyList<int> fidelityCompileCaps,
-        string? rtsParityBurndown,
-        string? emitRtsParityBurndown)
+        string? rtsParityKnownGaps,
+        string? emitRtsParityKnownGaps)
     {
-        if (rtsParityBurndown is null && emitRtsParityBurndown is null)
+        if (rtsParityKnownGaps is null && emitRtsParityKnownGaps is null)
             return null;
         if (fidelityOracle != CorpusFidelityOracle.ReturnToSender)
-            return "--rts-parity-burndown and --emit-rts-parity-burndown require --corpus-fidelity-oracle rts-parity.";
+            return "--rts-parity-known-gaps and --emit-rts-parity-known-gaps require --corpus-fidelity-oracle rts-parity.";
         if (!fidelityCompileCaps.Any(cap => cap > 0))
-            return "--rts-parity-burndown and --emit-rts-parity-burndown require a positive --corpus-fidelity-cap so the parity population is actually evaluated.";
-        if (rtsParityBurndown is not null
-            && emitRtsParityBurndown is not null
+            return "--rts-parity-known-gaps and --emit-rts-parity-known-gaps require a positive --corpus-fidelity-cap so the parity population is actually evaluated.";
+        if (rtsParityKnownGaps is not null
+            && emitRtsParityKnownGaps is not null
             && string.Equals(
-                Path.GetFullPath(rtsParityBurndown),
-                Path.GetFullPath(emitRtsParityBurndown),
+                Path.GetFullPath(rtsParityKnownGaps),
+                Path.GetFullPath(emitRtsParityKnownGaps),
                 StringComparison.Ordinal))
         {
-            return "--rts-parity-burndown and --emit-rts-parity-burndown must not point at the same file; enforcing against a just-emitted manifest would self-certify new regressions.";
+            return "--rts-parity-known-gaps and --emit-rts-parity-known-gaps must not point at the same file; enforcing against a just-emitted manifest would self-certify new regressions.";
         }
         return null;
     }
 
-    internal sealed record RtsParityBurndownRow(string Method, string Status);
+    internal sealed record RtsParityKnownGapRow(string Method, string Status);
 
-    internal sealed record RtsParityBurndownManifest(
+    internal sealed record RtsParityKnownGapManifest(
         string Description,
         string Command,
-        ImmutableArray<RtsParityBurndownRow> Rows);
+        ImmutableArray<RtsParityKnownGapRow> Rows);
 
-    internal sealed record RtsParityBurndownEvaluation(
+    internal sealed record RtsParityKnownGapEvaluation(
         ImmutableArray<CorpusMethodSnapshot> NewRegressions,
         ImmutableArray<CorpusMethodSnapshot> KnownGaps,
         ImmutableArray<string> ResolvedRows);
 
     // Pure gate: compare the current Exact->recompile-failure set against the committed
-    // burn-down. A NEW row (not in the manifest) is a hard regression; a row present in
+    // known gaps. A NEW row (not in the manifest) is a hard regression; a row present in
     // the manifest but no longer failing is "resolved" and should be dropped when the
     // manifest is regenerated. Manifest rows are keyed by DisplayMethod so a change to a
     // method's parity is traceable to a named target.
-    internal static RtsParityBurndownEvaluation EvaluateRtsParityBurndown(
+    internal static RtsParityKnownGapEvaluation EvaluateRtsParityKnownGaps(
         CorpusSensorSnapshot current,
         IReadOnlyCollection<string> knownRows)
     {
@@ -1355,55 +1355,55 @@ internal static class CorpusSensor
             .OrderBy(row => row, StringComparer.Ordinal)
             .ToImmutableArray();
 
-        return new RtsParityBurndownEvaluation(newRegressions, currentGaps, resolved);
+        return new RtsParityKnownGapEvaluation(newRegressions, currentGaps, resolved);
     }
 
-    static RtsParityBurndownManifest BuildRtsParityBurndown(CorpusSensorSnapshot current)
+    static RtsParityKnownGapManifest BuildRtsParityKnownGapManifest(CorpusSensorSnapshot current)
     {
         var rows = ExactReferenceRecompileRegressions(current)
             .OrderBy(m => m.DisplayMethod, StringComparer.Ordinal)
-            .Select(m => new RtsParityBurndownRow(m.DisplayMethod, m.FidelityCheck))
+            .Select(m => new RtsParityKnownGapRow(m.DisplayMethod, m.FidelityCheck))
             .ToImmutableArray();
-        return new RtsParityBurndownManifest(
-            Description: "RTS-parity burn-down: methods the product compile-back oracle recompiled Exact "
-                + "but ReturnToSender did not. Regenerate mechanically with --emit-rts-parity-burndown; "
-                + "the RTS-orchestrator work drains this list.",
+        return new RtsParityKnownGapManifest(
+            Description: "RTS-parity known gaps: methods the product compile-back oracle recompiled Exact "
+                + "but ReturnToSender did not. Regenerate mechanically with --emit-rts-parity-known-gaps; "
+                + "the RTS-orchestrator work resolves this list.",
             Command: "decompiler-harness [corpus] --compile-cap 0 --corpus-fidelity-cap 3 "
-                + "--corpus-fidelity-oracle rts-parity --emit-rts-parity-burndown "
-                + "tools/DecompilerHarness/corpus/rts-parity-burndown.json",
+                + "--corpus-fidelity-oracle rts-parity --emit-rts-parity-known-gaps "
+                + "tools/DecompilerHarness/corpus/rts-parity-known-gaps.json",
             Rows: rows);
     }
 
-    // Enforces the RTS-parity burn-down gate and optionally regenerates the manifest.
+    // Enforces the RTS-parity known-gap gate and optionally regenerates the manifest.
     // Returns true when a NEW Exact->recompile-failure regression is present.
-    static bool EnforceRtsParityBurndown(
+    static bool EnforceRtsParityKnownGaps(
         CorpusSensorSnapshot current,
-        string? burndownPath,
-        string? emitBurndownPath,
+        string? knownGapsPath,
+        string? emitKnownGapsPath,
         bool quiet)
     {
-        if (emitBurndownPath is not null)
+        if (emitKnownGapsPath is not null)
         {
-            var manifest = BuildRtsParityBurndown(current);
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(emitBurndownPath)) ?? ".");
-            File.WriteAllText(emitBurndownPath, JsonSerializer.Serialize(manifest, JsonOptions()));
+            var manifest = BuildRtsParityKnownGapManifest(current);
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(emitKnownGapsPath)) ?? ".");
+            File.WriteAllText(emitKnownGapsPath, JsonSerializer.Serialize(manifest, JsonOptions()));
             if (!quiet)
             {
                 Console.WriteLine();
-                HarnessLog.Status($"Wrote RTS-parity burn-down ({manifest.Rows.Length} row(s)): {emitBurndownPath}");
+                HarnessLog.Status($"Wrote RTS-parity known gaps ({manifest.Rows.Length} row(s)): {emitKnownGapsPath}");
             }
         }
 
-        IReadOnlyCollection<string> knownRows = burndownPath is not null
-            ? ReadRtsParityBurndown(burndownPath).Rows.Select(r => r.Method).ToImmutableArray()
+        IReadOnlyCollection<string> knownRows = knownGapsPath is not null
+            ? ReadRtsParityKnownGapManifest(knownGapsPath).Rows.Select(r => r.Method).ToImmutableArray()
             : [];
-        var evaluation = EvaluateRtsParityBurndown(current, knownRows);
+        var evaluation = EvaluateRtsParityKnownGaps(current, knownRows);
 
         if (!quiet)
         {
             Console.WriteLine();
             Console.WriteLine(
-                $"RTS parity burn-down: {evaluation.KnownGaps.Length} method(s) recompiled Exact under the "
+                $"RTS parity known gaps: {evaluation.KnownGaps.Length} method(s) recompiled Exact under the "
                 + "product oracle but not under ReturnToSender.");
             foreach (var gap in evaluation.KnownGaps.OrderBy(m => m.DisplayMethod, StringComparer.Ordinal))
             {
@@ -1418,7 +1418,7 @@ internal static class CorpusSensor
         {
             Console.WriteLine();
             Console.WriteLine(
-                $"RTS parity lost on {evaluation.NewRegressions.Length} new method(s) not in the burn-down manifest:");
+                $"RTS parity lost on {evaluation.NewRegressions.Length} new method(s) not in the known-gap manifest:");
             foreach (var offender in evaluation.NewRegressions.OrderBy(m => m.DisplayMethod, StringComparer.Ordinal))
                 Console.WriteLine($"- {offender.DisplayMethod} recompiled Exact under the product oracle but {offender.FidelityCheck} under ReturnToSender");
         }
@@ -1426,10 +1426,10 @@ internal static class CorpusSensor
         return !evaluation.NewRegressions.IsEmpty;
     }
 
-    internal static RtsParityBurndownManifest ReadRtsParityBurndown(string path)
+    internal static RtsParityKnownGapManifest ReadRtsParityKnownGapManifest(string path)
     {
-        var manifest = JsonSerializer.Deserialize<RtsParityBurndownManifest>(File.ReadAllText(path), JsonOptions())
-            ?? throw new InvalidOperationException($"Could not read RTS-parity burn-down '{path}'.");
+        var manifest = JsonSerializer.Deserialize<RtsParityKnownGapManifest>(File.ReadAllText(path), JsonOptions())
+            ?? throw new InvalidOperationException($"Could not read RTS-parity known-gap manifest '{path}'.");
         return manifest.Rows.IsDefault ? manifest with { Rows = [] } : manifest;
     }
 

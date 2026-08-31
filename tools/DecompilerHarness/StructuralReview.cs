@@ -62,7 +62,7 @@ internal static class StructuralReview
         {
             output.WriteLine(
                 $"Structural review status: **Partial** - {correspondenceGaps.Length} unsupported or ambiguous " +
-                "nodes were excluded. Matched rows do not establish changes represented only by the gaps below.");
+                "nodes were excluded. Supported rows do not establish changes represented only by the gaps below.");
             output.WriteLine();
         }
         output.WriteLine("## Before");
