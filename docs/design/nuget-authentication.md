@@ -440,14 +440,17 @@ display text do not participate except for the Azure organization segment
 above. Failure to derive either scope is not authorization.
 
 Authentication accepts a context reference and that source client's isolated
-credential-free inner transport and returns a source-bound authentication
-handler. It does not accept a shared or opaque caller handler. The package
-source owner composes that handler into its V3 client; this authentication
-owner does not redefine source-client factory or transport-disposal behavior.
-Requests formed by that client therefore enter an already-associated pipeline;
-source association is not a string-valued request option that feed data can
-influence. The handler injects plugin authorization only after the
-authentication owner authorizes the concrete target.
+credential-free inner transport, whose owning contract disables automatic
+desktop redirects, and returns a source-bound authentication handler. It does
+not accept a shared or opaque caller handler. Its composition precondition is
+that the package source owner's redirect orchestration wraps the returned
+handler, so every redirect clone re-enters authentication. This is the required
+handoff between the owners; authentication does not redefine redirect-target
+admission, source-client factory, or transport-disposal behavior. Requests
+formed by that client therefore enter an already-associated pipeline; source
+association is not a string-valued request option that feed data can influence.
+The handler injects plugin authorization only after the authentication owner
+authorizes the concrete target.
 
 Several V3 pipelines constructed with the same `PackageSourceAssociation`
 share the one authentication context bound to that association. Pipeline or
@@ -456,9 +459,12 @@ constructed with distinct associations remain isolated even when their
 resource scopes are equal.
 
 Each service-index, feed-advertised, and redirect target must independently
-pass resource authorization. Retry and redirect clones preserve an existing
-rejection; they cannot replace the handler-bound context, turn rejection into
-authorization, or use an intermediate redirect hop as the comparison anchor.
+pass resource authorization. Source-owned redirect orchestration does not copy
+a plugin-produced header; the clone re-enters the source-bound handler, which
+may attach that context's credential only after authorizing the new target.
+Retry and redirect clones preserve the handler-bound context and an existing
+rejection; they cannot replace either, turn rejection into authorization, or
+use an intermediate redirect hop as the comparison anchor.
 
 An unassociated request, explicitly plugin-ineligible request, retired context,
 or out-of-scope target bypasses plugin cache lookup, acquisition, and replay.
@@ -536,16 +542,22 @@ The target is unverified until Release gates establish:
   one context coalesces acquisition without serializing another;
 - `RetiredContextRejectsLateCredentialPublication`: retirement during
   acquisition cannot publish or replay the result;
-- `RetiredContextRejectsPendingChallengeAndLaterRequest`: retirement after an
-  authorized challenge but before acquisition, and a later request through the
-  retired context, cannot read cache state, invoke the provider, or replay
-  authorization;
+- `RetiredContextRejectsPendingChallengeJoinAndLaterRequest`: retirement after
+  an authorized challenge but before resolution, including while another
+  request has active provider work, makes the challenged waiter surface its
+  response without joining or waiting on that work; a later request through
+  the retired context cannot read cache state, start or join provider work, or
+  replay authorization;
 - `ConcurrentRejectedCredentialRefreshesPublishOneNewVersion`: two requests
   that reject one cached version produce one provider acquisition, one newer
   published version, and waiter replay from that newer version without a stale
   overwrite or clear;
-- `RequestClonePropagationPreservesContextAndRejection`: retries and redirects
-  cannot drop or replace association or resource rejection; and
+- `RequestClonePropagationPreservesContextAndRejection`: the source-owned
+  redirect layer wraps the authentication handler so every clone re-enters
+  target authorization, preserves its association and any resource rejection,
+  and carries no plugin-produced header unless the new target is independently
+  authorized; an Azure cross-organization redirect cannot read cache state,
+  invoke the provider, or replay authorization; and
 - `NuGetGalleryTransportCannotReachPluginAuthentication`: the built-in Gallery
   transport has no plugin handler or context path.
 
