@@ -16,8 +16,7 @@ concurrency:
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_NOLOGO: true
-  # Preview 7 breaks the repository's union-enabled C# sources (#4042).
-  DOTNET_SDK_VERSION: '11.0.100-preview.6.26359.118'
+  DOTNET_SDK_VERSION: '11.0.100-preview.7.26381.103'
 
 jobs:
   build:
@@ -53,6 +52,7 @@ jobs:
       - name: Publish browser app
         shell: bash
         run: |
+          rm -rf artifacts/inspect-web-compiler-async-receipts
           version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
           built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           dotnet publish \
@@ -61,7 +61,20 @@ jobs:
             --output artifacts/inspect-web-publish \
             -p:VersionPrefix="$version" \
             -p:SourceRevisionId="$GITHUB_SHA" \
-            -p:BuildTimestampUtc="$built_at"
+            -p:BuildTimestampUtc="$built_at" \
+            -p:InspectWebExpectedAsyncLowering=compiler \
+            -p:InspectWebAsyncLoweringReceiptDirectory="$GITHUB_WORKSPACE/artifacts/inspect-web-compiler-async-receipts" \
+            -p:CustomAfterMicrosoftCommonTargets="$GITHUB_WORKSPACE/eng/InspectWebAsyncLoweringReceipt.targets"
+
+      - name: Verify compiler-async deployment
+        shell: bash
+        run: |
+          eng/verify-inspect-web-async-deployment.sh \
+            compiler \
+            prototypes/inspect-web/engine/bin/Release/net11.0/InspectWeb.Engine.dll \
+            artifacts/inspect-web-publish/wwwroot \
+            artifacts/inspect-web-publish/async-lowering.json \
+            artifacts/inspect-web-compiler-async-receipts
 
       - name: Publish MSDL managed API
         run: >
@@ -77,7 +90,12 @@ jobs:
           site=artifacts/inspect-web-publish/wwwroot
           api=artifacts/inspect-web-publish/api
           index="$site/index.html"
+          receipt=artifacts/inspect-web-publish/async-lowering.json
           test -f "$index"
+          jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+          webcil=$(jq -r '.published_webcil_file' "$receipt")
+          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
+          test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
           test -f "$site/staticwebapp.config.json"
           test -f "$api/host.json"
           test -f "$api/functions.metadata"
@@ -138,7 +156,12 @@ jobs:
           site=artifacts/inspect-web-publish/wwwroot
           api=artifacts/inspect-web-publish/api
           index="$site/index.html"
+          receipt=artifacts/inspect-web-publish/async-lowering.json
           test -f "$index"
+          jq -e '.schema == 3 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
+          webcil=$(jq -r '.published_webcil_file' "$receipt")
+          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' | wc -l)" -eq 1
+          test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
           test -f "$site/staticwebapp.config.json"
           test -f "$api/host.json"
           test -f "$api/functions.metadata"

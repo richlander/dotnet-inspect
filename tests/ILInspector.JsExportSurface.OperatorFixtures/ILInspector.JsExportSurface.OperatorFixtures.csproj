@@ -9,7 +9,7 @@
     <IsAotCompatible>false</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CA1416;SYSLIB1071</NoWarn>
-    <Description>Compiler-produced unsupported JSExport method fixtures for tsbindgen.</Description>
+    <Description>Compiler-produced unsupported JSExport method fixtures for TypeScript facade generation.</Description>
   </PropertyGroup>
 
 </Project>

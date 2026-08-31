@@ -9240,7 +9240,7 @@ public class ReturnToSenderPrototypeTests
     [Fact]
     public void CompileBackTargets_DoesNotDuplicateSelfRecursiveTargetMethodDuringClosureSurface()
     {
-        // Guard for the rts-parity burndown row TypeResolver::GetTypeNameFromReference:
+        // Guard for the RTS-parity known-gap row TypeResolver::GetTypeNameFromReference:
         // a target method that calls itself recursively must not also be reconstructed
         // as a hollow `throw null` closure stub (the self-reference resolves to the
         // target method's own handle). Emitting both the body-backed method and a

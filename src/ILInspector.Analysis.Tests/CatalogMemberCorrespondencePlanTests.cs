@@ -1794,8 +1794,7 @@ public class CatalogMemberCorrespondencePlanTests
             AssemblyBindingRequest request) =>
             request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
                 ? AssemblyBindingSelection.Found(coreLibrary)
-                : AssemblyBindingSelection.NotFound(
-                    AssemblyBindingMissDisposition.NoNameOwner);
+                : AssemblyBindingSelection.NameNotOwned();
     }
 
     sealed class UnavailablePolicy : IAssemblyBindingPolicy

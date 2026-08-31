@@ -105,6 +105,11 @@ substrates, and inspection producers that will extend that space.
   without entering the inspected application's browser dependency closure,
   emits one opinionated TypeScript module, and leaves compilation and
   publication to the consumer.
+- [`docs/design/inspect-web-managed-operation-bridge.md`](design/inspect-web-managed-operation-bridge.md)
+  owns dynamic managed-operation admission, keyed cooperative cancellation,
+  first-reason fidelity, operation-scoped progress callback release, typed
+  terminal envelopes, shared-waiter detachment, and epoch-work lease identity
+  at the inspect-web worker-to-managed boundary.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
@@ -169,6 +174,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Inspect-web operation authority](design/inspect-web-operation-authority.md):
   page-wide operation identity plus per-view logical outcome, cancellation,
   publication authority, disposal, and producer quiescence.
+- [Inspect-web managed operation bridge](design/inspect-web-managed-operation-bridge.md):
+  dynamic active-operation admission, keyed cancellation-token signaling,
+  progress callback release, typed managed outcomes, shared-waiter detachment,
+  and epoch-work lease handoff.
 - [Bounded metadata traversal](design/bounded-metadata-traversal.md): cycle, depth, count, text-budget, failure, and verification rules for artifact-derived metadata graphs.
 - [Rendering model](design/rendering-model.md): output mode and verbosity design.
 - [Progressive disclosure](design/progressive-disclosure.md): base/domain scope,
@@ -184,6 +193,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   order resolution, baseline ordering, and per-`Top` ranking identities.
 - [Section-row shaping](design/section-row-shaping.md): typed declared-row-set
   binding, projection roles, terminal Count, and result binding.
+- [Source delegation](design/source-delegation.md): delegated source
+  execution — the effect protocol, result algebra, completion-evidence
+  binding, and exact upstream Count acceptance.
 - [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
@@ -198,6 +210,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
+- [Memory-safety models and evidence](design/memory-safety-models.md):
+  v1/v2 vocabulary and composition of project policy, binary contracts,
+  implementation evidence, and provenance.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.

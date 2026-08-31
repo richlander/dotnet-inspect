@@ -671,7 +671,6 @@ public class MethodBodyInspectionSessionTests
             AssemblyBindingRequest request) =>
             request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
                 ? AssemblyBindingSelection.Found(_coreLibrary)
-                : AssemblyBindingSelection.NotFound(
-                    AssemblyBindingMissDisposition.NoNameOwner);
+                : AssemblyBindingSelection.NameNotOwned();
     }
 }

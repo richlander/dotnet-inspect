@@ -1928,6 +1928,56 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// The candidate ledger's baseline is required in both directions: the modifier does
+    /// nothing on its own, and the mode cannot rank without it.
+    ///
+    /// <para>Ranking against an absent baseline is the failure being closed. It would not
+    /// error — it would succeed, seeded with no covered features, and report every
+    /// already-enrolled feature as new incremental coverage.</para>
+    /// </summary>
+    [Theory]
+    // candidates, baseline -> disposition
+    [InlineData(false, false, "Proceed")]
+    [InlineData(true, true, "Proceed")]
+    [InlineData(false, true, "Refuse")]
+    [InlineData(true, false, "Refuse")]
+    public void CandidateLedgerFlags_RequireEachOther(
+        bool candidates,
+        bool baseline,
+        string expected)
+    {
+        var verdict = AuthoredCorpusExitContract.JudgeGateFlags(
+            showHelp: false,
+            benchmarkAuthoredCorpus: false,
+            verifyAuthoredCorpus: false,
+            appendAuthoredCorpusHistory: false,
+            verifyAuthoredCorpusHistory: false,
+            ratchetBaselineSupplied: false,
+            integrityOnly: false,
+            sourceOracleManifestSupplied: false,
+            sourceOracleCandidates: candidates,
+            baselineSourceOracleReportSupplied: baseline);
+
+        Assert.Equal(expected, verdict.Disposition.ToString());
+        if (verdict.Disposition == AuthoredCorpusExitContract.FlagDisposition.Refuse)
+            Assert.False(string.IsNullOrWhiteSpace(verdict.Message));
+    }
+
+    /// <summary>
+    /// The candidate ledger dispatches before every protected gate, so combining them
+    /// refuses rather than silently discarding the gate.
+    /// </summary>
+    [Fact]
+    public void CandidateLedger_PrecedesEveryProtectedGate()
+    {
+        int position = Array.IndexOf(DispatchOrderFlags, "--source-oracle-candidates");
+
+        Assert.True(position >= 0, "The candidate ledger is not a declared dispatch mode.");
+        foreach (string gate in AuthoredCorpusExitContract.ProtectedGates)
+            Assert.True(position < Array.IndexOf(DispatchOrderFlags, gate), gate);
+    }
+
+    /// <summary>
     /// Trend rows must name commits on <c>main</c>, so a methodology-bump PR cannot
     /// append its own row. The store may trail the code by one version until the
     /// post-merge evidence follow-up, but it may never claim an unknown/newer version

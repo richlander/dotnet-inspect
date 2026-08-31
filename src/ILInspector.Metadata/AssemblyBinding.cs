@@ -13,26 +13,18 @@ public enum AssemblyBindingFailureKind
 }
 
 /// <summary>
-/// States whether a missing assembly-reference answer permits another policy
-/// tier to be evaluated.
+/// A policy owner's statement about name ownership for one missing assembly
+/// reference.
 /// </summary>
 public enum AssemblyBindingMissDisposition
 {
-    /// <summary>
-    /// Legacy or otherwise unattested miss. Composition must treat it as
-    /// terminal.
-    /// </summary>
+    /// <summary>The producer supplied no owner-attested name decision.</summary>
     Undifferentiated,
 
-    /// <summary>
-    /// The policy attests that its complete eligible inventory has no owner
-    /// for the requested simple name.
-    /// </summary>
+    /// <summary>The policy's complete frozen inventory does not own the name.</summary>
     NoNameOwner,
 
-    /// <summary>
-    /// The policy owns the requested simple name but found no identity match.
-    /// </summary>
+    /// <summary>The policy owns the name but found no matching identity.</summary>
     NameOwnedNoMatch,
 }
 
@@ -226,11 +218,20 @@ public abstract class AssemblyBindingSelection
         return new Selected(assembly, shadowedAssemblies);
     }
 
-    /// <summary>Reports that policy found no candidate.</summary>
-    public static AssemblyBindingSelection NotFound(
-        AssemblyBindingMissDisposition disposition =
-            AssemblyBindingMissDisposition.Undifferentiated) =>
-        new Missing(disposition);
+    /// <summary>
+    /// Reports that policy found no candidate without attesting name
+    /// ownership.
+    /// </summary>
+    public static AssemblyBindingSelection NotFound() =>
+        new Missing(AssemblyBindingMissDisposition.Undifferentiated);
+
+    /// <summary>Reports that the policy's complete inventory does not own the name.</summary>
+    public static AssemblyBindingSelection NameNotOwned() =>
+        new Missing(AssemblyBindingMissDisposition.NoNameOwner);
+
+    /// <summary>Reports that the policy owns the name but found no identity match.</summary>
+    public static AssemblyBindingSelection NameOwnedButNoMatch() =>
+        new Missing(AssemblyBindingMissDisposition.NameOwnedNoMatch);
 
     /// <summary>
     /// Reports that policy understood the request but could not select a

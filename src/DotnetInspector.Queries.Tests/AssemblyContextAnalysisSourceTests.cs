@@ -10,10 +10,8 @@ public sealed class AssemblyContextAnalysisSourceTests
         AssemblyBindingSelection[] terminalResults =
         [
             AssemblyBindingSelection.NotFound(),
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NoNameOwner),
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NameOwnedNoMatch),
+            AssemblyBindingSelection.NameNotOwned(),
+            AssemblyBindingSelection.NameOwnedButNoMatch(),
             AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable)),

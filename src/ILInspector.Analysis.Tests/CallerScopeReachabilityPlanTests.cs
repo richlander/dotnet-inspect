@@ -148,8 +148,7 @@ public class CallerScopeReachabilityPlanTests
         [
             AssemblyBindingSelection.Found(requested),
             AssemblyBindingSelection.NotFound(),
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NameOwnedNoMatch),
+            AssemblyBindingSelection.NameOwnedButNoMatch(),
             AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable)),
@@ -185,8 +184,7 @@ public class CallerScopeReachabilityPlanTests
         var policy =
             new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
                 new FixedPolicy(
-                    AssemblyBindingSelection.NotFound(
-                        AssemblyBindingMissDisposition.NoNameOwner)),
+                    AssemblyBindingSelection.NameNotOwned()),
                 target,
                 []);
 
@@ -216,8 +214,7 @@ public class CallerScopeReachabilityPlanTests
             AssemblyBindingOrigin.Global(),
             AssemblyResolutionScope.Any);
         var fallback = new FixedPolicy(
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NoNameOwner));
+            AssemblyBindingSelection.NameNotOwned());
         var policy =
             new CallerScopeReachabilityPlan.ScopeFirstBindingPolicy(
                 fallback,
@@ -254,8 +251,7 @@ public class CallerScopeReachabilityPlanTests
             });
         ResolvedAssemblyReference caller = Descriptor(callerImage);
         var fallback = new FixedPolicy(
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NoNameOwner));
+            AssemblyBindingSelection.NameNotOwned());
 
         CallerScopeReachabilityPlan plan =
             CallerScopeReachabilityPlan.Create(
@@ -291,8 +287,7 @@ public class CallerScopeReachabilityPlanTests
         byte[] callerImage = BuildCaller(equivalent);
         ResolvedAssemblyReference caller = Descriptor(callerImage);
         var fallback = new FixedPolicy(
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NoNameOwner));
+            AssemblyBindingSelection.NameNotOwned());
 
         CallerScopeReachabilityPlan plan =
             CallerScopeReachabilityPlan.Create(
@@ -326,8 +321,7 @@ public class CallerScopeReachabilityPlanTests
         byte[] callerImage = BuildCaller(equivalent);
         ResolvedAssemblyReference caller = Descriptor(callerImage);
         var fallback = new FixedPolicy(
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NoNameOwner));
+            AssemblyBindingSelection.NameNotOwned());
 
         CallerScopeReachabilityPlan plan =
             CallerScopeReachabilityPlan.Create(

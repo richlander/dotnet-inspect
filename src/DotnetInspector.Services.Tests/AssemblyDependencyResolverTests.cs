@@ -622,7 +622,7 @@ public class AssemblyDependencyResolverTests
             IntrinsicCoreLibraryBinding.Select(
                 owner,
                 _ => ++selectionCount == 1
-                    ? AssemblyBindingSelection.NotFound(disposition)
+                    ? Missing(disposition)
                     : AssemblyBindingSelection.Found(owner)));
 
         Assert.Equal(
@@ -892,7 +892,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionProvenance.Designated(
                 "terminal miss test"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.NotFound(disposition));
+            Missing(disposition));
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -969,8 +969,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionProvenance.Designated(
                 "complete chain test"));
         var policy = new FixedSelectionPolicy(
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NoNameOwner));
+            AssemblyBindingSelection.NameNotOwned());
         var group = new SourceRelativeAssemblyGroupBindingPolicy(
             [
                 (owner, (IAssemblyBindingPolicy)policy),
@@ -2095,9 +2094,21 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingSelection Select(
             AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound(
-                AssemblyBindingMissDisposition.NoNameOwner);
+            AssemblyBindingSelection.NameNotOwned();
     }
+
+    static AssemblyBindingSelection Missing(
+        AssemblyBindingMissDisposition disposition) =>
+        disposition switch
+        {
+            AssemblyBindingMissDisposition.Undifferentiated =>
+                AssemblyBindingSelection.NotFound(),
+            AssemblyBindingMissDisposition.NoNameOwner =>
+                AssemblyBindingSelection.NameNotOwned(),
+            AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                AssemblyBindingSelection.NameOwnedButNoMatch(),
+            _ => throw new ArgumentOutOfRangeException(nameof(disposition)),
+        };
 
     sealed class FixedSelectionPolicy(
         AssemblyBindingSelection selection) : IAssemblyBindingPolicy

@@ -1549,14 +1549,13 @@ public static class ResearchDiff
                     .ToImmutableArray();
             return matches.Length switch
             {
-                0 => AssemblyBindingSelection.NotFound(
-                    assemblies.Any(assembly =>
+                0 => assemblies.Any(assembly =>
                         string.Equals(
                             assembly.Identity.Name,
                             reference.Identity.Name,
                             StringComparison.OrdinalIgnoreCase))
-                        ? AssemblyBindingMissDisposition.NameOwnedNoMatch
-                        : AssemblyBindingMissDisposition.NoNameOwner),
+                    ? AssemblyBindingSelection.NameOwnedButNoMatch()
+                    : AssemblyBindingSelection.NameNotOwned(),
                 1 => AssemblyBindingSelection.Found(
                     matches[0]),
                 _ => AssemblyBindingSelection.Multiple(matches),

@@ -168,22 +168,31 @@ public class CommandErrorOwnershipTests
 
             if (!EvaluatedProperty(project, "WarningsAsErrors")
                     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Contains(StderrRule, StringComparer.OrdinalIgnoreCase))
+                    .Contains(BannedApiRule, StringComparer.OrdinalIgnoreCase))
             {
                 uncovered.Add(
-                    $"{relative}: does not escalate {StderrRule} to an error, so a violation would be a warning "
+                    $"{relative}: does not escalate {BannedApiRule} to an error, so a violation would be a warning "
                     + "that scrolls past a green build.");
             }
 
-            // NoWarn beats WarningsAsErrors in Roslyn, so escalation alone is
+            if (EvaluatedProperty(project, "WarningsNotAsErrors")
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Contains(BannedApiRule, StringComparer.OrdinalIgnoreCase))
+            {
+                uncovered.Add(
+                    $"{relative}: de-escalates {BannedApiRule} through WarningsNotAsErrors, "
+                    + "so a violation would not fail the build.");
+            }
+
+            // NoWarn also overrides WarningsAsErrors, so escalation alone is
             // not the same as enforcement: a project carrying both reports a
             // rule that is escalated and silent.
             if (EvaluatedProperty(project, "NoWarn")
                     .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Contains(StderrRule, StringComparer.OrdinalIgnoreCase))
+                    .Contains(BannedApiRule, StringComparer.OrdinalIgnoreCase))
             {
                 uncovered.Add(
-                    $"{relative}: suppresses {StderrRule} through NoWarn, which outranks the escalation above "
+                    $"{relative}: suppresses {BannedApiRule} through NoWarn, which outranks the escalation above "
                     + "and produces no diagnostic at all.");
             }
         }
@@ -195,6 +204,99 @@ public class CommandErrorOwnershipTests
                 + string.Join(Environment.NewLine, uncovered));
 
         Assert.Equal(ShippedProjectLibraries(), ClosureProjectNames());
+    }
+
+    /// <summary>
+    /// The test assembly's stdout-redirection rule is present in the analyzer
+    /// inputs that its Release build actually consumes.
+    /// </summary>
+    [Fact]
+    public void ConsoleCaptureProjectIsAnalyzedForStdoutRedirection()
+    {
+        string root = RepositoryRoot();
+        string projectDirectory = Path.Combine(root, "src", "dotnet-inspect.Tests");
+        string project = Path.Combine(
+            projectDirectory,
+            "dotnet-inspect.Tests.csproj");
+        string localRules = Path.Combine(
+            projectDirectory,
+            BannedSymbolsFile);
+        string repositoryRules = Path.Combine(
+            root,
+            "eng",
+            BannedSymbolsFile);
+
+        Assert.NotEqual(
+            "true",
+            EvaluatedProperty(project, "OwnsItsOwnStderr"));
+
+        string runAnalyzers = EvaluatedProperty(
+            project,
+            "RunAnalyzers");
+        string runAnalyzersDuringBuild = EvaluatedProperty(
+            project,
+            "RunAnalyzersDuringBuild");
+        bool skipsAnalyzers =
+            runAnalyzers.Equals(
+                "false",
+                StringComparison.OrdinalIgnoreCase)
+            || (runAnalyzers.Length == 0
+                && runAnalyzersDuringBuild.Equals(
+                    "false",
+                    StringComparison.OrdinalIgnoreCase));
+        Assert.False(
+            skipsAnalyzers,
+            "The Release build disables compiler analyzers through "
+                + "RunAnalyzers or RunAnalyzersDuringBuild.");
+
+        Assert.Contains(
+            EvaluatedItems(project, "PackageReference"),
+            package =>
+                package.GetValueOrDefault("Identity") == AnalyzerPackage);
+
+        string[] additionalFiles =
+        [
+            .. EvaluatedItems(project, "AdditionalFiles")
+                .Select(item =>
+                    item.GetValueOrDefault("FullPath")
+                    ?? throw new InvalidOperationException(
+                        "Evaluated AdditionalFiles item did not include FullPath."))
+                .Select(Path.GetFullPath)
+        ];
+        Assert.Contains(Path.GetFullPath(localRules), additionalFiles);
+        Assert.Contains(Path.GetFullPath(repositoryRules), additionalFiles);
+
+        string[] warningsAsErrors = EvaluatedProperty(
+                project,
+                "WarningsAsErrors")
+            .Split(
+                ';',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries);
+        Assert.Contains(
+            BannedApiRule,
+            warningsAsErrors,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            BannedApiRule,
+            EvaluatedProperty(project, "WarningsNotAsErrors")
+                .Split(
+                    ';',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries),
+            StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            BannedApiRule,
+            EvaluatedProperty(project, "NoWarn")
+                .Split(
+                    ';',
+                    StringSplitOptions.RemoveEmptyEntries
+                        | StringSplitOptions.TrimEntries),
+            StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains(
+            $"M:System.Console.{nameof(Console.SetOut)}(System.IO.TextWriter)",
+            BannedSymbolIds(localRules));
     }
 
     /// <summary>
@@ -262,25 +364,10 @@ public class CommandErrorOwnershipTests
     public void BannedSymbols_NamesEveryRouteToTheStream()
     {
         string path = Path.Combine(RepositoryRoot(), "eng", BannedSymbolsFile);
-        Assert.True(File.Exists(path), $"{path} is the rule; without it the analyzer has nothing to enforce.");
+        string[] banned = BannedSymbolIds(path);
 
-        // Symbol ids only: `;` separates the id from the message, `;` cannot
-        // appear in an id, and a leading `;` marks a comment line.
-        string[] banned =
-        [
-            .. File.ReadLines(path)
-                .Select(line => line.Trim())
-                .Where(line => line.Length > 0 && !line.StartsWith(';'))
-                .Select(line => line.Split(';', 2)[0])
-        ];
-
-        // Spelled through nameof rather than as literals. Two reasons, and the
-        // second is the interesting one: it ties the pin to the members that
-        // exist, so a rename cannot leave the rule naming a symbol that is no
-        // longer there; and ConsoleCaptureTests scans this project's text for a
-        // call to the redirection method, which a literal spelling of it here
-        // would match even though nothing is called -- the same
-        // spelling-versus-binding confusion this class stopped making.
+        // Spelled through nameof to tie the pin to members that exist, so a
+        // rename cannot leave the rule naming a symbol that is no longer there.
         Assert.Equal(
             [
                 $"M:System.Console.{nameof(Console.OpenStandardError)}()",
@@ -470,7 +557,26 @@ public class CommandErrorOwnershipTests
     /// <summary>
     /// The analyzer diagnostic that carries the rule.
     /// </summary>
-    private const string StderrRule = "RS0030";
+    private const string BannedApiRule = "RS0030";
+
+    private static string[] BannedSymbolIds(string path)
+    {
+        Assert.True(
+            File.Exists(path),
+            $"{path} is the rule; without it the analyzer has nothing to enforce.");
+
+        // Symbol ids only: `;` separates the id from the message, `;` cannot
+        // appear in an id, and a leading `;` marks a comment line.
+        return
+        [
+            .. File.ReadLines(path)
+                .Select(line => line.Trim())
+                .Where(line =>
+                    line.Length > 0
+                    && !line.StartsWith(';'))
+                .Select(line => line.Split(';', 2)[0])
+        ];
+    }
 
     /// <summary>
     /// The Release assembly of every project in the CLI's closure.
@@ -1051,7 +1157,16 @@ public class CommandErrorOwnershipTests
     /// The properties this class asks for.
     /// </summary>
     private static readonly string[] Properties =
-        ["OwnsItsOwnStderr", "WarningsAsErrors", "NoWarn", "TargetPath", "ProjectAssetsFile"];
+    [
+        "OwnsItsOwnStderr",
+        "RunAnalyzers",
+        "RunAnalyzersDuringBuild",
+        "WarningsAsErrors",
+        "WarningsNotAsErrors",
+        "NoWarn",
+        "TargetPath",
+        "ProjectAssetsFile",
+    ];
 
     private static readonly ConcurrentDictionary<string, Dictionary<string, string>> PropertyEvaluations =
         new(StringComparer.Ordinal);

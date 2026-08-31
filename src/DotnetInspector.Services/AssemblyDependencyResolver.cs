@@ -617,9 +617,17 @@ public sealed partial class AssemblyDependencyResolver :
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
                     candidateFailure))
-            : AssemblyBindingSelection.NotFound(
-                attempt.MissDisposition
-                    ?? AssemblyBindingMissDisposition.Undifferentiated);
+            : attempt.MissDisposition switch
+            {
+                null or AssemblyBindingMissDisposition.Undifferentiated =>
+                    AssemblyBindingSelection.NotFound(),
+                AssemblyBindingMissDisposition.NoNameOwner =>
+                    AssemblyBindingSelection.NameNotOwned(),
+                AssemblyBindingMissDisposition.NameOwnedNoMatch =>
+                    AssemblyBindingSelection.NameOwnedButNoMatch(),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-binding miss disposition."),
+            };
     }
 
     AssemblyBindingSelection SelectIntrinsicCoreLibrary(
