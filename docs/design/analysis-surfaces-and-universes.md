@@ -9,6 +9,9 @@ This document owns that separation, targeted versus census question mode, and
 host-neutral capability introspection. It stops at a validated pre-execution
 request plan. Producer execution, result semantics, and presentation remain
 with their existing owners.
+[Analysis universe realization](analysis-universe-realization.md) owns the
+separate operation-scoped handoff from that plan to executable provider
+capabilities and lifetimes.
 
 Tracking: [#4967](https://github.com/richlander/dotnet-inspect/issues/4967).
 
