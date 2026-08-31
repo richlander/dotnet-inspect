@@ -55,6 +55,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
 | [Semantic Row Selection](design/semantic-row-selection.md) | Dependency-free ordered Head, Tail, Window, and Top stages over complete logical sequences. |
 | [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
+| [Package Dependency Evidence](design/package-dependency-evidence.md) | Normalized declared dependency evidence, additive resolution and owner observations, cross-input equivalence, completion, and `InertString` query-result containment. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
 | [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The alignment, bounding, and guard-work invariants relating the custom-attribute value guard to SRM's decode, the two width-resolution paths, bounds, charging, and refusal semantics. Descriptive, with seven known gaps recorded against the contract. |
