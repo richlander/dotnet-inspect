@@ -377,6 +377,8 @@ while IFS= read -r -d '' file; do
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
     eng/generate-inspect-web-engine-facade.sh) WEB=true ;;
+    eng/InspectWebAsyncLoweringReceipt.targets) WEB=true ;;
+    eng/verify-inspect-web-async-deployment.sh) WEB=true ;;
     # Global analyzer input consumed by every product and Browser build.
     eng/BannedSymbols.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw
