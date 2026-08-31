@@ -952,7 +952,20 @@ public static partial class CSharpBodyDiff
         AnnotatedSourceDocument document, AnnotatedSourceNode node, out ReadOnlySpan<char> calleeText)
     {
         var span = node.Spans[0];
-        var text = document.Text.AsSpan(span.Start, span.Length).TrimEnd();
+        return TryGetInvocationCalleeText(document.Text.AsSpan(span.Start, span.Length), out calleeText);
+    }
+
+    /// <summary>
+    /// Text-only core of <see cref="TryGetInvocationCalleeText(AnnotatedSourceDocument, AnnotatedSourceNode, out ReadOnlySpan{char})"/>,
+    /// reused by <see cref="CSharpStructuralDiffPrinter"/> to describe a
+    /// call-site rewrite's callee purely from a row's already-selected
+    /// before/after text (issue #5022 item 9), without needing a document or
+    /// node to re-derive the same span.
+    /// </summary>
+    internal static bool TryGetInvocationCalleeText(
+        ReadOnlySpan<char> invocationText, out ReadOnlySpan<char> calleeText)
+    {
+        var text = invocationText.TrimEnd();
         calleeText = default;
         if (text.Length == 0 || text[^1] != ')')
             return false;

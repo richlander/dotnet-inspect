@@ -1611,6 +1611,76 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedToLocalFunction()
+    {
+        // Item 9 (issue #5022): the exact #4116 shape as item 5's own Added
+        // fixture above, but now checking the Changed InvocationExpression
+        // row's own Detail -- it should name the semantic role transition
+        // ("call target: ... -> local function `Own`"), not a literal
+        // before/after text dump, since the after-side callee is precisely
+        // the declaration this same comparison reports as Added.
+        var before = TrustedDocument(
+            "return __NoTypeParameter_g__Own_0_0(value);",
+            new NodeSpec("InvocationExpression", "__NoTypeParameter_g__Own_0_0(value)", [0x10]));
+        var after = TrustedDocument(
+            "return Own(value);\nstatic int Own(int input) => input + 1;",
+            new NodeSpec("InvocationExpression", "Own(value)", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static int Own(int input) => input + 1;", null));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: __NoTypeParameter_g__Own_0_0 -> local function `Own`");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DescribesCallTargetRenamedFromLocalFunction()
+    {
+        // Symmetric removal direction: the exact #4116-reverse shape as item
+        // 5's own Removed fixture above, checked for the same Detail
+        // captioning on the Changed invocation row.
+        var before = TrustedDocument(
+            "F();\nstatic void F()\n{\n}",
+            new NodeSpec("InvocationExpression", "F()", [0x10]),
+            new NodeSpec("LocalFunctionStatement", "static void F()\n{\n}", null));
+        var after = TrustedDocument(
+            "__CallsEmpty_g__F_0_0();",
+            new NodeSpec("InvocationExpression", "__CallsEmpty_g__F_0_0()", [0x10]));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        Assert.Contains(display, row =>
+            row.Change == "Changed"
+            && row.Detail == "call target: local function `F` -> __CallsEmpty_g__F_0_0");
+    }
+
+    [Fact]
+    public void ToDisplayRows_DoesNotDescribeUnrelatedCalleeRenameAsLocalFunction()
+    {
+        // Close negative: the callee genuinely renamed (`Old` -> `New`), but
+        // no Added/Removed LocalFunctionStatement row names either identifier
+        // anywhere in this comparison -- an ordinary method rename, not the
+        // #3902/#4116 paired-declaration shape. The caption must not fire on
+        // callee identity alone; the row must fall back to the literal
+        // before/after text.
+        var before = TrustedDocument(
+            "return Old(value);",
+            new NodeSpec("InvocationExpression", "Old(value)", [0x10]));
+        var after = TrustedDocument(
+            "return New(value);",
+            new NodeSpec("InvocationExpression", "New(value)", [0x10]));
+
+        var comparison = CSharpBodyDiff.CompareStructure(CSharpBodyDiff.IssueCorrespondence(before, after));
+        var display = CSharpStructuralDiffPrinter.ToDisplayRows(comparison);
+
+        var changed = Assert.Single(display, row => row.Change == "Changed");
+        Assert.Equal("Old(value) -> New(value)", changed.Detail);
+    }
+
+    [Fact]
     public void IssueCorrespondence_DoesNotInferDeclarationWithoutMatchedCallSiteRewrite()
     {
         // Close negative: a new local-function declaration with no IL origin

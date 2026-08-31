@@ -232,10 +232,12 @@ public static class CSharpStructuralDiffPrinter
         if (textChanged
             && IsInvocationRoleCandidate(row)
             && beforeText is not null
-            && afterText is not null
-            && TryDescribeQualifierArgumentRoleTransition(beforeText, afterText, out var transition))
+            && afterText is not null)
         {
-            return transition.DetailSummary;
+            if (TryDescribeQualifierArgumentRoleTransition(beforeText, afterText, out var qualifierTransition))
+                return qualifierTransition.DetailSummary;
+            if (TryDescribeCalleeRenamedRoleTransition(comparison, beforeText, afterText, out var calleeTransition))
+                return calleeTransition.DetailSummary;
         }
 
         return beforeText is null && afterText is null
@@ -281,15 +283,28 @@ public static class CSharpStructuralDiffPrinter
         if (!CanRenderExactInline(beforeText) || !CanRenderExactInline(afterText))
             return "; text changed";
 
-        if (IsInvocationRoleCandidate(row)
-            && TryDescribeQualifierArgumentRoleTransition(
-                Contain(beforeText)!,
-                Contain(afterText)!,
-                out var transition))
+        if (IsInvocationRoleCandidate(row))
         {
-            return side == CSharpStructuralSide.Before
-                ? $"; {transition.BeforeDescription}"
-                : $"; {transition.AfterDescription}";
+            if (TryDescribeQualifierArgumentRoleTransition(
+                    Contain(beforeText)!,
+                    Contain(afterText)!,
+                    out var qualifierTransition))
+            {
+                return side == CSharpStructuralSide.Before
+                    ? $"; {qualifierTransition.BeforeDescription}"
+                    : $"; {qualifierTransition.AfterDescription}";
+            }
+
+            if (TryDescribeCalleeRenamedRoleTransition(
+                    comparison,
+                    Contain(beforeText)!,
+                    Contain(afterText)!,
+                    out var calleeTransition))
+            {
+                return side == CSharpStructuralSide.Before
+                    ? $"; {calleeTransition.BeforeDescription}"
+                    : $"; {calleeTransition.AfterDescription}";
+            }
         }
 
         string counterpart = side == CSharpStructuralSide.Before
@@ -429,6 +444,129 @@ public static class CSharpStructuralDiffPrinter
         index = found;
         return true;
     }
+
+    /// <summary>
+    /// Item 9 (issue #5022): a side-local role description for a call-site
+    /// rewrite whose callee identifier changed, when the new (or old) callee
+    /// names a local-function declaration this same comparison already
+    /// reports as <see cref="CSharpStructuralChangeKind.Added"/> or
+    /// <see cref="CSharpStructuralChangeKind.Removed"/> -- the exact
+    /// #3902/#4116 shape item 5 already licenses (a synthesized call rewritten
+    /// to call a declared local function, or the reverse). This reuses
+    /// <see cref="CSharpBodyDiff.TryGetInvocationCalleeText(ReadOnlySpan{char}, out ReadOnlySpan{char})"/>,
+    /// the same hardened callee-extraction logic the correspondence layer
+    /// uses to license that declaration's own Added/Removed row, so an
+    /// argument-only edit (the call's target unchanged) never qualifies here
+    /// either. Checking for a sibling declaration row keeps this scoped to
+    /// that one paired shape: an unrelated callee rename with no paired
+    /// declaration change anywhere in the comparison must not get this
+    /// "renamed to a local function" caption, since nothing here shows the
+    /// new callee is actually a local function.
+    /// </summary>
+    readonly record struct CalleeRenamedRoleTransition(
+        string BeforeDescription,
+        string AfterDescription,
+        string DetailSummary);
+
+    static bool TryDescribeCalleeRenamedRoleTransition(
+        CSharpStructuralComparison comparison,
+        string beforeText,
+        string afterText,
+        out CalleeRenamedRoleTransition transition)
+    {
+        transition = default;
+        if (!CSharpBodyDiff.TryGetInvocationCalleeText(beforeText, out var beforeCalleeSpan)
+            || !CSharpBodyDiff.TryGetInvocationCalleeText(afterText, out var afterCalleeSpan))
+        {
+            return false;
+        }
+
+        string beforeCallee = beforeCalleeSpan.ToString();
+        string afterCallee = afterCalleeSpan.ToString();
+        if (beforeCallee.Length == 0
+            || afterCallee.Length == 0
+            || string.Equals(beforeCallee, afterCallee, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Added, afterCallee))
+        {
+            transition = new CalleeRenamedRoleTransition(
+                $"call target: {beforeCallee}",
+                $"call target: local function `{afterCallee}`",
+                $"call target: {beforeCallee} -> local function `{afterCallee}`");
+            return true;
+        }
+
+        if (DeclaresLocalFunctionNamed(comparison, CSharpStructuralChangeKind.Removed, beforeCallee))
+        {
+            transition = new CalleeRenamedRoleTransition(
+                $"call target: local function `{beforeCallee}`",
+                $"call target: {afterCallee}",
+                $"call target: local function `{beforeCallee}` -> {afterCallee}");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether this comparison already reports a <see cref="CSharpStructuralChangeKind.Added"/>
+    /// or <see cref="CSharpStructuralChangeKind.Removed"/> <c>LocalFunctionStatement</c>
+    /// row whose own selected source text names <paramref name="name"/> as a
+    /// whole identifier -- not merely a substring, which would otherwise let
+    /// an unrelated declaration like <c>OwnValue</c> falsely match a callee
+    /// named <c>Own</c>. The row's display label is only a generic per-kind
+    /// caption ("Local function"), never the declaration's own text, so this
+    /// re-selects the row's actual spans instead.
+    /// </summary>
+    static bool DeclaresLocalFunctionNamed(
+        CSharpStructuralComparison comparison,
+        CSharpStructuralChangeKind change,
+        string name)
+    {
+        var document = change == CSharpStructuralChangeKind.Added ? comparison.After : comparison.Before;
+        foreach (var candidate in comparison.Rows)
+        {
+            if (!candidate.Change.HasFlag(change))
+                continue;
+
+            string? kind = change == CSharpStructuralChangeKind.Added ? candidate.AfterKind : candidate.BeforeKind;
+            if (!string.Equals(kind, "LocalFunctionStatement", StringComparison.Ordinal))
+                continue;
+
+            var spans = change == CSharpStructuralChangeKind.Added ? candidate.AfterSpans : candidate.BeforeSpans;
+            foreach (var span in spans)
+            {
+                if (HasWholeIdentifierMatch(SelectText(document, span), name))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool HasWholeIdentifierMatch(string text, string identifier)
+    {
+        int searchStart = 0;
+        while (true)
+        {
+            int index = text.IndexOf(identifier, searchStart, StringComparison.Ordinal);
+            if (index < 0)
+                return false;
+
+            bool leftBoundary = index == 0 || !IsIdentifierChar(text[index - 1]);
+            int end = index + identifier.Length;
+            bool rightBoundary = end == text.Length || !IsIdentifierChar(text[end]);
+            if (leftBoundary && rightBoundary)
+                return true;
+
+            searchStart = index + 1;
+        }
+    }
+
+    static bool IsIdentifierChar(char value) => char.IsLetterOrDigit(value) || value == '_';
 
     /// <summary>
     /// Splits <paramref name="text"/> as <c>[qualifier.]callee(arguments)</c>
