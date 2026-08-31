@@ -474,6 +474,12 @@ capabilities rather than duplicating their participant collections. Snapshot
 compatibility therefore requires the same owner-issued report-surface and
 universe objects, not merely independently constructed values with similar
 display or boundary data.
+[Analysis universe realization](analysis-universe-realization.md) owns the
+execution-time handoff that binds those exact requirements to Workspace-backed,
+capability-owner-issued rosters, context incidence, resolution access, and
+lifetimes. Under that handoff contract, the consumer receives no mutable
+Workspace state and no context identity inferred from a group object or
+binding-policy version.
 
 ### Producer-policy attempt accounting
 
