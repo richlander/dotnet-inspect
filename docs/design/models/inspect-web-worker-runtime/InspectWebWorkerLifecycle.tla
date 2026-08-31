@@ -75,6 +75,7 @@ BoundedSilenceRun == "BoundedSilenceRun"
 AllowanceChurnRenews == "AllowanceChurnRenews"
 BootstrapFailureDrains == "BootstrapFailureDrains"
 WorkerDeclaredAsCancellation == "WorkerDeclaredAsCancellation"
+AcceptReadyAfterStartupExpiry == "AcceptReadyAfterStartupExpiry"
 Mutations ==
     {NoMutation,
      RenewStartupFromMessage,
@@ -94,7 +95,8 @@ Mutations ==
      BoundedSilenceRun,
      AllowanceChurnRenews,
      BootstrapFailureDrains,
-     WorkerDeclaredAsCancellation}
+     WorkerDeclaredAsCancellation,
+     AcceptReadyAfterStartupExpiry}
 
 BoundedSilenceScenario ==
     Mutation \in {BoundedSilenceRun, AllowanceChurnRenews}
@@ -442,6 +444,37 @@ StartupProbeAcknowledged ==
 
 ReceiveReady ==
     /\ epochState = Starting
+    /\ startupRemaining > 0
+    /\ epochState' = Ready
+    /\ readyMatched' = TRUE
+    /\ silenceRemaining' = MaxSilenceBudget
+    /\ UNCHANGED
+        <<closureCause,
+          startupRemaining,
+          startupRenewed,
+          lifecycleActive,
+          suspensionBudget,
+          mainLoopContinuous,
+          gapBudget,
+          assigned,
+          accepted,
+          released,
+          outcome,
+          quiesced,
+          workState,
+          probeOutstanding,
+          probeWasSent,
+          firstExpiryObserved,
+          drainRemaining,
+          realmDestroyed,
+          sourceRevoked,
+          assignedAtClosure>>
+    /\ UnchangedMutationFlags
+
+AcceptReadyAfterStartupExpiryMutation ==
+    /\ Mutation = AcceptReadyAfterStartupExpiry
+    /\ epochState = Starting
+    /\ startupRemaining = 0
     /\ epochState' = Ready
     /\ readyMatched' = TRUE
     /\ silenceRemaining' = MaxSilenceBudget
@@ -1456,6 +1489,7 @@ Next ==
     \/ StartupMessage
     \/ StartupProbeAcknowledged
     \/ ReceiveReady
+    \/ AcceptReadyAfterStartupExpiryMutation
     \/ ReceiveMismatchedReady
     \/ AcceptMismatchedReadyMutation
     \/ StartupExpires
@@ -1538,6 +1572,9 @@ TypeOK ==
 
 StartupBudgetDoesNotRenew ==
     ~startupRenewed
+
+ReadyRequiresUnexpiredStartup ==
+    epochState \in {Ready, Suspect} => startupRemaining > 0
 
 MatchingReadyIsRequired ==
     epochState \in {Ready, Suspect} => readyMatched

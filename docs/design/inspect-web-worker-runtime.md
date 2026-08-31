@@ -301,14 +301,17 @@ only one result:
 The worker registers the managed epoch-work reporter only after the generated
 facade is ready and before reporting readiness. It sends `Ready` only after the
 whole bootstrap operation fulfills. `Ready` echoes the exact protocol version,
-epoch, and configured idle-heartbeat interval. A mismatch is startup failure,
-not a partially compatible realm.
+epoch token, and configured idle-heartbeat interval. A mismatch is startup
+failure, not a partially compatible realm.
 
 Worker creation starts one non-renewable active-time startup budget. Only a
-matching `Ready` succeeds. Heartbeats or probe acknowledgments can demonstrate a responsive JavaScript
-realm but cannot renew, reset, or satisfy that budget. Lifecycle suspension and a detected
-main-loop discontinuity pause active elapsed time; they preserve the remaining
-budget rather than grant a fresh one.
+matching `Ready` received before the budget is exhausted succeeds. The handler
+compares the active-time deadline before opening the epoch; matching readiness
+at or after exhaustion closes the partial realm as startup failure. Heartbeats
+or probe acknowledgments can demonstrate a responsive JavaScript realm but
+cannot renew, reset, or satisfy that budget. Lifecycle suspension and a
+detected main-loop discontinuity pause active elapsed time; they preserve the
+remaining budget rather than grant a fresh one.
 
 Startup rejection or budget exhaustion closes admission, terminates the
 partial realm, reports unexpected startup failure for every activated held
@@ -847,6 +850,8 @@ feature implementation behavior.
 - responsive JavaScript with permanently stalled .NET initialization;
 - a non-renewable startup active-time budget that only matching `Ready`
   satisfies;
+- matching `Ready` immediately before the startup deadline succeeding and at
+  or after the deadline closing the partial realm;
 - startup suspension and main-loop discontinuity preserving, not resetting,
   the remaining budget;
 - idle heartbeat, probe acknowledgment, and serialized command-response

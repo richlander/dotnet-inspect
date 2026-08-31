@@ -194,6 +194,7 @@ among several distinct bounded durations.
 | Design property | Model property |
 | --- | --- |
 | Startup messages and resume cannot renew the budget | `StartupBudgetDoesNotRenew` |
+| Readiness cannot open an epoch after startup expiry | `ReadyRequiresUnexpiredStartup` |
 | Only matching readiness opens the epoch | `MatchingReadyIsRequired`, `ProbeCannotSatisfyStartup`, `MismatchedReadyCannotOpenEpoch` |
 | Draining refuses assignments | `DrainingRefusesAssignments` |
 | Progress-like non-task messages do not renew liveness | `NonTaskMessagesDoNotRenewWatchdog` |
@@ -283,8 +284,8 @@ The recorded runs used OpenJDK 21.0.12 and TLA+ tools 1.8.0
 | --- | --- | ---: | ---: | ---: | --- |
 | `InspectWebWorkerValidation.cfg` | 2 operations, 2 allowance classes, `MaxWorkSequence = 2` | 622 | 351 | 11 | No error |
 | `InspectWebWorkerProtocol.cfg` | 2 operations, `MaxWorkSequence = 2` | 209,761 | 65,283 | 21 | No error |
-| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 172,553 | 39,564 | 19 | No error |
-| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 4,965 | 1,964 | 14 | No error |
+| `InspectWebWorkerLifecycle.cfg` | 2 operations, all budgets = 1 | 87,212 | 20,124 | 18 | No error |
+| `InspectWebWorkerLifecycle_BoundedSilence.cfg` | No recurring task evidence or unbounded work; all budgets = 1 | 2,553 | 1,020 | 13 | No error |
 | `InspectWebWorkerProbe.cfg` | 1 command, `MaxProbeSequence = 2` | 827 | 316 | 10 | No error |
 
 ## Mutation results
@@ -324,6 +325,7 @@ violation.
 | `InspectWebWorkerLifecycleResetStartupOnResume.cfg` | Lifecycle resume resets startup | `StartupBudgetDoesNotRenew` |
 | `InspectWebWorkerLifecycleProbeSatisfiesStartup.cfg` | Probe acknowledgment opens the epoch | `ProbeCannotSatisfyStartup` |
 | `InspectWebWorkerLifecycleAcceptMismatchedReady.cfg` | Mismatched readiness opens the epoch | `MismatchedReadyCannotOpenEpoch` |
+| `InspectWebWorkerLifecycleAcceptReadyAfterStartupExpiry.cfg` | Matching readiness opens the epoch after the startup budget expires | `ReadyRequiresUnexpiredStartup` |
 | `InspectWebWorkerLifecycleTerminateAtFirstExpiry.cfg` | First silence interval terminates | `FirstWatchdogExpiryOnlyProbes` |
 | `InspectWebWorkerLifecycleTerminateWhileUnbounded.cfg` | Silence kills an unbounded epoch | `UnboundedSilenceCannotFailWatchdog` |
 | `InspectWebWorkerLifecycleTerminateAcrossMainGap.cfg` | A delayed main watchdog kills the worker | `MainLoopGapCannotFailWatchdog` |
