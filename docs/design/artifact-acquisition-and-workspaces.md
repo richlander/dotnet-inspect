@@ -397,6 +397,231 @@ token), and abandoned returned query streams need a stated policy (bound the
 wait, or invalidate visibly). These results establish evidence about the
 model, not the implementation.
 
+### Supplemental acquisition bridge
+
+`ArtifactSetSession.AddSupplementalAcquisitionAsync` is the focused bridge for
+a source that the host may omit from its plan, but whose outcome is no longer
+optional once the host invokes it. `Unavailable`, `Rejected`, and `Failed`
+remain visible admission failures; supplemental does not mean that a declared
+source may fail as success-shaped absence. An `Acquired` outcome with no
+artifacts is instead a successful no-op.
+
+The API has the same owner and outcome vocabulary as required acquisition, but
+adds an owner-issued capacity value to the callback:
+
+```csharp
+ValueTask AddSupplementalAcquisitionAsync(
+    Func<
+        ArtifactContributionScope,
+        SupplementalAcquisitionCapacity,
+        CancellationToken,
+        ValueTask<ArtifactAcquisitionOutcome>> acquire,
+    IReadOnlyCollection<ArtifactWorkspaceRole>? roles = null,
+    CancellationToken cancellationToken = default);
+```
+
+`SupplementalAcquisitionCapacity` is an immutable positive
+`MaxArtifacts`/`MaxArtifactBytes`/`MaxRetainedBytes` grant for that one call.
+The workspace computes `MaxArtifactBytes` as the smaller of the session's
+per-artifact ceiling and the remaining retained-byte capacity. A host may map
+the grant into stricter adapter limits, but may not enlarge it. Source-specific
+bounds such as directory `MaxObservedEntries` remain adapter-owned and are not
+invented by the workspace.
+
+The current session cannot calculate an honest remaining-byte grant while
+required contributions are still deferred until `SealAsync`. The first
+supplemental call therefore performs a one-way phase transition:
+
+1. Under the session gate, it permanently closes required acquisition before
+   its first await. A later `AddRequiredAcquisitionAsync` rejects even when the
+   checkpoint or supplemental call fails. A new session is the escape hatch
+   for a composition that needs more required members.
+2. Existing required-acquisition failures prevent the callback from running
+   before the checkpoint observes cancellation. They retain their original
+   outcome kind and diagnostic.
+3. The checkpoint applies the current seal order to accepted required batches:
+   aggregate count first; then, for each contribution in acquisition order,
+   cancellation, materialization and the per-artifact bound, cumulative
+   retained bytes, and finally identity collision. Required scope ownership was
+   already checked when the batch was added.
+4. Count, per-artifact, aggregate-byte, identity, and recognized
+   materialization failures retain the current `artifact.session.*` kind,
+   diagnostic, and precedence. A zero required count is the sole exception:
+   the checkpoint defers `artifact.session.empty` because a later nonempty
+   supplemental batch may make the session publishable.
+5. A diagnostic checkpoint failure returns normally without invoking the
+   callback; a later seal returns `NotPublished`. Cancellation at the same
+   per-contribution points aborts and throws `OperationCanceledException`.
+6. A successful checkpoint retains the exact required count, byte charge,
+   identities, snapshots, roles, and leases. `SealAsync` consumes those
+   snapshots and never reopens or double-counts the original contributions.
+
+The checkpoint is a one-way simulation of current seal behavior: except for
+deferring the empty-session decision, a checkpoint diagnostic is the same
+first diagnostic that sealing the same required state under the same
+cancellation observations would produce. Sessions that never call
+supplemental acquisition retain the existing required-add and seal-time
+materialization behavior. The supplemental model treats this correctly derived
+checkpoint result as an owner input; the implementation gate, not that model,
+proves the simulation.
+
+Invocation behavior is closed:
+
+| State at method entry | Result |
+| --- | --- |
+| Session is sealing, published, or disposed | Preserve the existing non-constructing `InvalidOperationException`. |
+| Another required or supplemental acquisition is active | Throw the existing acquisition-in-progress `InvalidOperationException`; do not close the required phase. |
+| First eligible supplemental call | Close the required phase and run the checkpoint. |
+| Checkpoint or an earlier acquisition already recorded a diagnostic failure | Do not invoke this callback; return normally so seal reports the retained failures. |
+| Checkpoint succeeded, no failure exists, and positive capacity remains | Record this call as active, issue the grant, and invoke the callback. |
+| Checkpoint succeeded but count or retained-byte capacity is exhausted | Record the supplemental capacity rejection without invoking the callback. |
+
+Concurrent supplemental calls are rejected rather than queued. A successful
+empty or nonempty call leaves the phase open for the next sequential
+supplemental call; any diagnostic failure prevents later callbacks because
+publication is already impossible.
+
+For each eligible call, recording the request and resolving it to either a
+positive grant or capacity rejection occur under one owner-gate hold before
+the first await. Seal, disposal, and a competing call cannot interleave inside
+that transition; whichever reaches the gate first determines the result. The
+model represents request and resolution as two logical steps but deliberately
+permits no external transition between them.
+
+After a successful checkpoint, supplemental calls are sequential. Each call
+receives all positive capacity remaining after the checkpoint and every
+previous accepted supplemental batch. If either the artifact-count or
+retained-byte remainder is zero, the workspace records
+`Rejected`/`artifact.supplemental.capacity-exhausted` before invoking the
+adapter. That is an attributed failure for a supplemental source the host
+chose to invoke, not an empty adapter result.
+
+Owner-produced `artifact.supplemental.*` diagnostics attribute the failure to
+the supplemental admission operation rather than the generation-wide seal.
+This API does not add a source identifier. Adapter-specific coordinate and
+producer attribution remains in the adapter's own preserved diagnostic.
+
+For a returned nonempty batch, the workspace:
+
+1. requires every contribution to belong to the callback's scope;
+2. rejects a count overrun before opening content;
+3. rejects an identity collision against checkpointed required content,
+   previously accepted supplemental content, or the current batch before
+   opening content;
+4. materializes the complete batch into owner-private snapshots while
+   enforcing the granted per-artifact and retained-byte bounds; and
+5. atomically commits the snapshots, actual count and bytes, explicit roles,
+   and returned lease only after every contribution succeeds.
+
+No partial batch survives. Count, per-artifact, retained-byte, foreign-scope,
+identity-collision, and materialization failures use
+`artifact.supplemental.count-limit`,
+`artifact.supplemental.artifact-byte-limit`,
+`artifact.supplemental.byte-limit`, `artifact.supplemental.foreign`,
+`artifact.supplemental.identity-collision`, and
+`artifact.supplemental.materialization-failed`, respectively. Limit failures
+are `Rejected`; foreign scope, identity collision, and materialization failure
+are `Failed`. When one byte would exceed both byte bounds, the per-artifact
+failure takes precedence. Adapter-produced diagnostic outcomes retain their
+adapter-defined kind and diagnostic rather than being wrapped.
+
+`ArtifactMaterializationLimitException` maps to the supplemental
+per-artifact rejection. `IOException`, `UnauthorizedAccessException`,
+`NotSupportedException`, `InvalidOperationException`, and `OverflowException`
+map to supplemental materialization failure, matching the current seal
+classification. An unexpected materialization exception aborts the session and
+propagates after cleanup rather than becoming a generic diagnostic.
+
+An empty `Acquired` batch contributes no artifact, identity, role, or retained
+byte. The workspace still owns its returned lease and attempts disposal before
+the call ceases to be in progress or another acquisition may start. A cleanup
+failure is recorded in `CleanupFailures`; consistent with other lease cleanup,
+it does not turn otherwise valid artifact content into an admission failure or
+replace a primary failure. The capacity grant ends only after that cleanup
+attempt.
+
+An acquired batch rejected during scope, identity, count, or byte validation
+also has its returned lease cleaned up before the call ends. Callback
+exception, materialization cancellation, or other exceptional failure aborts
+the session through the existing termination path. Cancellation uses the
+supplemental call's token for required checkpointing, adapter work, and
+supplemental materialization, remains `OperationCanceledException`, and
+attaches cleanup failures without replacing cancellation.
+
+If caller cancellation is observed before owner termination, cancellation is
+the primary result. If termination closes admission before the owner can commit
+a returned or materialized batch, `ObjectDisposedException` is primary. In
+either order, cleanup failures are attached without replacing that primary
+result.
+
+Seal rejects while checkpoint, adapter work, materialization, or returned-lease
+cleanup is active. Disposal closes admission first and prevents a late
+nonempty batch from committing. Any late `Acquired` outcome, including empty,
+transfers directly to cleanup, after which the call throws
+`ObjectDisposedException`; cleanup failure remains attached and visible.
+Previously accepted supplemental leases remain governed by the session's
+ordinary retained-lease lifetime.
+
+Preserving current termination behavior means `DisposeAsync` cleans leases
+already known to the session but does not wait for an in-flight adapter to
+return. The supplemental call owns any late returned lease and completes its
+cleanup before that call finishes. `CleanupFailures` may therefore gain a late
+entry after `DisposeAsync` returns; awaiting the supplemental call is the
+completion boundary for that late cleanup.
+
+A session may enter the supplemental phase with no required artifacts. A
+nonempty supplemental batch can then make the session publishable; if every
+supplemental result is empty, seal retains the existing
+`Rejected`/`artifact.session.empty` result. Roles are copied before the first
+await and apply only to an accepted nonempty batch. Supplemental acquisition
+never infers caller designation, platform trust, or another role from source
+kind or location.
+
+This bridge is a bounded implementation stage, not the workspace-wide
+whole-plan reservation described earlier in this section. Its grant is
+exclusive because the current session serializes acquisition and excludes
+seal; it does not reserve against other sessions, join concurrent demands, or
+retain charges until dependent groups quiesce. It therefore does not satisfy
+the `WorkspaceAdmissionBudget_*` or single-flight target gates. Directory
+enumeration and selection remain owned by the
+[bounded directory coordinate](#bounded-directory-coordinate); context
+identity, assembly projection, and binding remain outside this bridge.
+
+[`SupplementalAcquisitionAdmission.tla`](../models/supplemental-acquisition-admission/SupplementalAcquisitionAdmission.tla)
+model-checks the new interaction from phase close through checkpoint, one
+explicit requested call, one active exact remaining-capacity grant, empty or
+nonempty adapter completion, operation-level acceptance after an abstract
+materialization result, cleanup, seal, and close. Its
+[model guide](../models/supplemental-acquisition-admission/README.md) records
+the 20 configurations, checked properties, 11 reachability probes, seven guard
+mutations, commands, and non-claims. It does not derive the checkpoint result,
+model per-stream progress or temporary snapshots, or prove scope, identity, or
+byte-failure precedence.
+
+TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0)
+checked the primary two-operation bound: 1,632 states generated, 835 distinct
+states, maximum depth 16, with no invariant violations or temporal
+counterexamples. The zero-required bound generated 1,711 states, found 833
+distinct states, and reached depth 16 with the same result. Each reachability
+sentinel produced its intended counterexample. Mutations that accept a late
+required add, start before the checkpoint, accept capacity overrun, accept
+after close, release before lease cleanup, convert failure to empty success, or
+commit an empty result violated their paired properties. These results
+establish the bounded model claims, not implementation conformance.
+
+Implementation is complete when focused gates prove:
+
+- `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
+- `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
+- `SupplementalAcquisition_EmptyBatchPublishesNoArtifactsAndOwnsItsLease`
+- `SupplementalAcquisition_ReservesBeforeAdapterAndCannotOverrunAtSeal`
+- `SupplementalAcquisition_PreservesAdapterOutcomeKindAndDiagnostic`
+- `SupplementalAcquisition_NonEmptyBatchPreservesScopeAndRoleChecks`
+- `SupplementalAcquisition_IdentityAndMaterializationAreAtomic`
+- `SupplementalAcquisition_RejectedAcquiredBatchCleansLeaseWithoutMaskingFailure`
+- `SupplementalAcquisition_ConcurrentTerminationDisposesLateOutcomeAndReservation`
+- `SupplementalAcquisition_CancellationRemainsCancellation`
+
 Retaining content does not retain authority. The artifact owner issues two
 different source-neutral access leases:
 
@@ -1882,6 +2107,16 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_DisposalDuringSealCannotPublish`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
+- `SupplementalAcquisition_RequiredCheckpointPreservesSealOutcome`
+- `SupplementalAcquisition_SealUsesCheckpointedSnapshots`
+- `SupplementalAcquisition_EmptyBatchPublishesNoArtifactsAndOwnsItsLease`
+- `SupplementalAcquisition_ReservesBeforeAdapterAndCannotOverrunAtSeal`
+- `SupplementalAcquisition_PreservesAdapterOutcomeKindAndDiagnostic`
+- `SupplementalAcquisition_NonEmptyBatchPreservesScopeAndRoleChecks`
+- `SupplementalAcquisition_IdentityAndMaterializationAreAtomic`
+- `SupplementalAcquisition_RejectedAcquiredBatchCleansLeaseWithoutMaskingFailure`
+- `SupplementalAcquisition_ConcurrentTerminationDisposesLateOutcomeAndReservation`
+- `SupplementalAcquisition_CancellationRemainsCancellation`
 - `WorkspaceDisposal_CancelsAdmissionAndDisposesLateOutcome`
 - `BrowserWorkspace_DisposalDuringAwaitedAdmissionCannotPublish`
 - `ArtifactAdmission_ProjectsAssembliesThroughAuthorizedLease`
@@ -1987,6 +2222,11 @@ batch snapshots, and cancellation preservation. Shared local-path admission
 remains with the
 [local adapter](#shared-local-path-admission) rather than these directory
 gates.
+The ten named `SupplementalAcquisition_*` gates remain unverified. Together
+they require the one-way required checkpoint, reuse of checkpointed snapshots,
+finite pre-adapter capacity, empty-batch lease ownership, exact visible
+failure, atomic scoped nonempty admission, validation-failure cleanup,
+termination cleanup, and cancellation preservation.
 `LocalOnlyHost_InspectsCallerSuppliedLocalAssembly`
 deletes its temporary source after publication, then passes an
 `ArtifactContentReference`'s guarded published snapshot opener to Metadata, so
@@ -1998,9 +2238,10 @@ compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
 explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
-Workspace-wide admission budgets, single-flight/reentrancy, directory
-acquisition, content digests, dependent-group quiescence, and Metadata
-consumption of workspace roles remain unverified.
+Supplemental acquisition, workspace-wide admission budgets,
+single-flight/reentrancy, directory acquisition, content digests,
+dependent-group quiescence, and Metadata consumption of workspace roles remain
+unverified.
 
 ## Non-goals
 

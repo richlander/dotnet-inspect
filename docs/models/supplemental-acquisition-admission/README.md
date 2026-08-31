@@ -13,19 +13,21 @@ Implementation is tracked by
 
 ## Scope
 
-The main bound uses two supplemental operations. The session starts with one
-required artifact and one retained-byte unit, and has room for two more
-artifacts and two more byte units. One supplemental result consumes one unit;
-the other consumes two. Their ordering therefore reaches accepted, exhausted,
-and overrun paths without changing the bound.
+The main bound uses two supplemental operations. One correctness configuration
+starts with one required artifact and one retained-byte unit; another starts
+with no required artifacts or bytes. Both have room for three artifacts and
+three byte units. One supplemental result consumes one unit; the other consumes
+two. Their ordering therefore reaches accepted, exhausted, overrun,
+supplemental-only publication, and empty-only rejection paths.
 
 The model checks:
 
 - the permanent required-to-supplemental phase transition;
 - an abstract successful or failed required-content checkpoint;
+- explicit supplemental request and capacity-resolution states;
 - one positive, exact remaining-capacity grant before adapter work;
 - cumulative artifact-count, per-artifact, and retained-byte bounds;
-- atomic nonempty batch acceptance after materialization;
+- atomic nonempty batch acceptance after an abstract materialization result;
 - empty-batch cleanup without artifacts or roles;
 - visible adapter failure and capacity rejection;
 - sealing exclusion while acquisition or cleanup is active;
@@ -40,6 +42,12 @@ service inside the current single-session implementation. Session close
 abstracts caller cancellation and owner disposal after either has closed
 admission; exception typing remains an implementation obligation.
 
+`Requested` and its capacity resolution are two logical model steps for one
+owner-gate transition. Seal or close cannot interleave between them because the
+implementation contract resolves capacity under that gate before its first
+await. A competing call or termination that reaches the gate first prevents
+the request from entering this modeled state.
+
 ## Non-claims
 
 The model does not cover:
@@ -50,6 +58,11 @@ The model does not cover:
 - multi-demand single-flight, workspace-wide whole-plan reservation, or
   dependent-group quiescence, which are owned by
   [`ArtifactSessionAdmission.tla`](../artifact-session-admission/ArtifactSessionAdmission.tla);
+- derivation of the required-checkpoint result, per-stream materialization
+  progress, temporary snapshot rollback, byte-failure precedence, scope
+  ownership, or artifact identity validation;
+- the rejected outcome of a competing concurrent call, or termination that
+  wins the owner gate before a supplemental request is recorded;
 - local-directory enumeration, selection, or snapshot construction;
 - artifact identity construction, metadata decode, assembly projection,
   binding, or query authorization;
@@ -62,7 +75,9 @@ The model does not cover:
 | `PhaseCoherence` | The checkpoint occurs only after the permanent phase close, and seal states retain its result. |
 | `OneActiveGrant` | Exactly one active supplemental operation owns the positive remaining-capacity grant. |
 | `CapacityBounded` | Committed content plus the active grant never exceeds count, per-artifact, or retained-byte limits. |
+| `CapacityGuardWitnessHolds` | Every issued grant re-observes positive count, retained-byte, and per-artifact capacity. |
 | `ReturnedLeaseRetainsGrant` | A returned lease remains owned by the active operation until retention or cleanup attempt. |
+| `CleanupReleaseWitnessHolds` | Grant release after a returned lease observes that lease's retention or cleanup attempt. |
 | `BatchCommitIsAtomic` | A nonempty result contributes its complete configured count and roles or contributes nothing. |
 | `EmptyBatchIsNoOp` | An empty result contributes no artifact or role and reaches a completed cleanup attempt. |
 | `FailureIsVisible` | Adapter failure and capacity rejection cannot become empty success. |
@@ -71,7 +86,9 @@ The model does not cover:
 | `CheckpointGuardWitnessHolds` | Adapter work starts only after a successful required-content checkpoint. |
 | `AcceptanceGuardWitnessHolds` | Acceptance observes an open supplemental phase, successful checkpoint, and fitting result. |
 | `PublicationGuardWitnessHolds` | Publication observes successful checkpoint, no failure, no active call, and nonempty content. |
-| `EveryStartedOperationEventuallySettles` | Under weak fairness, each started operation accepts, empties, fails, or rejects for capacity. |
+| `PublishedStateIsCoherent` | A published session has a successful checkpoint, no failure, no active call, and nonempty content. |
+| `EveryRequestedCallEventuallyResolves` | Under weak fairness, an owner-gate-accepted request starts with positive capacity or rejects before adapter work. |
+| `EveryStartedOperationEventuallySettles` | Under weak fairness, each adapter-started operation accepts, empties, or fails. |
 | `EveryReturnedLeaseEventuallyTransfersOrCleans` | Under weak fairness, each returned lease is retained or reaches a cleanup attempt. |
 | `RejectedSessionEventuallyCleansRetainedLeases` | Rejection eventually attempts cleanup of every retained supplemental lease. |
 | `ClosedSessionEventuallyCleansRetainedLeases` | Close eventually attempts cleanup of every retained supplemental lease. |
@@ -83,19 +100,24 @@ corresponding invariant.
 
 ## Configurations
 
-The committed inventory contains 15 configurations: one complete correctness
-run, seven reachability probes, and seven deliberate mutations.
+The committed inventory contains 20 configurations: two complete correctness
+runs, 11 reachability probes, and seven deliberate mutations.
 
 | Configuration | Purpose |
 | --- | --- |
 | `SupplementalAcquisitionAdmission.cfg` | Checks every safety and liveness property over the two-operation bound. |
+| `SupplementalAcquisitionAdmission_ZeroRequired.cfg` | Checks the complete property set when supplemental content starts from an empty required set. |
 | `ReachabilityCheckpointFailure.cfg` | Reaches a failed required-content checkpoint after the phase closes. |
 | `ReachabilityCapacityRejection.cfg` | Reaches rejection before adapter invocation after prior content consumes the remaining capacity. |
+| `ReachabilityCountCapacityRejection.cfg` | Reaches pre-adapter rejection with no artifact-count capacity remaining. |
+| `ReachabilityByteCapacityRejection.cfg` | Reaches pre-adapter rejection with no retained-byte capacity remaining. |
 | `ReachabilityEmptyBatch.cfg` | Reaches empty-batch cleanup with no artifact or role contribution. |
 | `ReachabilityAcceptance.cfg` | Reaches atomic acceptance of a fitting nonempty batch. |
 | `ReachabilityOverrun.cfg` | Reaches a result that exceeds the current operation's count, per-artifact, and retained-byte grant. |
 | `ReachabilityLateOutcome.cfg` | Reaches a returned adapter result after session close. |
 | `ReachabilityRequiredRejection.cfg` | Reaches rejection of a required add after supplemental phase entry. |
+| `ReachabilityEmptyOnlyRejection.cfg` | Reaches empty-session rejection after a supplemental result is empty and no nonempty batch is accepted. |
+| `ReachabilitySupplementalOnlyPublication.cfg` | Reaches publication of a nonempty supplemental batch with no required artifacts. |
 | `BrokenRequiredPhaseGuard.cfg` | Accepts a required add after supplemental phase entry. |
 | `BrokenCheckpointGuard.cfg` | Starts adapter work before a successful checkpoint. |
 | `BrokenCapacityGuard.cfg` | Accepts a batch that exceeds its remaining-capacity grant. |
@@ -114,13 +136,16 @@ java -XX:+UseParallelGC -cp ~/.local/share/tlaplus/tla2tools.jar \
 ```
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the repository-pinned
-`tla2tools.jar` v1.8.0) checked the primary configuration: 1,590 states
-generated, 807 distinct states, maximum depth 14, with no invariant violations
-or temporal counterexamples.
+`tla2tools.jar` v1.8.0) checked the primary configuration: 1,632 states
+generated, 835 distinct states, maximum depth 16, with no invariant violations
+or temporal counterexamples. The zero-required configuration generated 1,711
+states, found 833 distinct states, and reached maximum depth 16 with the same
+clean result.
 
-Each reachability configuration violated only its intentional `NotReached`
-invariant. The broken required-phase, checkpoint, capacity, late-acceptance,
-cleanup-release, failure-visibility, and empty-no-op configurations violated
-`RequiredPhaseStaysClosed`, `CheckpointGuardWitnessHolds`, `CapacityBounded`,
+Each of the 11 reachability configurations violated only its intentional
+`NotReached` invariant. The broken required-phase, checkpoint, capacity,
+late-acceptance, cleanup-release, failure-visibility, and empty-no-op
+configurations violated `RequiredPhaseStaysClosed`,
+`CheckpointGuardWitnessHolds`, `CapacityBounded`,
 `AcceptanceGuardWitnessHolds`, `ReturnedLeaseRetainsGrant`,
 `FailureIsVisible`, and `EmptyBatchIsNoOp`, respectively.

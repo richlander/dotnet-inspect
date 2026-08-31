@@ -86,7 +86,7 @@ SessionStates ==
   {"Required", "Supplemental", "Sealing", "Published", "Rejected", "Closed"}
 CheckpointStates == {"NotRun", "InProgress", "Succeeded", "Failed"}
 OperationStates ==
-  {"Pending", "Acquiring", "Materializing", "CleaningEmpty",
+  {"Pending", "Requested", "Acquiring", "Materializing", "CleaningEmpty",
    "CleaningFailure", "Accepted", "Empty", "Failed", "CapacityRejected"}
 LeaseStates == {"None", "Returned", "Retained", "Disposed", "CleanupFailed"}
 
@@ -285,10 +285,30 @@ AttemptRequiredAdd ==
           capacityGuardWitness, acceptanceGuardWitness,
           publicationGuardWitness, cleanupReleaseWitness >>
 
-StartSupplemental(s) ==
+RequestSupplemental(s) ==
   /\ sessionState = "Supplemental"
   /\ (checkpointState = "Succeeded" \/ ~EnforceCheckpointGuard)
   /\ operationState[s] = "Pending"
+  /\ active = NoSupplemental
+  /\ \A other \in Supplementals :
+       operationState[other] # "Requested"
+  /\ operationState' = [operationState EXCEPT ![s] = "Requested"]
+  /\ UNCHANGED
+       << sessionState, checkpointState, active, leaseState, accepted,
+          rolesApplied, failures, cleanupFailures, grantCount,
+          grantArtifactBytes, grantRetainedBytes, requiredAddAttempted,
+          requiredAcceptedAfterSupplemental, adapterFailures,
+          checkpointFailureObserved, capacityRejectionObserved,
+          emptyObserved, acceptanceObserved, overrunObserved,
+          lateOutcomeObserved, requiredRejectionObserved,
+          checkpointGuardWitness, capacityGuardWitness,
+          acceptanceGuardWitness, publicationGuardWitness,
+          cleanupReleaseWitness >>
+
+StartSupplemental(s) ==
+  /\ sessionState = "Supplemental"
+  /\ (checkpointState = "Succeeded" \/ ~EnforceCheckpointGuard)
+  /\ operationState[s] = "Requested"
   /\ active = NoSupplemental
   /\ RemainingCount > 0
   /\ RemainingBytes > 0
@@ -317,7 +337,7 @@ StartSupplemental(s) ==
 RejectForCapacity(s) ==
   /\ sessionState = "Supplemental"
   /\ checkpointState = "Succeeded"
-  /\ operationState[s] = "Pending"
+  /\ operationState[s] = "Requested"
   /\ active = NoSupplemental
   /\ RemainingCount = 0 \/ RemainingBytes = 0
   /\ operationState' =
@@ -593,6 +613,7 @@ BeginSeal ==
   /\ sessionState = "Supplemental"
   /\ checkpointState \in {"Succeeded", "Failed"}
   /\ active = NoSupplemental
+  /\ \A s \in Supplementals : operationState[s] # "Requested"
   /\ sessionState' = "Sealing"
   /\ UNCHANGED
        << checkpointState, active, operationState, leaseState, accepted,
@@ -649,6 +670,7 @@ RejectSeal ==
 CloseSession ==
   /\ sessionState \in
        {"Required", "Supplemental", "Sealing", "Published"}
+  /\ \A s \in Supplementals : operationState[s] # "Requested"
   /\ sessionState' = "Closed"
   /\ operationState' =
        IF active = NoSupplemental
@@ -710,6 +732,8 @@ DisposeRetainedFails(s) ==
 AdapterCompletes(s) ==
   AdapterReturnsEmpty(s) \/ AdapterReturnsFailure(s) \/ AdapterReturnsBatch(s)
 
+ResolveRequest(s) == StartSupplemental(s) \/ RejectForCapacity(s)
+
 MaterializationSettles(s) ==
   MaterializationSucceeds(s) \/ MaterializationFails(s)
 
@@ -729,8 +753,8 @@ Next ==
   \/ CheckpointSucceeds
   \/ CheckpointFails
   \/ AttemptRequiredAdd
-  \/ \E s \in Supplementals : StartSupplemental(s)
-  \/ \E s \in Supplementals : RejectForCapacity(s)
+  \/ \E s \in Supplementals : RequestSupplemental(s)
+  \/ \E s \in Supplementals : ResolveRequest(s)
   \/ \E s \in Supplementals : AdapterCompletes(s)
   \/ \E s \in Supplementals : MaterializationSettles(s)
   \/ \E s \in Supplementals : CleanupSettles(s)
@@ -743,6 +767,7 @@ Spec ==
   /\ Init
   /\ [][Next]_vars
   /\ WF_vars(CheckpointSucceeds \/ CheckpointFails)
+  /\ \A s \in Supplementals : WF_vars(ResolveRequest(s))
   /\ \A s \in Supplementals : WF_vars(AdapterCompletes(s))
   /\ \A s \in Supplementals : WF_vars(MaterializationSettles(s))
   /\ \A s \in Supplementals : WF_vars(CleanupSettles(s))
@@ -806,6 +831,7 @@ FailureIsVisible ==
 LeaseOwnershipCoherent ==
   \A s \in Supplementals :
     /\ operationState[s] = "Pending" => leaseState[s] = "None"
+    /\ operationState[s] = "Requested" => leaseState[s] = "None"
     /\ operationState[s] = "Acquiring" => leaseState[s] = "None"
     /\ operationState[s] \in
          {"Materializing", "CleaningEmpty", "CleaningFailure"}
@@ -839,6 +865,12 @@ EveryStartedOperationEventuallySettles ==
     operationState[s] \in ActiveStates
       ~> operationState[s] \in TerminalOperationStates
 
+EveryRequestedCallEventuallyResolves ==
+  \A s \in Supplementals :
+    operationState[s] = "Requested"
+      ~> operationState[s] \in
+           {"Acquiring", "CapacityRejected"}
+
 EveryReturnedLeaseEventuallyTransfersOrCleans ==
   \A s \in Supplementals :
     leaseState[s] = "Returned"
@@ -861,9 +893,22 @@ ClosedSessionEventuallyCleansRetainedLeases ==
 (***************************************************************************)
 CheckpointFailureNotReached == ~checkpointFailureObserved
 CapacityRejectionNotReached == ~capacityRejectionObserved
+CountCapacityRejectionNotReached ==
+  ~(capacityRejectionObserved /\ RemainingCount = 0)
+ByteCapacityRejectionNotReached ==
+  ~(capacityRejectionObserved /\ RemainingBytes = 0)
 EmptyBatchNotReached == ~emptyObserved
 AcceptanceNotReached == ~acceptanceObserved
 OverrunNotReached == ~overrunObserved
 LateOutcomeNotReached == ~lateOutcomeObserved
 RequiredRejectionNotReached == ~requiredRejectionObserved
+EmptyOnlyRejectionNotReached ==
+  ~( /\ sessionState = "Rejected"
+     /\ RequiredCount = 0
+     /\ accepted = {}
+     /\ checkpointState = "Succeeded"
+     /\ failures = {}
+     /\ emptyObserved )
+SupplementalOnlyPublicationNotReached ==
+  ~(sessionState = "Published" /\ RequiredCount = 0 /\ accepted # {})
 =============================================================================
