@@ -244,7 +244,7 @@ generic and nested-generic typed `Equals(T)`; run
 generated fixtures run; use `list` to list fixture IDs, `--json` for
 machine-readable list/results, and
 `--keep-generated-fixtures` to preserve the generated project for drill-down.
-The `rts.*` fixtures are focused ReturnToSender parity-burndown probes; for
+The `rts.*` fixtures are focused ReturnToSender parity-gap probes; for
 example `rts.attribute-shell` protects attribute type shells that must preserve a
 spellable `System.Attribute` base before attribute usages can compile.
 Use `--return-to-sender-fixtures rts.candidates` with `--return-to-sender`,
@@ -918,8 +918,8 @@ Regardless of the aggregate baseline, `rts-parity` snapshots carry a hard,
 per-row regression gate. A method the compile-back oracle recompiled `Exact`
 must not recompile-fail (`RecompileFail` or `ContextFail`) under RTS — that
 transition means the ReturnToSender orchestrator dropped fidelity the product
-already proved. The current gaps are committed as a small, tool-emitted burn-down
-manifest (`tools/DecompilerHarness/corpus/rts-parity-burndown.json`); the gate
+already proved. The current gaps are committed as a small, tool-emitted known-gap
+manifest (`tools/DecompilerHarness/corpus/rts-parity-known-gaps.json`); the gate
 fails only when a *new* `Exact`-to-recompile-failure row appears that is not
 already in the manifest, naming every offending `Assembly!Type::Method#Overload`.
 The known rows stay a visible, shrinking checklist that the RTS-orchestrator
@@ -931,10 +931,10 @@ dotnet run --project tools/DecompilerHarness -c Release -- "${assemblies[@]}" \
   --compile-cap 0 \
   --corpus-fidelity-cap 3 \
   --corpus-fidelity-oracle rts-parity \
-  --emit-rts-parity-burndown tools/DecompilerHarness/corpus/rts-parity-burndown.json
+  --emit-rts-parity-known-gaps tools/DecompilerHarness/corpus/rts-parity-known-gaps.json
 ```
 
-Pass `--rts-parity-burndown tools/DecompilerHarness/corpus/rts-parity-burndown.json`
+Pass `--rts-parity-known-gaps tools/DecompilerHarness/corpus/rts-parity-known-gaps.json`
 on any `rts-parity` run to enforce the gate; a row present in the manifest but no
 longer failing is reported as `resolved` so the manifest can be trimmed on the
 next regeneration.
@@ -1657,7 +1657,7 @@ scope-and-slot identities do not equal the web sets that materialization
 removes or retains. This is C2 entry evidence, not a correctness gate; use
 `--corpus-method-cap N` for a quick bounded read.
 
-**Slot unifier census** (`--slot-unifier-census`): the C2/#2209 burn-down view
+**Slot unifier census** (`--slot-unifier-census`): the C2/#2209 reduction view
 from the printer's own stack-slot unifier path. It runs the full product
 pipeline, then asks `CSharpPrinter` to collect its stack-slot naming/type
 telemetry without emitting C#. The key lines are `Multi-candidate slots unified
