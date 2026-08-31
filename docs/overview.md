@@ -91,7 +91,11 @@ substrates, and inspection producers that will extend that space.
 - `prototypes/inspect-web/` is the browser/Wasm product host. Its
   [UI design](design/inspect-web-ui.md) owns the website's shared presentation
   and interaction language while individual components retain rendering,
-  binding, and state-transition responsibilities.
+  binding, and state-transition responsibilities. Its
+  [browser front-end security posture](design/web-frontend-security.md) owns how
+  that host is delivered securely: dependency containment, front-end static
+  analysis, response headers, and the principles that decide whether a proposed
+  protection belongs there at all.
 - `tools/DecompilerHarness/` owns ReturnToSender closure discovery,
   type-cluster planning, compile-back reference selection and closure, and
   generated-artifact admission and receipt-gated verdict composition. RTS
@@ -168,6 +172,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
+- [Browser front-end security posture](design/web-frontend-security.md):
+  dependency containment, front-end static analysis, response headers, and the
+  principles governing what the browser host does and does not enforce.
 - [Inspect-web TypeScript semantic facts](design/inspect-web-typescript-semantic-facts.md):
   one pinned TypeScript project snapshot exposed through repository-owned
   semantic handles, queries, and explicit failure results.
