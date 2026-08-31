@@ -119,7 +119,7 @@ readiness from its presence (see [Forming a candidate](#forming-a-candidate)).
 - **Base movement alone does not remove it.** Classify the landed range per
   [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving); a no-interaction
-  classification keeps the label through the integration.
+  classification keeps the label on the unchanged reviewed head.
 - **Remove it** before a new round, author change, conflict recovery, restack,
   unresolved finding, or draft transition — anything that spends the clean
   reviews or reopens the head to a fresh finding.
@@ -137,11 +137,11 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   approval; conflict recovery is the explicit exception. A CI failure requiring
   an author change still supersedes the attempt, and all findings carry forward.
 - **Auto-merge on the final push:** once every required review is review-clean,
-  or the intended final head/base carries an approved exact-head
+  or the intended final head carries an approved exact-head
   trivial-interaction waiver, the user may authorize auto-merge for that exact
-  candidate; the agent may ask. If the head or base moves after arming, disarm
-  and ask again before arming the new exact candidate. Review that head first
-  unless the user approves its exact-head trivial-interaction waiver.
+  head; the agent may ask. Head movement disarms it. Base movement alone does
+  not: if the PR remains open, classify the landed range and disarm before any
+  action other than no-interaction carry-forward.
 - **"CI is ready":** the user's statement that CI has no failures and the PR is
   mergeable. Trust it without re-checking and move to the next task, such as
   dispatching the next round's reviewers.
@@ -156,9 +156,10 @@ make an unmergeable PR ready, or transfer fixed-head evidence to a new head.
   drop the PR's change to that file — and the cumulative diff against the
   newest base must stay a subset of the original reviewed diff with no
   surviving reviewed claim, contract, or behavior changed. `review-clean` stays
-  absent on the integration head; any later head or base movement expires the
-  decision, and any semantic conflict resolution or new authored change
-  requires ordinary re-review. Evidence to publish before asking:
+  absent on the integration head. Later no-interaction base movement extends
+  the waiver to the analyzed tip without moving the head or asking again; head
+  movement or any other interaction expires it. Semantic conflict resolution
+  or new authored change requires ordinary re-review. Evidence to publish:
   [Trivial-interaction re-review waiver](docs/round-orchestration.md#trivial-interaction-re-review-waiver).
 
 ## Before changing files
@@ -451,10 +452,9 @@ carry-forward analysis. Before merge, confirm live GitHub readiness — see
 When a `main`-targeting PR (or the bottom open stack slice) has a review-clean
 head, or a head with a pending/approved trivial-interaction waiver, and
 `origin/main` moves, assess the landed range before doing anything else — do
-not integrate blindly and do not start another round by default. A base
-movement beyond a waiver's recorded base expires it before classification. An
-upper stack slice follows its parent instead: parent movement is a restack
-requiring review at the new head.
+not integrate blindly and do not start another round by default. An upper stack
+slice follows its parent instead: parent movement is a restack requiring review
+at the new head.
 
 After a non-mutating fetch, classify the landed range into exactly one
 outcome, act on it, and report the classification and action as normal session
@@ -463,13 +463,14 @@ the landed range itself changes, not on every poll. Merging still needs a live
 readiness check and explicit user authorization regardless of classification.
 Full detection, classification, and action procedure:
 [Carry-forward after clean reviews](docs/round-orchestration.md#carry-forward-after-clean-reviews).
-The four outcomes: **no interaction** (keep `review-clean`, integrate by SHA,
-skip re-running anything — the common case), **trivial interaction**
-(overlaps resolve mechanically; remove `review-clean`, integrate, run affected
-gates, offer the exact-head re-review waiver), **significant interaction, no
-conflict** (remove `review-clean`, re-run validation and CI, re-dispatch
-reviewers as a normal round), and **merge conflict requiring semantic
-resolution** (treat as an author change under
+The four outcomes: **no interaction** (keep the reviewed or waived head
+unchanged, preserve its state and authorization, and skip all gates — the
+common case), **trivial interaction** (remove `review-clean`, disarm
+auto-merge, integrate, run affected gates, and offer the exact-head re-review
+waiver), **significant interaction, no conflict** (remove `review-clean`,
+disarm auto-merge, re-run validation and CI, and re-dispatch reviewers as a
+normal round), and **merge conflict requiring semantic resolution** (disarm
+auto-merge and treat as an author change under
 [Recovery transitions](#recovery-transitions)).
 
 ### How many reviewers, and from which models
@@ -565,8 +566,7 @@ Put it under `## Demo` above validation in the PR body.
   merge attempt or readiness statement.
 - Never merge without explicit authorization for that PR. A clean review,
   green CI, or readiness comment is not authorization. User-directed auto-merge
-  authorizes only the exact reviewed head or an approved trivial-interaction
-  waiver's exact head/base pair.
+  authorizes only the exact reviewed or approved-waiver head.
 
 ### Stacked PRs for multi-slice issues
 

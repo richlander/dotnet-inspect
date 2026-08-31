@@ -444,17 +444,15 @@ include more detail when the findings or fixes warrant it.
 moving](../AGENTS.md#clean-reviews-are-not-spent-by-main-moving) states when
 this path applies and how each landed-range classification resolves. It applies
 both to a review-clean head and to a head with a pending or approved
-trivial-interaction waiver. A base tip beyond the one recorded for a waiver
-expires that waiver before classification. This is the procedure once the path
-applies.
+trivial-interaction waiver. This is the procedure once the path applies.
 
 1. **Detect movement without API spend.** Fetch the effective base
    non-mutating, resolve its remote-tracking ref to an exact SHA, and compare
-   that SHA with the candidate's recorded base tip. Do not spend GraphQL solely
-   to read the live base tip. If a graph-shaped query is already justified,
-   the documented `baseRef.target.oid` identifies the object currently pointed
-   to by the base ref. Do not rely on undocumented assumptions about
-   `baseRefOid` freshness.
+   that SHA with the latest base tip recorded for this carry-forward lineage.
+   Do not spend GraphQL solely to read the live base tip. If a graph-shaped
+   query is already justified, the documented `baseRef.target.oid` identifies
+   the object currently pointed to by the base ref. Do not rely on undocumented
+   assumptions about `baseRefOid` freshness.
 2. **Inspect without integrating.** Read the exact landed range between the
    recorded and fetched tips.
 3. **Classify and report.** As normal session output, report which commits
@@ -463,31 +461,30 @@ applies.
    classification plainly: no interaction, trivial interaction, significant
    interaction, or conflict requiring semantic resolution.
 4. **Act on the classification.**
-   - *No interaction:* keep `review-clean`, integrate the exact analyzed tip by
-     SHA (not a moving branch ref), and update the recorded head SHA when
-     entering from a review-clean head; only that path skips re-running
-     validation, CI, and review. When entering from a pending or approved
-     waiver head, leave `review-clean` absent, integrate the exact tip, and
-     follow the waiver procedure below for the new head and base, including its
-     current-head gates, before dispatching review. Merging itself still needs
-     a live readiness check and explicit user authorization; base movement
-     alone does not grant either.
-   - *Trivial interaction:* remove `review-clean`, integrate the exact analyzed
-     tip, resolve every overlap mechanically as classified, run affected
-     focused gates, and push. Follow the waiver procedure below before
-     dispatching replacement reviewers.
-   - *Significant interaction, no conflict:* remove `review-clean`, integrate
-     the tip, re-run the claimed validation and current-head CI, and
-     re-dispatch the required reviewers at the new head as a normal round.
-   - *Conflict requiring semantic resolution:* remove `review-clean`, resolve
-     it as an author change under
+   - *No interaction:* do not integrate or push. Keep the candidate head
+     unchanged and record the analyzed tip as the lineage's new base tip. From
+     a review-clean head, keep `review-clean`; from a pending or approved waiver
+     head, keep it absent and carry the waiver forward. Preserve any armed
+     head-bound auto-merge authorization. Skip validation, CI, review, and a
+     new waiver decision.
+   - *Trivial interaction:* remove `review-clean`, disarm auto-merge, integrate
+     the exact analyzed tip, resolve every overlap mechanically as classified,
+     run affected focused gates, and push. Follow the waiver procedure below
+     before dispatching replacement reviewers.
+   - *Significant interaction, no conflict:* remove `review-clean`, disarm
+     auto-merge, integrate the tip, re-run the claimed validation and
+     current-head CI, and re-dispatch the required reviewers at the new head as
+     a normal round.
+   - *Conflict requiring semantic resolution:* remove `review-clean`, disarm
+     auto-merge, and resolve it as an author change under
      [conflict recovery](../AGENTS.md#recovery-transitions), and re-dispatch
      the required reviewers at the new head.
 
-For a no-interaction carry-forward, record the reviewed head, the old and
-integrated tips, and the non-interaction analysis on the PR. For every other
-outcome, record the classification and the action taken. An ordinary
-replacement review produces the resulting round's normal
+For a no-interaction carry-forward, record the unchanged candidate head, the
+old and newly analyzed tips, the non-interaction analysis, and the preserved
+review or waiver state on the PR. For every other outcome, record the
+classification and the action taken. An ordinary replacement review produces
+the resulting round's normal
 [round report](#the-round-report); an approved trivial-interaction waiver does
 not start or spend a replacement round.
 
@@ -517,9 +514,10 @@ Keep `review-clean` absent because the new head was not reviewed, and continue
 to current-head CI, live mergeability, and merge authorization.
 Without approval, do not waive review; resume the ordinary replacement
 workflow when work continues. A resolution that no longer satisfies the
-criteria requires ordinary re-review. Any later head or base movement
-invalidates a pending or approved waiver and requires fresh carry-forward
-classification.
+criteria requires ordinary re-review. Later base movement requires
+carry-forward classification: no interaction extends the pending or approved
+waiver to the newly analyzed tip without another integration or decision; any
+other interaction invalidates it. Any head movement also invalidates it.
 
 ## Block boundaries and splitting
 
