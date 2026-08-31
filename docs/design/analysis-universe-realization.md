@@ -17,7 +17,8 @@ contract currently joins those sides without exposing owner internals or
 reconstructing their semantics.
 
 The first intended adopter is Workspace-backed analysis. Integration Census is
-the first consumer canary, not part of this owner's contract.
+a prospective consumer after its separate #5319 incidence adoption, not part
+of this owner's contract.
 
 ## Authority
 
@@ -48,7 +49,7 @@ outcome semantics, or presentation.
 | [Inspection layers](inspection-layers.md) | L1 prerequisite closure, scope, execution order, and producer invocation. |
 | [Structured type-forwarding resolution](type-forwarding-resolution.md) | Metadata-owned requests, context generations, binding policy, exact resolution outcomes, and terminal forwarding evidence. |
 | [Progressive disclosure](progressive-disclosure.md) | Host preflight, capability authorization, and cost enforcement for the exact operation. |
-| [Integrations](integrations.md) | The first consumer's participant, Type, binding-context, and exact-resolution requirements. |
+| [Integrations](integrations.md) | A prospective consumer's participant, Type, binding-context, and exact-resolution requirements; #5319 owns its incidence adoption. |
 
 ## Roles
 
@@ -276,7 +277,7 @@ runtime roster, context identity, or incidence contradicts the description.
 The documentation can be read against this mock composition:
 
 ```text
-validated Integration Census plan
+validated Workspace analysis plan
   universe: workspace-types-v1
   requirements:
     source participants
@@ -310,8 +311,10 @@ the same source Type can be evaluated in each context without changing its
 identity. A neighboring single-context analysis uses the same handoff with one
 context; no special concurrent or matrix path is required.
 
-This mock demonstrates realization and access only. Integrations owns producer
-attempts, candidates, dispositions, and projections.
+This mock demonstrates realization and access only. It is not an abbreviated
+Integration catalog. Integrations owns its complete requirement set, producer
+attempts, candidates, dispositions, and projections; #5319 owns its adoption
+of provider-issued context incidence.
 
 ## Close negative cases
 
@@ -356,7 +359,8 @@ implementation.
 1. Lock this reusable realization contract.
 2. Adopt it in Workspace with one focused implementation effort that issues
    executable bindings without exposing mutable workspace internals.
-3. Implement the Integration Census executor against that owner-issued handoff.
+3. Adopt it in the Integration Census executor under the Integration owner,
+   including the context-incidence change tracked by #5319.
 4. Let later analysis owners adopt the same pattern independently.
 
 The pattern PR does not implement the first adopter under the bounded
