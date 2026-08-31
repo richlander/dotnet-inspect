@@ -594,6 +594,45 @@ internal static class DetectionTestSuite
                 "MethodSemantics platform-probe source did not select code and web: "
                 + FormatValues(methodSemanticsProbeSource));
         }
+        Dictionary<string, string> localPathProbeRunner = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/run-local-path-admission-platform-probe.sh",
+            outputs);
+        if (localPathProbeRunner["code"] != "true"
+            || localPathProbeRunner["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Local-path platform-probe runner did not select code and web: "
+                + FormatValues(localPathProbeRunner));
+        }
+        Dictionary<string, string> localPathProbeSource = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "tests/DotnetInspector.Artifacts.Local.PlatformProbe/wwwroot/main.js",
+            outputs);
+        if (localPathProbeSource["code"] != "true"
+            || localPathProbeSource["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Local-path platform-probe source did not select code and web: "
+                + FormatValues(localPathProbeSource));
+        }
+        Dictionary<string, string> localPathProbeProduct = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "src/DotnetInspector.Artifacts.Local/LocalPathAdmission.cs",
+            outputs);
+        if (localPathProbeProduct["code"] != "true"
+            || localPathProbeProduct["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Local-path probe product dependency did not select code and web: "
+                + FormatValues(localPathProbeProduct));
+        }
         Dictionary<string, string> tsJsExportGate = RunDetection(
             repository,
             body,

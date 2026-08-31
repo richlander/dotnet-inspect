@@ -46,18 +46,30 @@ public sealed record LocalArtifactDiagnostic :
         string code,
         string summary,
         string fullPath)
+        : this(code, summary, fullPath, fullPath)
+    {
+    }
+
+    public LocalArtifactDiagnostic(
+        string code,
+        string summary,
+        string requestedPath,
+        string? canonicalPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentException.ThrowIfNullOrWhiteSpace(summary);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedPath);
         Code = code;
         Summary = summary;
-        FullPath = fullPath;
+        RequestedPath = requestedPath;
+        CanonicalPath = canonicalPath;
     }
 
     public string Code { get; }
     public string Summary { get; }
-    public string FullPath { get; }
+    public string RequestedPath { get; }
+    public string? CanonicalPath { get; }
+    public string FullPath => CanonicalPath ?? RequestedPath;
 }
 
 /// <summary>
@@ -66,7 +78,10 @@ public sealed record LocalArtifactDiagnostic :
 /// </summary>
 /// <remarks>
 /// Source replacement and deletion resistance are gated by
-/// <c>LocalArtifactSnapshot_MutationCannotChangeInspectionBytes</c>.
+/// <c>LocalArtifactSnapshot_MutationCannotChangeInspectionBytes</c> and
+/// <c>LocalPathAdmission_ConsumerReceivesTheVerifiedOpenGeneration</c>.
+/// Pre-open rejection of stable non-regular entries is gated by
+/// <c>LocalPathAdmission_StableNonRegularEntriesRejectBeforeOpen</c>.
 /// Directory acquisition remains unverified.
 /// </remarks>
 public static class LocalArtifactSource
@@ -83,20 +98,20 @@ public static class LocalArtifactSource
         options ??= new LocalArtifactAcquisitionOptions();
         options.Validate();
 
-        string fullPath = Path.GetFullPath(path);
-        cancellationToken.ThrowIfCancellationRequested();
+        await using LocalFileAdmission admission =
+            LocalPathAdmission.AdmitRegularFile(path, cancellationToken);
+        LocalPathClassification classification = admission.Classification;
+        if (classification.Outcome != LocalPathOutcome.Classified)
+            return ProjectAdmissionOutcome(classification);
+
+        FileStream stream = admission.Stream
+            ?? throw new InvalidOperationException(
+                "Successful local-file admission did not return a stream.");
+        string fullPath = classification.CanonicalPath!;
         try
         {
-            await using var stream = new FileStream(
-                fullPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read | FileShare.Delete,
-                bufferSize: 81920,
-                FileOptions.Asynchronous
-                    | FileOptions.SequentialScan);
             if (stream.Length > options.MaxFileBytes)
-                return RejectedForSize(fullPath);
+                return RejectedForSize(classification);
 
             byte[] snapshot = await ReadBoundedAsync(
                     stream,
@@ -120,15 +135,7 @@ public static class LocalArtifactSource
         }
         catch (LocalArtifactSizeLimitException)
         {
-            return RejectedForSize(fullPath);
-        }
-        catch (FileNotFoundException)
-        {
-            return Unavailable(fullPath);
-        }
-        catch (DirectoryNotFoundException)
-        {
-            return Unavailable(fullPath);
+            return RejectedForSize(classification);
         }
         catch (OperationCanceledException)
         {
@@ -143,8 +150,54 @@ public static class LocalArtifactSource
                 new LocalArtifactDiagnostic(
                     "local.file.read-failed",
                     "The local artifact could not be read.",
-                    fullPath));
+                    classification.RequestedPath,
+                    classification.CanonicalPath));
         }
+    }
+
+    internal static ArtifactAcquisitionOutcome ProjectAdmissionOutcome(
+        LocalPathClassification classification)
+    {
+        LocalArtifactDiagnostic Diagnostic(string code, string summary) =>
+            new(
+                code,
+                summary,
+                classification.RequestedPath,
+                classification.CanonicalPath);
+
+        return classification.Outcome switch
+        {
+            LocalPathOutcome.Unavailable =>
+                new ArtifactAcquisitionOutcome.Unavailable(
+                    Diagnostic(
+                        "local.file.missing",
+                        "The local artifact does not exist.")),
+            LocalPathOutcome.Rejected
+                when classification.Reason == LocalPathReason.InvalidPath =>
+                new ArtifactAcquisitionOutcome.Rejected(
+                    Diagnostic(
+                        "local.file.invalid-path",
+                        "The requested local file path is invalid.")),
+            LocalPathOutcome.Rejected =>
+                new ArtifactAcquisitionOutcome.Rejected(
+                    Diagnostic(
+                        "local.file.unsupported-entry",
+                        "The requested local path is not a supported regular file.")),
+            LocalPathOutcome.Failed
+                when classification.Reason
+                    == LocalPathReason.ClassificationUnsupported =>
+                new ArtifactAcquisitionOutcome.Failed(
+                    Diagnostic(
+                        "local.file.classification-unsupported",
+                        "Local path classification is unavailable on this host.")),
+            LocalPathOutcome.Failed =>
+                new ArtifactAcquisitionOutcome.Failed(
+                    Diagnostic(
+                        "local.file.read-failed",
+                        "The local artifact could not be read.")),
+            _ => throw new InvalidOperationException(
+                "A classified local path must be consumed by admission."),
+        };
     }
 
     private static async ValueTask<byte[]> ReadBoundedAsync(
@@ -171,20 +224,13 @@ public static class LocalArtifactSource
     }
 
     private static ArtifactAcquisitionOutcome RejectedForSize(
-        string fullPath) =>
+        LocalPathClassification classification) =>
         new ArtifactAcquisitionOutcome.Rejected(
             new LocalArtifactDiagnostic(
                 "local.file.size-limit",
                 "The local artifact exceeds the configured byte limit.",
-                fullPath));
-
-    private static ArtifactAcquisitionOutcome Unavailable(
-        string fullPath) =>
-        new ArtifactAcquisitionOutcome.Unavailable(
-            new LocalArtifactDiagnostic(
-                "local.file.missing",
-                "The local artifact does not exist.",
-                fullPath));
+                classification.RequestedPath,
+                classification.CanonicalPath));
 
     private static MemoryStream OpenSnapshot(byte[] snapshot) =>
         new(
