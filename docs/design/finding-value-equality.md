@@ -14,11 +14,11 @@ how consumers use these values.
 
 ## Contract
 
-Finding-owned types expose one of four equality shapes:
+Finding-owned values compose four equality shapes:
 
 | Shape | Examples | Equality contract |
 | --- | --- | --- |
-| Structural value | `FindingSubject`, `FindingKey`, `Finding<T>`, and the cases of `PairFinding<T>` | Every equality-participating field is equal. Generic payload fields use `EqualityComparer<T>.Default`. |
+| Structural composition | `FindingSubject`, `Finding<T>`, and the cases of `PairFinding<T>` | Every equality-participating field composes its own contract. Generic payload fields use `EqualityComparer<T>.Default`. |
 | Ordered collection value | Complete censuses, match evidence, completed transition streams, and correlated occurrences | Sequence equality: order and multiplicity are significant. |
 | Identity-set value | `FindingEquivalence` allow lists | Set equality: enumeration order and duplicate input are insignificant. |
 | Operation object | `FindingCensusCorrelation<T>` and `FindingCorrelation<T>` | Reference identity. Their durable inputs and projected values retain their own contracts. |
@@ -41,6 +41,7 @@ These public collections carry sequence semantics:
 
 | Collection | Order means |
 | --- | --- |
+| `FindingKey.SoftKeys` | Producer-supplied soft-tier projection order |
 | `FindingInspection<T>.Complete.Findings` | Producer census order |
 | `FindingMatch.Edges` | Committed alignment order |
 | `FindingMatch.MoveCandidates` | Deferred move-candidate order |
@@ -53,10 +54,15 @@ equal and produce equal hash codes. Reordering elements, adding a duplicate, or
 removing a duplicate changes the value. An initialized empty array is a valid
 value; a default `ImmutableArray<T>` is not.
 
-The owning value rejects null elements where a collection contains
-Finding-owned reference values. Invalid collection state fails at construction
-or `init` with an argument exception rather than becoming a value with weaker
-equality.
+`FindingKey` permits at most one projection per named soft tier but does not
+canonicalize tier order. Soft-key order therefore affects value equality and
+hashing even though it does not become matching or correspondence authority.
+Producers that require equal keys must emit the projections deterministically.
+
+The collection-bearing constructors and properties named here reject default
+arrays and reject null elements where a collection contains Finding-owned
+reference values. Invalid collection state fails at construction or `init`
+with an argument exception rather than becoming a value with weaker equality.
 
 ## Identity sets
 
@@ -111,16 +117,17 @@ The Release test
 `src/ILInspector.Instructions.Tests/FindingValueEqualityTests.cs` verifies:
 
 - sequence equality and hashing for complete censuses, match evidence,
-  completed comparisons, and correlated occurrences;
+  Finding soft keys, completed comparisons, and correlated occurrences;
 - set equality, hashing, duplicate normalization, and comparer normalization
   for `FindingEquivalence`;
 - construction rejection for default arrays, null elements, and null sets; and
 - the boundary between producer payload equality and key-driven matching.
 
 `FindingMatch.SoftCandidates` uses the same sequence-equality path as edges and
-move candidates. Its candidate construction and ordering are covered by
-`src/ILInspector.ILDiff.Tests/FindingPilotTests.cs`; non-empty soft-candidate
-value equality does not currently have a focused test.
+move candidates. Its non-empty value equality is covered by
+`FindingMatch_UsesOrderedSequenceEquality`; candidate construction and ordering
+are covered separately by
+`src/ILInspector.ILDiff.Tests/FindingPilotTests.cs`.
 
 ## Non-claims
 
