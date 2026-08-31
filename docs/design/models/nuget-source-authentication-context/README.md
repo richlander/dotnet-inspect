@@ -43,6 +43,14 @@ context. The design names
 `SharedAssociationPipelinesShareAuthenticationContext` as the required
 implementation gate for that mapping.
 
+`ResourceScope` and `TargetScope` are also input facts; this model does not
+derive them from URIs. `OrdinaryResourceScopeUsesCanonicalOrigin` and the Azure
+scope gate named by the design provide implementation correspondence for that
+derivation. Pipeline creation and disposal are absent. `RetireContext` denotes
+configured-authority retirement or replacement, never disposal of an
+individual pipeline; `SharedContextSurvivesIndividualPipelineDisposal` is the
+required implementation gate for that lifetime boundary.
+
 `ParticipationMode = "LiveOnly"` is the specified policy.
 `"AllowRetired"` is a negative-control policy equivalent to removing the live
 context gate. `CredentialSelectionMode` independently selects context-bound or

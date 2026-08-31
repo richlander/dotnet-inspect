@@ -369,12 +369,16 @@ authority and distinct references for distinct authorities. Authentication
 binds one context to that association and never reconstructs source identity
 from the request target.
 
-The reference contains no credential and does not expose source text. Its
-lifetime matches the resolved configured authority: changing that authority
-retires the old context and requires a new one. Retirement immediately denies
-new credential use or acquisition and prevents an in-flight completion from
-publishing. Credential state remains process-local and is released with the
-context or authentication pipeline.
+The reference contains no credential and does not expose source text. The
+resolved configured-authority owner owns the context and its lifetime;
+pipelines receive non-owning references. Disposing one pipeline disposes its
+transport but does not retire the shared context, clear its credential state,
+or cancel context-owned provider work that another pipeline joined. Changing
+or releasing the configured authority retires the old context and requires a
+new one. Retirement immediately denies new credential use or acquisition and
+prevents an in-flight completion from publishing. Credential state remains
+process-local and is released after its authority owner retires the context,
+not when an individual authentication pipeline is disposed.
 
 #### Anonymous is a context state, not a source classification
 
@@ -426,22 +430,24 @@ resource under another organization is rejected.
 This rule assumes Azure preserves the organization segment's spelling between
 the configured service index and its advertised resources. A changed spelling,
 including a name-to-ID change in that first segment, fails closed rather than
-guessing equivalence. The live Azure feed canary named below must exercise the
-configured index and an advertised package resource so a service change makes
-that assumption visible.
+guessing equivalence. When the live Azure feed sensor named below runs, it must
+exercise the configured index and an advertised package resource so a service
+change makes that assumption visible.
 
 Scheme and host comparisons are case-insensitive. Default and explicit ports
 compare by their effective value. Path, query, fragment, user information, and
 display text do not participate except for the Azure organization segment
 above. Failure to derive either scope is not authorization.
 
-The V3 factory binds the context to a source-owned authentication handler
-around that source client's isolated credential-free inner transport. It does
-not accept a shared or opaque caller handler. Requests formed by that client
-therefore enter an already-associated pipeline; source association is not a
-string-valued request option that feed data can influence. The handler injects
-plugin authorization only after the authentication owner authorizes the
-concrete target.
+Authentication accepts a context reference and that source client's isolated
+credential-free inner transport and returns a source-bound authentication
+handler. It does not accept a shared or opaque caller handler. The package
+source owner composes that handler into its V3 client; this authentication
+owner does not redefine source-client factory or transport-disposal behavior.
+Requests formed by that client therefore enter an already-associated pipeline;
+source association is not a string-valued request option that feed data can
+influence. The handler injects plugin authorization only after the
+authentication owner authorizes the concrete target.
 
 Several V3 pipelines constructed with the same `PackageSourceAssociation`
 share the one authentication context bound to that association. Pipeline or
@@ -508,17 +514,24 @@ The target is unverified until Release gates establish:
   constructed with the same `PackageSourceAssociation` share credential
   publication and coalesce concurrent challenges into one provider
   acquisition;
+- `SharedContextSurvivesIndividualPipelineDisposal`: with two pipelines
+  carrying one association, disposing either pipeline neither clears a cached
+  credential used by the survivor nor retires or cancels context-owned
+  provider work joined by the survivor;
 - `CrossContextResourceCannotReadAcquireOrReplayCredential`: equal resource
   scope does not permit a request carrying another or no context to consume
   the credential;
 - `OutOfScopeResourceCannotReadAcquireOrReplayCredential`: a foreign resource
   challenge remains visible without plugin participation;
+- `OrdinaryResourceScopeUsesCanonicalOrigin`: hermetic associated-request
+  vectors authorize scheme and canonical IDN host case variants, Unicode and
+  punycode host equivalents, implicit and explicit default ports, and changes
+  only to path, query, fragment, or user information; different schemes,
+  canonical hosts, or effective ports and any derivation failure cannot read
+  cache state, invoke the provider, or replay authorization;
 - `AzureResourceScopeIncludesOrganizationButAllowsNameGuidAliases`: name and
   GUID paths inside one organization are authorized while another
   organization is rejected;
-- `LiveAzureResourcePreservesConfiguredOrganizationSegment`: an optional live
-  authenticated-source canary confirms Azure keeps the configured
-  organization segment on an advertised package resource;
 - `ConcurrentAcquisitionIsSingleFlightPerContextAndIndependentAcrossContexts`:
   one context coalesces acquisition without serializing another;
 - `RetiredContextRejectsLateCredentialPublication`: retirement during
@@ -536,6 +549,13 @@ The target is unverified until Release gates establish:
 - `NuGetGalleryTransportCannotReachPluginAuthentication`: the built-in Gallery
   transport has no plugin handler or context path.
 
+`LiveAzureResourcePreservesConfiguredOrganizationSegment` is an optional,
+non-gating service-drift sensor. When an authenticated live feed is available,
+it confirms that Azure keeps the configured organization segment on an
+advertised package resource. The hermetic
+`AzureResourceScopeIncludesOrganizationButAllowsNameGuidAliases` Release gate,
+not this environment-dependent sensor, establishes the target behavior.
+
 The
 [source-authentication context models](models/nuget-source-authentication-context/README.md)
 are two focused TLA+ modules. The context model checks context isolation,
@@ -544,11 +564,14 @@ acquisition within a context and independence across contexts, exogenous
 retirement, Gallery and excluded-request non-participation, and
 admitted-request progress. It consumes the association-to-context mapping as
 an input; `SharedAssociationPipelinesShareAuthenticationContext` is the
-required implementation gate for that mapping. The refresh model checks one
-bounded rejected-version refresh episode: single-flight refresh, joining an
-in-flight refresh, superseded requests consuming the newer version instead of
-acquiring, read-only consumption, and monotonic publication. Those checks
-establish the design interaction, not implementation correspondence.
+required implementation gate for that mapping. It also consumes already
+derived resource scopes and has no pipeline lifetime; the ordinary-scope and
+individual-pipeline-disposal gates named above establish those implementation
+boundaries. The refresh model checks one bounded rejected-version refresh
+episode: single-flight refresh, joining an in-flight refresh, superseded
+requests consuming the newer version instead of acquiring, read-only
+consumption, and monotonic publication. Those checks establish the design
+interaction, not implementation correspondence.
 
 The context bound contains two distinct configurable contexts sharing one
 resource scope, one foreign scope, and nine requests covering concurrent
