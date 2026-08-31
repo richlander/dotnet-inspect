@@ -653,6 +653,26 @@ and shared-workspace deep links retain the full loading interstitial. The `bare
 home paints before wasm engine download` JavaScript test gates this startup
 boundary.
 
+`eng/generate-inspect-web-engine-facade.sh` generates
+`engine/inspect-web-engine.ts` from the engine's `[JSExport]` surface. That
+native TypeScript file is the authoritative checked-in handoff. The script
+compiles it against the SDK-owned `dotnet.d.ts` from the Browser/Wasm runtime
+pack selected for the engine build, with LF compiler output on every host, into
+the checked-in `src/inspect-web-engine.d.ts` consumer declaration and
+`engine/wwwroot/inspect-web-engine.js` publish artifact; `--check` fails when
+any of the three drifts. The SDK declaration is a compile-time input copied
+only into a temporary workspace and is never published.
+
+The application explicitly sequences `initializeRuntime()`,
+`configureHost(window.location.origin)`, and `runEntryPoint()`. The generated
+facade owns runtime creation and typed managed dispatch but owns no browser-host
+policy, performs no managed operation during initialization, and does not
+expose the runtime or raw managed exports. Its generation-time runtime canary
+executes without a `window` global. After publish,
+`verify-published-engine-facade.ts` runs the real Browser/Wasm artifact through
+the same worker-safe path and exercises build identity plus an awaited package
+version query before deployment can consume the derived JavaScript.
+
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
 markup, route recognition, and rendered control bindings. Azure Static Web Apps
@@ -700,20 +720,24 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks both checked-in tsbindgen outputs as consumer contracts:
+Oxlint checks both compiler-derived facade artifacts as consumer contracts:
 `src/inspect-web-engine.d.ts` receives the TypeScript rules, while
 `engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
 suspicious rules described below. TypeScript compilation and the generated
-surface drift gate provide independent declaration coverage. The toolchain
-test pins both generated lint inputs so a generator change cannot silently
-leave analysis coverage. The configuration disables four non-correctness
+facade drift gate provide independent source and declaration coverage. The
+toolchain test pins both derived lint inputs so a generator change cannot
+silently leave analysis coverage. The configuration disables four non-correctness
 rules: underscore spelling, function relocation, listener API preference, and
 `Array.prototype.sort`. Those rules prescribe naming/layout churn or, for
 sorting, the ES2023 `toSorted` API while this project targets ES2022. Those
-four, plus the five unsafe-operation rules scoped to the generated
-`engine/wwwroot/inspect-web-engine.js` artifact, are the *complete* set of
-disabled rules: a toolchain test pins it against Oxlint's resolved
-configuration, so a fifth disable — written at the top level or inside an
+four, plus the generated-facade overrides, are the *complete* set of disabled
+rules. The compiler-derived JavaScript disables the five unsafe-operation
+rules and the catch-callback annotation rule that JavaScript cannot satisfy.
+The authoritative TypeScript disables those unsafe-operation rules, unsafe
+type-assertion analysis for authenticated JSON envelopes, and the redundant
+constituent diagnostic that lacks the temporary SDK declaration used by its
+separate compiler gate. A toolchain test pins these against Oxlint's resolved
+configuration, so another disable — written at the top level or inside an
 `overrides` entry — fails rather than passing quietly. Turning a rule off is
 not the only way to lose it, so options, plugin settings and the global
 environment are pinned beside the severities; those are described below.
