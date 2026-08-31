@@ -227,6 +227,10 @@ no-metadata boundary. Neither it nor a malformed-root result is translated to
 
 Acquisition owners call it before exposing metadata sessions. Public or
 reusable `PEReader` entry points that can bypass those owners call it directly.
+Compatibility entry points that accept both a `PEReader` and a
+`MetadataReader` derive the authoritative reader from the admitted PE; they do
+not consult an independently supplied reader that could describe different
+bytes.
 The lower Instructions substrate exposes no raw `PEReader` entry point; its
 internal helpers consume readers only through admitted higher-layer owners.
 That closure includes `AssemblyImage`, `PdbContext`, Decompiler
@@ -277,13 +281,22 @@ declaration-inventory, and
 structural-clone failure receipts retain the classifier's exact malformed-root
 reason without changing `CandidateOpenFailure`'s two-position public record
 contract.
+Assembly-binding and workspace-load failures likewise retain the exact reason
+in non-positional properties, while browser and command adapters include the
+bounded enum reason without exposing artifact text.
 `MetadataFormatAdmissionTests`,
 `CallerScopeReachabilityPlanTests.Candidate_PreservesUnmappableMetadataDirectory`,
 and `AnalysisIndexCacheAdmissionTests` gate Analysis and Research propagation,
 including lazy admission before metadata-directory materialization.
 `IlAssemblyDiffTests.CompareStreams_RejectsWindowsMetadata`,
-`IlAssemblyDiffTests.ReaderTakingOverloads_RejectWindowsMetadata`, and the
-Services `MetadataFormatAdmissionTests` gate ILDiff and Services propagation.
+`IlAssemblyDiffTests.ReaderTakingOverloads_RejectWindowsMetadata`,
+`IlAssemblyDiffTests.ReaderTakingOverloads_UseAdmittedImageReaders`, and the
+Services `MetadataFormatAdmissionTests` gate ILDiff and Services propagation
+and reader/image association. Services
+`SelectAndResolve_MalformedDesignatedMetadataCannotFallBackToPlatform`,
+workspace malformed-asset tests, browser
+`MetadataProjection_PreservesFormatRejection`, and the mixed-package command
+tests gate exact malformed-root reason retention through their adapters.
 `TypeScriptFacadeEmitterTests.SurfaceLoader_PreservesMalformedMetadataRoot`
 gates TypeScript-generation propagation; the malformed-root command tests in
 `TsBindGenCommandTests` and `TsJsExportCommandTests` gate their bounded

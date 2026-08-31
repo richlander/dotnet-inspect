@@ -102,7 +102,7 @@ public static class IlFindings
         ArgumentNullException.ThrowIfNull(pe);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(subject);
-        _ = MetadataFormatAdmission.GetMetadataReader(pe);
+        reader = MetadataFormatAdmission.GetMetadataReader(pe);
         if (method.IsNil)
             throw new ArgumentException("Method handle must not be nil.", nameof(method));
 
@@ -143,8 +143,8 @@ public static class IlFindings
         ArgumentNullException.ThrowIfNull(newPe);
         ArgumentNullException.ThrowIfNull(newReader);
         ArgumentNullException.ThrowIfNull(subject);
-        _ = MetadataFormatAdmission.GetMetadataReader(oldPe);
-        _ = MetadataFormatAdmission.GetMetadataReader(newPe);
+        oldReader = MetadataFormatAdmission.GetMetadataReader(oldPe);
+        newReader = MetadataFormatAdmission.GetMetadataReader(newPe);
         if (oldMethod.IsNil)
             throw new ArgumentException("Old method handle must not be nil.", nameof(oldMethod));
         if (newMethod.IsNil)

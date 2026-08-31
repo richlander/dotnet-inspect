@@ -2491,6 +2491,38 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task MalformedPackageAsset_PreservesExactReason()
+    {
+        byte[] malformed = "not a portable executable"u8.ToArray();
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(("lib/net10.0/Malformed.dll", malformed)));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.MalformedMetadataRoot,
+            failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataDirectory,
+            failure.MetadataRootReason);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task UnsupportedPlatformAsset_CreatesTypedFailure()
     {
         var store = new InMemoryPackageStore();
@@ -2526,6 +2558,49 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(
             "UnsupportedMetadataFormat",
             failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task MalformedPlatformAsset_PreservesExactReason()
+    {
+        byte[] malformed = "not a portable executable"u8.ToArray();
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(
+                Archive(
+                    ("runtimes/linux-x64/lib/net10.0/Malformed.dll",
+                        malformed))),
+            TestContext.Current.CancellationToken);
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new PlatformListingHandler(RuntimePackVersion));
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Platform("runtime"),
+                        ],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.MalformedMetadataRoot,
+            failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataDirectory,
+            failure.MetadataRootReason);
         Assert.Equal(0, GroupCount(workspace));
     }
 
@@ -2664,9 +2739,14 @@ public sealed class WorkspaceContextLoaderTests
                     new StubEmbeddedContent(malformed)),
                 TestContext.Current.CancellationToken);
 
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(Failed(outcome).Failures);
         Assert.Equal(
-            WorkspaceContextLoadFailureKind.InvalidImage,
-            Assert.Single(Failed(outcome).Failures).Kind);
+            WorkspaceContextLoadFailureKind.MalformedMetadataRoot,
+            failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataDirectory,
+            failure.MetadataRootReason);
         Assert.Equal(0, GroupCount(workspace));
     }
 

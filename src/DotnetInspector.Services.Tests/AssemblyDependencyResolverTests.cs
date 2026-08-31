@@ -1743,6 +1743,10 @@ public class AssemblyDependencyResolverTests
             Assert.Equal(
                 CandidateOpenFailureKind.InvalidImage,
                 unavailable.Failure.CandidateFailureKind);
+            Assert.Equal(
+                MetadataRootMalformedReason
+                    .UnmappableMetadataDirectory,
+                unavailable.Failure.MetadataRootReason);
             Assert.Throws<MalformedMetadataRootException>(
                 () => resolver.Resolve(
                     platformIdentity,

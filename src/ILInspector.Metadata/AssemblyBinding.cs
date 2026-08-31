@@ -37,6 +37,9 @@ public sealed record AssemblyBindingFailure
 
     public AssemblyBindingFailureKind Kind { get; }
     public CandidateOpenFailureKind? CandidateFailureKind { get; }
+
+    /// <summary>The exact malformed-root reason for an invalid candidate.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
 }
 
 /// <summary>

@@ -4759,8 +4759,8 @@ public class PackageCommand
         {
             UnsupportedMetadataFormatException =>
                 "unsupported metadata format",
-            MalformedMetadataRootException =>
-                "malformed metadata root",
+            MalformedMetadataRootException malformed =>
+                $"malformed metadata root ({malformed.Reason})",
             _ => throw new ArgumentException(
                 "The exception is not a metadata-format failure.",
                 nameof(exception)),

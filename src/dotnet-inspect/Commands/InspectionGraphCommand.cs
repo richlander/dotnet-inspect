@@ -75,7 +75,10 @@ public static class InspectionGraphCommand
                 "The Integration graph workspace could not be loaded.",
                 [
                     .. failed.Failures.Select(static failure =>
-                        $"{failure.Kind}: {failure.Message}"),
+                        failure.MetadataRootReason is { } reason
+                            ? $"{failure.Kind} ({reason}): "
+                                + failure.Message
+                            : $"{failure.Kind}: {failure.Message}"),
                 ]);
             return 1;
         }

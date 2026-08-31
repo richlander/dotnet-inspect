@@ -98,6 +98,29 @@ public sealed class MetadataFormatAdmissionTests
                 valid.GetMetadataReader()));
     }
 
+    [Fact]
+    public void StructuralCloneModuleIdentity_UsesAdmittedImageReader()
+    {
+        using var validStream = File.OpenRead(
+            typeof(MetadataFormatAdmissionTests).Assembly.Location);
+        using var valid = new PEReader(validStream);
+        MetadataReader validReader = valid.GetMetadataReader();
+        using var unrelated = new PEReader(
+            ImmutableArray.Create(BuildManagedWindowsMetadata()));
+
+        StructuralCloneModuleIdentity identity =
+            StructuralCloneModuleIdentity.Create(
+                "valid.dll",
+                valid,
+                unrelated.GetMetadataReader(
+                    MetadataReaderOptions.None));
+
+        Assert.Equal(
+            validReader.GetGuid(
+                validReader.GetModuleDefinition().Mvid),
+            identity.ModuleVersionId);
+    }
+
     internal static byte[] BuildManagedWindowsMetadata()
     {
         var metadata = new MetadataBuilder();

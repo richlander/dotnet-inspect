@@ -622,7 +622,10 @@ public sealed partial class AssemblyDependencyResolver :
             return AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
-                    ClassifyCandidateOpenFailure(ex)));
+                    ClassifyCandidateOpenFailure(ex))
+                {
+                    MetadataRootReason = MalformedRootReason(ex),
+                });
         }
     }
 
@@ -644,7 +647,11 @@ public sealed partial class AssemblyDependencyResolver :
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
-                    candidateFailure))
+                    candidateFailure)
+                {
+                    MetadataRootReason = MalformedRootReason(
+                        attempt.AdmissionFailure?.SourceException),
+                })
             : AssemblyBindingSelection.NotFound();
     }
 
@@ -669,7 +676,11 @@ public sealed partial class AssemblyDependencyResolver :
             ? AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
                     AssemblyBindingFailureKind.CandidateUnavailable,
-                    target.FailureKind))
+                    target.FailureKind)
+                {
+                    MetadataRootReason = MalformedRootReason(
+                        target.AdmissionFailure?.SourceException),
+                })
             : IntrinsicCoreLibraryBinding.Select(
                 target.Assembly,
                 facade => SelectReference(facade, scope));
@@ -893,6 +904,12 @@ public sealed partial class AssemblyDependencyResolver :
             or MalformedMetadataRootException
                 ? ExceptionDispatchInfo.Capture(exception)
                 : null;
+
+    static MetadataRootMalformedReason? MalformedRootReason(
+        Exception? exception) =>
+        exception is MalformedMetadataRootException malformed
+            ? malformed.Reason
+            : null;
 
     readonly record struct AssemblyBindingRequestKey(
         AssemblyBindingTarget Target,

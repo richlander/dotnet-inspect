@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Packages;
+using ILInspector.Metadata;
 using InertText;
 using NuGet.Versioning;
 using NuGetFetch;
@@ -261,6 +262,9 @@ public enum WorkspaceContextLoadFailureKind
 
     /// <summary>A selected image uses Windows Metadata, which is unsupported.</summary>
     UnsupportedMetadataFormat,
+
+    /// <summary>A selected image has a malformed assembly metadata root.</summary>
+    MalformedMetadataRoot,
 }
 
 /// <summary>
@@ -828,7 +832,11 @@ public abstract record RealizedMemberCoordinate
 public sealed record WorkspaceContextLoadFailure(
     WorkspaceContextLoadFailureKind Kind,
     WorkspaceMemberCoordinate? Member,
-    string Message);
+    string Message)
+{
+    /// <summary>The exact malformed-root reason, when applicable.</summary>
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
 
 /// <summary>One realized member of a loaded workspace context.</summary>
 /// <param name="Declared">

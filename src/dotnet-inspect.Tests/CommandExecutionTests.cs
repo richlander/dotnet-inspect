@@ -19488,7 +19488,8 @@ public partial class CommandExecutionTests
             Assert.Contains("U+0405→S", output);
             Assert.Contains(
                 "Warning: Library inspection failed for "
-                + "'lib/net8.0/Bridge.dll': malformed metadata root",
+                + "'lib/net8.0/Bridge.dll': malformed metadata root "
+                + "(UnmappableMetadataDirectory)",
                 error);
             Assert.Contains(
                 "Warning: Identifier audit failed for "
@@ -25009,7 +25010,7 @@ public partial class CommandExecutionTests
                 Assert.Contains(
                     "Library inspection failed for "
                     + "'lib/net9.0/Lib.dll': "
-                    + "malformed metadata root",
+                    + "malformed metadata root (InvalidSignature)",
                     result.Error);
                 Assert.DoesNotContain(
                     "UnsupportedMetadataFormatException",
@@ -25130,7 +25131,8 @@ public partial class CommandExecutionTests
                 error);
             Assert.Contains(
                 "Library inspection failed for "
-                + "'lib/net9.0/Lib.dll': malformed metadata root",
+                + "'lib/net9.0/Lib.dll': malformed metadata root "
+                + "(InvalidSignature)",
                 error);
             Assert.Contains(
                 "Identifier audit failed for "

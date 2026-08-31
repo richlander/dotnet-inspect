@@ -1077,7 +1077,11 @@ internal static class BrowserPlatformWorkspace
         string.Join(
             "; ",
             failed.Failures.Select(
-                failure => $"{failure.Kind}: {failure.Message}"));
+                failure =>
+                    failure.MetadataRootReason is { } reason
+                        ? $"{failure.Kind} ({reason}): "
+                            + failure.Message
+                        : $"{failure.Kind}: {failure.Message}"));
 
     static bool IsAssemblyUnavailable(
         WorkspaceContextLoadOutcome.Failed failed) =>

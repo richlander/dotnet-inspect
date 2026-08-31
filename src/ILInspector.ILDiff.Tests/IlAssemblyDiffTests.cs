@@ -152,6 +152,63 @@ public class IlAssemblyDiffTests
     }
 
     [Fact]
+    public void ReaderTakingOverloads_UseAdmittedImageReaders()
+    {
+        using var validStream = File.OpenRead(
+            typeof(IlAssemblyDiffTests).Assembly.Location);
+        using var validPe = new PEReader(validStream);
+        MetadataReader validReader = validPe.GetMetadataReader();
+        MethodDefinitionHandle method = FindMethod(
+            validReader,
+            nameof(MemberA));
+        using var unrelatedPe = new PEReader(
+            new MemoryStream(
+                BuildManagedWindowsMetadata(),
+                writable: false));
+        MetadataReader unrelatedReader =
+            unrelatedPe.GetMetadataReader(
+                MetadataReaderOptions.None);
+        var subject = new FindingSubject("valid", "valid");
+
+        IlAssemblyDiffResult assemblyDiff =
+            IlAssemblyDiff.Compare(
+                validPe,
+                unrelatedReader,
+                validPe,
+                unrelatedReader);
+        IlMemberDiffResult memberDiff =
+            IlAssemblyDiff.CompareMembers(
+                validPe,
+                unrelatedReader,
+                method,
+                validPe,
+                unrelatedReader,
+                method);
+        FindingInspection<CanonicalIlOperation> inspection =
+            IlFindings.Inspect(
+                validPe,
+                unrelatedReader,
+                method,
+                subject);
+        FindingComparison<CanonicalIlOperation> comparison =
+            IlFindings.Compare(
+                validPe,
+                unrelatedReader,
+                method,
+                validPe,
+                unrelatedReader,
+                method,
+                subject);
+
+        Assert.True(assemblyDiff.ComparedBodyCount > 0);
+        Assert.True(memberDiff.Diff.IsExact);
+        Assert.IsType<
+            FindingInspection<CanonicalIlOperation>.Complete>(
+                inspection.Value);
+        Assert.True(comparison.IsExact);
+    }
+
+    [Fact]
     public void CompareMembers_SameMethod_IsExactAndPreservesDefaultSubject()
     {
         using var stream = File.OpenRead(typeof(IlAssemblyDiffTests).Assembly.Location);

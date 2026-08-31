@@ -186,7 +186,10 @@ public sealed class BrowserEngineBoundaryTests
                     StringComparison.Ordinal);
                 Assert.DoesNotContain('\u202e', failure);
             });
-        Assert.Equal("Assembly unavailable: InvalidImage.", failures[0]);
+        Assert.Equal(
+            "Assembly unavailable: InvalidImage "
+                + "(UnmappableMetadataDirectory).",
+            failures[0]);
         Assert.Equal(
             "Assembly inspection failed (InvalidDataException).",
             failures[4]);
@@ -2005,7 +2008,8 @@ public sealed class BrowserEngineBoundaryTests
                     "net11.0"));
 
         Assert.Contains(
-            "Assembly unavailable: InvalidImage.",
+            "Assembly unavailable: InvalidImage "
+                + "(UnmappableMetadataDirectory).",
             failure.Message,
             StringComparison.Ordinal);
         Assert.DoesNotContain(

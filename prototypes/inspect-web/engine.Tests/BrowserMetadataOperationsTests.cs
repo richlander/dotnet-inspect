@@ -200,7 +200,7 @@ public sealed class BrowserMetadataOperationsTests
     [InlineData(
         true,
         CandidateOpenFailureKind.InvalidImage,
-        "Assembly unavailable: InvalidImage.")]
+        "Assembly unavailable: InvalidImage (InvalidSignature).")]
     public void MetadataProjection_PreservesFormatRejection(
         bool malformed,
         CandidateOpenFailureKind expectedKind,
